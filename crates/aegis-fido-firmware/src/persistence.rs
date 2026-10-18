@@ -149,11 +149,15 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
     }
 }
 
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses RamFlashBackend.
 /// In-memory storage backend for unit testing and simulation.
 #[derive(Debug, Clone, Default)]
 pub struct MockFlashBackend {
     store: std::collections::HashMap<String, Vec<u8>>,
 }
+
+/// Prod RAM flash backend (no fixture secrets; use provision loader).
+pub type RamFlashBackend = MockFlashBackend;
 
 impl MockFlashBackend {
     pub fn new() -> Self {

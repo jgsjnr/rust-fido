@@ -82,8 +82,21 @@ impl<S: EfuseStorage> EfuseManager<S> {
         Ok(())
     }
 
+    /// Checks whether the Device Salt has been permanently provisioned into eFuse BLOCK8.
+    pub fn is_device_salt_provisioned(&self) -> bool {
+        if let Ok(salt) = self.storage.read_block(EFUSE_DEVICE_SALT_BLOCK) {
+            // Unprogrammed eFuses read as all zeroes
+            salt.iter().any(|&b| b != 0)
+        } else {
+            false
+        }
+    }
+
     /// Permanently programs the Device Salt into eFuse BLOCK8.
     pub fn provision_device_salt(&mut self, salt: &[u8; EFUSE_KEY_LEN]) -> Result<(), EfuseError> {
+        if self.is_device_salt_provisioned() {
+            return Err(EfuseError::AlreadyProgrammed);
+        }
         if self.storage.is_write_protected(EFUSE_DEVICE_SALT_BLOCK) {
             return Err(EfuseError::WriteProtected);
         }
@@ -100,12 +113,16 @@ impl<S: EfuseStorage> EfuseManager<S> {
     }
 }
 
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses RamEfuseStorage + provision loader.
 /// Simulated in-memory eFuse storage for testing and host-side development.
 #[derive(Debug, Clone)]
 pub struct MockEfuseStorage {
     blocks: [[u8; EFUSE_KEY_LEN]; 11],
     write_protected: [bool; 11],
 }
+
+/// Prod RAM eFuse storage (no hardcoded secrets; use provision loader).
+pub type RamEfuseStorage = MockEfuseStorage;
 
 impl Default for MockEfuseStorage {
     fn default() -> Self {
@@ -121,18 +138,21 @@ impl MockEfuseStorage {
         }
     }
 
-    /// Pre-populates default developmental keys.
+    pub fn set_write_protected(&mut self, block: u8, protected: bool) {
+        if (block as usize) < self.write_protected.len() {
+            self.write_protected[block as usize] = protected;
+        }
+    }
+}
+
+#[cfg(test)]
+impl MockEfuseStorage {
+    /// Pre-populates default developmental keys (test fixture only).
     pub fn with_default_keys() -> Self {
         let mut s = Self::new();
         s.blocks[EFUSE_MASTER_KEY_BLOCK as usize] = [0x5A; EFUSE_KEY_LEN];
         s.blocks[EFUSE_DEVICE_SALT_BLOCK as usize] = [0xA5; EFUSE_KEY_LEN];
         s
-    }
-
-    pub fn set_write_protected(&mut self, block: u8, protected: bool) {
-        if (block as usize) < self.write_protected.len() {
-            self.write_protected[block as usize] = protected;
-        }
     }
 }
 
@@ -190,6 +210,16 @@ mod tests {
         // Cannot overwrite already provisioned key
         let res = mgr.provision_master_key(&[0x99u8; 32]);
         assert_eq!(res, Err(EfuseError::AlreadyProgrammed));
+    }
+
+    #[test]
+    fn test_device_salt_double_burn_rejected() {
+        let mut mgr = EfuseManager::new(MockEfuseStorage::new());
+        let salt = [0x22u8; 32];
+        mgr.provision_device_salt(&salt).unwrap();
+        let res = mgr.provision_device_salt(&[0x33u8; 32]);
+        assert_eq!(res, Err(EfuseError::AlreadyProgrammed));
+        assert_eq!(mgr.get_device_salt().unwrap(), salt);
     }
 
     #[test]

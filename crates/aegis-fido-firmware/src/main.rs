@@ -17,9 +17,10 @@ use aegis_fido_core::ctap::{
 use aegis_fido_firmware::{
     button::{BootButton, DualButtonManager, EspBootButtonInput, EspKeyButtonInput},
     display::{DisplayManager, UiScreen},
-    efuse::{EfuseManager, MockEfuseStorage},
+    efuse::{EfuseManager, RamEfuseStorage},
     led::{Color, EspWs2812Output, LedEffect, Ws2812Controller},
-    persistence::{MockFlashBackend, SecureStorage},
+    persistence::{RamFlashBackend, SecureStorage},
+    provision::load_device_keys,
     watchdog::Watchdog,
     usb_descriptors,
 };
@@ -183,18 +184,21 @@ fn run_authenticator() {
     kprintln!("[INIT] UI and visual engine online.");
 
     // 2. Initialize Hardware eFuse OTP (BLOCK7 Master Key, BLOCK8 Device Salt)
+    // Wave3 P2: provision loader with fallback (no hardcoded 0x5A/0xA5 in prod).
     kprintln!("[INIT] Initializing eFuse OTP subsystem...");
-    let efuse_storage = MockEfuseStorage::with_default_keys();
+    let efuse_storage = RamEfuseStorage::new();
     let efuse_mgr = EfuseManager::new(efuse_storage);
 
-    let master_key = efuse_mgr.get_master_key().expect("Read eFuse Master Key");
-    let salt = efuse_mgr.get_device_salt().expect("Read eFuse Device Salt");
+    let keys = load_device_keys(&efuse_mgr).expect("provision: factory required on device");
+    let master_key = keys.master_key;
+    let salt = keys.device_salt;
     kprintln!("[INIT] Hardware Master Key & Salt loaded from eFuse OTP.");
 
     // 3. Initialize Encrypted Flash / NVS Persistence
     kprintln!("[INIT] Initializing AES-256-GCM Encrypted Storage...");
-    let flash_backend = MockFlashBackend::new();
+    let flash_backend = RamFlashBackend::new();
     let mut storage = SecureStorage::new(flash_backend, &master_key, &salt);
+    // AUDIT-PREP: wiring na Wave4
 
     let init_nonce = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C];
     storage

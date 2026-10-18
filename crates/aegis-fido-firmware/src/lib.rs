@@ -8,18 +8,22 @@
 //! - Composite USB descriptors (CTAPHID, CCID, Keyboard, WinUSB with MS OS 2.0).
 
 pub mod button;
+pub mod config;
 pub mod display;
 pub mod efuse;
+pub mod identity;
 pub mod led;
+pub mod migrations;
 pub mod persistence;
+pub mod provision;
 pub mod watchdog;
 pub mod usb_descriptors;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
 pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
-pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage};
+pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage, RamEfuseStorage};
 pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
-pub use persistence::{FlashStorageBackend, MockFlashBackend, SecureStorage, StorageError};
+pub use persistence::{FlashStorageBackend, MockFlashBackend, RamFlashBackend, SecureStorage, StorageError};
 pub use watchdog::{StaticBuf, Watchdog};
 pub use usb_descriptors::*;
 
