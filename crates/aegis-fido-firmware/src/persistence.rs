@@ -11,6 +11,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use hmac::{Hmac, Mac};
+use rand_core::{CryptoRng, RngCore};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
@@ -19,6 +20,8 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 pub const NONCE_SIZE: usize = 12;
 pub const TAG_SIZE: usize = 16;
 pub const KEY_SIZE: usize = 32;
+pub const MAX_PLAINTEXT_BYTES: usize = 512;
+pub const MAX_ENVELOPE_BYTES: usize = 4 + 1 + NONCE_SIZE + MAX_PLAINTEXT_BYTES + TAG_SIZE;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -79,24 +82,36 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
         }
     }
 
-    /// Encrypts plaintext data with AES-256-GCM and stores it under `key`.
-    pub fn store(&mut self, key: &str, plaintext: &[u8], nonce_bytes: &[u8; 12]) -> Result<(), StorageError> {
-        let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
-            .map_err(|_| StorageError::FlashWriteError)?;
-        let nonce = Nonce::from_slice(nonce_bytes);
+    /// Encrypts plaintext data with AES-256-GCM and stores it under key.
+    /// Wave1: nonce TRNG 12B gerado internamente, parametro fixo ignorado.
+    /// Envelope AEGN VER nonce ct+tag inalterado. Zeroize apos uso.
+    pub fn store(&mut self, key: &str, plaintext: &[u8], _nonce_bytes: &[u8; 12]) -> Result<(), StorageError> {
+        let mut trng = rand_core::OsRng;
+        self.store_with_rng(key, plaintext, &mut trng)
+    }
 
-        let ciphertext = cipher
-            .encrypt(nonce, plaintext)
-            .map_err(|_| StorageError::FlashWriteError)?;
-
-        // Envelope: Magic (4) + Version (1) + Nonce (12) + CiphertextWithTag (N + 16)
-        let mut envelope = Vec::with_capacity(4 + 1 + NONCE_SIZE + ciphertext.len());
-        envelope.extend_from_slice(&ENVELOPE_MAGIC);
-        envelope.push(ENVELOPE_VERSION);
-        envelope.extend_from_slice(nonce_bytes);
-        envelope.extend_from_slice(&ciphertext);
-
-        self.backend.write_raw(key, &envelope)
+    /// Variante TRNG explicita (mesmo padrao de seal_blob): gera nonce via RngCore.
+    /// MAX-ESP: envelope em buffer estatico, sem alloc no hot path do envelope.
+    pub fn store_with_rng<R: RngCore + CryptoRng>(&mut self, key: &str, plaintext: &[u8], rng: &mut R) -> Result<(), StorageError> {
+        if plaintext.len() > MAX_PLAINTEXT_BYTES {
+            return Err(StorageError::BufferOverflow);
+        }
+        let mut nonce_bytes = [0u8; NONCE_SIZE];
+        rng.fill_bytes(&mut nonce_bytes);
+        let cipher = Aes256Gcm::new_from_slice(&self.encryption_key).map_err(|_| StorageError::FlashWriteError)?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let mut ciphertext = cipher.encrypt(nonce, plaintext).map_err(|_| StorageError::FlashWriteError)?;
+        let mut envelope = [0u8; MAX_ENVELOPE_BYTES];
+        let total = 4 + 1 + NONCE_SIZE + ciphertext.len();
+        envelope[0..4].copy_from_slice(&ENVELOPE_MAGIC);
+        envelope[4] = ENVELOPE_VERSION;
+        envelope[5..5 + NONCE_SIZE].copy_from_slice(&nonce_bytes);
+        envelope[5 + NONCE_SIZE..total].copy_from_slice(&ciphertext);
+        let res = self.backend.write_raw(key, &envelope[..total]);
+        nonce_bytes.zeroize();
+        ciphertext.zeroize();
+        envelope.zeroize();
+        res
     }
 
     /// Loads and decrypts data stored under `key`.
@@ -107,7 +122,7 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
             return Err(StorageError::CorruptedEnvelope);
         }
 
-        if &raw[0..4] != &ENVELOPE_MAGIC || raw[4] != ENVELOPE_VERSION {
+        if raw[0..4] != ENVELOPE_MAGIC || raw[4] != ENVELOPE_VERSION {
             return Err(StorageError::CorruptedEnvelope);
         }
 
@@ -225,5 +240,43 @@ mod tests {
         let storage = SecureStorage::new(backend, &master_key, &salt);
         let res = storage.load("pin_hash");
         assert_eq!(res, Err(StorageError::DecryptionFailed));
+    }
+
+    #[test]
+    fn test_nonce_trng_unique() {
+        let master_key = [0x55u8; 32];
+        let salt = [0xAAu8; 32];
+        let backend = MockFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &master_key, &salt);
+        let ignored = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C];
+        let data = b"same plaintext for nonce uniqueness";
+        storage.store("k1", data, &ignored).unwrap();
+        storage.store("k2", data, &ignored).unwrap();
+        let r1 = storage.backend.read_raw("k1").unwrap();
+        let r2 = storage.backend.read_raw("k2").unwrap();
+        // Envelope AEGN VER nonce ct+tag preservado
+        assert_eq!(&r1[0..4], &ENVELOPE_MAGIC);
+        assert_eq!(&r2[0..4], &ENVELOPE_MAGIC);
+        assert_eq!(r1[4], ENVELOPE_VERSION);
+        assert_eq!(r2[4], ENVELOPE_VERSION);
+        let n1 = &r1[5..5 + NONCE_SIZE];
+        let n2 = &r2[5..5 + NONCE_SIZE];
+        // TRNG interno: mesmo input e nonce ignorado geram nonces diferentes
+        assert_ne!(n1, n2);
+        // Roundtrip continua valido para ambos
+        assert_eq!(storage.load("k1").unwrap(), data);
+        assert_eq!(storage.load("k2").unwrap(), data);
+    }
+
+    #[test]
+    fn test_max_esp_overflow() {
+        let master_key = [0x55u8; 32];
+        let salt = [0xAAu8; 32];
+        let backend = MockFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &master_key, &salt);
+        let ignored = [0x00u8; 12];
+        let big = [0x41u8; MAX_PLAINTEXT_BYTES + 1];
+        let res = storage.store("big", &big, &ignored);
+        assert_eq!(res, Err(StorageError::BufferOverflow));
     }
 }

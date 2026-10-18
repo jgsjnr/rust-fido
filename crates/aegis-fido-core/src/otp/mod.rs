@@ -82,6 +82,7 @@ mod tests {
 
         // 8. Test Rescue Protocol Ping
         let mut rescue = RescueEngine::new();
+        rescue.set_user_presence(true);
         let mut ping_frame = Vec::new();
         ping_frame.extend_from_slice(&RESCUE_MAGIC);
         ping_frame.push(1); // version
