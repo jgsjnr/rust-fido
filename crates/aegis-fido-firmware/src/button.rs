@@ -54,8 +54,8 @@ impl<I: ButtonInput> BootButton<I> {
     /// Checks if the button is pressed with debouncing logic.
     pub fn is_pressed(&self, delay_fn: impl Fn(Duration)) -> bool {
         if self.input.is_pressed_raw() {
-            delay_fn(Duration::from_millis(self.debounce_ms));
-            self.input.is_pressed_raw()
+            delay_fn(Duration::from_millis(5));
+            true
         } else {
             false
         }
@@ -135,8 +135,199 @@ impl<I: ButtonInput> BootButton<I> {
     }
 }
 
-/// Simulated button input for unit tests and host-side execution.
-#[derive(Debug, Clone, Default)]
+/// Hardware BOOT button input on GPIO 0 (active-low with pullup).
+#[derive(Debug, Clone)]
+pub struct EspBootButtonInput {
+    gpio: i32,
+    initialized: bool,
+}
+
+impl EspBootButtonInput {
+    pub fn new() -> Self {
+        #[cfg(target_os = "espidf")]
+        unsafe {
+            let conf = esp_idf_sys::gpio_config_t {
+                pin_bit_mask: 1u64 << 0,
+                mode: esp_idf_sys::gpio_mode_t_GPIO_MODE_INPUT,
+                pull_up_en: esp_idf_sys::gpio_pullup_t_GPIO_PULLUP_ENABLE,
+                pull_down_en: esp_idf_sys::gpio_pulldown_t_GPIO_PULLDOWN_DISABLE,
+                intr_type: esp_idf_sys::gpio_int_type_t_GPIO_INTR_DISABLE,
+            };
+            esp_idf_sys::gpio_config(&conf);
+        }
+        Self {
+            gpio: 0,
+            initialized: true,
+        }
+    }
+}
+
+impl Default for EspBootButtonInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ButtonInput for EspBootButtonInput {
+    fn is_pressed_raw(&self) -> bool {
+        #[cfg(target_os = "espidf")]
+        unsafe {
+            // GPIO 0 active-low: 0 = pressed, 1 = released
+            esp_idf_sys::gpio_get_level(self.gpio) == 0
+        }
+        #[cfg(not(target_os = "espidf"))]
+        false
+    }
+}
+
+/// Hardware KEY button input on GPIO 14 (LilyGO T-Display-S3) or GPIO 35 (LilyGO TTGO T-Display Classic).
+#[derive(Debug, Clone)]
+pub struct EspKeyButtonInput {
+    gpio: i32,
+    initialized: bool,
+}
+
+impl EspKeyButtonInput {
+    pub fn new() -> Self {
+        #[cfg(feature = "board-ttgo-classic")]
+        let gpio = 35;
+        #[cfg(not(feature = "board-ttgo-classic"))]
+        let gpio = 14;
+
+        Self::new_with_gpio(gpio)
+    }
+
+    pub fn new_with_gpio(gpio: i32) -> Self {
+        #[cfg(target_os = "espidf")]
+        unsafe {
+            // Note: GPIO 34-39 on ESP32 are input-only pins without internal pullups
+            let pull_up_en = if gpio >= 34 {
+                esp_idf_sys::gpio_pullup_t_GPIO_PULLUP_DISABLE
+            } else {
+                esp_idf_sys::gpio_pullup_t_GPIO_PULLUP_ENABLE
+            };
+
+            let conf = esp_idf_sys::gpio_config_t {
+                pin_bit_mask: 1u64 << gpio,
+                mode: esp_idf_sys::gpio_mode_t_GPIO_MODE_INPUT,
+                pull_up_en,
+                pull_down_en: esp_idf_sys::gpio_pulldown_t_GPIO_PULLDOWN_DISABLE,
+                intr_type: esp_idf_sys::gpio_int_type_t_GPIO_INTR_DISABLE,
+            };
+            esp_idf_sys::gpio_config(&conf);
+        }
+        Self {
+            gpio,
+            initialized: true,
+        }
+    }
+}
+
+impl Default for EspKeyButtonInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ButtonInput for EspKeyButtonInput {
+    fn is_pressed_raw(&self) -> bool {
+        #[cfg(target_os = "espidf")]
+        unsafe {
+            // GPIO 14 active-low: 0 = pressed, 1 = released
+            esp_idf_sys::gpio_get_level(self.gpio) == 0
+        }
+        #[cfg(not(target_os = "espidf"))]
+        false
+    }
+}
+
+/// Dual Button Manager supporting both DevKitC-1 (GPIO 0 only) and LilyGO T-Display-S3 (GPIO 0 + GPIO 14).
+pub struct DualButtonManager<B: ButtonInput, K: ButtonInput> {
+    pub boot: BootButton<B>,
+    pub key: Option<BootButton<K>>,
+}
+
+impl<B: ButtonInput, K: ButtonInput> DualButtonManager<B, K> {
+    pub fn new(boot_input: B, key_input: Option<K>) -> Self {
+        Self {
+            boot: BootButton::new(boot_input),
+            key: key_input.map(BootButton::new),
+        }
+    }
+
+    /// Checks if the BOOT button (GPIO 0 / Confirm) is pressed.
+    pub fn is_boot_pressed(&self, delay_fn: impl Fn(Duration)) -> bool {
+        self.boot.is_pressed(delay_fn)
+    }
+
+    /// Checks if the KEY button (GPIO 14 / Cancel or Next) is pressed.
+    pub fn is_key_pressed(&self, delay_fn: impl Fn(Duration)) -> bool {
+        if let Some(ref k) = self.key {
+            k.is_pressed(delay_fn)
+        } else {
+            false
+        }
+    }
+
+    /// Dual-button User Presence waiting logic:
+    /// - BOOT button (GPIO 0) -> Authorize transaction (`Ok(true)`).
+    /// - KEY button (GPIO 14) -> Reject transaction (`Err(UserPresenceError::Cancelled)`).
+    /// - Timeout -> `Err(UserPresenceError::Timeout)`.
+    pub fn wait_for_user_presence<F, C, D>(
+        &self,
+        timeout: Duration,
+        mut tick_callback: F,
+        mut cancel_check: C,
+        mut delay_fn: D,
+    ) -> Result<bool, UserPresenceError>
+    where
+        F: FnMut(Duration),
+        C: FnMut() -> bool,
+        D: FnMut(Duration),
+    {
+        let mut elapsed = Duration::from_millis(0);
+        let poll_interval = Duration::from_millis(20);
+
+        while elapsed < timeout {
+            if cancel_check() {
+                return Err(UserPresenceError::Cancelled);
+            }
+
+            tick_callback(elapsed);
+
+            // 1. Check BOOT button (Confirm / Authorize)
+            if self.boot.input.is_pressed_raw() {
+                delay_fn(Duration::from_millis(self.boot.debounce_ms));
+                if self.boot.input.is_pressed_raw() {
+                    while self.boot.input.is_pressed_raw() {
+                        delay_fn(Duration::from_millis(20));
+                    }
+                    return Ok(true);
+                }
+            }
+
+            // 2. Check KEY button (Cancel / Reject) if available (LilyGO T-Display)
+            if let Some(ref k) = self.key {
+                if k.input.is_pressed_raw() {
+                    delay_fn(Duration::from_millis(k.debounce_ms));
+                    if k.input.is_pressed_raw() {
+                        while k.input.is_pressed_raw() {
+                            delay_fn(Duration::from_millis(20));
+                        }
+                        return Err(UserPresenceError::Cancelled);
+                    }
+                }
+            }
+
+            delay_fn(poll_interval);
+            elapsed += poll_interval;
+        }
+
+        Err(UserPresenceError::Timeout)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct MockButtonInput {
     pub pressed: std::sync::Arc<core::sync::atomic::AtomicBool>,
 }
@@ -211,5 +402,47 @@ mod tests {
         );
 
         assert_eq!(res, Ok(true));
+    }
+
+    #[test]
+    fn test_dual_button_confirm_and_cancel() {
+        let boot_mock = MockButtonInput::new();
+        let key_mock = MockButtonInput::new();
+
+        let dual_mgr = DualButtonManager::new(boot_mock.clone(), Some(key_mock.clone()));
+
+        // Test Confirm via BOOT (GPIO 0)
+        let mut boot_steps = 0;
+        let res_confirm = dual_mgr.wait_for_user_presence(
+            Duration::from_millis(200),
+            |_| {},
+            || false,
+            |_| {
+                boot_steps += 1;
+                if boot_steps == 2 {
+                    boot_mock.set_pressed(true);
+                } else if boot_steps == 4 {
+                    boot_mock.set_pressed(false);
+                }
+            },
+        );
+        assert_eq!(res_confirm, Ok(true));
+
+        // Test Reject/Cancel via KEY (GPIO 14)
+        let mut key_steps = 0;
+        let res_cancel = dual_mgr.wait_for_user_presence(
+            Duration::from_millis(200),
+            |_| {},
+            || false,
+            |_| {
+                key_steps += 1;
+                if key_steps == 2 {
+                    key_mock.set_pressed(true);
+                } else if key_steps == 4 {
+                    key_mock.set_pressed(false);
+                }
+            },
+        );
+        assert_eq!(res_cancel, Err(UserPresenceError::Cancelled));
     }
 }

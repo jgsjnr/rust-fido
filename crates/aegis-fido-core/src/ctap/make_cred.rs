@@ -164,7 +164,13 @@ impl MakeCredentialHandler {
             )?;
             uv_success = true;
         } else if uv_required {
-            return Err(CtapError::PinRequired);
+            if pin_state.is_pin_set() {
+                return Err(CtapError::PinRequired);
+            } else if let Some(cp) = ext_inputs.cred_protect {
+                if cp == CRED_PROTECT_REQUIRED {
+                    return Err(CtapError::PinNotSet);
+                }
+            }
         }
 
         if !user_presence_confirmed {
@@ -263,31 +269,31 @@ impl MakeCredentialHandler {
             auth_data.extend_from_slice(&ext_bytes);
         }
 
-        // 12. Create Attestation Object (Self-Attestation / packed)
+        // 12. Create Attestation Object (Official AegisKey S3 Batch Attestation / packed with x5c)
         let mut to_sign = Vec::with_capacity(auth_data.len() + client_data_hash.len());
         to_sign.extend_from_slice(&auth_data);
         to_sign.extend_from_slice(&client_data_hash);
-        let sig = key_pair.sign(&to_sign);
+        let att_sig = crate::ctap::attestation::sign_batch_attestation(&to_sign);
 
         let mut att_stmt = Vec::new();
-        att_stmt.push((Value::Text(String::from("alg")), Value::Integer((alg as i64).into())));
-        att_stmt.push((Value::Text(String::from("sig")), Value::Bytes(sig)));
+        att_stmt.push((Value::Text(String::from("alg")), Value::Integer((-7i64).into())));
+        att_stmt.push((Value::Text(String::from("sig")), Value::Bytes(att_sig)));
+        let x5c_arr = vec![Value::Bytes(crate::ctap::attestation::AEGIS_ATTESTATION_CERT_DER.to_vec())];
+        att_stmt.push((Value::Text(String::from("x5c")), Value::Array(x5c_arr)));
 
-        let mut att_obj = Vec::new();
-        att_obj.push((Value::Text(String::from("fmt")), Value::Text(String::from("packed"))));
-        att_obj.push((Value::Text(String::from("authData")), Value::Bytes(auth_data)));
-        att_obj.push((Value::Text(String::from("attStmt")), Value::Map(att_stmt)));
-
+        // Standard CTAP 2.0 / 2.1 response structure:
+        // 0x01: fmt (text string)
+        // 0x02: authData (byte string)
+        // 0x03: attStmt (map)
+        // 0x05: largeBlobKey (byte string, optional)
         let mut resp = Vec::new();
         resp.push((Value::Integer(1.into()), Value::Text(String::from("packed"))));
-        resp.push((Value::Integer(2.into()), Value::Bytes(Self::encode_att_obj(&att_obj)?)));
+        resp.push((Value::Integer(2.into()), Value::Bytes(auth_data)));
+        resp.push((Value::Integer(3.into()), Value::Map(att_stmt)));
+        if let Some(lb_key) = ext_outputs.large_blob_key {
+            resp.push((Value::Integer(5.into()), Value::Bytes(lb_key)));
+        }
 
-        encode_cbor_value(&Value::Map(att_obj))
-    }
-
-    fn encode_att_obj(map: &[(Value, Value)]) -> Result<Vec<u8>, CtapError> {
-        let mut out = Vec::new();
-        ciborium::into_writer(&Value::Map(map.to_vec()), &mut out).map_err(|_| CtapError::Processing)?;
-        Ok(out)
+        encode_cbor_value(&Value::Map(resp))
     }
 }

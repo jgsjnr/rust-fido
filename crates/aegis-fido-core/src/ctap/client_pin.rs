@@ -97,14 +97,20 @@ impl ClientPinState {
             }
         }
 
-        let expected_mac = match protocol {
-            1 => PinProtocol1::authenticate(&session.token, message),
-            2 => PinProtocol2::authenticate(&session.token, message),
+        match protocol {
+            1 => {
+                let expected = PinProtocol1::authenticate(&session.token, message);
+                if token_auth != expected.as_slice() {
+                    return Err(CtapError::PinAuthInvalid);
+                }
+            }
+            2 => {
+                let expected = PinProtocol2::authenticate(&session.token, message);
+                if token_auth != expected.as_slice() {
+                    return Err(CtapError::PinAuthInvalid);
+                }
+            }
             _ => return Err(CtapError::PinAuthInvalid),
-        };
-
-        if token_auth != expected_mac {
-            return Err(CtapError::PinAuthInvalid);
         }
 
         Ok(())
@@ -149,7 +155,7 @@ impl ClientPinHandler {
             Value::Integer(3.into()),
             Value::Integer((state.pin_retries as i64).into()),
         ));
-        map.push((Value::Integer(5.into()), Value::Bool(false)));
+        map.push((Value::Integer(4.into()), Value::Bool(false)));
         encode_cbor_value(&Value::Map(map))
     }
 
@@ -193,20 +199,22 @@ impl ClientPinHandler {
         let pin_auth = get_bytes_field(map, 4)?;
 
         // Verify pinAuth
-        let expected_auth = match protocol {
+        match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
-                PinProtocol1::authenticate(&k, &new_pin_enc)
+                let expected = PinProtocol1::authenticate(&k, &new_pin_enc);
+                if pin_auth.as_slice() != expected.as_slice() {
+                    return Err(CtapError::PinAuthInvalid);
+                }
             }
             2 => {
                 let (_e_ks, m_ks) = PinProtocol2::kdf(&shared_secret);
-                PinProtocol2::authenticate(&m_ks, &new_pin_enc)
+                let expected = PinProtocol2::authenticate(&m_ks, &new_pin_enc);
+                if pin_auth.as_slice() != expected.as_slice() {
+                    return Err(CtapError::PinAuthInvalid);
+                }
             }
             _ => return Err(CtapError::InvalidParameter),
-        };
-
-        if pin_auth.as_slice() != expected_auth {
-            return Err(CtapError::PinAuthInvalid);
         }
 
         // Decrypt PIN
@@ -264,20 +272,22 @@ impl ClientPinHandler {
         auth_data.extend_from_slice(&new_pin_enc);
         auth_data.extend_from_slice(&pin_hash_enc);
 
-        let expected_auth = match protocol {
+        match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
-                PinProtocol1::authenticate(&k, &auth_data)
+                let expected = PinProtocol1::authenticate(&k, &auth_data);
+                if pin_auth.as_slice() != expected.as_slice() {
+                    return Err(CtapError::PinAuthInvalid);
+                }
             }
             2 => {
                 let (_e_ks, m_ks) = PinProtocol2::kdf(&shared_secret);
-                PinProtocol2::authenticate(&m_ks, &auth_data)
+                let expected = PinProtocol2::authenticate(&m_ks, &auth_data);
+                if pin_auth.as_slice() != expected.as_slice() {
+                    return Err(CtapError::PinAuthInvalid);
+                }
             }
             _ => return Err(CtapError::InvalidParameter),
-        };
-
-        if pin_auth.as_slice() != expected_auth {
-            return Err(CtapError::PinAuthInvalid);
         }
 
         // Decrypt old pin hash

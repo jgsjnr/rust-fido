@@ -6,9 +6,17 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["board-devkitc"]
+board-devkitc = []
+board-t-display = []
+board-ttgo-classic = []
+
 [dependencies]
-# aegis-fido-core = { path = "../aegis-fido-core" }
+aegis-fido-core = { path = "../aegis-fido-core" }
 aegis-fido-usb = { path = "../aegis-fido-usb" }
+embedded-graphics = "0.8"
+ciborium = { workspace = true }
 log = { workspace = true }
 hmac = { workspace = true }
 aes-gcm = { workspace = true, features = ["alloc"] }
@@ -18,9 +26,16 @@ zeroize = { workspace = true }
 hex = { workspace = true }
 
 [target.'cfg(target_os = "espidf")'.dependencies]
-esp-idf-sys = { version = "0.36", default-features = false }
-esp-idf-svc = { version = "0.50", default-features = false }
+esp-idf-sys = { version = "0.36", default-features = false, features = ["binstart"] }
+esp-idf-svc = { version = "0.50", default-features = false, features = ["binstart"] }
 esp-idf-hal = { version = "0.45", default-features = false }
 
-[target.'cfg(target_os = "espidf")'.build-dependencies]
-embuild = "0.33"
+[build-dependencies]
+embuild = { version = "0.33", features = ["espidf"] }
+
+[package.metadata.esp-idf-sys]
+esp_idf_component_manager = false
+extra_components = [
+    { component_dirs = [ "components/tinyusb", "components/esp_tinyusb", "components/aegis_usb" ] }
+]
+

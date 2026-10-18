@@ -10,14 +10,14 @@ members = [
 version = "1.0.0"
 edition = "2021"
 authors = ["Aegis Security <contact@aegiskey.dev>"]
-license = "Apache-2.0 OR MIT"
-repository = "https://github.com/aegiskey/aegis-fido-s3"
+license = "GPL-3.0-only"
+repository = "https://github.com/jgsjnr/rust-fido.git"
 
 [workspace.dependencies]
 # Serialization & CBOR
 ciborium = "0.2"
-serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
-serde_bytes = "0.11"
+serde = { version = "=1.0.217", default-features = false, features = ["derive", "alloc"] }
+serde_bytes = { version = "=0.11.16", default-features = false, features = ["alloc"] }
 
 # Cryptography
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

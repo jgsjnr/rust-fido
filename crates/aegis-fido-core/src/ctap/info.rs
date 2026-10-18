@@ -72,20 +72,15 @@ impl AuthenticatorInfo {
         options.push((Value::Text(String::from("rk")), Value::Bool(true)));
         options.push((Value::Text(String::from("clientPin")), Value::Bool(config.pin_set)));
         options.push((Value::Text(String::from("up")), Value::Bool(true)));
-        options.push((Value::Text(String::from("uv")), Value::Bool(true)));
         options.push((Value::Text(String::from("pinUvAuthToken")), Value::Bool(true)));
         options.push((Value::Text(String::from("noMcGaPermissionsWithClientPin")), Value::Bool(true)));
         options.push((Value::Text(String::from("largeBlobs")), Value::Bool(true)));
         options.push((Value::Text(String::from("ep")), Value::Bool(config.enterprise_attestation)));
-        options.push((Value::Text(String::from("userPresence")), Value::Bool(true)));
         options.push((Value::Text(String::from("credMgmt")), Value::Bool(true)));
         options.push((Value::Text(String::from("authnrCfg")), Value::Bool(true)));
-        options.push((Value::Text(String::from("uvBioEnroll")), Value::Bool(false)));
-        options.push((Value::Text(String::from("alwaysUv")), Value::Bool(false)));
         options.push((Value::Text(String::from("setMinPINLength")), Value::Bool(true)));
         options.push((Value::Text(String::from("makeCredUvNotRqd")), Value::Bool(true)));
         options.push((Value::Text(String::from("credentialMgmtPreview")), Value::Bool(true)));
-        options.push((Value::Text(String::from("userVerificationMgmtPreview")), Value::Bool(true)));
         map.push((Value::Integer(4.into()), Value::Map(options)));
 
         // 5: maxMsgSize: 2048

@@ -134,7 +134,13 @@ impl GetAssertionHandler {
             )?;
             uv_success = true;
         } else if uv_required {
-            return Err(CtapError::PinRequired);
+            if pin_state.is_pin_set() {
+                return Err(CtapError::PinRequired);
+            } else if let Some(cp) = first_cand.cred_protect {
+                if cp == CRED_PROTECT_REQUIRED {
+                    return Err(CtapError::PinNotSet);
+                }
+            }
         }
 
         // 7. User Presence

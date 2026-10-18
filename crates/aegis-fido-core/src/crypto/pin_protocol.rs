@@ -78,10 +78,8 @@ impl PinProtocol2 {
         aes_256_cbc_decrypt(key, &iv, &ciphertext[16..])
     }
 
-    pub fn authenticate(key: &[u8], message: &[u8]) -> [u8; 16] {
-        let mac = hmac_sha256(key, message);
-        let mut out = [0u8; 16];
-        out.copy_from_slice(&mac[..16]);
-        out
+    pub fn authenticate(key: &[u8], message: &[u8]) -> [u8; 32] {
+        hmac_sha256(key, message)
     }
 }
+

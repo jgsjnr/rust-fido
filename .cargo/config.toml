@@ -1,9 +1,24 @@
+[build]
+target-dir = "C:/t"
+
 [target.xtensa-esp32s3-espidf]
+linker = "ldproxy"
 runner = "cargo espflash flash --monitor"
 rustflags = [
   "-C", "default-linker-libraries",
+  "-C", "link-arg=-Wl,--allow-multiple-definition",
+]
+
+[target.xtensa-esp32-espidf]
+linker = "ldproxy"
+runner = "cargo espflash flash --monitor"
+rustflags = [
+  "-C", "default-linker-libraries",
+  "-C", "link-arg=-Wl,--allow-multiple-definition",
 ]
 
 [env]
 LIBCLANG_PATH = "C:\\Users\\junior\\.rustup\\toolchains\\esp\\xtensa-esp32-elf-clang\\esp-clang\\bin\\libclang.dll"
-ESP_IDF_PATH = "C:\\esp\\v6.0.3\\esp-idf"
+ESP_IDF_VERSION = "v5.3.1"
+IDF_PATH = "C:\\.embuild\\espressif\\esp-idf\\v5.3.1"
+ESP_IDF_SYS_ROOT_CRATE = "aegis-fido-firmware"

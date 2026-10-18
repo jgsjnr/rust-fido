@@ -89,18 +89,14 @@ fn test_get_info() {
         assert_eq!(get_text_key(opts, "rk"), Some(&Value::Bool(true)));
         assert_eq!(get_text_key(opts, "clientPin"), Some(&Value::Bool(false)));
         assert_eq!(get_text_key(opts, "up"), Some(&Value::Bool(true)));
-        assert_eq!(get_text_key(opts, "uv"), Some(&Value::Bool(true)));
         assert_eq!(get_text_key(opts, "pinUvAuthToken"), Some(&Value::Bool(true)));
         assert_eq!(
             get_text_key(opts, "noMcGaPermissionsWithClientPin"),
             Some(&Value::Bool(true))
         );
         assert_eq!(get_text_key(opts, "largeBlobs"), Some(&Value::Bool(true)));
-        assert_eq!(get_text_key(opts, "userPresence"), Some(&Value::Bool(true)));
         assert_eq!(get_text_key(opts, "credMgmt"), Some(&Value::Bool(true)));
         assert_eq!(get_text_key(opts, "authnrCfg"), Some(&Value::Bool(true)));
-        assert_eq!(get_text_key(opts, "uvBioEnroll"), Some(&Value::Bool(false)));
-        assert_eq!(get_text_key(opts, "alwaysUv"), Some(&Value::Bool(false)));
         assert_eq!(
             get_text_key(opts, "setMinPINLength"),
             Some(&Value::Bool(true))
@@ -111,10 +107,6 @@ fn test_get_info() {
         );
         assert_eq!(
             get_text_key(opts, "credentialMgmtPreview"),
-            Some(&Value::Bool(true))
-        );
-        assert_eq!(
-            get_text_key(opts, "userVerificationMgmtPreview"),
             Some(&Value::Bool(true))
         );
     } else {
@@ -350,7 +342,9 @@ fn test_make_credential_and_get_assertion_all_algorithms() {
         assert_eq!(res[0], CTAP1_ERR_SUCCESS, "MakeCredential failed for alg {}", alg);
 
         let map = decode_cbor_map(&res[1..]).unwrap();
-        let auth_data_val = get_text_key(&map, "authData").expect("authData missing");
+        let auth_data_val = get_int_key(&map, 2)
+            .or_else(|| get_text_key(&map, "authData"))
+            .expect("authData missing");
         let auth_data = match auth_data_val {
             Value::Bytes(b) => b.clone(),
             _ => panic!("authData not bytes"),

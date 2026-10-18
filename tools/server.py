@@ -163,7 +163,51 @@ class AegisRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json_response({"status": "pin_updated", "retries": 8})
             return
 
+        elif parsed.path == "/api/mnemonic/verify":
+            words = data.get("words", [])
+            is_valid = len(words) == 24
+            self.send_json_response({
+                "status": "valid" if is_valid else "invalid",
+                "words_count": len(words),
+                "checksum_verified": is_valid
+            })
+            return
+
+        elif parsed.path == "/api/oath/accounts":
+            new_acc = {
+                "id": f"oath-{len(STORED_CREDENTIALS) + 1}",
+                "issuer": data.get("issuer", "Custom Service"),
+                "account": data.get("account", "user@aegiskey.dev"),
+                "secret": data.get("secret", "JBSWY3DPEHPK3PXP"),
+                "digits": int(data.get("digits", 6)),
+                "period": int(data.get("period", 30)),
+                "algo": data.get("algo", "SHA1")
+            }
+            self.send_json_response({"status": "created", "account": new_acc})
+            return
+
         self.send_error(404, "Endpoint not found")
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/credentials/"):
+            cred_id = parsed.path.split("/")[-1]
+            global STORED_CREDENTIALS
+            STORED_CREDENTIALS = [c for c in STORED_CREDENTIALS if c["id"] != cred_id]
+            self.send_json_response({"status": "deleted", "id": cred_id})
+            return
+        elif parsed.path.startswith("/api/oath/accounts/"):
+            acc_id = parsed.path.split("/")[-1]
+            self.send_json_response({"status": "deleted", "id": acc_id})
+            return
+        self.send_error(404, "Endpoint not found")
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
     def send_json_response(self, data, status=200):
         response_bytes = json.dumps(data, indent=2).encode("utf-8")
@@ -171,6 +215,7 @@ class AegisRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response_bytes)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()

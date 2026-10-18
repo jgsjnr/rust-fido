@@ -1,16 +1,23 @@
-# AegisKey S3 Authenticator — Documentação Completa da Implementação
+# AegisKey Authenticator — FIDO2 / WebAuthn Security Key in 100% Rust
 
-> **Dispositivo:** ESP32-S3 DevKitC-1 (Xtensa 32-bit LX7 Dual-Core 240MHz, USB OTG Nativo)  
-> **Linguagem Principal:** **100% Rust Nativo** (`#![no_std]` com `alloc` nas bibliotecas centrais)  
-> **Estado:** 100% Implementado, Testado e Validado (66 Testes em Rust + 8 Testes em Python)  
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-100%25-orange.svg)](https://www.rust-lang.org)
+[![FIDO2](https://img.shields.io/badge/FIDO2-CTAP%202.1-green.svg)](https://fidoalliance.org)
+
+> **Dispositivos Suportados:**
+> 1. **ESP32-S3 DevKitC-1** (Xtensa 32-bit LX7 Dual-Core 240MHz, USB OTG Nativo, LED RGB WS2812)
+> 2. **LilyGO TTGO T-Display** (ESP32 Clássico D0WDQ6, Display Colorido ST7789 IPS 135x240, Botões GPIO 0 e GPIO 35, Transporte Serial CTAPHID)  
+> **Linguagem:** **100% Rust Nativo** (`#![no_std]` com `alloc` nas bibliotecas centrais)  
+> **Estado:** 100% Implementado, Testado e Validado em Hardware Real (COM7 e COM8)  
 > **Interface Web & RP:** `http://localhost:8888`  
 > **Identificadores USB:** VID `0x303A` (Espressif Systems), PID `0xAE61` (AegisKey S3)  
+> **Licença:** GNU General Public License v3.0 (GPLv3)
 
 ---
 
 ## 1. Visão Geral do Projeto
 
-O **AegisKey S3 Authenticator** é uma chave de segurança de hardware multifunção projetada e implementada integralmente em **Rust Puro** para o microcontrolador **ESP32-S3**.
+O **AegisKey Authenticator** é uma chave de segurança de hardware multifunção projetada e implementada integralmente em **Rust Puro** para microcontroladores **ESP32-S3** e **ESP32 Clássico**.
 
 O projeto foi construído do zero, eliminando qualquer dependência externa de frameworks ou SDKs legados (como *pico-fido* ou *pico-keys-sdk*), garantindo conformidade rigorosa com os padrões abertos da **FIDO Alliance**, **W3C WebAuthn**, **NIST**, **BIP-39**, **YKOATH** e **Microsoft OS 2.0 Descriptors**.
 
@@ -262,3 +269,19 @@ python tools/server.py
 # Gravar o firmware no ESP32-S3 (porta USB/UART conectada)
 cargo espflash flash --chip esp32s3 --release --monitor
 ```
+
+### Compilar e Gravar na LilyGO TTGO T-Display (ESP32 Clássico)
+```powershell
+# Compilar para arquitetura Xtensa ESP32 com display ST7789 nativo
+cargo +esp build -p aegis-fido-firmware --target xtensa-esp32-espidf --release --no-default-features --features board-ttgo-classic "-Zbuild-std=std,panic_abort"
+
+# Gravar via esptool na porta serial
+esptool.py --chip esp32 --port COM8 --baud 921600 write_flash 0x10000 aegis-app-esp32.bin
+```
+
+---
+
+## 8. Licença
+
+Este projeto é software livre licenciado sob os termos da **GNU General Public License v3.0 (GPLv3)**.  
+Consulte o arquivo [LICENSE](LICENSE) para obter o texto integral da licença.

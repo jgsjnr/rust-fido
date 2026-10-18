@@ -1,3 +1,4 @@
+pub mod attestation;
 pub mod cbor;
 pub mod client_pin;
 pub mod config;
