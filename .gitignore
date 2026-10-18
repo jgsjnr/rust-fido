@@ -12,3 +12,4 @@ sdkconfig
 sdkconfig.old
 crates/aegis-fido-firmware/components/tinyusb/
 crates/aegis-fido-firmware/components/esp_tinyusb/
+.opencode/
