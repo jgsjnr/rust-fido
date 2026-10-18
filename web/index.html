@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisKey S3 Authenticator Suite</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="shield-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="M12 8v8"/>
+            <path d="M8 12h8"/>
+          </svg>
+        </div>
+        <div>
+          <h2>AegisKey S3</h2>
+          <span class="badge-hardware">ESP32-S3 • RUST</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="passkeys">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-1-1l-3 3m-1-1l-3 3m-2-2l-3 3M3 21l3-3m-1-1l3-3m0 0a5 5 0 1 0-7.07-7.07 5 5 0 0 0 7.07 7.07z"/></svg>
+          WebAuthn / Passkeys
+        </button>
+        <button class="nav-item" data-tab="credentials">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
+          Resident Passkeys
+        </button>
+        <button class="nav-item" data-tab="oath">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          OATH TOTP / HOTP
+        </button>
+        <button class="nav-item" data-tab="mnemonic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          BIP-39 Mnemonic
+        </button>
+        <button class="nav-item" data-tab="vault">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Aegis Vault
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          PIN & Policies
+        </button>
+      </nav>
+
+      <div class="device-status-card">
+        <div class="status-indicator online"></div>
+        <div>
+          <h4>AegisKey S3 Device</h4>
+          <p id="deviceStatusText">Online • VID: 0x303A PID: 0xAE61</p>
+          <span class="status-chip">WinUSB + CTAPHID Active</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="top-header">
+        <div class="header-title">
+          <h1 id="tabTitle">WebAuthn / Passkeys Management</h1>
+          <p id="tabSubtitle">Register, authenticate and verify FIDO2 / CTAP 2.3 credentials directly with AegisKey S3</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-outline" id="btnRefreshDevice">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh Hardware
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: WebAuthn / Passkeys -->
+      <section class="tab-pane active" id="pane-passkeys">
+        <div class="grid-2col">
+          <!-- Ceremony Controls -->
+          <div class="card glass">
+            <h3><span class="icon-circle">🔑</span> WebAuthn Ceremony</h3>
+            <p class="card-desc">Execute native browser WebAuthn ceremonies with AegisKey hardware user presence verification.</p>
+
+            <div class="form-group">
+              <label for="regUsername">Username / Identity</label>
+              <input type="text" id="regUsername" class="input" value="alice@aegiskey.dev" placeholder="e.g. user@domain.com">
+            </div>
+
+            <div class="form-group">
+              <label for="regDisplayName">Display Name</label>
+              <input type="text" id="regDisplayName" class="input" value="Alice Hamilton" placeholder="User Full Name">
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="userVerification">User Verification</label>
+                <select id="userVerification" class="input">
+                  <option value="preferred">preferred</option>
+                  <option value="required">required (PIN / UV)</option>
+                  <option value="discouraged">discouraged</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="residentKey">Resident Key (Discoverable)</label>
+                <select id="residentKey" class="input">
+                  <option value="required">required (Passkey on Device)</option>
+                  <option value="preferred">preferred</option>
+                  <option value="discouraged">discouraged</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="btn-group">
+              <button class="btn btn-primary" id="btnRegisterPasskey">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                Create Passkey (Register)
+              </button>
+              <button class="btn btn-secondary" id="btnLoginPasskey">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+                Sign-In with Passkey
+              </button>
+            </div>
+          </div>
+
+          <!-- Ceremony Inspector -->
+          <div class="card glass">
+            <h3><span class="icon-circle">🔬</span> Live CTAP2 Diagnostic Inspector</h3>
+            <p class="card-desc">Inspect real-time parsed authenticator data, flags, and cryptographic assertions.</p>
+
+            <div class="inspector-box" id="inspectorBox">
+              <pre id="inspectorOutput">// Awaiting WebAuthn registration or authentication ceremony...
+// 1. Press "Create Passkey" or "Sign-In"
+// 2. Physical BOOT button on GPIO 0 will prompt for touch (LED will breathe blue)
+// 3. Authenticator data & signature will stream here in real time</pre>
+            </div>
+
+            <div class="flags-indicator">
+              <span class="flag-pill" id="flagUP">UP: Touch Presence</span>
+              <span class="flag-pill" id="flagUV">UV: Verified</span>
+              <span class="flag-pill" id="flagBE">BE: Backup Eligible</span>
+              <span class="flag-pill" id="flagBS">BS: Backup State</span>
+              <span class="flag-pill" id="flagAT">AT: Attestation</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: Resident Credentials -->
+      <section class="tab-pane" id="pane-credentials">
+        <div class="card glass">
+          <div class="card-header-flex">
+            <div>
+              <h3>Resident Credentials (Discoverable Passkeys)</h3>
+              <p class="card-desc">Credentials stored in encrypted hardware flash on ESP32-S3 protected by eFuse Master Key.</p>
+            </div>
+            <button class="btn btn-sm btn-outline" id="btnRefreshCreds">Refresh Stored Keys</button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Relying Party (RP ID)</th>
+                  <th>User Identity</th>
+                  <th>Credential ID</th>
+                  <th>Algorithm</th>
+                  <th>Sign Count</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="credsTableBody">
+                <tr>
+                  <td><span class="rp-badge">github.com</span></td>
+                  <td>alice@aegiskey.dev (Alice Hamilton)</td>
+                  <td><code class="code-snippet">a4e2..f891</code></td>
+                  <td><span class="badge-algo">ES256 (P-256)</span></td>
+                  <td>14</td>
+                  <td><button class="btn btn-xs btn-danger">Delete</button></td>
+                </tr>
+                <tr>
+                  <td><span class="rp-badge">google.com</span></td>
+                  <td>alice.sec@gmail.com</td>
+                  <td><code class="code-snippet">9c11..bb02</code></td>
+                  <td><span class="badge-algo">Ed25519</span></td>
+                  <td>32</td>
+                  <td><button class="btn btn-xs btn-danger">Delete</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: OATH TOTP / HOTP -->
+      <section class="tab-pane" id="pane-oath">
+        <div class="card-header-flex mb-3">
+          <div>
+            <h3>OATH Authenticator Accounts</h3>
+            <p class="card-desc">Time-based & Counter-based One-Time Passwords compatible with YubiKey OATH / Google Authenticator.</p>
+          </div>
+          <button class="btn btn-primary" id="btnOpenAddOathModal">+ Add OATH Account</button>
+        </div>
+
+        <div class="oath-grid" id="oathGrid">
+          <!-- TOTP Card 1 -->
+          <div class="oath-card glass">
+            <div class="oath-card-header">
+              <span class="oath-issuer">AWS Cloud Security</span>
+              <span class="badge-oath-type">TOTP 30s</span>
+            </div>
+            <div class="oath-account">admin@infra-core.io</div>
+            <div class="oath-code-row">
+              <span class="oath-code" id="totpCode1">842 190</span>
+              <div class="timer-ring-container">
+                <svg class="timer-ring" width="36" height="36">
+                  <circle class="timer-ring-bg" cx="18" cy="18" r="14"/>
+                  <circle class="timer-ring-progress" id="timerProgress1" cx="18" cy="18" r="14"/>
+                </svg>
+                <span class="timer-seconds" id="timerSeconds1">24</span>
+              </div>
+            </div>
+            <div class="oath-actions">
+              <button class="btn btn-xs btn-outline btn-copy-otp" data-code="842190">Copy Code</button>
+              <button class="btn btn-xs btn-secondary btn-type-otp" title="Inject via USB Keyboard">Type USB</button>
+            </div>
+          </div>
+
+          <!-- TOTP Card 2 -->
+          <div class="oath-card glass">
+            <div class="oath-card-header">
+              <span class="oath-issuer">GitHub Enterprise</span>
+              <span class="badge-oath-type">TOTP 30s</span>
+            </div>
+            <div class="oath-account">alice-sec</div>
+            <div class="oath-code-row">
+              <span class="oath-code" id="totpCode2">319 504</span>
+              <div class="timer-ring-container">
+                <svg class="timer-ring" width="36" height="36">
+                  <circle class="timer-ring-bg" cx="18" cy="18" r="14"/>
+                  <circle class="timer-ring-progress" id="timerProgress2" cx="18" cy="18" r="14"/>
+                </svg>
+                <span class="timer-seconds" id="timerSeconds2">24</span>
+              </div>
+            </div>
+            <div class="oath-actions">
+              <button class="btn btn-xs btn-outline btn-copy-otp" data-code="319504">Copy Code</button>
+              <button class="btn btn-xs btn-secondary btn-type-otp" title="Inject via USB Keyboard">Type USB</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: BIP-39 Mnemonic Backup -->
+      <section class="tab-pane" id="pane-mnemonic">
+        <div class="card glass">
+          <h3><span class="icon-circle">🛡️</span> BIP-39 Mnemonic Seed Backup (24 Words)</h3>
+          <p class="card-desc">The 24 recovery words deterministically generate your master private keys. Write them down and store them in a secure location.</p>
+
+          <div class="warning-banner">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
+            <div>
+              <strong>Security Warning:</strong> Never share these words with anyone. Anyone with this phrase can clone your Passkeys and OATH secrets.
+            </div>
+          </div>
+
+          <div class="mnemonic-grid" id="mnemonicGrid">
+            <!-- 24 Word slots generated by JavaScript -->
+          </div>
+
+          <div class="btn-group mt-3">
+            <button class="btn btn-primary" id="btnGenerateMnemonic">Generate New 24-Word Seed</button>
+            <button class="btn btn-outline" id="btnCopyMnemonic">Copy Words</button>
+            <button class="btn btn-secondary" id="btnVerifyMnemonicQuiz">Verify Backup Quiz</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: Aegis Vault -->
+      <section class="tab-pane" id="pane-vault">
+        <div class="grid-2col">
+          <!-- Export Vault -->
+          <div class="card glass">
+            <h3><span class="icon-circle">📤</span> Export Aegis Vault</h3>
+            <p class="card-desc">Back up all stored passkeys, credentials, and OATH configurations into an AES-256-GCM encrypted container.</p>
+
+            <div class="form-group">
+              <label for="vaultPassphrase">Master Encryption Passphrase</label>
+              <input type="password" id="vaultPassphrase" class="input" placeholder="Enter strong vault password...">
+            </div>
+
+            <div class="form-group">
+              <label for="vaultPassphraseConfirm">Confirm Passphrase</label>
+              <input type="password" id="vaultPassphraseConfirm" class="input" placeholder="Confirm password...">
+            </div>
+
+            <button class="btn btn-primary" id="btnExportVault">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Download Encrypted Backup (.aegisvault)
+            </button>
+          </div>
+
+          <!-- Import Vault -->
+          <div class="card glass">
+            <h3><span class="icon-circle">📥</span> Restore / Import Vault</h3>
+            <p class="card-desc">Decrypt and restore resident passkeys and OATH accounts to your AegisKey S3 authenticator.</p>
+
+            <div class="form-group">
+              <label for="vaultFile">Select .aegisvault Container</label>
+              <input type="file" id="vaultFile" class="input" accept=".aegisvault,.json">
+            </div>
+
+            <div class="form-group">
+              <label for="importPassphrase">Vault Passphrase</label>
+              <input type="password" id="importPassphrase" class="input" placeholder="Password used to encrypt vault...">
+            </div>
+
+            <button class="btn btn-secondary" id="btnImportVault">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              Decrypt and Restore to Device
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 6: PIN & Policies -->
+      <section class="tab-pane" id="pane-settings">
+        <div class="grid-2col">
+          <!-- PIN Configuration -->
+          <div class="card glass">
+            <h3><span class="icon-circle">🔒</span> Authenticator PIN (ClientPin / FIDO2)</h3>
+            <p class="card-desc">Protects against unauthorized use in case of device loss. Implements CTAP 2.3 PIN Protocol 1 & 2.</p>
+
+            <div class="form-group">
+              <label for="currentPin">Current PIN (if set)</label>
+              <input type="password" id="currentPin" class="input" placeholder="••••••••">
+            </div>
+
+            <div class="form-group">
+              <label for="newPin">New PIN (Minimum 4 digits/characters)</label>
+              <input type="password" id="newPin" class="input" placeholder="Enter new PIN">
+              <div class="pin-strength" id="pinStrengthBar"></div>
+            </div>
+
+            <div class="form-group">
+              <label for="confirmPin">Confirm New PIN</label>
+              <input type="password" id="confirmPin" class="input" placeholder="Re-enter new PIN">
+            </div>
+
+            <button class="btn btn-primary" id="btnSavePin">Update Authenticator PIN</button>
+
+            <div class="stat-row mt-3">
+              <span>PIN Retries Remaining:</span>
+              <strong id="pinRetries">8 / 8</strong>
+            </div>
+          </div>
+
+          <!-- FIDO 2.3 Policies -->
+          <div class="card glass">
+            <h3><span class="icon-circle">⚙️</span> FIDO 2.3 Hardware Policies</h3>
+            <p class="card-desc">Configure advanced security policies and attestation behaviors on ESP32-S3.</p>
+
+            <div class="toggle-row">
+              <div>
+                <strong>Always Require User Verification (alwaysUv)</strong>
+                <p>Force PIN/UV even when relying party asks for 'preferred'</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggleAlwaysUv" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div>
+                <strong>Force PIN Change on First Use</strong>
+                <p>Mandates user sets custom PIN upon initial provisioning</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggleForcePin">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div>
+                <strong>Enterprise Attestation</strong>
+                <p>Permit unique device attestation certificates for enterprise fleets</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggleEnterpriseAttestation">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <hr class="separator">
+
+            <div class="danger-zone">
+              <h4>Factory Reset Authenticator</h4>
+              <p>Permanently erases all resident keys, OATH accounts, and resets Master Key. Requires physical BOOT button long press confirmation.</p>
+              <button class="btn btn-danger" id="btnFactoryReset">Factory Reset AegisKey S3</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

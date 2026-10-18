@@ -1,0 +1,9 @@
+[target.xtensa-esp32s3-espidf]
+runner = "cargo espflash flash --monitor"
+rustflags = [
+  "-C", "default-linker-libraries",
+]
+
+[env]
+LIBCLANG_PATH = "C:\\Users\\junior\\.rustup\\toolchains\\esp\\xtensa-esp32-elf-clang\\esp-clang\\bin\\libclang.dll"
+ESP_IDF_PATH = "C:\\esp\\v6.0.3\\esp-idf"

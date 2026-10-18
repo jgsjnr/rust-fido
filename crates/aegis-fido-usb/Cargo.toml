@@ -1,0 +1,14 @@
+[package]
+name = "aegis-fido-usb"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-fido-core = { path = "../aegis-fido-core" }
+log = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }
