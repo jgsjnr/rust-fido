@@ -1,0 +1,28 @@
+{
+  "_note": "Wave0 parity baseline (G0). Nenhuma semantica nova. Fonte: crates/aegis-fido-core/src/ctap/mod.rs (dispatch) e status_code.rs.",
+  "dispatch": {
+    "0x01": "makeCredential",
+    "0x02": "getAssertion",
+    "0x04": "getInfo",
+    "0x06": "clientPin",
+    "0x07": "reset",
+    "0x08": "getNextAssertion",
+    "0x0A": "credentialManagement",
+    "0x0C": "largeBlobs",
+    "0x0D": "config"
+  },
+  "golden_cases": [
+    { "name": "empty_packet", "input": [], "expect_status": "0x03", "reason": "process_packet: packet vazio -> InvalidLength" },
+    { "name": "unknown_cmd", "input": ["0xFF"], "expect_status": "0x01", "reason": "process_command fallback -> InvalidCommand" },
+    { "name": "get_info_ok", "input": ["0x04"], "expect_status": "0x00", "reason": "GET_INFO -> SUCCESS + CBOR AuthenticatorInfo" }
+  ],
+  "status_codes": {
+    "0x00": "SUCCESS",
+    "0x01": "INVALID_COMMAND",
+    "0x02": "INVALID_PARAMETER",
+    "0x03": "INVALID_LENGTH",
+    "0x30": "NOT_ALLOWED",
+    "0x31": "PIN_INVALID",
+    "0x36": "PIN_REQUIRED"
+  }
+}

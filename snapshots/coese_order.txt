@@ -1,0 +1,6 @@
+# Wave0 COSE canonical order baseline (G0). Fonte: crates/aegis-fido-core/src/crypto/cose.rs :: to_cbor_value
+# EC2 (kty=2): 1=kty, 3=alg, -1=crv, -2=x, -3=y  (ordem de serializacao fixada em to_cbor_value)
+# OKP (kty=1): 1=kty, 3=alg, -1=crv, -2=x
+# algs: ES256=-7 EDDSA=-8 ES384=-35 ES512=-36 ES256K=-47 | crv: P256=1 P384=2 P521=3 ED25519=6 SECP256K1=8
+EC2: 1,3,-1,-2,-3
+OKP: 1,3,-1,-2

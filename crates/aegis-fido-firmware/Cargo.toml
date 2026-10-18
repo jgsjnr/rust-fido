@@ -11,6 +11,9 @@ default = ["board-devkitc"]
 board-devkitc = []
 board-t-display = []
 board-ttgo-classic = []
+ble = []
+menu = []
+wifi = []
 
 [dependencies]
 aegis-fido-core = { path = "../aegis-fido-core" }
