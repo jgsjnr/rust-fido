@@ -10,6 +10,8 @@ pub mod otp;
 pub mod vault;
 pub mod credential;
 pub mod extensions;
+pub mod policy;
 
 pub use ctap::CtapEngine;
 pub use vault::AegisVault;
+pub use policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};

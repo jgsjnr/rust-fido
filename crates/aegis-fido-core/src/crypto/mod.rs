@@ -6,6 +6,7 @@ pub mod keys;
 pub mod pin_protocol;
 pub mod curves;
 pub mod bip39;
+pub mod core;
 pub mod kdf;
 pub mod aead;
 
@@ -19,3 +20,5 @@ pub use ecdh::EcdhKeyAgreement;
 pub use hash::{hkdf_sha256, hmac_sha256, sha256, sha512};
 pub use keys::FidoKeyPair;
 pub use pin_protocol::{pad_pin, pin_hash, PinProtocol1, PinProtocol2};
+pub use core::CryptoCore;
+

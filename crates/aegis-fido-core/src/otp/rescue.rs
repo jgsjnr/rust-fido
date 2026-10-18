@@ -2,6 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use zeroize::Zeroize;
+use crate::policy::{UpAndPin, UpOnly, UpPolicy};
 
 pub const RESCUE_MAGIC: [u8; 4] = [0x52, 0x45, 0x53, 0x43]; // "RESC"
 pub const RESCUE_VERSION: u8 = 0x01;
@@ -105,7 +106,7 @@ impl RescueEngine {
 
         match cmd {
             RESCUE_CMD_PING => {
-                if !self.user_presence_confirmed {
+                if UpOnly.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
                     return self.deny();
                 }
                 let mut resp = Vec::new();
@@ -117,7 +118,7 @@ impl RescueEngine {
                 (RESCUE_STATUS_OK, resp)
             }
             RESCUE_CMD_DIAGNOSTICS => {
-                if !self.user_presence_confirmed {
+                if UpOnly.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
                     return self.deny();
                 }
                 let mut resp = Vec::new();
@@ -129,7 +130,7 @@ impl RescueEngine {
                 (RESCUE_STATUS_OK, resp)
             }
             RESCUE_CMD_EMERGENCY_WIPE => {
-                if !self.user_presence_confirmed || !self.pin_uv_authenticated {
+                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
                     return self.deny();
                 }
                 if payload == EMERGENCY_WIPE_TOKEN {
@@ -146,7 +147,7 @@ impl RescueEngine {
                 }
             }
             RESCUE_CMD_PIN_RECOVERY => {
-                if !self.user_presence_confirmed || !self.pin_uv_authenticated {
+                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
                     return self.deny();
                 }
                 self.auth_fail_count = 0;
@@ -156,7 +157,7 @@ impl RescueEngine {
                 (RESCUE_STATUS_OK, alloc::vec![1])
             }
             RESCUE_CMD_REBOOT => {
-                if !self.user_presence_confirmed || !self.pin_uv_authenticated {
+                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
                     return self.deny();
                 }
                 self.auth_fail_count = 0;
@@ -296,3 +297,4 @@ mod tests {
         assert_eq!(engine.handle_packet(&again).0, RESCUE_STATUS_CONFIRMATION_FAILED);
     }
 }
+

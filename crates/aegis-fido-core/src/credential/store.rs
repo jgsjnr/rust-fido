@@ -111,7 +111,7 @@ impl MemoryCredentialStore {
             if !placed {
                 match self.non_resident_counts.iter_mut().find(|(k, _)| *k == h) {
                     Some(e) => { if v > e.1 { e.1 = v; } }
-                    None => { self.non_resident_counts.push((h, v)); }
+                    None => { if self.non_resident_counts.len() >= SIGN_JOURNAL_MAX_BLOB_ENTRIES { self.non_resident_counts.remove(0); } self.non_resident_counts.push((h, v)); }
                 }
             }
         }
@@ -215,7 +215,7 @@ impl CredentialStore for MemoryCredentialStore {
                 e.1 = e.1.saturating_add(1);
                 Ok(e.1)
             } else {
-                self.non_resident_counts.push((h, 1));
+                if self.non_resident_counts.len() >= SIGN_JOURNAL_MAX_BLOB_ENTRIES { self.non_resident_counts.remove(0); } self.non_resident_counts.push((h, 1));
                 Ok(1)
             }
         }
@@ -279,3 +279,5 @@ mod tests {
         assert_eq!(s.get_persistent_sign_count(&[7, 7, 7]), 3);
     }
 }
+
+

@@ -12,6 +12,7 @@ pub mod display;
 pub mod efuse;
 pub mod led;
 pub mod persistence;
+pub mod watchdog;
 pub mod usb_descriptors;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
@@ -19,4 +20,6 @@ pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
 pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage};
 pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
 pub use persistence::{FlashStorageBackend, MockFlashBackend, SecureStorage, StorageError};
+pub use watchdog::{StaticBuf, Watchdog};
 pub use usb_descriptors::*;
+

@@ -19,6 +19,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use p256::{PublicKey as P256PublicKey, EncodedPoint as P256EncodedPoint};
 
+pub mod policy;
+pub mod secrets;
+pub mod store;
+pub use policy::VaultPolicy;
+pub use secrets::VaultSecrets;
+pub use store::VaultStore;
 use crate::crypto::aead::{aes_256_gcm_decrypt, aes_256_gcm_encrypt, open_blob, seal_blob, AeadError};
 use crate::crypto::curves::{CoseAlgorithm, CryptoError, KeyPair, PublicKey};
 use crate::crypto::kdf::{hkdf_sha256, KdfError};
@@ -510,3 +516,4 @@ mod tests {
         assert!(matches!(import_corrupted, Err(VaultError::AuthenticationFailed)));
     }
 }
+

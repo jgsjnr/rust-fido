@@ -20,6 +20,7 @@ use aegis_fido_firmware::{
     efuse::{EfuseManager, MockEfuseStorage},
     led::{Color, EspWs2812Output, LedEffect, Ws2812Controller},
     persistence::{MockFlashBackend, SecureStorage},
+    watchdog::Watchdog,
     usb_descriptors,
 };
 use aegis_fido_usb::ctaphid::{
@@ -40,7 +41,10 @@ macro_rules! kprintln {
         kprintln!("");
     };
     ($($arg:tt)*) => {{
-        let s = format!($($arg)*);
+        let mut raw: [u8; 256] = [0u8; 256];
+        let mut w = aegis_fido_firmware::watchdog::StaticBuf::new(&mut raw);
+        let _ = core::fmt::Write::write_fmt(&mut w, format_args!($($arg)*));
+        let s = w.as_str();
         #[cfg(target_os = "espidf")]
         unsafe {
             for b in s.as_bytes() {
@@ -238,7 +242,10 @@ fn run_authenticator() {
     #[cfg(target_os = "espidf")]
     let mut rx_buf = [0u8; PACKET_SIZE];
 
+    let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
+
     loop {
+        watchdog.feed(tick); // L5: feed no hot path, sem sleep
         let elapsed = Duration::from_millis(tick * 10);
         let now_ms = tick * 10;
         let now_secs = now_ms / 1000;
@@ -460,7 +467,20 @@ fn run_authenticator() {
                                     if up_confirmed {
                                         display_mgr.set_screen(UiScreen::Success {
                                             title: "ACESSO AUTORIZADO".into(),
-                                            subtitle: format!("Dominio: {}", rp_id),
+                                            subtitle: {
+                                                let mut sbuf: [u8; 64] = [0u8; 64];
+                                                let pre = b"Dominio: ";
+                                                sbuf[..pre.len()].copy_from_slice(pre);
+                                                let mut slen = pre.len();
+                                                let idb = rp_id.as_bytes();
+                                                let mut take = (sbuf.len() - slen).min(idb.len().min(48));
+                                                while take > 0 && !rp_id.is_char_boundary(take) {
+                                                    take -= 1;
+                                                }
+                                                sbuf[slen..slen + take].copy_from_slice(&idb[..take]);
+                                                slen += take;
+                                                core::str::from_utf8(&sbuf[..slen]).unwrap_or("Dominio: ?").into()
+                                            },
                                         });
                                     } else {
                                         display_mgr.set_screen(UiScreen::Error {
@@ -549,3 +569,5 @@ fn run_authenticator() {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+

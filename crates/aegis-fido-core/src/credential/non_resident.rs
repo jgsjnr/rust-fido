@@ -67,12 +67,17 @@ impl CredentialWrapper {
 
         let ciphertext = cipher
             .encrypt(nonce, plaintext.as_ref())
-            .map_err(|_| "AES-GCM encryption failed")?;
+            .map_err(|_| {
+                plaintext.zeroize();
+                "AES-GCM encryption failed"
+            })?;
 
         let mut wrapped_id = Vec::with_capacity(1 + 12 + ciphertext.len());
         wrapped_id.push(CRED_WRAP_VERSION);
         wrapped_id.extend_from_slice(&nonce_bytes);
         wrapped_id.extend_from_slice(&ciphertext);
+
+        plaintext.zeroize();
 
         Ok(wrapped_id)
     }
@@ -98,21 +103,28 @@ impl CredentialWrapper {
             .map_err(|_| "AES-GCM decryption failed")?;
 
         if plaintext.len() < 32 + 4 + 32 + 2 + 2 + 2 {
+            plaintext.zeroize();
             return Err("Unwrapped plaintext is corrupted or truncated");
         }
 
         let mut offset = 0;
-        let stored_rp_id_hash = &plaintext[offset..offset + 32];
+        let mut stored_rp_id_hash = [0u8; 32];
+        stored_rp_id_hash.copy_from_slice(&plaintext[offset..offset + 32]);
         offset += 32;
 
         let expected_rp_id_hash = sha256(rp_id.as_bytes());
         if stored_rp_id_hash != expected_rp_id_hash {
+            plaintext.zeroize();
             return Err("RP ID mismatch");
         }
 
-        let alg_bytes: [u8; 4] = plaintext[offset..offset + 4]
-            .try_into()
-            .map_err(|_| "Invalid algorithm field")?;
+        let alg_bytes: [u8; 4] = match plaintext[offset..offset + 4].try_into() {
+            Ok(b) => b,
+            Err(_) => {
+                plaintext.zeroize();
+                return Err("Invalid algorithm field");
+            }
+        };
         let algorithm = i32::from_be_bytes(alg_bytes);
         offset += 4;
 
@@ -133,25 +145,58 @@ impl CredentialWrapper {
         };
         offset += 2;
 
-        let user_id_len = u16::from_be_bytes(plaintext[offset..offset + 2].try_into().unwrap()) as usize;
+        let user_id_len = u16::from_be_bytes(match plaintext[offset..offset + 2].try_into() {
+            Ok(b) => b,
+            Err(_) => {
+                plaintext.zeroize();
+                hmac_secret.zeroize();
+                return Err("Corrupted user_id length");
+            }
+        }) as usize;
         offset += 2;
         if offset + user_id_len > plaintext.len() {
+            plaintext.zeroize();
+            hmac_secret.zeroize();
             return Err("Corrupted user_id length");
         }
-        let user_id = plaintext[offset..offset + user_id_len].to_vec();
+        let mut user_id = plaintext[offset..offset + user_id_len].to_vec();
         offset += user_id_len;
 
-        let priv_len = u16::from_be_bytes(plaintext[offset..offset + 2].try_into().unwrap()) as usize;
+        let priv_len = u16::from_be_bytes(match plaintext[offset..offset + 2].try_into() {
+            Ok(b) => b,
+            Err(_) => {
+                plaintext.zeroize();
+                hmac_secret.zeroize();
+                user_id.zeroize();
+                return Err("Corrupted private_key length");
+            }
+        }) as usize;
         offset += 2;
         if offset + priv_len > plaintext.len() {
+            plaintext.zeroize();
+            hmac_secret.zeroize();
+            user_id.zeroize();
             return Err("Corrupted private_key length");
         }
-        let private_key = plaintext[offset..offset + priv_len].to_vec();
+        let mut private_key = plaintext[offset..offset + priv_len].to_vec();
         offset += priv_len;
 
-        let pub_len = u16::from_be_bytes(plaintext[offset..offset + 2].try_into().unwrap()) as usize;
+        let pub_len = u16::from_be_bytes(match plaintext[offset..offset + 2].try_into() {
+            Ok(b) => b,
+            Err(_) => {
+                plaintext.zeroize();
+                hmac_secret.zeroize();
+                user_id.zeroize();
+                private_key.zeroize();
+                return Err("Corrupted public_key_cose length");
+            }
+        }) as usize;
         offset += 2;
         if offset + pub_len > plaintext.len() {
+            plaintext.zeroize();
+            hmac_secret.zeroize();
+            user_id.zeroize();
+            private_key.zeroize();
             return Err("Corrupted public_key_cose length");
         }
         let public_key_cose = plaintext[offset..offset + pub_len].to_vec();
@@ -180,3 +225,5 @@ impl CredentialWrapper {
         })
     }
 }
+
+
