@@ -1,0 +1,6 @@
+# Wave0 USB descriptor baseline (G0: bytes NUNCA mudam sem gate).
+# Fonte: crates/aegis-fido-firmware/src/usb_descriptors.rs
+dd9fff5c289639a15875b9ed7e656189b1adda68d249c1c665fb7381066fe6ad  device_descriptor.bin
+# device_descriptor: 18 bytes | bcdUSB=0x0210 bcdDevice=0x0100 | VID=0x303A PID=0xAE61 | iMfg=1 iProd=2 iSer=3 bNumCfg=1
+# config: 4 interfaces (0=CTAPHID HID 64B, 1=CCID T=1, 2=HID Keyboard boot, 3=WinUSB bulk) | CTAPHID report=34B keyboard report=63B
+# strings: 1=Aegis Security 2=AegisKey S3 Authenticator 3=AEGIS-S3-0001 4..7 interfaces | BOS: MS OS 2.0 cap
