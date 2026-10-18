@@ -168,6 +168,11 @@ impl AegisUiRenderer {
         }
     }
 
+    fn center_text_x(text: &str, char_w: i32) -> i32 {
+        let w = (text.len() as i32) * char_w;
+        ((DISPLAY_WIDTH as i32 - w) / 2).max(2)
+    }
+
     fn draw_header(target: &mut DisplayBuffer, title: &str, accent_color: Rgb565) {
         let h_height = if DISPLAY_HEIGHT < 150 { 20u32 } else { 24u32 };
         let header_rect = Rectangle::new(Point::new(0, 0), Size::new(DISPLAY_WIDTH as u32, h_height));
@@ -181,10 +186,19 @@ impl AegisUiRenderer {
         let _ = line.into_styled(line_style).draw(target);
 
         let text_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_WHITE);
-        let _ = Text::new(title, Point::new(8, (h_height as i32) - 6), text_style).draw(target);
+        let max_title_chars = if DISPLAY_WIDTH < 150 { 11 } else { 24 };
+        let mut end = title.len();
+        if end > max_title_chars {
+            end = max_title_chars;
+            while end > 0 && !title.is_char_boundary(end) {
+                end -= 1;
+            }
+        }
+        let display_title = &title[..end];
+        let _ = Text::new(display_title, Point::new(6, (h_height as i32) - 6), text_style).draw(target);
 
         // Security indicator pill
-        let pill_x = (DISPLAY_WIDTH as i32) - 50;
+        let pill_x = (DISPLAY_WIDTH as i32) - 42;
         let pill = Text::new("AEGIS", Point::new(pill_x, (h_height as i32) - 6), MonoTextStyle::new(&FONT_6X10, accent_color));
         let _ = pill.draw(target);
     }
@@ -221,14 +235,14 @@ impl AegisUiRenderer {
         // Title
         let title_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
         let title_y = y_offset + s_h + if is_small { 16 } else { 20 };
-        let _ = Text::new("AEGISKEY FIDO2", Point::new(center_x - 58, title_y), title_style).draw(target);
+        let _ = Text::new("AEGISKEY FIDO2", Point::new(Self::center_text_x("AEGISKEY FIDO2", 9), title_y), title_style).draw(target);
 
         // Subtitle & hardware
         let sub_style = MonoTextStyle::new(&FONT_6X10, colors::ACCENT_CYAN);
-        let _ = Text::new(chip, Point::new(center_x - 60, title_y + 14), sub_style).draw(target);
+        let _ = Text::new(chip, Point::new(Self::center_text_x(chip, 6), title_y + 14), sub_style).draw(target);
 
         let ver_style = MonoTextStyle::new(&FONT_6X10, colors::WARN_AMBER);
-        let _ = Text::new(version, Point::new(center_x - 40, title_y + 26), ver_style).draw(target);
+        let _ = Text::new(version, Point::new(Self::center_text_x(version, 6), title_y + 26), ver_style).draw(target);
     }
 
     fn draw_idle_screen(target: &mut DisplayBuffer, status_text: &str) {
@@ -247,13 +261,24 @@ impl AegisUiRenderer {
             .build();
         let _ = lock_circle.into_styled(circle_style).draw(target);
 
+        // Keyhole inside circle
+        let kh_circle = Circle::new(Point::new(center_x - 4, circle_y + (circle_r / 2) - 8), 8);
+        let _ = kh_circle.into_styled(PrimitiveStyle::with_fill(colors::ACCENT_CYAN)).draw(target);
+        let kh_body = Rectangle::new(Point::new(center_x - 2, circle_y + (circle_r / 2)), Size::new(4, 10));
+        let _ = kh_body.into_styled(PrimitiveStyle::with_fill(colors::ACCENT_CYAN)).draw(target);
+
         // Center status
-        let main_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
-        let main_y = circle_y + circle_r + if is_small { 18 } else { 25 };
-        let _ = Text::new("DISPOSITIVO ATIVO", Point::new(center_x - 70, main_y), main_style).draw(target);
+        let main_y = circle_y + circle_r + if is_small { 16 } else { 25 };
+        if DISPLAY_WIDTH < 150 {
+            let main_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_WHITE);
+            let _ = Text::new("DISPOSITIVO ATIVO", Point::new(Self::center_text_x("DISPOSITIVO ATIVO", 6), main_y), main_style).draw(target);
+        } else {
+            let main_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
+            let _ = Text::new("DISPOSITIVO ATIVO", Point::new(Self::center_text_x("DISPOSITIVO ATIVO", 9), main_y), main_style).draw(target);
+        }
 
         let sub_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_MUTED);
-        let _ = Text::new(status_text, Point::new(center_x - 85, main_y + 14), sub_style).draw(target);
+        let _ = Text::new(status_text, Point::new(Self::center_text_x(status_text, 6), main_y + 14), sub_style).draw(target);
 
         // Footer USB Ready indicator
         let footer_h = if is_small { 16u32 } else { 18u32 };
@@ -262,11 +287,12 @@ impl AegisUiRenderer {
         let footer_style = PrimitiveStyle::with_fill(colors::HEADER_BG);
         let _ = footer_rect.into_styled(footer_style).draw(target);
 
-        let ok_dot = Circle::new(Point::new(8, footer_y + 4), 8);
+        let ok_dot = Circle::new(Point::new(6, footer_y + 4), 8);
         let _ = ok_dot.into_styled(PrimitiveStyle::with_fill(colors::SUCCESS_GREEN)).draw(target);
 
         let usb_style = MonoTextStyle::new(&FONT_6X10, colors::SUCCESS_GREEN);
-        let _ = Text::new("CTAPHID / WebAuthn Online", Point::new(20, footer_y + 11), usb_style).draw(target);
+        let footer_text = if DISPLAY_WIDTH < 150 { "WebAuthn / FIDO2" } else { "CTAPHID / WebAuthn Online" };
+        let _ = Text::new(footer_text, Point::new(18, footer_y + 11), usb_style).draw(target);
     }
 
     fn draw_prompt_screen(
@@ -279,7 +305,7 @@ impl AegisUiRenderer {
         Self::draw_header(target, "SOLICITAÇÃO DE PRESENÇA", colors::WARN_AMBER);
 
         let is_small = DISPLAY_HEIGHT < 150;
-        let mut y = if is_small { 30 } else { 38 };
+        let mut y = if is_small { 28 } else { 38 };
 
         // Operation type (e.g. Registro de Passkey / Login)
         let op_style = MonoTextStyle::new(&FONT_6X10, colors::WARN_AMBER);
@@ -302,7 +328,7 @@ impl AegisUiRenderer {
 
         // RP Domain Name in bold
         let domain_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
-        let _ = Text::new(rp_id, Point::new(18, y + (box_h as i32) - 8), domain_style).draw(target);
+        let _ = Text::new(rp_id, Point::new(Self::center_text_x(rp_id, 9), y + (box_h as i32) - 8), domain_style).draw(target);
         y += (box_h as i32) + 12;
 
         // Account Name
@@ -320,11 +346,13 @@ impl AegisUiRenderer {
             let _ = Text::new("BOOT: Confirmar", Point::new(10, y), confirm_style).draw(target);
 
             let cancel_style = MonoTextStyle::new(&FONT_6X10, colors::DANGER_RED);
-            #[cfg(feature = "board-ttgo-classic")]
             let cancel_str = "KEY: Cancelar";
-            #[cfg(not(feature = "board-ttgo-classic"))]
-            let cancel_str = "KEY: Cancelar";
-            let _ = Text::new(cancel_str, Point::new((DISPLAY_WIDTH as i32) - 95, y), cancel_style).draw(target);
+            if DISPLAY_WIDTH < 150 {
+                y += 12;
+                let _ = Text::new(cancel_str, Point::new(10, y), cancel_style).draw(target);
+            } else {
+                let _ = Text::new(cancel_str, Point::new((DISPLAY_WIDTH as i32) - 95, y), cancel_style).draw(target);
+            }
         }
         #[cfg(not(any(feature = "board-t-display", feature = "board-ttgo-classic")))]
         {
@@ -383,12 +411,17 @@ impl AegisUiRenderer {
         let _ = Line::new(p_start, p_mid).into_styled(check_style).draw(target);
         let _ = Line::new(p_mid, p_end).into_styled(check_style).draw(target);
 
-        let title_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
-        let text_y = circle_y + circle_r + if is_small { 18 } else { 24 };
-        let _ = Text::new(title, Point::new(center_x - 65, text_y), title_style).draw(target);
+        let text_y = circle_y + circle_r + if is_small { 16 } else { 24 };
+        if DISPLAY_WIDTH < 150 {
+            let title_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_WHITE);
+            let _ = Text::new(title, Point::new(Self::center_text_x(title, 6), text_y), title_style).draw(target);
+        } else {
+            let title_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
+            let _ = Text::new(title, Point::new(Self::center_text_x(title, 9), text_y), title_style).draw(target);
+        }
 
         let sub_style = MonoTextStyle::new(&FONT_6X10, colors::SUCCESS_GREEN);
-        let _ = Text::new(subtitle, Point::new(center_x - 80, text_y + 14), sub_style).draw(target);
+        let _ = Text::new(subtitle, Point::new(Self::center_text_x(subtitle, 6), text_y + 14), sub_style).draw(target);
     }
 
     fn draw_error_screen(target: &mut DisplayBuffer, message: &str) {
@@ -415,29 +448,33 @@ impl AegisUiRenderer {
             .into_styled(cross_style)
             .draw(target);
 
-        let err_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
-        let text_y = circle_y + circle_r + if is_small { 18 } else { 24 };
-        let _ = Text::new("OPERAÇÃO RECUSADA", Point::new(center_x - 75, text_y), err_style).draw(target);
+        let text_y = circle_y + circle_r + if is_small { 16 } else { 24 };
+        if DISPLAY_WIDTH < 150 {
+            let err_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_WHITE);
+            let _ = Text::new("OPERAÇÃO RECUSADA", Point::new(Self::center_text_x("OPERAÇÃO RECUSADA", 6), text_y), err_style).draw(target);
+        } else {
+            let err_style = MonoTextStyle::new(&FONT_9X15_BOLD, colors::TEXT_WHITE);
+            let _ = Text::new("OPERAÇÃO RECUSADA", Point::new(Self::center_text_x("OPERAÇÃO RECUSADA", 9), text_y), err_style).draw(target);
+        }
 
         let sub_style = MonoTextStyle::new(&FONT_6X10, colors::DANGER_RED);
-        let _ = Text::new(message, Point::new(center_x - 80, text_y + 14), sub_style).draw(target);
+        let _ = Text::new(message, Point::new(Self::center_text_x(message, 6), text_y + 14), sub_style).draw(target);
     }
 
     fn draw_totp_screen(target: &mut DisplayBuffer, label: &str, code: &str, remaining_seconds: u32) {
         Self::draw_header(target, "YKOATH / TOTP 2FA", colors::ACCENT_CYAN);
 
-        let center_x = (DISPLAY_WIDTH / 2) as i32;
         let is_small = DISPLAY_HEIGHT < 150;
 
         let label_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_MUTED);
-        let _ = Text::new(label, Point::new(center_x - 50, if is_small { 34 } else { 42 }), label_style).draw(target);
+        let _ = Text::new(label, Point::new(Self::center_text_x(label, 6), if is_small { 34 } else { 42 }), label_style).draw(target);
 
         // Code box
-        let box_w = (DISPLAY_WIDTH as u32) - 40;
+        let box_w = (DISPLAY_WIDTH as u32) - 30;
         let box_h = if is_small { 32u32 } else { 45u32 };
         let box_y = if is_small { 42 } else { 55 };
         let code_box = RoundedRectangle::with_equal_corners(
-            Rectangle::new(Point::new(20, box_y), Size::new(box_w, box_h)),
+            Rectangle::new(Point::new(15, box_y), Size::new(box_w, box_h)),
             Size::new(6, 6),
         );
         let box_style = PrimitiveStyleBuilder::new()
@@ -448,28 +485,29 @@ impl AegisUiRenderer {
         let _ = code_box.into_styled(box_style).draw(target);
 
         let code_style = MonoTextStyle::new(&FONT_10X20, colors::ACCENT_CYAN);
-        let _ = Text::new(code, Point::new(center_x - 45, box_y + (box_h as i32) - 8), code_style).draw(target);
+        let _ = Text::new(code, Point::new(Self::center_text_x(code, 10), box_y + (box_h as i32) - 8), code_style).draw(target);
 
         // Progress bar for 30s token expiration
-        let bar_width = (DISPLAY_WIDTH as u32) - 40;
+        let bar_width = (DISPLAY_WIDTH as u32) - 30;
         let progress = (remaining_seconds.min(30) as f32 / 30.0).clamp(0.0, 1.0);
         let fill_w = (bar_width as f32 * progress) as u32;
 
         let bar_y = box_y + (box_h as i32) + 8;
-        let bar_bg = Rectangle::new(Point::new(20, bar_y), Size::new(bar_width, 6));
+        let bar_bg = Rectangle::new(Point::new(15, bar_y), Size::new(bar_width, 6));
         let _ = bar_bg.into_styled(PrimitiveStyle::with_fill(colors::HEADER_BG)).draw(target);
 
         if fill_w > 0 {
-            let bar_fill = Rectangle::new(Point::new(20, bar_y), Size::new(fill_w, 6));
+            let bar_fill = Rectangle::new(Point::new(15, bar_y), Size::new(fill_w, 6));
             let _ = bar_fill.into_styled(PrimitiveStyle::with_fill(colors::ACCENT_CYAN)).draw(target);
         }
 
         let hint_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_WHITE);
-        let _ = Text::new("BOOT (2s) Auto-Digita", Point::new(center_x - 65, bar_y + 16), hint_style).draw(target);
+        let hint_text = if DISPLAY_WIDTH < 150 { "BOOT 2s: Digitar" } else { "BOOT (2s) Auto-Digita" };
+        let _ = Text::new(hint_text, Point::new(15, bar_y + 16), hint_style).draw(target);
 
         let sec_text = alloc::format!("{}s", remaining_seconds);
         let sec_style = MonoTextStyle::new(&FONT_6X10, colors::TEXT_MUTED);
-        let _ = Text::new(&sec_text, Point::new((DISPLAY_WIDTH as i32) - 35, bar_y + 16), sec_style).draw(target);
+        let _ = Text::new(&sec_text, Point::new((DISPLAY_WIDTH as i32) - 32, bar_y + 16), sec_style).draw(target);
     }
 
 }

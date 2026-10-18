@@ -131,7 +131,7 @@ esp_err_t aegis_display_init(void) {
     // Attach ST7789 driver
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = PIN_NUM_RST,
-        .rgb_endian = LCD_RGB_ENDIAN_BGR,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
 
