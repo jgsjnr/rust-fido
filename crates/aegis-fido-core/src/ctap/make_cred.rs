@@ -103,7 +103,7 @@ impl MakeCredentialHandler {
             for item in exclude_list {
                 if let Value::Map(im) = item {
                     if let Some(Value::Bytes(cred_id)) = get_text_key(im, "id") {
-                        if store.get(cred_id).is_some() || wrapper.unwrap(cred_id, &rp_id).is_ok() {
+                        if store.get(cred_id).is_some() || wrapper.unwrap(cred_id, &rp_id, 0).is_ok() {
                             return Err(CtapError::CredentialExcluded);
                         }
                     }

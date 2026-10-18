@@ -7,6 +7,7 @@ use aes_gcm::{
 use rand_core::{CryptoRng, RngCore};
 use crate::credential::record::CredentialRecord;
 use crate::crypto::hash::sha256;
+use zeroize::Zeroize;
 
 const CRED_WRAP_VERSION: u8 = 0x01;
 
@@ -77,7 +78,7 @@ impl CredentialWrapper {
     }
 
     /// Unwraps an encrypted credential ID into a CredentialRecord
-    pub fn unwrap(&self, cred_id: &[u8], rp_id: &str) -> Result<CredentialRecord, &'static str> {
+    pub fn unwrap(&self, cred_id: &[u8], rp_id: &str, stored_sign_count: u32) -> Result<CredentialRecord, &'static str> {
         if cred_id.len() < 1 + 12 + 16 {
             return Err("Credential ID too short");
         }
@@ -92,7 +93,7 @@ impl CredentialWrapper {
             .map_err(|_| "Failed to initialize AES-GCM cipher")?;
         let nonce = Nonce::from_slice(nonce_bytes);
 
-        let plaintext = cipher
+        let mut plaintext = cipher
             .decrypt(nonce, ciphertext)
             .map_err(|_| "AES-GCM decryption failed")?;
 
@@ -154,6 +155,8 @@ impl CredentialWrapper {
             return Err("Corrupted public_key_cose length");
         }
         let public_key_cose = plaintext[offset..offset + pub_len].to_vec();
+        plaintext.zeroize();
+        hmac_secret.zeroize();
 
         Ok(CredentialRecord {
             id: cred_id.to_vec(),
@@ -165,7 +168,7 @@ impl CredentialWrapper {
             algorithm,
             private_key,
             public_key_cose,
-            sign_count: 0,
+            sign_count: stored_sign_count,
             is_resident: false,
             created_at: 0,
             expires_at: None,

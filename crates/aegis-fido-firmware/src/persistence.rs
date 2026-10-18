@@ -279,4 +279,26 @@ mod tests {
         let res = storage.store("big", &big, &ignored);
         assert_eq!(res, Err(StorageError::BufferOverflow));
     }
+    #[test]
+    fn power_loss_mid_write() {
+        let master_key = [0x55u8; 32];
+        let salt = [0xAAu8; 32];
+        let backend = MockFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &master_key, &salt);
+        let ignored = [0x00u8; 12];
+        let ka = core::str::from_utf8(&[115, 108, 111, 116, 95, 97]).unwrap();
+        let kb = core::str::from_utf8(&[115, 108, 111, 116, 95, 98]).unwrap();
+        let data = [10u8, 20, 30, 40];
+        storage.store(ka, &data, &ignored).unwrap();
+        storage.store(kb, &data, &ignored).unwrap();
+        let mut raw_b = storage.backend.read_raw(kb).unwrap();
+        let last = raw_b.len() - 1;
+        raw_b[last] ^= 0xFF;
+        storage.backend.write_raw(kb, &raw_b).unwrap();
+        assert_eq!(storage.load(ka).unwrap(), data);
+        assert_eq!(storage.load(kb), Err(StorageError::DecryptionFailed));
+        let raw_a = storage.backend.read_raw(ka).unwrap();
+        assert_eq!(&raw_a[0..4], &ENVELOPE_MAGIC);
+        assert_eq!(raw_a[4], ENVELOPE_VERSION);
+    }
 }

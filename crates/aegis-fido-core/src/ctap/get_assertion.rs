@@ -66,7 +66,7 @@ impl GetAssertionHandler {
                             if res_cred.rp_id == rp_id {
                                 candidates.push(res_cred.clone());
                             }
-                        } else if let Ok(non_res_cred) = wrapper.unwrap(cred_id, &rp_id) {
+                        } else if let Ok(non_res_cred) = wrapper.unwrap(cred_id, &rp_id, store.get_persistent_sign_count(cred_id)) {
                             candidates.push(non_res_cred);
                         }
                     }
@@ -195,6 +195,8 @@ impl GetAssertionHandler {
             if let Ok(c) = store.increment_sign_count(&cred.id) {
                 sign_count = c;
             }
+        } else if let Ok(c) = store.increment_sign_count(&cred.id) {
+            sign_count = c;
         } else {
             sign_count = sign_count.saturating_add(1);
         }

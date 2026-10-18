@@ -5,13 +5,12 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::crypto::cose::CoseKey;
 use crate::crypto::ecdh::EcdhKeyAgreement;
-use crate::crypto::pin_protocol::{pad_pin, pin_hash, PinProtocol1, PinProtocol2};
-use crate::ctap::cbor::{
-    decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_field, get_int_key,
-    get_opt_bytes_field, get_opt_int_field,
-};
+use crate::crypto::pin_protocol::{pin_hash, PinProtocol1, PinProtocol2};
+use crate::ctap::cbor::{decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_field, get_int_key};
 use crate::ctap::status_code::CtapError;
 use crate::extensions::check_pin_complexity;
+use crate::oath::crypto::constant_time_eq;
+use zeroize::Zeroize;
 
 pub const SUBCMD_GET_PIN_RETRIES: i64 = 0x01;
 pub const SUBCMD_GET_KEY_AGREEMENT: i64 = 0x02;
@@ -44,6 +43,7 @@ pub struct ClientPinState {
     pub pin_hash: Option<[u8; 16]>,
     pub pin_retries: u8,
     pub uv_retries: u8,
+    pub power_cycle_state: bool,
     pub min_pin_length: u32,
     pub pin_complexity_policy: bool,
     pub active_session: Option<PinUvTokenSession>,
@@ -56,6 +56,7 @@ impl Default for ClientPinState {
             pin_hash: None,
             pin_retries: 8,
             uv_retries: 3,
+            power_cycle_state: false,
             min_pin_length: 4,
             pin_complexity_policy: false,
             active_session: None,
@@ -67,6 +68,21 @@ impl Default for ClientPinState {
 impl ClientPinState {
     pub fn is_pin_set(&self) -> bool {
         self.pin_hash.is_some()
+    }
+    pub fn is_pin_blocked(&self) -> bool {
+        self.pin_retries == 0
+    }
+    pub fn is_uv_blocked(&self) -> bool {
+        self.uv_retries == 0
+    }
+    fn decrement_pin_retries(&mut self) -> CtapError {
+        self.pin_retries = self.pin_retries.saturating_sub(1);
+        if self.pin_retries == 0 {
+            self.power_cycle_state = true;
+            CtapError::PinBlocked
+        } else {
+            CtapError::PinInvalid
+        }
     }
 
     pub fn verify_token_permission(
@@ -143,6 +159,9 @@ impl ClientPinHandler {
             SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS => {
                 Self::handle_get_pin_uv_auth_token_with_permissions(state, &map, protocol, rng)
             }
+            SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_UV_WITH_PERMISSIONS => {
+                Self::handle_get_pin_uv_auth_token_using_uv(state)
+            }
             SUBCMD_GET_UV_RETRIES => Self::handle_get_uv_retries(state),
             SUBCMD_SET_MIN_PIN_LENGTH => Self::handle_set_min_pin_length(state, &map, protocol),
             _ => Err(CtapError::InvalidSubcommand),
@@ -155,7 +174,7 @@ impl ClientPinHandler {
             Value::Integer(3.into()),
             Value::Integer((state.pin_retries as i64).into()),
         ));
-        map.push((Value::Integer(4.into()), Value::Bool(false)));
+        map.push((Value::Integer(4.into()), Value::Bool(state.power_cycle_state)));
         encode_cbor_value(&Value::Map(map))
     }
 
@@ -166,6 +185,12 @@ impl ClientPinHandler {
             Value::Integer((state.uv_retries as i64).into()),
         ));
         encode_cbor_value(&Value::Map(map))
+    }
+    fn handle_get_pin_uv_auth_token_using_uv(state: &ClientPinState) -> Result<Vec<u8>, CtapError> {
+        if state.is_uv_blocked() {
+            return Err(CtapError::UvBlocked);
+        }
+        Err(CtapError::InvalidSubcommand)
     }
 
     fn handle_get_key_agreement<R: RngCore + CryptoRng>(
@@ -218,7 +243,7 @@ impl ClientPinHandler {
         }
 
         // Decrypt PIN
-        let decrypted = match protocol {
+        let mut decrypted = match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 PinProtocol1::decrypt(&k, &new_pin_enc).map_err(|_| CtapError::PinAuthInvalid)?
@@ -232,17 +257,21 @@ impl ClientPinHandler {
 
         let pin_bytes = Self::unpad_pin(&decrypted)?;
         if pin_bytes.len() < state.min_pin_length as usize || pin_bytes.len() > 63 {
+            decrypted.zeroize();
             return Err(CtapError::PinPolicyViolation);
         }
 
         if let Ok(pin_str) = core::str::from_utf8(pin_bytes) {
             if state.pin_complexity_policy && !check_pin_complexity(pin_str) {
+                decrypted.zeroize();
                 return Err(CtapError::PinPolicyViolation);
             }
         }
 
         state.pin_hash = Some(pin_hash(pin_bytes));
+        decrypted.zeroize();
         state.pin_retries = 8;
+        state.power_cycle_state = false;
         encode_cbor_value(&Value::Map(Vec::new()))
     }
 
@@ -291,7 +320,7 @@ impl ClientPinHandler {
         }
 
         // Decrypt old pin hash
-        let decrypted_old_hash = match protocol {
+        let mut decrypted_old_hash = match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 PinProtocol1::decrypt(&k, &pin_hash_enc).map_err(|_| CtapError::PinAuthInvalid)?
@@ -303,16 +332,17 @@ impl ClientPinHandler {
             _ => return Err(CtapError::InvalidParameter),
         };
 
-        if decrypted_old_hash.len() < 16 || &decrypted_old_hash[..16] != state.pin_hash.as_ref().unwrap() {
-            state.pin_retries = state.pin_retries.saturating_sub(1);
-            if state.pin_retries == 0 {
-                return Err(CtapError::PinBlocked);
-            }
-            return Err(CtapError::PinInvalid);
+        let stored_old = *state.pin_hash.as_ref().unwrap();
+        let old_ok = decrypted_old_hash.len() >= 16
+            && constant_time_eq(&decrypted_old_hash[..16], &stored_old);
+        if !old_ok {
+            decrypted_old_hash.zeroize();
+            return Err(state.decrement_pin_retries());
         }
+        decrypted_old_hash.zeroize();
 
         // Decrypt new PIN
-        let decrypted_new_pin = match protocol {
+        let mut decrypted_new_pin = match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 PinProtocol1::decrypt(&k, &new_pin_enc).map_err(|_| CtapError::PinAuthInvalid)?
@@ -326,17 +356,21 @@ impl ClientPinHandler {
 
         let new_pin_bytes = Self::unpad_pin(&decrypted_new_pin)?;
         if new_pin_bytes.len() < state.min_pin_length as usize || new_pin_bytes.len() > 63 {
+            decrypted_new_pin.zeroize();
             return Err(CtapError::PinPolicyViolation);
         }
 
         if let Ok(pin_str) = core::str::from_utf8(new_pin_bytes) {
             if state.pin_complexity_policy && !check_pin_complexity(pin_str) {
+                decrypted_new_pin.zeroize();
                 return Err(CtapError::PinPolicyViolation);
             }
         }
 
         state.pin_hash = Some(pin_hash(new_pin_bytes));
+        decrypted_new_pin.zeroize();
         state.pin_retries = 8;
+        state.power_cycle_state = false;
         encode_cbor_value(&Value::Map(Vec::new()))
     }
 
@@ -361,7 +395,7 @@ impl ClientPinHandler {
         let pin_hash_enc = get_bytes_field(map, 6)?;
 
         // Decrypt pin hash
-        let decrypted_hash = match protocol {
+        let mut decrypted_hash = match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 PinProtocol1::decrypt(&k, &pin_hash_enc).map_err(|_| CtapError::PinAuthInvalid)?
@@ -373,15 +407,17 @@ impl ClientPinHandler {
             _ => return Err(CtapError::InvalidParameter),
         };
 
-        if decrypted_hash.len() < 16 || &decrypted_hash[..16] != state.pin_hash.as_ref().unwrap() {
-            state.pin_retries = state.pin_retries.saturating_sub(1);
-            if state.pin_retries == 0 {
-                return Err(CtapError::PinBlocked);
-            }
-            return Err(CtapError::PinInvalid);
+        let stored_cur = *state.pin_hash.as_ref().unwrap();
+        let cur_ok = decrypted_hash.len() >= 16
+            && constant_time_eq(&decrypted_hash[..16], &stored_cur);
+        if !cur_ok {
+            decrypted_hash.zeroize();
+            return Err(state.decrement_pin_retries());
         }
+        decrypted_hash.zeroize();
 
         state.pin_retries = 8;
+        state.power_cycle_state = false;
 
         // Generate token
         let mut token = [0u8; 32];
@@ -440,7 +476,7 @@ impl ClientPinHandler {
         };
 
         // Decrypt pin hash
-        let decrypted_hash = match protocol {
+        let mut decrypted_hash = match protocol {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 PinProtocol1::decrypt(&k, &pin_hash_enc).map_err(|_| CtapError::PinAuthInvalid)?
@@ -452,15 +488,17 @@ impl ClientPinHandler {
             _ => return Err(CtapError::InvalidParameter),
         };
 
-        if decrypted_hash.len() < 16 || &decrypted_hash[..16] != state.pin_hash.as_ref().unwrap() {
-            state.pin_retries = state.pin_retries.saturating_sub(1);
-            if state.pin_retries == 0 {
-                return Err(CtapError::PinBlocked);
-            }
-            return Err(CtapError::PinInvalid);
+        let stored_cur = *state.pin_hash.as_ref().unwrap();
+        let cur_ok = decrypted_hash.len() >= 16
+            && constant_time_eq(&decrypted_hash[..16], &stored_cur);
+        if !cur_ok {
+            decrypted_hash.zeroize();
+            return Err(state.decrement_pin_retries());
         }
+        decrypted_hash.zeroize();
 
         state.pin_retries = 8;
+        state.power_cycle_state = false;
 
         let mut token = [0u8; 32];
         rng.fill_bytes(&mut token);
@@ -496,6 +534,9 @@ impl ClientPinHandler {
         map: &[(Value, Value)],
         protocol: u32,
     ) -> Result<Vec<u8>, CtapError> {
+        if state.is_pin_blocked() {
+            return Err(CtapError::PinBlocked);
+        }
         let new_min = get_int_field(map, 7)? as u32;
         let pin_auth = get_bytes_field(map, 4)?;
 

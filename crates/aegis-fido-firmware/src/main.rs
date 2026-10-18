@@ -10,6 +10,7 @@
 //! - Hardware-backed cryptographic persistence with eFuse OTP master key.
 
 use core::time::Duration;
+use aegis_fido_core::otp::rescue::RescueEngine;
 use aegis_fido_core::ctap::{
     CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL, CTAP_CMD_RESET,
 };
@@ -211,6 +212,8 @@ fn run_authenticator() {
     // 5. Initialize Rust CTAPHID Manager and CTAP2 Core Engine
     let mut ctaphid_mgr = CtapHidManager::new();
     let mut ctap_engine = CtapEngine::new(master_key, 0);
+    let mut rescue_engine = RescueEngine::new();
+    // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
 
     kprintln!("============================================================");
     kprintln!("   AegisKey S3 Authenticator ONLINE & ACTIVE!");
@@ -250,6 +253,7 @@ fn run_authenticator() {
             if press_start_tick.is_none() {
                 press_start_tick = Some(tick);
                 touch_latched = true;
+                rescue_engine.set_user_presence(true);
                 touch_expire_tick = tick + 150; // Keep touch valid for 1.5 seconds
                 kprintln!("[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED.");
             } else if let Some(start) = press_start_tick {
@@ -269,6 +273,7 @@ fn run_authenticator() {
             press_start_tick = None;
             if tick > touch_expire_tick && touch_latched {
                 touch_latched = false;
+                rescue_engine.set_user_presence(false);
             }
             if totp_display_until > 0 && tick >= totp_display_until {
                 totp_display_until = 0;
@@ -374,6 +379,7 @@ fn run_authenticator() {
                                     if touch_latched {
                                         up_confirmed = true;
                                         touch_latched = false;
+                                        rescue_engine.set_user_presence(true);
                                         kprintln!("[UP] Touch already latched on GPIO 0! Confirming User Presence for: {}", rp_id);
                                     } else {
                                         kprintln!("[UP] Touch required for {} ({})! Waiting up to 25s...", rp_id, op_name);
@@ -418,6 +424,7 @@ fn run_authenticator() {
                                             // KEY (GPIO 14) -> Cancel / Reject Transaction
                                             if button_mgr.is_boot_pressed(|d| std::thread::sleep(d)) {
                                                 up_confirmed = true;
+                                                rescue_engine.set_user_presence(true);
                                                 kprintln!("[BUTTON] Physical touch confirmed on BOOT (GPIO 0)! (t={}ms)", wait_step * 20);
                                                 break;
                                             }
