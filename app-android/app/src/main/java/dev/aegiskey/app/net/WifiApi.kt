@@ -1,6 +1,7 @@
 package dev.aegiskey.app.net
 
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.SanitizedLog
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -23,7 +24,12 @@ object WifiApi {
         val conn = open("$baseUrl$PATH_CTAP", "POST", "application/octet-stream")
         try {
             conn.outputStream.use { it.write(envelope) }
-            return readOrThrow(conn)
+            val out = readOrThrow(conn)
+            DeviceLog.append(DeviceLog.Category.WIFI, "HTTP POST /ctap -> 2xx bytes=" + out.size + " (envelope " + envelope.size + "B)")
+            return out
+        } catch (e: Exception) {
+            DeviceLog.append(DeviceLog.Category.WIFI, "HTTP POST /ctap -> fail " + ((e.message ?: "error").take(48)))
+            throw e
         } finally {
             conn.disconnect()
         }
@@ -40,6 +46,7 @@ object WifiApi {
         try {
             conn.outputStream.use { it.write(newPassword.toByteArray(Charsets.US_ASCII)) }
             val code = conn.responseCode
+            DeviceLog.append(DeviceLog.Category.WIFI, "HTTP POST /config/wifi -> HTTP " + code)
             if (code == 401) throw SecurityException("UP+PIN required (device button + PIN)")
             if (code !in 200..299) throw IOException("wifi password change failed: HTTP $code")
             SanitizedLog.record(SanitizedLog.Event.WIFI_PASSWORD_CHANGED)
@@ -58,6 +65,7 @@ object WifiApi {
         val conn = open("$baseUrl$PATH_OATH?account=$query", "GET", "application/json")
         try {
             val code = conn.responseCode
+            DeviceLog.append(DeviceLog.Category.WIFI, "HTTP GET /oath/code -> HTTP " + code)
             if (code == 401) throw SecurityException("presence required (press device button)")
             if (code == 404) throw NoSuchElementException("unknown account")
             if (code !in 200..299) throw IOException("oath fetch failed: HTTP $code")

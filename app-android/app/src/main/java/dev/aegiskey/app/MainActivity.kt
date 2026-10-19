@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VpnKey
@@ -30,6 +31,7 @@ import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AccountsScreen
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.AuthScreen
+import dev.aegiskey.app.ui.LogScreen
 import dev.aegiskey.app.ui.OnboardingScreen
 import dev.aegiskey.app.ui.ScanPairScreen
 import dev.aegiskey.app.ui.SettingsScreen
@@ -60,6 +62,7 @@ private val DESTINATIONS = listOf(
     Destination("accounts", "Keys", Icons.Filled.VpnKey),
     Destination("auth", "Auth", Icons.Filled.Fingerprint),
     Destination("vault", "Vault", Icons.Filled.Lock),
+    Destination("log", "Log", Icons.Filled.List),
     Destination("settings", "Settings", Icons.Filled.Settings),
 )
 
@@ -95,7 +98,8 @@ fun AegisApp(client: AegisBleClient) {
                 composable("accounts") { AccountsScreen(client) }
                 composable("auth") { AuthScreen(client) }
                 composable("vault") { VaultScreen() }
-                composable("settings") { SettingsScreen() }
+                composable("log") { LogScreen() }
+                composable("settings") { SettingsScreen(onOpenLog = { nav.navigate("log") }) }
             }
         }
     }

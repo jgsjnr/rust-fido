@@ -5,6 +5,7 @@ import android.view.Window
 import android.view.WindowManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dev.aegiskey.app.log.DeviceLog
 
 /**
  * App security primitives.
@@ -43,10 +44,38 @@ object SanitizedLog {
     fun record(event: Event) {
         if (ring.size >= MAX_EVENTS) ring.removeFirst()
         ring.addLast("${System.currentTimeMillis()}/$event")
+        forward(event)
     }
 
     @Synchronized
     fun snapshot(): List<String> = ring.toList()
+
+    /**
+     * Mirrors pairing/lock/system events into the live DeviceLog.
+     * BLE FFF1/FFF2 traffic and HTTP WiFi have detailed hooks in
+     * AegisBleClient/WifiApi, so those events are skipped here to
+     * avoid double lines. No values ever forwarded (names only).
+     */
+    private fun forward(event: Event) {
+        when (event) {
+            Event.SCAN_STARTED -> DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD started")
+            Event.DEVICE_CONNECTED -> DeviceLog.append(DeviceLog.Category.BLE, "device connected (GATT ready)")
+            Event.BOND_CHANGED -> DeviceLog.append(DeviceLog.Category.PAIRING, "bond state changed")
+            Event.REVISION_OK -> DeviceLog.append(DeviceLog.Category.BLE, "RD FFF4 revision 0x01 ok")
+            Event.REVISION_MISMATCH -> DeviceLog.append(DeviceLog.Category.BLE, "RD FFF4 revision mismatch")
+            Event.LOCAL_WIPE -> DeviceLog.append(DeviceLog.Category.LOCK, "local wipe done (device untouched)")
+            Event.APP_LOCK_SET -> DeviceLog.append(DeviceLog.Category.LOCK, "app lock enrolled")
+            Event.APP_UNLOCKED -> DeviceLog.append(DeviceLog.Category.LOCK, "app unlocked")
+            Event.APP_LOCK_FAILED -> DeviceLog.append(DeviceLog.Category.LOCK, "app unlock failed")
+            Event.DEVICE_PRESS_CANCELLED -> DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_CANCEL(0xBE) user cancelled")
+            Event.INTEGRITY_CHECK -> DeviceLog.append(DeviceLog.Category.SYSTEM, "integrity check")
+            Event.STATUS_NOTIFY,
+            Event.CTAP_SENT,
+            Event.CTAP_RESPONSE,
+            Event.OATH_FETCHED,
+            Event.WIFI_PASSWORD_CHANGED -> Unit
+        }
+    }
 }
 
 /** Encrypted metadata store. Non-secret values only — never keys/secrets. */

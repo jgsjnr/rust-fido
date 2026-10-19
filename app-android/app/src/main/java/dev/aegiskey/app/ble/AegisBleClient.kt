@@ -17,6 +17,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.ParcelUuid
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.SanitizedLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -134,6 +135,7 @@ class AegisBleClient(private val context: Context) {
         _state.update { it.copy(connection = Connection.CONNECTING, error = null) }
         stopScan()
         gatt = device.connectGatt(context, false, gattCallback)
+        DeviceLog.append(DeviceLog.Category.BLE, "BLE connect requested")
     }
 
     fun ensureBonded(address: String) {
@@ -147,6 +149,7 @@ class AegisBleClient(private val context: Context) {
         runCatching { gatt?.close() }
         gatt = null
         _state.update { it.copy(connection = Connection.IDLE, revision = null) }
+        DeviceLog.append(DeviceLog.Category.BLE, "GATT disconnected (app)")
     }
 
     // -- GATT -------------------------------------------------------------------
@@ -154,8 +157,10 @@ class AegisBleClient(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                DeviceLog.append(DeviceLog.Category.BLE, "GATT connected, discovering services")
                 g.discoverServices()
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                DeviceLog.append(DeviceLog.Category.BLE, "GATT disconnected")
                 _state.update { it.copy(connection = Connection.IDLE, revision = null) }
             }
         }
@@ -177,7 +182,11 @@ class AegisBleClient(private val context: Context) {
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
             val bytes = c.value ?: return
             if (c.uuid == BleContract.CHAR_STATUS && bytes.isNotEmpty()) {
-                _state.update { it.copy(status = bytes[0].toInt() and 0xFF) }
+                val statusByte = bytes[0].toInt() and 0xFF
+                _state.update { it.copy(status = statusByte) }
+                val statusLabel = BleContract.statusLabel(statusByte)
+                val kind = if (statusByte == BleContract.STATUS_PROCESSING) "keepalive" else "notify"
+                DeviceLog.append(DeviceLog.Category.BLE, "RX FFF2 " + kind + " status=" + statusLabel + " (0x" + String.format("%02X", statusByte) + ")")
                 SanitizedLog.record(SanitizedLog.Event.STATUS_NOTIFY)
             } else {
                 synchronized(notifyBuffer) {
@@ -204,9 +213,11 @@ class AegisBleClient(private val context: Context) {
         SanitizedLog.record(SanitizedLog.Event.REVISION_OK)
         if (subscribeStatus(g)) {
             _state.update { it.copy(connection = Connection.READY, error = null) }
+            DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 ok")
             SanitizedLog.record(SanitizedLog.Event.DEVICE_CONNECTED)
         } else {
             _state.update { it.copy(connection = Connection.ERROR, error = "subscribe failed") }
+            DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 failed")
         }
     }
 
@@ -274,25 +285,36 @@ class AegisBleClient(private val context: Context) {
         val frags = AegisBridge.splitFragments(BleContract.OP_MSG, payload).getOrNull()
             ?: run {
                 _state.update { it.copy(error = "fragment failed") }
+                DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_MSG(0x83) fragment failed")
                 return null
             }
+        val cmdName = ctapName(payload.firstOrNull()?.toInt()?.and(0xFF))
+        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_MSG(0x83) cmd=" + cmdName + " frags=" + frags.size + " bytes=" + payload.size)
         synchronized(notifyBuffer) { notifyBuffer.clear() }
         val control = char(BleContract.CHAR_CONTROL) ?: return null
         for (frag in frags) {
-            if (!writeBytes(control, frag)) return null
+            if (!writeBytes(control, frag)) {
+                DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_MSG(0x83) write failed")
+                return null
+            }
         }
         SanitizedLog.record(SanitizedLog.Event.CTAP_SENT)
         val response = withTimeoutOrNull(timeoutMs) {
             while (_state.value.status != BleContract.STATUS_IDLE || notifySize() == 0) delay(50)
             drainNotify()
-        } ?: return null
+        } ?: run {
+            DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 no response (timeout/UP?)")
+            return null
+        }
         _state.update { it.copy(lastResponseSize = response.size) }
+        DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 bytes=" + response.size)
         SanitizedLog.record(SanitizedLog.Event.CTAP_RESPONSE)
         return response
     }
 
     /** Single-byte CANCEL (0xBE): aborts the active transaction. */
     suspend fun cancel(): Boolean {
+        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_CANCEL(0xBE)")
         val control = char(BleContract.CHAR_CONTROL) ?: return false
         return writeBytes(control, byteArrayOf(BleContract.OP_CANCEL.toByte()))
     }
@@ -300,15 +322,26 @@ class AegisBleClient(private val context: Context) {
     /** PING echo (no CtapEngine involved, per contract). */
     suspend fun ping(payload: ByteArray): ByteArray? {
         val frags = AegisBridge.splitFragments(BleContract.OP_PING, payload).getOrNull() ?: return null
+        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_PING(0x81) bytes=" + payload.size)
         val control = char(BleContract.CHAR_CONTROL) ?: return null
         synchronized(notifyBuffer) { notifyBuffer.clear() }
         for (frag in frags) {
             if (!writeBytes(control, frag)) return null
         }
-        return withTimeoutOrNull(4000) {
+        val echoed = withTimeoutOrNull(4000) {
             while (notifySize() == 0) delay(50)
             drainNotify()
         }
+        if (echoed != null) DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 PING bytes=" + echoed.size)
+        return echoed
+    }
+
+    private fun ctapName(cmd: Int?): String = when (cmd) {
+        BleContract.CTAP_CMD_MAKE_CREDENTIAL -> "0x01 make-credential"
+        BleContract.CTAP_CMD_GET_ASSERTION -> "0x02 get-assertion"
+        BleContract.CTAP_CMD_GET_INFO -> "0x04 get-info"
+        null -> "none"
+        else -> "0x" + String.format("%02X", cmd)
     }
 
     private fun notifySize(): Int = synchronized(notifyBuffer) { notifyBuffer.size }

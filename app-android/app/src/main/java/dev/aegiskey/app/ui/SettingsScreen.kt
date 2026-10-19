@@ -52,7 +52,7 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onOpenLog: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { SecureStore(context) }
     val scope = rememberCoroutineScope()
@@ -114,6 +114,11 @@ fun SettingsScreen() {
             OutlinedButton(onClick = { wipeStep = 1 }) { Text("Wipe local app data") }
             Text("Erases encrypted prefs + saved envelopes on THIS phone. Device untouched.")
 
+            OutlinedButton(onClick = onOpenLog) { Text("Abrir Log do dispositivo") }
+            Text(
+                "Texto ao vivo do device (FFF1/FFF2 + HTTP). ltrace completo via serial.",
+                style = MaterialTheme.typography.bodySmall
+            )
             Text("Sanitized log", style = MaterialTheme.typography.titleMedium)
             for (line in SanitizedLog.snapshot().takeLast(20)) {
                 Text(line, style = MaterialTheme.typography.bodySmall)
