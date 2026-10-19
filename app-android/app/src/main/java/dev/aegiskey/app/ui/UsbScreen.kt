@@ -43,23 +43,30 @@ fun UsbScreen(onUseBle: () -> Unit = {}) {
         onDispose { usb.release() }
     }
 
+    val searching = busy || ui.state == UsbCtaphid.State.SEARCHING
+    val waitingPermission = ui.state == UsbCtaphid.State.PERMISSION_NEEDED
+    val connected = ui.state == UsbCtaphid.State.CONNECTED
+
     Scaffold(topBar = { TopAppBar(title = { Text("Conectar USB", maxLines = 1, overflow = TextOverflow.Ellipsis) }) }) { inner ->
         AegisScreenColumn(inner = inner) {
             SectionTitle("Chave via cabo (USB host)")
             FriendlyText(text = "Estado: " + ui.label, maxLines = 2)
             ui.error?.let {
-                Text("Erro: " + it, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Erro: " + it, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
-            if (busy) CircularProgressIndicator()
+            if (searching) CircularProgressIndicator()
 
             Button(
                 onClick = {
                     scope.launch {
                         busy = true
+                        detail = "Procurando..."
                         try {
+                            usb.markSearching()
                             val device = usb.findDevice()
                             if (device == null) {
-                                detail = "AegisKey nao achada (VID 0x303A / PID 0xAE61). Confira o cabo OTG."
+                                usb.noteNotFound()
+                                detail = "AegisKey nao achada. Confira o cabo OTG. Tente de novo ou use BLE."
                             } else {
                                 usb.requestPermission(device)
                                 detail = "Confirme a permissao no dialogo do sistema."
@@ -69,7 +76,7 @@ fun UsbScreen(onUseBle: () -> Unit = {}) {
                         }
                     }
                 },
-                enabled = !busy && ui.state != UsbCtaphid.State.CONNECTED,
+                enabled = !busy && !connected && !waitingPermission && ui.state != UsbCtaphid.State.SEARCHING,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Procurar AegisKey USB", maxLines = 1, overflow = TextOverflow.Ellipsis) }
 
@@ -85,17 +92,20 @@ fun UsbScreen(onUseBle: () -> Unit = {}) {
                         }
                     }
                 },
-                enabled = !busy && ui.state == UsbCtaphid.State.CONNECTED,
+                enabled = !busy && connected,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Testar conexao (PING)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
 
             OutlinedButton(
-                onClick = { usb.close() },
-                enabled = ui.state == UsbCtaphid.State.CONNECTED,
+                onClick = {
+                    usb.close()
+                    detail = "Desconectado. Toque em Procurar para tentar de novo."
+                },
+                enabled = ui.state != UsbCtaphid.State.IDLE,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Desconectar USB", maxLines = 1, overflow = TextOverflow.Ellipsis) }
 
-            FriendlyText(text = detail, maxLines = 3)
+            FriendlyText(text = detail, maxLines = 4)
             FriendlyText(
                 text = "Sem cabo ou sem resposta? Use BLE (sem fio).",
                 style = MaterialTheme.typography.bodySmall,
