@@ -35,6 +35,14 @@ use aegis_fido_usb::ctaphid::{
     CtapHidFramer, RawPacket, CAPABILITY_CBOR, CAPABILITY_WINK, CMD_CANCEL, CMD_CBOR, CMD_INIT,
     CMD_MSG, CMD_PING, CMD_WINK, PACKET_SIZE, STATUS_UPNEEDED,
 };
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+use aegis_fido_firmware::{
+    ota::{OtaState, OP_OTA_COMMIT},
+    persistence::{
+        dispatch_ota_request, is_ota_op, FlashOtaSink, OtaRequestCtx, OTA_STATUS_FAIL,
+        OTA_STATUS_OK,
+    },
+};
 use core::time::Duration;
 
 #[cfg(target_os = "espidf")]
@@ -335,6 +343,17 @@ fn main() {
     app_main();
 }
 
+/// Running firmware version (monotonic u32; OTA manifests must exceed it).
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+const FIRMWARE_VERSION: u32 = 1;
+
+/// Offline release Ed25519 pubkey (factory-provisioned).
+///
+/// Zeros = fail-closed deny until the factory programs the real release
+/// key: `VerifyingKey::from_bytes` rejects it and every FINISH fails.
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+const OTA_RELEASE_PUBKEY: [u8; 32] = [0u8; 32];
+
 fn run_authenticator() {
     kprintln!("\r\n============================================================");
     kprintln!("   AegisKey S3 Authenticator - Firmware Booting up");
@@ -516,6 +535,9 @@ fn run_authenticator() {
     let mut tick: u64 = 0;
     let mut touch_latched = false;
     let mut touch_expire_tick: u64 = 0;
+    // OTA staged verify-before-swap session (R-04/R-06; USB section C only).
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    let mut ota_state = OtaState::new(FIRMWARE_VERSION);
 
     let mut press_start_tick: Option<u64> = None;
     let mut totp_display_until: u64 = 0;
@@ -1052,6 +1074,76 @@ fn run_authenticator() {
                                 }
                             }
                             CMD_CBOR | CMD_MSG => {
+                                // OTA vendor 0x30-0x34 over CMD_MSG (R-04/R-06):
+                                // staged verify-before-swap; COMMIT consumes the UP latch.
+                                // Any OtaError rolls back (NVS intact); real esp-ota
+                                // partition swap = factory follow-up.
+                                let ota_op = if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && is_ota_op(msg.payload[0])
+                                {
+                                    Some(msg.payload[0])
+                                } else {
+                                    None
+                                };
+                                if let Some(op) = ota_op {
+                                    let ota_ctx = OtaRequestCtx {
+                                        provisioned: load_device_keys(&efuse_mgr).is_ok(),
+                                        up: touch_latched,
+                                        ota_pubkey: OTA_RELEASE_PUBKEY,
+                                        current_version: FIRMWARE_VERSION,
+                                    };
+                                    let mut ota_sink =
+                                        FlashOtaSink::new(storage.backend_mut());
+                                    let (ota_consumed_up, ota_resp) = match dispatch_ota_request(
+                                        &mut ota_state,
+                                        &mut ota_sink,
+                                        op,
+                                        &msg.payload[1..],
+                                        &ota_ctx,
+                                    ) {
+                                        Some((st, body)) => {
+                                            if st == OTA_STATUS_OK {
+                                                kprintln!(
+                                                    "[OTA] op 0x{:02X} ok (phase {:?}).",
+                                                    op,
+                                                    ota_state.phase()
+                                                );
+                                            } else {
+                                                kprintln!(
+                                                    "[OTA] op 0x{:02X} denied (status 0x{:02X}, phase {:?}).",
+                                                    op,
+                                                    st,
+                                                    ota_state.phase()
+                                                );
+                                            }
+                                            let mut out = Vec::with_capacity(1 + body.len());
+                                            out.push(st);
+                                            out.extend_from_slice(&body);
+                                            (st == OTA_STATUS_OK && op == OP_OTA_COMMIT, out)
+                                        }
+                                        // Unreachable (pre-filtered by is_ota_op): fail-closed.
+                                        None => (false, vec![OTA_STATUS_FAIL]),
+                                    };
+                                    if ota_consumed_up {
+                                        touch_latched = false;
+                                        rescue_engine.set_user_presence(true);
+                                    }
+                                    let ota_pkts = CtapHidFramer::frame_message(
+                                        msg.cid,
+                                        msg.cmd,
+                                        &ota_resp,
+                                    );
+                                    for p in ota_pkts {
+                                        unsafe {
+                                            aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                    kprintln!(
+                                        "[CTAPHID] Sent OTA response ({} bytes)",
+                                        ota_resp.len()
+                                    );
+                                } else {
                                 // 1. Determine if this command requires User Presence (UP)
                                 let ctap_subcmd = if !msg.payload.is_empty() {
                                     msg.payload[0]
@@ -1255,6 +1347,7 @@ fn run_authenticator() {
                                         status_text: "Aguardando solicitação FIDO2...".into(),
                                     });
                                 }
+                                } // end OTA else (non-OTA CTAP routing above untouched)
                             }
                             _ => {
                                 let err_pkt = CtapHidFramer::frame_error(msg.cid, 0x01); // ERR_INVALID_CMD

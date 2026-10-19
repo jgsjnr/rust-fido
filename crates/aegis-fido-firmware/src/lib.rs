@@ -22,6 +22,7 @@ pub mod lifetime_trace;
 pub mod mdns;
 pub mod migrations;
 pub mod oath_store;
+pub mod ota;
 pub mod pairing;
 pub mod pairing_flow;
 pub mod pairing_led;

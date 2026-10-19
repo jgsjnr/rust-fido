@@ -19,6 +19,7 @@ Safety:
 """
 import argparse
 import hashlib
+import json
 import secrets
 import sys
 
@@ -44,6 +45,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Plan + fingerprints only, no hardware")
     ap.add_argument("--confirm", action="store_true", help="Required for real eFuse burn")
     ap.add_argument("--port", default=None, help="Serial port for real burn (e.g. COM7)")
+    ap.add_argument("--ota-pubkey", default=None,
+                    help="128 hex chars (64B ed25519 OTA release pubkey); default fresh TRNG")
+    ap.add_argument("--emit-registry", action="store_true",
+                    help="Print registry JSON entry (fingerprints only, never raw keys) to stdout")
     args = ap.parse_args()
 
     if not valid_serial(args.serial):
