@@ -19,6 +19,11 @@ use crate::credential::KeyManagerError;
 use crate::crypto::hash::sha256;
 use crate::crypto::PublicKey;
 
+/// Keccak-256 output bytes skipped to keep the last 20 (EVM address length).
+const EVM_ADDRESS_SKIP: usize = 12;
+/// EIP-55: checksum-case bit — hash nibble at or above this uppercases the letter.
+const EIP55_UPPER_NIBBLE: u8 = 8;
+
 /// Derives a mainnet P2WPKH (BIP-173 segwit v0) address from a 33-byte
 /// compressed secp256k1 public key.
 pub fn bitcoin_p2wpkh_address(compressed_sec1: &[u8; 33]) -> String {
@@ -33,7 +38,7 @@ pub fn bitcoin_p2wpkh_address(compressed_sec1: &[u8; 33]) -> String {
 /// secp256k1 public key (`x || y`, no `0x04` prefix).
 pub fn ethereum_address(uncompressed_64: &[u8; 64]) -> String {
     let hash = Keccak256::digest(uncompressed_64);
-    let lower = hex::encode(&hash[12..32]);
+    let lower = hex::encode(&hash[EVM_ADDRESS_SKIP..32]);
     let checksum_source = Keccak256::digest(lower.as_bytes());
     let mut out = String::with_capacity(42);
     out.push_str("0x");
@@ -43,7 +48,7 @@ pub fn ethereum_address(uncompressed_64: &[u8; 64]) -> String {
         } else {
             checksum_source[i / 2] & 0x0f
         };
-        if c.is_ascii_alphabetic() && nibble >= 8 {
+        if c.is_ascii_alphabetic() && nibble >= EIP55_UPPER_NIBBLE {
             out.push(c.to_ascii_uppercase() as char);
         } else {
             out.push(c as char);
