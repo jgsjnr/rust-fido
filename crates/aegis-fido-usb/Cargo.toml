@@ -10,6 +10,8 @@ repository.workspace = true
 aegis-fido-core = { path = "../aegis-fido-core" }
 log = { workspace = true }
 zeroize = { workspace = true }
+sha2 = { workspace = true }
+rand_core = { workspace = true }
 
 [features]
 # LAB-ONLY: habilita mocks PIV (FCI/CHUID/CCC) para testes de laboratorio.

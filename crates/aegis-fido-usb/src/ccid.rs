@@ -50,6 +50,20 @@ pub const SW_WRONG_P1P2: (u8, u8) = (0x6B, 0x00);
 pub const SW_INS_NOT_SUPPORTED: (u8, u8) = (0x6D, 0x00);
 pub const SW_CLA_NOT_SUPPORTED: u8 = 0x6E;
 pub const SW_UNKNOWN_ERROR: (u8, u8) = (0x6F, 0x00);
+/// PIV VERIFY failed, retries remain: SW1 `0x63`, SW2 `0xC0 | remaining`.
+/// Use [`sw_retries_left`] to build it (no magic `0xC0` at call sites).
+pub const SW_RETRY_BASE: u8 = 0x63;
+/// Referenced data not found (e.g. PIV PIN never provisioned): `6A 88`.
+pub const SW_REFERENCED_DATA_NOT_FOUND: (u8, u8) = (0x6A, 0x88);
+/// Wrong data field content (malformed PIV TLV): `6A 80`.
+pub const SW_WRONG_DATA: (u8, u8) = (0x6A, 0x80);
+/// Authentication method blocked (PIN blocked → use PUK; PUK exhausted → wiped): `69 83`.
+pub const SW_AUTH_BLOCKED: (u8, u8) = (0x69, 0x83);
+
+/// Builds a VERIFY-failed status word: `63 CX` with `X = remaining` (0..=15).
+pub fn sw_retries_left(remaining: u8) -> (u8, u8) {
+    (SW_RETRY_BASE, 0xC0 | (remaining & 0x0F))
+}
 
 // ============================================================================
 // Well-known Application IDs (AID)
@@ -62,6 +76,34 @@ pub const AID_FIDO_U2F: &[u8] = &[0xA0, 0x00, 0x00, 0x06, 0x47, 0x2F, 0x00, 0x01
 
 /// PIV (Personal Identity Verification) Application ID: A0 00 00 03 08
 pub const AID_PIV: &[u8] = &[0xA0, 0x00, 0x00, 0x03, 0x08];
+
+// ============================================================================
+// PIV data-object tags (NIST SP 800-73-4) + MSCP view (PARCIAL, Wave 1 Step 1)
+// ============================================================================
+//
+// MSCP = como o Windows (BaseCSP/minidriver via WinSCard) enxerga o cartão:
+// CHUID + CCC + X.509 por slot com SAN/UPN para logon. Status nesta wave:
+//
+// | Tag        | Objeto (800-73)              | Status Wave 1 Step 1                    |
+// |------------|------------------------------|---------------------------------------------|
+// | `5F C1 02` | CHUID                      | Servido (mock LAB-ONLY, inalterado)         |
+// | `5F C1 07` | CCC                        | Servido (mock LAB-ONLY, inalterado)         |
+// | `5F C1 05` | X.509 Certificate          | Servido via PUT DATA (slot = último slot   |
+// |            |                            | endereçado por P2, default `9A`)            |
+// | `5F C1 06` | Security Object            | TODO: exige certs reais + assinatura do SO  |
+// | `7E`       | Discovery Object           | TODO: GET DISCOVERY dedicado (fora do lab)  |
+// | biom./face | `5F C1 03`/`5F C1 08`/etc. | TODO: fora do escopo lab                    |
+//
+// TODO documentados (não inventados aqui): SAN/UPN no cert (enrollment PKI/AD,
+// guia futuro), agents Linux/mac (host-side), Security Object assinado. GET DATA
+// de tag fora da tabela acima continua `6A 82`, como antes.
+//
+/// PIV CHUID tag (`5F C1 02`).
+pub const PIV_TAG_CHUID: [u8; 3] = [0x5F, 0xC1, 0x02];
+/// PIV CCC tag (`5F C1 07`).
+pub const PIV_TAG_CCC: [u8; 3] = [0x5F, 0xC1, 0x07];
+/// PIV X.509 Certificate tag (`5F C1 05`).
+pub const PIV_TAG_X509_CERT: [u8; 3] = [0x5F, 0xC1, 0x05];
 
 /// Active Applet selected on the SmartCard interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -580,5 +622,71 @@ mod tests {
         // Assert
         let apdu_resp = &resp[10..];
         assert_eq!(apdu_resp[apdu_resp.len() - 2..], [0x69, 0x85]);
+    }
+
+    #[test]
+    fn should_route_verify_unprovisioned_via_transport() {
+        // Arrange
+        let mut transport = CcidTransport::new();
+        let mut handler = DefaultCcidHandler;
+        transport.card_powered = true;
+        let mut select = vec![0x00, 0xA4, 0x04, 0x00, 0x05];
+        select.extend_from_slice(AID_PIV);
+        let _ = transport
+            .process_ccid_message(&xfr_block(&select, 1), &mut handler)
+            .unwrap();
+        assert_eq!(transport.selected_applet, SelectedApplet::Piv);
+
+        // Act: VERIFY sem PIN provisionado (transporte puro, sem NVS)
+        let verify = vec![0x00, 0x20, 0x00, 0x80, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36];
+        let resp = transport
+            .process_ccid_message(&xfr_block(&verify, 2), &mut handler)
+            .unwrap();
+
+        // Assert: fail-closed `6A 88` (sem PIN default), applet segue selecionado
+        let apdu_resp = &resp[10..];
+        assert_eq!(apdu_resp[apdu_resp.len() - 2..], [0x6A, 0x88]);
+        assert_eq!(transport.selected_applet, SelectedApplet::Piv);
+    }
+
+    #[test]
+    fn should_reject_put_without_pin_via_transport() {
+        // Arrange
+        let mut transport = CcidTransport::new();
+        let mut handler = DefaultCcidHandler;
+        transport.card_powered = true;
+        let mut select = vec![0x00, 0xA4, 0x04, 0x00, 0x05];
+        select.extend_from_slice(AID_PIV);
+        let _ = transport
+            .process_ccid_message(&xfr_block(&select, 1), &mut handler)
+            .unwrap();
+
+        // Act: PUT DATA sem VERIFY prévio
+        let put = vec![
+            0x00, 0xDB, 0x3F, 0x9A, 0x0A, 0x5C, 0x03, 0x5F, 0xC1, 0x05, 0x53, 0x03, 0x30, 0x00,
+            0x01,
+        ];
+        let resp = transport
+            .process_ccid_message(&xfr_block(&put, 2), &mut handler)
+            .unwrap();
+
+        // Assert: gate de PIN `69 82` de ponta a ponta
+        let apdu_resp = &resp[10..];
+        assert_eq!(apdu_resp[apdu_resp.len() - 2..], [0x69, 0x82]);
+    }
+
+    #[test]
+    fn should_expose_mscp_tag_table() {
+        // Arrange + Act: tabela MSCP (parcial, documentada em `AID_PIV`)
+
+        // Assert: tags distintas, CHUID/CCC/cert cobertos
+        assert_ne!(PIV_TAG_CHUID, PIV_TAG_CCC);
+        assert_ne!(PIV_TAG_CHUID, PIV_TAG_X509_CERT);
+        assert_ne!(PIV_TAG_CCC, PIV_TAG_X509_CERT);
+        assert_eq!(PIV_TAG_CHUID, [0x5F, 0xC1, 0x02]);
+        assert_eq!(PIV_TAG_CCC, [0x5F, 0xC1, 0x07]);
+        assert_eq!(PIV_TAG_X509_CERT, [0x5F, 0xC1, 0x05]);
+        assert_eq!(sw_retries_left(3), (0x63, 0xC3));
+        assert_eq!(sw_retries_left(0), (0x63, 0xC0));
     }
 }

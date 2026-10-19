@@ -33,6 +33,13 @@ pub const CMD_VAULT_IMPORT: u8 = 0x04;
 pub const CMD_DEVICE_INFO: u8 = 0x05;
 pub const CMD_CONFIG_UPDATE: u8 = 0x06;
 pub const CMD_OATH_COMMAND: u8 = 0x07;
+pub const CMD_CHALLENGE: u8 = 0x08;
+pub const CMD_CHALLENGE_RESPONSE: u8 = 0x09;
+
+/// Challenge Ed25519 (32B TRNG no device, só Ed25519).
+pub const WINUSB_CHALLENGE_LEN: usize = 32;
+/// Envelope mínimo AEGN de verificação: MAGIC[4] + VER[1] + challenge[32] + sig[64].
+pub const WINUSB_CHALLENGE_ENVELOPE_MIN: usize = 4 + 1 + 32 + 64;
 
 // ============================================================================
 // WinUSB Bulk Status Codes
@@ -101,6 +108,45 @@ impl WinUsbMessage {
         }
         packets
     }
+}
+
+/// Solicitação de challenge (app -> device): payload vazio, bulk OUT 0x02.
+pub fn build_challenge_request() -> WinUsbMessage {
+    WinUsbMessage::ok(CMD_CHALLENGE, Vec::new())
+}
+
+/// Resposta de challenge (device -> app, bulk IN 0x82): challenge 32B.
+pub fn build_challenge_payload_msg(challenge: &[u8; WINUSB_CHALLENGE_LEN]) -> WinUsbMessage {
+    WinUsbMessage::ok(CMD_CHALLENGE, challenge.to_vec())
+}
+
+/// Extrai o challenge 32B de um `WinUsbMessage` (valida cmd + tamanho).
+pub fn parse_challenge_payload(msg: &WinUsbMessage) -> Result<[u8; WINUSB_CHALLENGE_LEN], &'static str> {
+    if msg.cmd != CMD_CHALLENGE {
+        return Err("Invalid WinUSB challenge command");
+    }
+    if msg.payload.len() != WINUSB_CHALLENGE_LEN {
+        return Err("Invalid WinUSB challenge length");
+    }
+    let mut challenge = [0u8; WINUSB_CHALLENGE_LEN];
+    challenge.copy_from_slice(&msg.payload);
+    Ok(challenge)
+}
+
+/// Envelope de verificação (device -> app): AEGN 101B via bulk IN 0x82.
+pub fn build_challenge_response_msg(envelope: Vec<u8>) -> WinUsbMessage {
+    WinUsbMessage::ok(CMD_CHALLENGE_RESPONSE, envelope)
+}
+
+/// Extrai o envelope AEGN de um `WinUsbMessage` (valida cmd + min len).
+pub fn parse_challenge_envelope_msg(msg: &WinUsbMessage) -> Result<Vec<u8>, &'static str> {
+    if msg.cmd != CMD_CHALLENGE_RESPONSE {
+        return Err("Invalid WinUSB challenge-response command");
+    }
+    if msg.payload.len() < WINUSB_CHALLENGE_ENVELOPE_MIN {
+        return Err("Invalid WinUSB challenge envelope length");
+    }
+    Ok(msg.payload.clone())
 }
 
 /// WinUSB streaming deframer for receiving bulk transfers.
@@ -314,5 +360,64 @@ mod tests {
                                                                // Verify "WINUSB" string exists in the descriptor set
         let winusb_bytes = b"WINUSB";
         assert!(set.windows(6).any(|w| w == winusb_bytes));
+    }
+
+    #[test]
+    fn should_transport_32b_challenge_via_bulk_packets() {
+        let challenge = [0xA5u8; WINUSB_CHALLENGE_LEN];
+        let msg = build_challenge_payload_msg(&challenge);
+        assert_eq!(msg.cmd, CMD_CHALLENGE);
+        assert_eq!(msg.payload.len(), WINUSB_CHALLENGE_LEN);
+
+        // Bulk OUT 0x02 -> bulk IN 0x82 via 64B packets + deframer
+        let packets = msg.to_bulk_packets();
+        assert!(!packets.is_empty());
+        assert!(packets.iter().all(|p| p.len() <= BULK_CHUNK_SIZE));
+
+        let mut deframer = WinUsbDeframer::new();
+        let mut assembled = None;
+        for pkt in &packets {
+            if let Some(m) = deframer.feed(pkt).unwrap() {
+                assembled = Some(m);
+            }
+        }
+        let back = parse_challenge_payload(&assembled.unwrap()).unwrap();
+        assert_eq!(back, challenge);
+    }
+
+    #[test]
+    fn should_transport_envelope_via_bulk_and_reject_bad_len() {
+        // Envelope AEGN 101B: MAGIC + VER + challenge(32) + sig(64)
+        let mut envelope = Vec::with_capacity(WINUSB_CHALLENGE_ENVELOPE_MIN);
+        envelope.extend_from_slice(&[0x41, 0x45, 0x47, 0x4E]);
+        envelope.push(0x01);
+        envelope.extend_from_slice(&[0x11u8; 32]);
+        envelope.extend_from_slice(&[0x22u8; 64]);
+        assert_eq!(envelope.len(), WINUSB_CHALLENGE_ENVELOPE_MIN);
+
+        let msg = build_challenge_response_msg(envelope.clone());
+        assert_eq!(msg.cmd, CMD_CHALLENGE_RESPONSE);
+
+        let packets = msg.to_bulk_packets();
+        let mut deframer = WinUsbDeframer::new();
+        let mut assembled = None;
+        for pkt in &packets {
+            if let Some(m) = deframer.feed(pkt).unwrap() {
+                assembled = Some(m);
+            }
+        }
+        let back = parse_challenge_envelope_msg(&assembled.unwrap()).unwrap();
+        assert_eq!(back, envelope);
+
+        // Rejeita cmd errado e payload curto na borda
+        let wrong_cmd = WinUsbMessage::ok(CMD_PING, envelope.clone());
+        assert!(parse_challenge_envelope_msg(&wrong_cmd).is_err());
+        let short = WinUsbMessage::ok(CMD_CHALLENGE_RESPONSE, vec![0x00; 10]);
+        assert!(parse_challenge_envelope_msg(&short).is_err());
+        let bad_len = WinUsbMessage::ok(CMD_CHALLENGE, vec![0x00; 10]);
+        assert!(parse_challenge_payload(&bad_len).is_err());
+        let req = build_challenge_request();
+        assert_eq!(req.cmd, CMD_CHALLENGE);
+        assert!(req.payload.is_empty());
     }
 }

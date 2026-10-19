@@ -74,6 +74,8 @@ dependencies = [
  "aegis-fido-core",
  "hex",
  "log",
+ "rand_core",
+ "sha2",
  "zeroize",
 ]
 
