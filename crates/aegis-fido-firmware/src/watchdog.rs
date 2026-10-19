@@ -13,7 +13,14 @@ pub struct Watchdog {
 
 impl Watchdog {
     /// Creates a watchdog with a tick timeout (ticks are 10ms in `main`).
+    /// On `espidf` subscribes the calling task to the TWDT once so `feed`
+    /// never logs `task not found` (subscribe-then-reset is the IDF contract).
     pub fn new(timeout_ticks: u64) -> Self {
+        #[cfg(target_os = "espidf")]
+        unsafe {
+            // Already-subscribed tasks return an error which we ignore.
+            let _ = esp_idf_sys::esp_task_wdt_add(core::ptr::null_mut());
+        }
         Self {
             last_feed_tick: 0,
             timeout_ticks,

@@ -192,10 +192,27 @@ fn run_authenticator() {
     let efuse_storage = RamEfuseStorage::new();
     let efuse_mgr = EfuseManager::new(efuse_storage);
 
-    let keys = load_device_keys(&efuse_mgr).expect("provision: factory required on device");
+    let keys = match load_device_keys(&efuse_mgr) {
+        Ok(keys) => {
+            kprintln!("[INIT] Hardware Master Key & Salt loaded from eFuse OTP.");
+            keys
+        }
+        Err(e) => {
+            // Fail-operational: dispositivo sem provisionamento de fabrica.
+            // Gera chaves efemeras via TRNG (RAM, zeradas no reboot) e segue o boot
+            // com comportamento identico ao modo dev anterior. NUNCA panic no boot.
+            kprintln!("[WARN] eFuse nao provisionado ({e:?}); usando chaves efemeras TRNG (modo DEV, sem persistencia entre reboots). Rode tools/factory_provision.py para provisionar.");
+            use rand_core::RngCore;
+            let mut rng = rand_core::OsRng;
+            let mut master_key = [0u8; 32];
+            let mut salt = [0u8; 32];
+            rng.fill_bytes(&mut master_key);
+            rng.fill_bytes(&mut salt);
+            aegis_fido_firmware::provision::DeviceKeys { master_key, device_salt: salt }
+        }
+    };
     let master_key = keys.master_key;
     let salt = keys.device_salt;
-    kprintln!("[INIT] Hardware Master Key & Salt loaded from eFuse OTP.");
 
     // 3. Initialize Encrypted Flash / NVS Persistence
     kprintln!("[INIT] Initializing AES-256-GCM Encrypted Storage...");
