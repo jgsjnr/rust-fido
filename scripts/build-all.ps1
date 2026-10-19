@@ -7,7 +7,11 @@
 [CmdletBinding()]
 param(
     [switch]$SkipApk,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$Flash,
+    [switch]$OnlyFlash,
+    [string]$PortS3 = "COM7",
+    [string]$PortClassic = "COM8"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,11 +24,12 @@ function New-Lane($name, [scriptblock]$code) {
 }
 
 $lanes = @()
+if (-not $OnlyFlash) {
 if (-not $SkipTests) {
     $lanes += New-Lane "host-test" {
-        Set-Location $using:repoRoot
         $env:CARGO_BUILD_JOBS = "3"
         $t0 = Get-Date
+        Set-Location $using:repoRoot
         & cargo test --workspace 2>&1 | Select-Object -Last 5
         [pscustomobject]@{ lane = "host-test"; exit = $LASTEXITCODE; secs = [int]((Get-Date) - $t0).TotalSeconds }
     }
@@ -65,6 +70,7 @@ if (-not $SkipApk) {
         [pscustomobject]@{ lane = "apk"; exit = $LASTEXITCODE; secs = [int]((Get-Date) - $t0).TotalSeconds; size = $a.Length }
     }
 }
+} # fim if -not OnlyFlash
 
 Write-Host "Aguardando $($lanes.Count) pistas..." -ForegroundColor Cyan
 $results = $lanes | ForEach-Object { Receive-Job -Job $_.Job -Wait -AutoRemoveJob } | Where-Object { $null -ne $_.PSObject.Properties['lane'] -and $_.lane }
@@ -73,5 +79,15 @@ foreach ($r in $results) {
     $c = if ($r.exit -eq 0) { "Green" } else { "Red"; $fail++ }
     Write-Host ("[{0}] exit={1} {2}" -f $r.lane, $r.exit, (($r | Select-Object sha, size, secs | Out-String).Trim())) -ForegroundColor $c
 }
-if ($fail -eq 0) { Write-Host "BUILD-ALL OK" -ForegroundColor Green; exit 0 }
-else { Write-Host ("BUILD-ALL FAIL: {0} pista(s)" -f $fail) -ForegroundColor Red; exit 1 }
+if ($fail -ne 0) { Write-Host ("BUILD-ALL FAIL: {0} pista(s)" -f $fail) -ForegroundColor Red; exit 1 }
+if (-not $Flash -and -not $OnlyFlash) { Write-Host "BUILD-ALL OK (só build)." -ForegroundColor Green; exit 0 }
+Write-Host "=== FLASH (S3 -> classic, sequencial por segurança) ===" -ForegroundColor Cyan
+if (-not $OnlyFlash) {
+    Write-Host "Bins já validados acima (hash + tamanho)." -ForegroundColor Gray
+}
+& "$repoRoot/scripts/build-esp32s3-devkitc.ps1" -OnlyFlash -Port $PortS3
+if ($LASTEXITCODE -ne 0) { Write-Host "FLASH S3 FALHOU." -ForegroundColor Red; exit 1 }
+& "$repoRoot/scripts/build-esp32-ttgo.ps1" -OnlyFlash -Port $PortClassic
+if ($LASTEXITCODE -ne 0) { Write-Host "FLASH CLASSIC FALHOU." -ForegroundColor Red; exit 1 }
+Write-Host "BUILD-ALL OK (build + flash)." -ForegroundColor Green
+exit 0

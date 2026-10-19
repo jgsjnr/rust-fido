@@ -209,6 +209,7 @@ function Invoke-FirmwareElf2Image {
     }
 
     Write-Success "Binario gerado: $outBinPath"
+    Test-FirmwareArtifact -BinPath $outBinPath | Out-Null
     return $outBinPath
 }
 
@@ -228,6 +229,7 @@ function Invoke-FirmwareFlash {
         throw "Arquivo binario nao encontrado em '$BinPath'."
     }
 
+    Test-FirmwareArtifact -BinPath $BinPath | Out-Null
     $targetPort = Select-TargetPort $Port
     Write-Info "Gravando firmware na placa via $targetPort ($Chip a $Baud bps)..."
 
@@ -265,4 +267,31 @@ function Invoke-SerialMonitor {
     Write-Info "Abrindo monitor serial em $Port a $Baud bps por $DurationSecs segundos..."
     $cmd = "import serial, time; ser = serial.Serial('$Port', $Baud, timeout=0.5); ser.setDTR(False); ser.setRTS(True); time.sleep(0.1); ser.setRTS(False); t0 = time.time(); [print(ser.readline().decode('utf-8', errors='replace'), end='') for _ in iter(lambda: time.time() - t0 < $DurationSecs, False) if ser.in_waiting > 0]; ser.close()"
     & python -c $cmd
+}
+
+# 8. Tamanho maximo da particao factory (lido do partitions.csv, sem hardcode)
+function Get-FactoryMaxSize {
+    $csv = Join-Path $global:RepoRoot "crates/aegis-fido-firmware/partitions.csv"
+    foreach ($line in (Get-Content -LiteralPath $csv)) {
+        $t = $line.Trim()
+        if ($t -eq "" -or $t.StartsWith("#")) { continue }
+        $cols = $t -split "\s*,\s*"
+        if ($cols[0] -eq "factory") { return [Convert]::ToInt64($cols[4], 16) }
+    }
+    throw "Particao factory nao encontrada em partitions.csv."
+}
+
+# 9. Hash + tamanho + validacao do artefato (gera .sha256 sidecar)
+function Test-FirmwareArtifact {
+    param([Parameter(Mandatory=$true)] [string]$BinPath)
+    if (-not (Test-Path -LiteralPath $BinPath)) { throw "Binario nao encontrado: $BinPath" }
+    $f = Get-Item -LiteralPath $BinPath
+    $sha = (Get-FileHash -LiteralPath $BinPath -Algorithm SHA256).Hash
+    $max = Get-FactoryMaxSize
+    Write-Host ("  SHA256: {0}" -f $sha) -ForegroundColor Gray
+    Write-Host ("  SIZE:   {0} bytes (max factory: {1})" -f $f.Length, $max) -ForegroundColor Gray
+    "$sha  $($f.Name)" | Set-Content -LiteralPath ($BinPath + ".sha256") -Encoding ASCII
+    if ($f.Length -gt $max) { throw ("Imagem ({0} B) nao cabe na factory ({1} B)." -f $f.Length, $max) }
+    Write-Success "Artefato validado (hash + tamanho)."
+    return $sha
 }
