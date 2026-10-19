@@ -57,7 +57,7 @@ if (-not $SkipApk) {
 }
 
 Write-Host "Aguardando $($lanes.Count) pistas..." -ForegroundColor Cyan
-$results = $lanes | ForEach-Object { Receive-Job -Job $_.Job -Wait -AutoRemoveJob } | Where-Object { $_ -is [pscustomobject] }
+$results = $lanes | ForEach-Object { Receive-Job -Job $_.Job -Wait -AutoRemoveJob } | Where-Object { $null -ne $_.PSObject.Properties['lane'] -and $_.lane }
 $fail = 0
 foreach ($r in $results) {
     $c = if ($r.exit -eq 0) { "Green" } else { "Red"; $fail++ }
