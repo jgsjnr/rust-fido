@@ -36,6 +36,11 @@ bip39 = { version = "2.1", default-features = false }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "derive"] }
 rand_core = { version = "0.6", default-features = false }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
+# Wallet address derivation (wallet/* only; all no_std + alloc, see B3 probe).
+sha3 = { version = "0.10", default-features = false }
+ripemd = { version = "0.1", default-features = false }
+bech32 = { version = "0.11", default-features = false, features = ["alloc"] }
+bs58 = { version = "0.5", default-features = false, features = ["alloc"] }
 
 # Logging
 log = "0.4"

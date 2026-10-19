@@ -12,6 +12,7 @@ pub mod vault;
 pub mod credential;
 pub mod extensions;
 pub mod policy;
+pub mod wallet;
 
 pub use ctap::CtapEngine;
 pub use vault::AegisVault;
