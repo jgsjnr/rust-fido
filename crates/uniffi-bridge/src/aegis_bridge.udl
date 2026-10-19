@@ -1,0 +1,50 @@
+// AegisKey UniFFI contract - mirrors docs/ble-protocol.md (frozen).
+// Rust implements these in src/lib.rs; Kotlin bindings are generated with:
+//   cargo run -p uniffi-bindgen -- generate src/aegis_bridge.udl --language kotlin
+// Secrets never cross this interface: only envelopes (AEGN), TOTP codes and
+// account labels. Keys are caller-provided transient buffers, zeroized in Rust.
+
+namespace aegis_bridge {
+    BleInfo ble_constants();
+    [Throws=BridgeError] sequence<sequence<u8>> ble_split_fragments(u8 opcode, sequence<u8> payload);
+    [Throws=BridgeError] u32 envelope_validate(sequence<u8> envelope);
+    [Throws=BridgeError] sequence<u8> envelope_seal(sequence<u8> key, sequence<u8> plaintext, sequence<u8> aad, sequence<u8> nonce);
+    [Throws=BridgeError] sequence<u8> envelope_open(sequence<u8> key, sequence<u8> envelope, sequence<u8> aad);
+    [Throws=BridgeError] string cose_key_info(sequence<u8> cbor);
+    [Throws=BridgeError] OathCode oath_parse_response(string json);
+    boolean oath_code_valid(string code);
+    u32 oath_remaining_seconds(u64 unix_seconds);
+    boolean wifi_password_valid(string password);
+    string? oath_account_from_path(string path);
+};
+
+dictionary BleInfo {
+    u16 service_uuid;
+    u16 control_uuid;
+    u16 status_uuid;
+    u16 len_uuid;
+    u16 revision_uuid;
+    u8 gatt_revision;
+    u8 op_ping;
+    u8 op_msg;
+    u8 op_cancel;
+    u32 max_fragment_bytes;
+    u32 control_point_length;
+};
+
+dictionary OathCode {
+    string account;
+    string code;
+    u32 remaining_seconds;
+};
+
+[Error]
+enum BridgeError {
+    "InvalidOpcode",
+    "Overflow",
+    "InvalidFragment",
+    "InvalidEnvelope",
+    "InvalidCose",
+    "InvalidOath",
+    "CryptoError",
+};

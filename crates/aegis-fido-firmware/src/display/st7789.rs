@@ -1,7 +1,11 @@
 //! ST7789 IPS LCD Driver for LilyGO T-Display and T-Display-S3.
 
-use super::ui::{DisplayBuffer, DISPLAY_WIDTH, DISPLAY_HEIGHT};
+use super::ui::DisplayBuffer;
+#[cfg(target_os = "espidf")]
+use super::ui::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
+#[cfg(target_os = "espidf")]
 use embedded_graphics::prelude::IntoStorage;
+#[cfg(target_os = "espidf")]
 use std::vec::Vec;
 
 #[cfg(target_os = "espidf")]
@@ -79,6 +83,7 @@ impl St7789Display {
 
     /// Sets the backlight state (on / off)
     pub fn set_backlight(&mut self, on: bool) {
+        let _ = on;
         #[cfg(target_os = "espidf")]
         if self.is_initialized {
             unsafe {

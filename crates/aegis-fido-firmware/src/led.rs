@@ -193,6 +193,7 @@ impl<O: LedOutput> Ws2812Controller<O> {
 
 /// Real hardware driver for WS2812 RGB LED on ESP32-S3 (GPIO 48).
 pub struct EspWs2812Output {
+    #[cfg_attr(not(target_os = "espidf"), allow(dead_code))]
     gpio: u32,
     initialized: bool,
 }
@@ -235,6 +236,8 @@ impl EspWs2812Output {
 
 impl LedOutput for EspWs2812Output {
     fn write_color(&mut self, color: Color) -> Result<(), &'static str> {
+        #[cfg(not(target_os = "espidf"))]
+        let _ = color;
         if !self.initialized {
             self.init_hardware();
         }
@@ -360,7 +363,7 @@ mod tests {
 
         // Test at start
         ctrl.update(Duration::from_millis(0)).unwrap();
-        assert_eq!(ctrl.output.last_color.b > 0, true);
+        assert!(ctrl.output.last_color.b > 0);
         assert_eq!(ctrl.output.last_color.r, 0);
 
         // Test at peak (500ms)

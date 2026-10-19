@@ -1,0 +1,321 @@
+package dev.aegiskey.app.ble
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.ParcelUuid
+import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.security.SanitizedLog
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * BLE transport for GATT 0xFFFD (see docs/ble-protocol.md).
+ *
+ * Flow: scan (0xFFFD filter) -> connect -> bond (JustWorks+bonding+UP) ->
+ * read FFF4 revision (must be 0x01) -> subscribe FFF2 -> write FFF1 fragments.
+ * UP itself always comes from the device button (hold 5s); the app never
+ * asserts presence, it only surfaces `STATUS_UP_NEEDED`.
+ *
+ * Legacy GATT callbacks are used deliberately: they work on API 31-34
+ * without version branches. No PII is logged (see SanitizedLog).
+ */
+@SuppressLint("MissingPermission") // UI layer holds BLUETOOTH_SCAN/CONNECT (A12+ runtime).
+class AegisBleClient(private val context: Context) {
+
+    enum class Connection { IDLE, SCANNING, CONNECTING, READY, ERROR }
+
+    data class FoundDevice(val name: String, val address: String)
+
+    data class UiState(
+        val connection: Connection = Connection.IDLE,
+        val devices: List<FoundDevice> = emptyList(),
+        val bonded: Boolean = false,
+        val revision: Int? = null,
+        val status: Int = BleContract.STATUS_IDLE,
+        val lastResponseSize: Int = 0,
+        val error: String? = null,
+    )
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _state = MutableStateFlow(UiState())
+    val state: StateFlow<UiState> = _state.asStateFlow()
+
+    private val deviceCache = mutableMapOf<String, BluetoothDevice>()
+    private var gatt: BluetoothGatt? = null
+    private val ioLock = Mutex()
+    private var pendingWrite: CompletableDeferred<Boolean>? = null
+    private var pendingRead: CompletableDeferred<ByteArray>? = null
+    private var pendingSubscribe: CompletableDeferred<Boolean>? = null
+    private val notifyBuffer = mutableListOf<Byte>()
+
+    private fun adapter() =
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+
+    private val bondReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+            val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+            val bond = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
+            _state.update { it.copy(bonded = device?.bondState == BluetoothDevice.BOND_BONDED || bond == BluetoothDevice.BOND_BONDED) }
+            SanitizedLog.record(SanitizedLog.Event.BOND_CHANGED)
+        }
+    }
+
+    init {
+        context.registerReceiver(bondReceiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+    }
+
+    fun release() {
+        runCatching { context.unregisterReceiver(bondReceiver) }
+        disconnect()
+    }
+
+    // -- scan -----------------------------------------------------------------
+
+    private val scanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val device = result.device ?: return
+            deviceCache[device.address] = device
+            val label = result.scanRecord?.deviceName ?: device.name ?: "AegisKey"
+            _state.update { current ->
+                if (current.devices.any { it.address == device.address }) current
+                else current.copy(devices = current.devices + FoundDevice(label.take(48), device.address))
+            }
+        }
+    }
+
+    fun startScan() {
+        val scanner = adapter()?.bluetoothLeScanner ?: return
+        _state.update { it.copy(connection = Connection.SCANNING, devices = emptyList(), error = null) }
+        val filter = ScanFilter.Builder()
+            .setServiceUuid(ParcelUuid(BleContract.SERVICE_UUID))
+            .build()
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+        scanner.startScan(listOf(filter), settings, scanCallback)
+        SanitizedLog.record(SanitizedLog.Event.SCAN_STARTED)
+    }
+
+    fun stopScan() {
+        runCatching { adapter()?.bluetoothLeScanner?.stopScan(scanCallback) }
+        _state.update { it.copy(connection = Connection.IDLE) }
+    }
+
+    // -- connect / bond ---------------------------------------------------------
+
+    fun connect(address: String) {
+        val device = deviceCache[address] ?: adapter()?.getRemoteDevice(address) ?: return
+        deviceCache[address] = device
+        _state.update { it.copy(connection = Connection.CONNECTING, error = null) }
+        stopScan()
+        gatt = device.connectGatt(context, false, gattCallback)
+    }
+
+    fun ensureBonded(address: String) {
+        deviceCache[address]?.let { device ->
+            if (device.bondState != BluetoothDevice.BOND_BONDED) device.createBond()
+        }
+    }
+
+    fun disconnect() {
+        runCatching { gatt?.disconnect() }
+        runCatching { gatt?.close() }
+        gatt = null
+        _state.update { it.copy(connection = Connection.IDLE, revision = null) }
+    }
+
+    // -- GATT -------------------------------------------------------------------
+
+    private val gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (newState == BluetoothGatt.STATE_CONNECTED) {
+                g.discoverServices()
+            } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                _state.update { it.copy(connection = Connection.IDLE, revision = null) }
+            }
+        }
+
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            scope.launch { afterServices(g) }
+        }
+
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            pendingRead?.complete(c.value ?: ByteArray(0))
+            pendingRead = null
+        }
+
+        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            pendingWrite?.complete(status == BluetoothGatt.GATT_SUCCESS)
+            pendingWrite = null
+        }
+
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            val bytes = c.value ?: return
+            if (c.uuid == BleContract.CHAR_STATUS && bytes.isNotEmpty()) {
+                _state.update { it.copy(status = bytes[0].toInt() and 0xFF) }
+                SanitizedLog.record(SanitizedLog.Event.STATUS_NOTIFY)
+            } else {
+                synchronized(notifyBuffer) {
+                    bytes.forEach { notifyBuffer.add(it) }
+                }
+            }
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            pendingSubscribe?.complete(status == BluetoothGatt.GATT_SUCCESS)
+            pendingSubscribe = null
+        }
+    }
+
+    private suspend fun afterServices(g: BluetoothGatt) {
+        val revision = readBytes(char(BleContract.CHAR_REVISION))?.firstOrNull()?.toInt()?.and(0xFF)
+        if (revision != BleContract.GATT_REVISION) {
+            _state.update { it.copy(connection = Connection.ERROR, error = "revision mismatch") }
+            SanitizedLog.record(SanitizedLog.Event.REVISION_MISMATCH)
+            disconnect()
+            return
+        }
+        _state.update { it.copy(revision = revision, bonded = bondedOf()) }
+        SanitizedLog.record(SanitizedLog.Event.REVISION_OK)
+        if (subscribeStatus(g)) {
+            _state.update { it.copy(connection = Connection.READY, error = null) }
+            SanitizedLog.record(SanitizedLog.Event.DEVICE_CONNECTED)
+        } else {
+            _state.update { it.copy(connection = Connection.ERROR, error = "subscribe failed") }
+        }
+    }
+
+    private fun bondedOf(): Boolean =
+        gatt?.device?.bondState == BluetoothDevice.BOND_BONDED
+
+    private fun char(uuid: java.util.UUID): BluetoothGattCharacteristic? =
+        gatt?.getService(BleContract.SERVICE_UUID)?.getCharacteristic(uuid)
+
+    private suspend fun readBytes(c: BluetoothGattCharacteristic?): ByteArray? {
+        if (c == null || gatt == null) return null
+        return ioLock.withLock {
+            val gate = CompletableDeferred<ByteArray>()
+            pendingRead = gate
+            if (gatt?.readCharacteristic(c) != true) {
+                pendingRead = null
+                return null
+            }
+            withTimeoutOrNull(4000) { gate.await() }
+        }
+    }
+
+    private suspend fun writeBytes(c: BluetoothGattCharacteristic?, bytes: ByteArray): Boolean {
+        if (c == null || gatt == null) return false
+        return ioLock.withLock {
+            val gate = CompletableDeferred<Boolean>()
+            pendingWrite = gate
+            c.value = bytes
+            c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            if (gatt?.writeCharacteristic(c) != true) {
+                pendingWrite = null
+                return false
+            }
+            withTimeoutOrNull(4000) { gate.await() } ?: false
+        }
+    }
+
+    private suspend fun subscribeStatus(g: BluetoothGatt): Boolean {
+        val statusChar = char(BleContract.CHAR_STATUS) ?: return false
+        g.setCharacteristicNotification(statusChar, true)
+        val cccd = statusChar.getDescriptor(BleContract.CCCD_UUID) ?: return false
+        return ioLock.withLock {
+            val gate = CompletableDeferred<Boolean>()
+            pendingSubscribe = gate
+            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            if (!g.writeDescriptor(cccd)) {
+                pendingSubscribe = null
+                return false
+            }
+            withTimeoutOrNull(4000) { gate.await() } ?: false
+        }
+    }
+
+    // -- CTAP2-BLE ops ------------------------------------------------------------
+
+    /** FFF3 pending length (u16 LE, 0 = idle). */
+    suspend fun pendingLen(): Int {
+        val raw = readBytes(char(BleContract.CHAR_LEN)) ?: return 0
+        if (raw.size < 2) return 0
+        return (raw[0].toInt() and 0xFF) or ((raw[1].toInt() and 0xFF) shl 8)
+    }
+
+    /** Sends OP_MSG [payload] (`[cmd, CBOR...]`) and awaits the CTAP response. */
+    suspend fun sendMsg(payload: ByteArray, timeoutMs: Long = 5000): ByteArray? {
+        val frags = AegisBridge.splitFragments(BleContract.OP_MSG, payload).getOrNull()
+            ?: run {
+                _state.update { it.copy(error = "fragment failed") }
+                return null
+            }
+        synchronized(notifyBuffer) { notifyBuffer.clear() }
+        val control = char(BleContract.CHAR_CONTROL) ?: return null
+        for (frag in frags) {
+            if (!writeBytes(control, frag)) return null
+        }
+        SanitizedLog.record(SanitizedLog.Event.CTAP_SENT)
+        val response = withTimeoutOrNull(timeoutMs) {
+            while (_state.value.status != BleContract.STATUS_IDLE || notifySize() == 0) delay(50)
+            drainNotify()
+        } ?: return null
+        _state.update { it.copy(lastResponseSize = response.size) }
+        SanitizedLog.record(SanitizedLog.Event.CTAP_RESPONSE)
+        return response
+    }
+
+    /** Single-byte CANCEL (0xBE): aborts the active transaction. */
+    suspend fun cancel(): Boolean {
+        val control = char(BleContract.CHAR_CONTROL) ?: return false
+        return writeBytes(control, byteArrayOf(BleContract.OP_CANCEL.toByte()))
+    }
+
+    /** PING echo (no CtapEngine involved, per contract). */
+    suspend fun ping(payload: ByteArray): ByteArray? {
+        val frags = AegisBridge.splitFragments(BleContract.OP_PING, payload).getOrNull() ?: return null
+        val control = char(BleContract.CHAR_CONTROL) ?: return null
+        synchronized(notifyBuffer) { notifyBuffer.clear() }
+        for (frag in frags) {
+            if (!writeBytes(control, frag)) return null
+        }
+        return withTimeoutOrNull(4000) {
+            while (notifySize() == 0) delay(50)
+            drainNotify()
+        }
+    }
+
+    private fun notifySize(): Int = synchronized(notifyBuffer) { notifyBuffer.size }
+
+    private fun drainNotify(): ByteArray = synchronized(notifyBuffer) {
+        val out = notifyBuffer.toByteArray()
+        notifyBuffer.clear()
+        out
+    }
+}

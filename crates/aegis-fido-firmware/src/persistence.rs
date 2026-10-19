@@ -99,8 +99,8 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
         let mut nonce_bytes = [0u8; NONCE_SIZE];
         rng.fill_bytes(&mut nonce_bytes);
         let cipher = Aes256Gcm::new_from_slice(&self.encryption_key).map_err(|_| StorageError::FlashWriteError)?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
-        let mut ciphertext = cipher.encrypt(nonce, plaintext).map_err(|_| StorageError::FlashWriteError)?;
+        let nonce = Nonce::from(nonce_bytes);
+        let mut ciphertext = cipher.encrypt(&nonce, plaintext).map_err(|_| StorageError::FlashWriteError)?;
         let mut envelope = [0u8; MAX_ENVELOPE_BYTES];
         let total = 4 + 1 + NONCE_SIZE + ciphertext.len();
         envelope[0..4].copy_from_slice(&ENVELOPE_MAGIC);
@@ -126,15 +126,16 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
             return Err(StorageError::CorruptedEnvelope);
         }
 
-        let nonce_bytes = &raw[5..5 + NONCE_SIZE];
+        let mut nonce_arr = [0u8; NONCE_SIZE];
+        nonce_arr.copy_from_slice(&raw[5..5 + NONCE_SIZE]);
         let ciphertext = &raw[5 + NONCE_SIZE..];
 
         let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
             .map_err(|_| StorageError::DecryptionFailed)?;
-        let nonce = Nonce::from_slice(nonce_bytes);
+        let nonce = Nonce::from(nonce_arr);
 
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|_| StorageError::DecryptionFailed)
     }
 
@@ -306,3 +307,5 @@ mod tests {
         assert_eq!(raw_a[4], ENVELOPE_VERSION);
     }
 }
+
+

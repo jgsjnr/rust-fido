@@ -11,23 +11,24 @@
 
 use core::time::Duration;
 use aegis_fido_core::otp::rescue::RescueEngine;
-use aegis_fido_core::ctap::{
-    CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL, CTAP_CMD_RESET,
-};
+use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
+#[cfg(target_os = "espidf")]
+use aegis_fido_core::ctap::CTAP_CMD_RESET;
 use aegis_fido_firmware::{
-    button::{BootButton, DualButtonManager, EspBootButtonInput, EspKeyButtonInput},
+    button::{DualButtonManager, EspBootButtonInput, EspKeyButtonInput},
     display::{DisplayManager, UiScreen},
     efuse::{EfuseManager, RamEfuseStorage},
-    led::{Color, EspWs2812Output, LedEffect, Ws2812Controller},
+    led::{EspWs2812Output, Ws2812Controller},
     persistence::{RamFlashBackend, SecureStorage},
     provision::load_device_keys,
     watchdog::Watchdog,
     usb_descriptors,
 };
-use aegis_fido_usb::ctaphid::{
-    CtapHidFramer, CtapHidManager, RawPacket, CAPABILITY_CBOR, CAPABILITY_WINK, CMD_CANCEL,
-    CMD_CBOR, CMD_INIT, CMD_MSG, CMD_PING, CMD_WINK, PACKET_SIZE, STATUS_UPNEEDED,
-};
+#[cfg(target_os = "espidf")]
+use aegis_fido_firmware::led::LedEffect;
+use aegis_fido_usb::ctaphid::CtapHidManager;
+#[cfg(target_os = "espidf")]
+use aegis_fido_usb::ctaphid::{CtapHidFramer, RawPacket, CAPABILITY_CBOR, CAPABILITY_WINK, CMD_CANCEL, CMD_CBOR, CMD_INIT, CMD_MSG, CMD_PING, CMD_WINK, PACKET_SIZE, STATUS_UPNEEDED};
 
 #[cfg(target_os = "espidf")]
 extern "C" {
@@ -146,6 +147,8 @@ fn run_authenticator() {
     };
     #[cfg(not(target_os = "espidf"))]
     let usb_installed = true;
+    #[cfg(not(target_os = "espidf"))]
+    let _ = usb_installed;
 
     // 1. Initialize Display Subsystem (WS2812 RGB LED on DevKitC-1 + ST7789 IPS LCD on LilyGO T-Display)
     kprintln!("[INIT] Initializing Display & Visual Feedback Engine...");
@@ -218,8 +221,12 @@ fn run_authenticator() {
     kprintln!("[INIT] User Presence (UP) sensor online.");
 
     // 5. Initialize Rust CTAPHID Manager and CTAP2 Core Engine
+    #[allow(unused_mut)]
     let mut ctaphid_mgr = CtapHidManager::new();
+    #[allow(unused_mut)]
     let mut ctap_engine = CtapEngine::new(master_key, 0);
+    #[cfg(not(target_os = "espidf"))]
+    let _ = (&ctaphid_mgr, &ctap_engine);
     let mut rescue_engine = RescueEngine::new();
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
 
@@ -253,12 +260,14 @@ fn run_authenticator() {
         let elapsed = Duration::from_millis(tick * 10);
         let now_ms = tick * 10;
         let now_secs = now_ms / 1000;
+        #[cfg(not(target_os = "espidf"))]
+        let _ = now_secs;
 
         // A. Check physical buttons
         // Button 1: BOOT (GPIO 0) - Confirm / UP / Long press (2s)
         // Button 2: KEY (GPIO 14 on LilyGO T-Display) - Cycle accounts / Cancel
-        let is_boot_pressed = button_mgr.is_boot_pressed(|d| std::thread::sleep(d));
-        let is_key_pressed = button_mgr.is_key_pressed(|d| std::thread::sleep(d));
+        let is_boot_pressed = button_mgr.is_boot_pressed(std::thread::sleep);
+        let is_key_pressed = button_mgr.is_key_pressed(std::thread::sleep);
 
         if is_boot_pressed {
             if press_start_tick.is_none() {
@@ -433,13 +442,13 @@ fn run_authenticator() {
                                             // Check physical buttons:
                                             // BOOT (GPIO 0) -> Confirm User Presence
                                             // KEY (GPIO 14) -> Cancel / Reject Transaction
-                                            if button_mgr.is_boot_pressed(|d| std::thread::sleep(d)) {
+                                            if button_mgr.is_boot_pressed(std::thread::sleep) {
                                                 up_confirmed = true;
                                                 rescue_engine.set_user_presence(true);
                                                 kprintln!("[BUTTON] Physical touch confirmed on BOOT (GPIO 0)! (t={}ms)", wait_step * 20);
                                                 break;
                                             }
-                                            if button_mgr.is_key_pressed(|d| std::thread::sleep(d)) {
+                                            if button_mgr.is_key_pressed(std::thread::sleep) {
                                                 up_confirmed = false;
                                                 kprintln!("[BUTTON] User cancelled transaction via KEY (GPIO 14)! (t={}ms)", wait_step * 20);
                                                 break;
@@ -552,7 +561,7 @@ fn run_authenticator() {
         }
 
         // Heartbeat log every 3 seconds (300 ticks * 10ms = 3000ms)
-        if tick % 300 == 0 {
+        if tick.is_multiple_of(300) {
             #[cfg(target_os = "espidf")]
             let usb_mounted = if usb_installed {
                 unsafe { aegis_usb_is_mounted() }

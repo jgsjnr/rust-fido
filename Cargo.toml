@@ -4,6 +4,7 @@ members = [
     "crates/aegis-fido-core",
     "crates/aegis-fido-usb",
     "crates/aegis-fido-firmware",
+    "crates/uniffi-bridge",
 ]
 
 [workspace.package]

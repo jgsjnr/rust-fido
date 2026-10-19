@@ -40,6 +40,15 @@ pub const DEFAULT_UV_RETRIES: u8 = 3;
 /// Upper bound for UV retries.
 pub const MAX_UV_RETRIES_BOUND: u8 = 3;
 
+/// Wave4 — long-press to enter pairing (GPIO0, debounce 50ms).
+pub const LONG_PRESS_MS: u64 = 5000;
+/// Wave4 — pairing window (BLE advertising + AP) in seconds.
+pub const PAIRING_WINDOW_SECS: u64 = 60;
+/// Wave4 — pairing window in milliseconds (derived, no logic change).
+pub const PAIRING_WINDOW_MS: u64 = PAIRING_WINDOW_SECS * 1000;
+/// Wave4 — Vault auto-clear after UP display (seconds).
+pub const VAULT_AUTO_CLEAR_SECS: u64 = 15;
+
 /// Typed config validation failure (no stringly errors in prod path).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigError {

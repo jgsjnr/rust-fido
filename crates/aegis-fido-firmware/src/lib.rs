@@ -6,7 +6,9 @@
 //! - eFuse OTP hardware integration (BLOCK7 Master Key, BLOCK8 Device Salt).
 //! - Secure encrypted persistence in NVS/Flash with AES-256-GCM.
 //! - Composite USB descriptors (CTAPHID, CCID, Keyboard, WinUSB with MS OS 2.0).
+//! - Wave4: pairing journey (5s hold), BLE GATT 0xFFFD, WiFi AP, UI journey.
 
+pub mod ble_gatt;
 pub mod button;
 pub mod config;
 pub mod display;
@@ -14,9 +16,13 @@ pub mod efuse;
 pub mod identity;
 pub mod led;
 pub mod migrations;
+pub mod pairing;
+pub mod pairing_led;
 pub mod persistence;
 pub mod provision;
+pub mod ui_journey;
 pub mod watchdog;
+pub mod wifi_ap;
 pub mod usb_descriptors;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
@@ -26,4 +32,3 @@ pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
 pub use persistence::{FlashStorageBackend, MockFlashBackend, RamFlashBackend, SecureStorage, StorageError};
 pub use watchdog::{StaticBuf, Watchdog};
 pub use usb_descriptors::*;
-
