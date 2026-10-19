@@ -125,13 +125,13 @@ impl ClientPinState {
         match protocol {
             1 => {
                 let expected = PinProtocol1::authenticate(&session.token, message);
-                if token_auth != expected.as_slice() {
+                if !constant_time_eq(token_auth, expected.as_slice()) {
                     return Err(CtapError::PinAuthInvalid);
                 }
             }
             2 => {
                 let expected = PinProtocol2::authenticate(&session.token, message);
-                if token_auth != expected.as_slice() {
+                if !constant_time_eq(token_auth, expected.as_slice()) {
                     return Err(CtapError::PinAuthInvalid);
                 }
             }
@@ -245,14 +245,14 @@ impl ClientPinHandler {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 let expected = PinProtocol1::authenticate(&k, &new_pin_enc);
-                if pin_auth.as_slice() != expected.as_slice() {
+                if !constant_time_eq(pin_auth.as_slice(), expected.as_slice()) {
                     return Err(CtapError::PinAuthInvalid);
                 }
             }
             2 => {
                 let (_e_ks, m_ks) = PinProtocol2::kdf(&shared_secret);
                 let expected = PinProtocol2::authenticate(&m_ks, &new_pin_enc);
-                if pin_auth.as_slice() != expected.as_slice() {
+                if !constant_time_eq(pin_auth.as_slice(), expected.as_slice()) {
                     return Err(CtapError::PinAuthInvalid);
                 }
             }
@@ -328,14 +328,14 @@ impl ClientPinHandler {
             1 => {
                 let k = PinProtocol1::kdf(&shared_secret);
                 let expected = PinProtocol1::authenticate(&k, &auth_data);
-                if pin_auth.as_slice() != expected.as_slice() {
+                if !constant_time_eq(pin_auth.as_slice(), expected.as_slice()) {
                     return Err(CtapError::PinAuthInvalid);
                 }
             }
             2 => {
                 let (_e_ks, m_ks) = PinProtocol2::kdf(&shared_secret);
                 let expected = PinProtocol2::authenticate(&m_ks, &auth_data);
-                if pin_auth.as_slice() != expected.as_slice() {
+                if !constant_time_eq(pin_auth.as_slice(), expected.as_slice()) {
                     return Err(CtapError::PinAuthInvalid);
                 }
             }
