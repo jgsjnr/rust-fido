@@ -239,6 +239,133 @@ pub fn dispatch_serial_vendor(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8
     }
 }
 
+/// `true` when a serial bind-mgmt op consumes the UP latch on success.
+///
+/// CLAIM/RELEASE/RECOVERY_SET/RECOVERY_UNLOCK require UP (same gates as BLE);
+/// CHALLENGE/VERIFY never touch the latch.
+pub fn serial_bind_mgmt_consumes_up(op: u8) -> bool {
+    use crate::ble_gatt as g;
+    matches!(
+        op,
+        g::OP_BIND_CLAIM | g::OP_BIND_RELEASE | g::OP_RECOVERY_SET | g::OP_RECOVERY_UNLOCK
+    )
+}
+
+/// Dispatches one binding-mgmt op (`0x28-0x2D`) over serial with BLE-identical gates.
+///
+/// Reuses the `ble_gatt::dispatch_*` helpers byte-for-byte (claim / challenge /
+/// verify / release / recovery); returns `(wire_status, body)` for the caller to
+/// frame as `CMD_MSG` `[status, body...]` (status-first like BLE `notify_frame`,
+/// no protocol change: the payload content is app-level).
+/// `pairing_open`/`up` come from the caller (5s-hold window + BOOT latch).
+pub fn dispatch_serial_bind_mgmt<B, R>(
+    op: u8,
+    params: &[u8],
+    pairing_open: bool,
+    up: bool,
+    binding: &mut crate::binding::BindingManager,
+    storage: &mut crate::persistence::SecureStorage<B>,
+    rng: &mut R,
+) -> (u8, Vec<u8>)
+where
+    B: crate::persistence::FlashStorageBackend,
+    R: rand_core::RngCore + rand_core::CryptoRng,
+{
+    use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PAYLOAD_HASH_LEN, BIND_PUB_LEN};
+    use crate::ble_gatt as g;
+    if !g::is_bind_mgmt_op(op) {
+        return (g::BleGattError::InvalidOpcode.to_vendor_status(), Vec::new());
+    }
+    match op {
+        g::OP_BIND_CLAIM => {
+            if params.len() != BIND_PUB_LEN + BIND_ID_LEN {
+                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+            }
+            let mut app_pub = [0u8; BIND_PUB_LEN];
+            let mut binding_id = [0u8; BIND_ID_LEN];
+            app_pub.copy_from_slice(&params[..BIND_PUB_LEN]);
+            binding_id.copy_from_slice(&params[BIND_PUB_LEN..]);
+            match g::dispatch_bind_claim(
+                binding,
+                storage,
+                &app_pub,
+                &binding_id,
+                pairing_open,
+                up,
+            ) {
+                Ok(()) => (0x00, binding_id.to_vec()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            }
+        }
+        g::OP_BIND_CHALLENGE => {
+            if !params.is_empty() {
+                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+            }
+            match g::dispatch_bind_challenge(binding, storage, rng) {
+                Ok(ch) => (0x00, ch.to_vec()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            }
+        }
+        g::OP_BIND_VERIFY => {
+            if params.len() < 1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
+                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+            }
+            let vop = params[0];
+            let mut ch = [0u8; BIND_CHALLENGE_LEN];
+            let mut ph = [0u8; BIND_PAYLOAD_HASH_LEN];
+            ch.copy_from_slice(&params[1..1 + BIND_CHALLENGE_LEN]);
+            ph.copy_from_slice(
+                &params[1 + BIND_CHALLENGE_LEN..1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN],
+            );
+            match g::dispatch_bind_verify(
+                binding,
+                &params[1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN..],
+                &ch,
+                vop,
+                &ph,
+            ) {
+                Ok(()) => (0x00, Vec::new()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            }
+        }
+        g::OP_BIND_RELEASE => {
+            if params.len() < BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
+                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+            }
+            let mut ch = [0u8; BIND_CHALLENGE_LEN];
+            let mut ph = [0u8; BIND_PAYLOAD_HASH_LEN];
+            ch.copy_from_slice(&params[..BIND_CHALLENGE_LEN]);
+            ph.copy_from_slice(&params[BIND_CHALLENGE_LEN..BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN]);
+            match g::dispatch_bind_release(
+                binding,
+                storage,
+                &params[BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN..],
+                &ch,
+                &ph,
+                up,
+            ) {
+                Ok(()) => (0x00, Vec::new()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            }
+        }
+        g::OP_RECOVERY_SET => match core::str::from_utf8(params) {
+            Ok(pin) => match g::dispatch_recovery_set(storage, pin, up) {
+                Ok(()) => (0x00, Vec::new()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            },
+            Err(_) => (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new()),
+        },
+        g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(params) {
+            Ok(pin) => match g::dispatch_recovery_unlock(storage, binding, pin, up) {
+                Ok(()) => (0x00, Vec::new()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            },
+            Err(_) => (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new()),
+        },
+        _ => (g::BleGattError::InvalidOpcode.to_vendor_status(), Vec::new()),
+    }
+}
+
 /// Maps a BLE gate denial to its wire status (shared with serial vendor).
 pub fn vendor_status(e: BleGattError) -> u8 {
     e.to_vendor_status()
@@ -575,5 +702,352 @@ mod tests {
         let mut m = PairingManager::new();
         assert!(dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 0).is_none());
         assert!(!m.is_pairing_window_open(0));
+    }
+
+    #[test]
+    fn serial_vendor_parity_matrix_all_ops() {
+        use crate::ble_gatt::{authorize_vendor_op, OP_OATH_CODE};
+        // Full 0x20-0x27 x (vinculo x UP): serial responde o mesmo status do BLE.
+        for op in 0x20u8..=0x27u8 {
+            for binding_ok in [false, true] {
+                for up in [false, true] {
+                    let (st_s, _) = dispatch_serial_vendor(op, binding_ok, up);
+                    let st_b = match authorize_vendor_op(op, binding_ok, false, up) {
+                        Ok(()) => 0x04,
+                        Err(e) => e.to_vendor_status(),
+                    };
+                    assert_eq!(st_s, st_b, "op {:02X} bind={} up={}", op, binding_ok, up);
+                }
+            }
+        }
+        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, true).0, 0x04);
+        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false).0, 0x01);
+    }
+
+    #[test]
+    fn serial_bind_consumes_up_only_where_ble_needs_up() {
+        use crate::ble_gatt as g;
+        for op in [
+            g::OP_BIND_CLAIM,
+            g::OP_BIND_RELEASE,
+            g::OP_RECOVERY_SET,
+            g::OP_RECOVERY_UNLOCK,
+        ] {
+            assert!(serial_bind_mgmt_consumes_up(op), "op {:02X}", op);
+        }
+        for op in [g::OP_BIND_CHALLENGE, g::OP_BIND_VERIFY, 0x20, 0x2E] {
+            assert!(!serial_bind_mgmt_consumes_up(op), "op {:02X}", op);
+        }
+    }
+
+    #[test]
+    fn serial_bind_rejects_malformed_framing() {
+        use crate::binding::BindingManager;
+        use crate::ble_gatt as g;
+        use crate::persistence::{MockFlashBackend, SecureStorage};
+        let mut b = BindingManager::new();
+        let mut s = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
+        let mut rng = rand_core::OsRng;
+        // Fora da faixa, comprimentos errados e PIN nao-UTF8: 0x04, sem panics.
+        assert_eq!(
+            dispatch_serial_bind_mgmt(0x20, &[], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_bind_mgmt(0x2E, &[], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_bind_mgmt(g::OP_BIND_CLAIM, &[0x01, 0x02], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_bind_mgmt(g::OP_BIND_CHALLENGE, &[0x01], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_bind_mgmt(g::OP_BIND_VERIFY, &[0x22], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_bind_mgmt(g::OP_BIND_RELEASE, &[0x00; 10], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_bind_mgmt(g::OP_RECOVERY_SET, &[0xFF], true, true, &mut b, &mut s, &mut rng).0,
+            0x04
+        );
+    }
+
+    #[test]
+    fn serial_bind_mgmt_parity_with_ble() {
+        use crate::binding::{BIND_ID_LEN, BIND_PUB_LEN, BindingManager};
+        use crate::ble_gatt as g;
+        use crate::persistence::{MockFlashBackend, SecureStorage};
+
+        fn fixtures() -> (BindingManager, SecureStorage<MockFlashBackend>) {
+            let st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
+            (BindingManager::new(), st)
+        }
+        let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
+        let pt = sk.verifying_key().to_encoded_point(false);
+        let mut sec1 = [0u8; BIND_PUB_LEN];
+        sec1.copy_from_slice(pt.as_bytes());
+        let id = [0xABu8; BIND_ID_LEN];
+        let mut claim_p = Vec::with_capacity(BIND_PUB_LEN + BIND_ID_LEN);
+        claim_p.extend_from_slice(&sec1);
+        claim_p.extend_from_slice(&id);
+        let mut rng = rand_core::OsRng;
+
+        // CLAIM sem janela: PairingRequired vira PresenceRequired (0x01) nos dois.
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, mut s2) = fixtures();
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_CLAIM,
+                &claim_p,
+                false,
+                false,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b = g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, false, false)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!((st_s, st_b), (0x01, 0x01));
+        }
+        // CLAIM ok ecoa o binding_id nos dois; re-claim nega 0x04 nos dois.
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, mut s2) = fixtures();
+            let (st_s, body_s) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_CLAIM,
+                &claim_p,
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let (st_b, body_b) = match g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true)
+            {
+                Ok(()) => (0x00, id.to_vec()),
+                Err(e) => (e.to_vendor_status(), Vec::new()),
+            };
+            assert_eq!((st_s, body_s.clone()), (st_b, body_b));
+            assert_eq!((st_s, body_s), (0x00, id.to_vec()));
+            let (st_s2, _) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_CLAIM,
+                &claim_p,
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b2 = g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!((st_s2, st_b2), (0x04, 0x04));
+        }
+        // CHALLENGE sem dono: NEED_BINDING (0x05); com dono: 0x00 + 32B.
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, mut s2) = fixtures();
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_CHALLENGE,
+                &[],
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b = g::dispatch_bind_challenge(&mut b2, &s2, &mut rng)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!((st_s, st_b), (0x05, 0x05));
+            b1.claim(&sec1, &id, true, true).expect("claim serial");
+            b1.persist(&mut s1).expect("persist serial");
+            b2.claim(&sec1, &id, true, true).expect("claim ble");
+            b2.persist(&mut s2).expect("persist ble");
+            let (st_s, body_s) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_CHALLENGE,
+                &[],
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let ble_ch = g::dispatch_bind_challenge(&mut b2, &s2, &mut rng).expect("ch ble");
+            assert_eq!(st_s, 0x00);
+            assert_eq!(body_s.len(), ble_ch.len());
+            assert_eq!(body_s.len(), 32);
+        }
+        // VERIFY sem challenge ativo: Replay -> NEED_BINDING (0x05) nos dois.
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, _) = fixtures();
+            b1.claim(&sec1, &id, true, true).expect("claim");
+            b2.claim(&sec1, &id, true, true).expect("claim");
+            let mut p = Vec::with_capacity(66);
+            p.push(g::OP_KEY_LIST);
+            p.extend_from_slice(&[0x00u8; 32]);
+            p.extend_from_slice(&[0x11u8; 32]);
+            p.push(0x30);
+            let ch = [0u8; 32];
+            let ph = [0x11u8; 32];
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_VERIFY,
+                &p,
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b = g::dispatch_bind_verify(&mut b2, &p[65..], &ch, g::OP_KEY_LIST, &ph)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!((st_s, st_b), (0x05, 0x05));
+        }
+        // VERIFY com prova valida: 0x00 nos dois (uso unico preservado).
+        {
+            use signature::Signer;
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, s2) = fixtures();
+            b1.claim(&sec1, &id, true, true).expect("claim");
+            b2.claim(&sec1, &id, true, true).expect("claim");
+            let ph = [0x11u8; 32];
+            let ch1 = g::dispatch_bind_challenge(&mut b1, &s1, &mut rng).expect("ch1");
+            let ch2 = g::dispatch_bind_challenge(&mut b2, &s2, &mut rng).expect("ch2");
+            let mut p1 = Vec::with_capacity(80);
+            p1.push(g::OP_KEY_LIST);
+            p1.extend_from_slice(&ch1);
+            p1.extend_from_slice(&ph);
+            let msg1 = BindingManager::signed_message(&ch1, g::OP_KEY_LIST, &ph);
+            let sig1: p256::ecdsa::Signature = sk.sign(&msg1);
+            p1.extend_from_slice(sig1.to_der().as_bytes());
+            let (st_s, body_s) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_VERIFY,
+                &p1,
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            assert_eq!((st_s, body_s), (0x00, Vec::new()));
+            let msg2 = BindingManager::signed_message(&ch2, g::OP_KEY_LIST, &ph);
+            let sig2: p256::ecdsa::Signature = sk.sign(&msg2);
+            let der2 = sig2.to_der().as_bytes().to_vec();
+            g::dispatch_bind_verify(&mut b2, &der2, &ch2, g::OP_KEY_LIST, &ph).expect("verify ble");
+        }
+        // RELEASE sem UP: 0x01; com UP + sig lixo: bypass?0x00:0x05 (igual BLE).
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, mut s2) = fixtures();
+            b1.claim(&sec1, &id, true, true).expect("claim");
+            b2.claim(&sec1, &id, true, true).expect("claim");
+            let mut p = Vec::with_capacity(65);
+            p.extend_from_slice(&[0x00u8; 32]);
+            p.extend_from_slice(&[0xBBu8; 32]);
+            p.push(0x30);
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_RELEASE,
+                &p,
+                true,
+                false,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            assert_eq!(st_s, 0x01);
+            let ch = [0u8; 32];
+            let ph = [0xBBu8; 32];
+            let st_b = g::dispatch_bind_release(&mut b2, &mut s2, &p[64..], &ch, &ph, false)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!(st_b, 0x01);
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_BIND_RELEASE,
+                &p,
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b = g::dispatch_bind_release(&mut b2, &mut s2, &p[64..], &ch, &ph, true)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            if crate::binding::binding_bypass_enabled() {
+                assert_eq!((st_s, st_b), (0x00, 0x00));
+            } else {
+                assert_eq!((st_s, st_b), (0x05, 0x05));
+            }
+        }
+        // RECOVERY_SET: PIN curto 0x02, sem UP 0x01, valido 0x00 (igual BLE).
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (_b2, mut s2) = fixtures();
+            for (pin, up, want) in [("123", true, 0x02), ("4242", false, 0x01), ("4242", true, 0x00)]
+            {
+                let (st_s, _) = dispatch_serial_bind_mgmt(
+                    g::OP_RECOVERY_SET,
+                    pin.as_bytes(),
+                    true,
+                    up,
+                    &mut b1,
+                    &mut s1,
+                    &mut rng,
+                );
+                let st_b = g::dispatch_recovery_set(&mut s2, pin, up)
+                    .map(|_| 0x00)
+                    .unwrap_or_else(|e| e.to_vendor_status());
+                assert_eq!((st_s, st_b), (want, want), "set pin={} up={}", pin, up);
+            }
+        }
+        // RECOVERY_UNLOCK: PIN errado 0x02, certo 0x00 + libera re-claim (igual BLE).
+        {
+            let (mut b1, mut s1) = fixtures();
+            let (mut b2, mut s2) = fixtures();
+            b1.claim(&sec1, &id, true, true).expect("claim");
+            b1.persist(&mut s1).expect("persist");
+            g::dispatch_recovery_set(&mut s1, "4242", true).expect("set");
+            b2.claim(&sec1, &id, true, true).expect("claim");
+            b2.persist(&mut s2).expect("persist");
+            g::dispatch_recovery_set(&mut s2, "4242", true).expect("set");
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_RECOVERY_UNLOCK,
+                b"0000",
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b = g::dispatch_recovery_unlock(&mut s2, &mut b2, "0000", true)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!((st_s, st_b), (0x02, 0x02));
+            assert!(b1.is_claimed() && b2.is_claimed());
+            let (st_s, _) = dispatch_serial_bind_mgmt(
+                g::OP_RECOVERY_UNLOCK,
+                b"4242",
+                true,
+                true,
+                &mut b1,
+                &mut s1,
+                &mut rng,
+            );
+            let st_b = g::dispatch_recovery_unlock(&mut s2, &mut b2, "4242", true)
+                .map(|_| 0x00)
+                .unwrap_or_else(|e| e.to_vendor_status());
+            assert_eq!((st_s, st_b), (0x00, 0x00));
+            assert!(!b1.is_claimed() && !b2.is_claimed());
+        }
     }
 }

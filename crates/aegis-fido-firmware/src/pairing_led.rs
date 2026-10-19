@@ -4,7 +4,7 @@
 //! - pisca rapido = arming (hold progressivo)
 //! - respiracao azul = pairing (BLE/AP)
 //! - verde solido = pareado (bonded, idle)
-//! - vermelho = erro/timeout (locked)
+//! - vermelho solido = erro/timeout (locked)
 //!
 //! Sem alloc, sem I/O: funcao pura `PairingState -> LedEffect`.
 
@@ -29,7 +29,7 @@ pub fn effect_for_pairing_state(state: PairingState, bonded: bool) -> LedEffect 
             color: Color::BLUE,
             period_ms: 1600,
         },
-        PairingState::Locked => LedEffect::ErrorFlash,
+        PairingState::Locked => LedEffect::Solid(Color::RED),
     }
 }
 
@@ -71,7 +71,7 @@ mod tests {
         );
         assert_eq!(
             effect_for_pairing_state(PairingState::Locked, false),
-            LedEffect::ErrorFlash
+            LedEffect::Solid(Color::RED)
         );
     }
 
@@ -82,6 +82,6 @@ mod tests {
         assert!(matches!(e0, LedEffect::Breathing { .. }));
         m.lock();
         let e1 = effect_for_pairing_state(m.state(), m.is_bonded());
-        assert_eq!(e1, LedEffect::ErrorFlash);
+        assert_eq!(e1, LedEffect::Solid(Color::RED));
     }
 }

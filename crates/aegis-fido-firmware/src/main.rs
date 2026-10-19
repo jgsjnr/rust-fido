@@ -964,6 +964,26 @@ fn run_authenticator() {
 
         // B. Update Display Animation & LED
         display_mgr.tick(elapsed);
+        // Pairing journey drives the LED from Idle screens (headless parity):
+        // arming = rapid touch prompt, pairing window = blue breathing,
+        // bonded idle = solid green, locked = solid red. Any other screen
+        // (UP prompt, TOTP, success/error) keeps its own LED effect.
+        {
+            let bonded = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+            if matches!(display_mgr.current_screen, UiScreen::IdleStandby { .. })
+                && (pairing_mgr.state() != aegis_fido_firmware::pairing::PairingState::Idle
+                    || bonded)
+            {
+                if let Some(ref mut led) = display_mgr.led_controller {
+                    led.set_effect(
+                        aegis_fido_firmware::pairing_led::effect_for_pairing_state(
+                            pairing_mgr.state(),
+                            bonded,
+                        ),
+                    );
+                }
+            }
+        }
 
         // C. Service USB CTAPHID Packets (native USB-OTG; classic serves
         // the same UART through the serial section D below instead).
@@ -1261,14 +1281,15 @@ fn run_authenticator() {
         // test-mode answers TEST_LIFETIME_DUMP text lines on the same wire.
         // Vendor keys/OATH (0x20-0x27) use the BLE-identical gates with a
         // status-only answer (on-device executor = follow-up, status 0x04).
-        // Binding mgmt over serial (0x28-0x2D) is follow-up work and answers
-        // ERR_INVALID_CMD like unknown USB commands.
+        // Binding mgmt over serial (0x28-0x2D) reuses the BLE dispatch_*
+        // helpers (same binding -> UP -> PIN gates), status-first answer.
         #[cfg(target_os = "espidf")]
         if serial_installed {
-            use aegis_fido_firmware::ble_gatt::is_vendor_keys_oath_op;
+            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op};
             use aegis_fido_firmware::serial_ctaphid::{
-                authorize_serial, deny_response, dispatch_serial_vendor,
-                serial_is_up_required, SerialFeed, SerialGate,
+                authorize_serial, deny_response, dispatch_serial_bind_mgmt,
+                dispatch_serial_vendor, serial_bind_mgmt_consumes_up, serial_is_up_required,
+                SerialFeed, SerialGate,
             };
             #[cfg(feature = "test-mode")]
             use aegis_fido_firmware::serial_ctaphid::{
@@ -1360,6 +1381,41 @@ fn run_authenticator() {
                             }
                             CMD_CBOR | CMD_MSG => {
                                 if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && is_bind_mgmt_op(msg.payload[0])
+                                {
+                                    // Binding mgmt 0x28-0x2D: same gates as BLE
+                                    // (shared dispatch_* helpers); status-first
+                                    // answer, framing untouched.
+                                    let op = msg.payload[0];
+                                    let (st, body) = dispatch_serial_bind_mgmt(
+                                        op,
+                                        &msg.payload[1..],
+                                        pairing_open_now,
+                                        touch_latched,
+                                        &mut binding_mgr,
+                                        &mut storage,
+                                        &mut rand_core::OsRng,
+                                    );
+                                    if st == 0x00 && serial_bind_mgmt_consumes_up(op) {
+                                        touch_latched = false;
+                                        rescue_engine.set_user_presence(true);
+                                    }
+                                    if st != 0x00 {
+                                        kprintln!(
+                                            "[SERIAL] Bind-mgmt 0x{:02X} denied (status 0x{:02X}).",
+                                            op, st
+                                        );
+                                    }
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &resp,
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
                                     && is_vendor_keys_oath_op(msg.payload[0])
                                 {

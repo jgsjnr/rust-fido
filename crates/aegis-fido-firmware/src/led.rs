@@ -91,6 +91,8 @@ pub trait LedOutput {
 pub struct Ws2812Controller<O: LedOutput> {
     output: O,
     current_effect: LedEffect,
+    rendered_effect: LedEffect,
+    effect_start_ms: u64,
 }
 
 impl<O: LedOutput> Ws2812Controller<O> {
@@ -98,6 +100,8 @@ impl<O: LedOutput> Ws2812Controller<O> {
         Self {
             output,
             current_effect: LedEffect::Off,
+            rendered_effect: LedEffect::Off,
+            effect_start_ms: 0,
         }
     }
 
@@ -113,7 +117,15 @@ impl<O: LedOutput> Ws2812Controller<O> {
 
     /// Advances the animation by `elapsed` duration and updates the physical LED.
     pub fn update(&mut self, elapsed: Duration) -> Result<(), &'static str> {
-        let elapsed_ms = elapsed.as_millis() as u32;
+        // One-shot effects run on time-since-set: the main loop feeds absolute
+        // uptime, so without this anchor pulses/flashes die ~500ms after boot
+        // (IRL the LED would stick to black instead of pulsing/flashing).
+        let now_ms = elapsed.as_millis() as u64;
+        if self.rendered_effect != self.current_effect {
+            self.rendered_effect = self.current_effect;
+            self.effect_start_ms = now_ms;
+        }
+        let elapsed_ms = now_ms.saturating_sub(self.effect_start_ms) as u32;
 
         match self.current_effect {
             LedEffect::Off => {
@@ -380,7 +392,29 @@ mod tests {
         ctrl.update(Duration::from_millis(100)).unwrap();
         assert_eq!(ctrl.output.last_color, Color::GREEN);
 
-        ctrl.update(Duration::from_millis(500)).unwrap();
+        ctrl.update(Duration::from_millis(600)).unwrap();
+        assert_eq!(ctrl.output.last_color, Color::BLACK);
+    }
+
+    #[test]
+    fn oneshot_effects_use_time_since_set() {
+        let mock = MockLedOutput::new();
+        let mut ctrl = Ws2812Controller::new(mock);
+        ctrl.set_effect(LedEffect::AuthSuccessPulse);
+
+        // Far past boot: the pulse still shows green, then fades on its own clock.
+        ctrl.update(Duration::from_millis(100_000)).unwrap();
+        assert_eq!(ctrl.output.last_color, Color::GREEN);
+        ctrl.update(Duration::from_millis(100_400)).unwrap();
+        assert_eq!(ctrl.output.last_color, Color::GREEN);
+        ctrl.update(Duration::from_millis(100_600)).unwrap();
+        assert_eq!(ctrl.output.last_color, Color::BLACK);
+
+        // Switching effect restarts the clock: error flashes red again.
+        ctrl.set_effect(LedEffect::ErrorFlash);
+        ctrl.update(Duration::from_millis(200_000)).unwrap();
+        assert_eq!(ctrl.output.last_color, Color::RED);
+        ctrl.update(Duration::from_millis(200_100)).unwrap();
         assert_eq!(ctrl.output.last_color, Color::BLACK);
     }
 }
