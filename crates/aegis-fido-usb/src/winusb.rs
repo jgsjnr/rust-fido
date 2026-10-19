@@ -46,11 +46,13 @@ pub const STATUS_CORRUPTED: u16 = 0x0004;
 /// Represents a WinUSB bulk protocol frame.
 ///
 /// Header (12 bytes):
-/// - Bytes 0..4: Magic [0x41, 0x45, 0x47, 0x53] ("AEGS")
-/// - Byte 4: Command (u8)
-/// - Byte 5: Flags (u8)
-/// - Bytes 6..8: Status (u16 little-endian)
-/// - Bytes 8..12: Payload Length (u32 little-endian)
+///
+///   - Bytes 0..4: Magic [0x41, 0x45, 0x47, 0x53] ("AEGS")
+///   - Byte 4: Command (u8)
+///   - Byte 5: Flags (u8)
+///   - Bytes 6..8: Status (u16 little-endian)
+///   - Bytes 8..12: Payload Length (u32 little-endian)
+///
 /// Followed by `length` bytes of payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WinUsbMessage {
@@ -134,7 +136,7 @@ impl WinUsbDeframer {
         }
 
         // Verify magic
-        if &self.buffer[0..4] != &WINUSB_MAGIC {
+        if self.buffer[0..4] != WINUSB_MAGIC {
             self.buffer.clear();
             return Err("Invalid WinUSB bulk magic header");
         }
@@ -178,8 +180,8 @@ pub fn build_ms_os_20_platform_capability_descriptor(
 
     // MS OS 2.0 Platform Capability UUID: D8DD60DF-4589-4CC7-9CD2-659D9E648A9F
     desc[4..20].copy_from_slice(&[
-        0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D, 0x9E, 0x64,
-        0x8A, 0x9F,
+        0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D, 0x9E, 0x64, 0x8A,
+        0x9F,
     ]);
 
     // dwWindowsVersion: 0x06030000 (Windows 8.1+)
@@ -309,7 +311,7 @@ mod tests {
         assert_eq!(set.len(), 178);
         assert_eq!(&set[2..4], &0x0000u16.to_le_bytes()); // SET_HEADER
         assert_eq!(u16::from_le_bytes([set[8], set[9]]), 178); // wTotalLength
-        // Verify "WINUSB" string exists in the descriptor set
+                                                               // Verify "WINUSB" string exists in the descriptor set
         let winusb_bytes = b"WINUSB";
         assert!(set.windows(6).any(|w| w == winusb_bytes));
     }

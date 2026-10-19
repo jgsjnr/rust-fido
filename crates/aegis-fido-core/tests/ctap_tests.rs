@@ -6,8 +6,8 @@ use aegis_fido_core::crypto::hash::sha256;
 use aegis_fido_core::crypto::pin_protocol::{pad_pin, pin_hash, PinProtocol1, PinProtocol2};
 use aegis_fido_core::ctap::cbor::{decode_cbor_map, encode_cbor_value, get_int_key, get_text_key};
 use aegis_fido_core::ctap::client_pin::*;
-use aegis_fido_core::ctap::cred_mgmt::*;
 use aegis_fido_core::ctap::config::*;
+use aegis_fido_core::ctap::cred_mgmt::*;
 use aegis_fido_core::ctap::status_code::*;
 use aegis_fido_core::ctap::*;
 use ciborium::value::Value;
@@ -74,8 +74,8 @@ fn test_get_info() {
         assert_eq!(
             b.as_slice(),
             &[
-                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
-                0x0d, 0x0e, 0x0f
+                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+                0x0e, 0x0f
             ]
         );
     } else {
@@ -89,7 +89,10 @@ fn test_get_info() {
         assert_eq!(get_text_key(opts, "rk"), Some(&Value::Bool(true)));
         assert_eq!(get_text_key(opts, "clientPin"), Some(&Value::Bool(false)));
         assert_eq!(get_text_key(opts, "up"), Some(&Value::Bool(true)));
-        assert_eq!(get_text_key(opts, "pinUvAuthToken"), Some(&Value::Bool(true)));
+        assert_eq!(
+            get_text_key(opts, "pinUvAuthToken"),
+            Some(&Value::Bool(true))
+        );
         assert_eq!(
             get_text_key(opts, "noMcGaPermissionsWithClientPin"),
             Some(&Value::Bool(true))
@@ -138,12 +141,13 @@ fn test_client_pin_protocol_1_and_2() {
     let mut rng = rand::thread_rng();
 
     // 1. Get PIN retries (initially 8)
-    let mut req_retries = Vec::new();
-    req_retries.push((Value::Integer(1.into()), Value::Integer(1.into()))); // proto 1
-    req_retries.push((
-        Value::Integer(2.into()),
-        Value::Integer(SUBCMD_GET_PIN_RETRIES.into()),
-    ));
+    let req_retries = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_GET_PIN_RETRIES.into()),
+        ),
+    ];
     let packet = encode_cbor_value(&Value::Map(req_retries)).unwrap();
 
     let mut full_packet = vec![CTAP_CMD_CLIENT_PIN];
@@ -155,12 +159,13 @@ fn test_client_pin_protocol_1_and_2() {
     assert_eq!(get_int_key(&map, 3), Some(&Value::Integer(8.into())));
 
     // 2. Get Key Agreement
-    let mut req_ka = Vec::new();
-    req_ka.push((Value::Integer(1.into()), Value::Integer(1.into())));
-    req_ka.push((
-        Value::Integer(2.into()),
-        Value::Integer(SUBCMD_GET_KEY_AGREEMENT.into()),
-    ));
+    let req_ka = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_GET_KEY_AGREEMENT.into()),
+        ),
+    ];
     let packet_ka = encode_cbor_value(&Value::Map(req_ka)).unwrap();
 
     let mut full_packet_ka = vec![CTAP_CMD_CLIENT_PIN];
@@ -184,13 +189,16 @@ fn test_client_pin_protocol_1_and_2() {
     let new_pin_enc = PinProtocol1::encrypt(&key_proto1, &pin_padded);
     let pin_auth = PinProtocol1::authenticate(&key_proto1, &new_pin_enc);
 
-    let mut set_pin_map = Vec::new();
-    set_pin_map.push((Value::Integer(1.into()), Value::Integer(1.into()))); // proto 1
-    set_pin_map.push((Value::Integer(2.into()), Value::Integer(SUBCMD_SET_PIN.into())));
-    set_pin_map.push((Value::Integer(3.into()), client_cose.to_cbor_value()));
-    set_pin_map.push((Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())));
-    set_pin_map.push((Value::Integer(5.into()), Value::Bytes(new_pin_enc)));
-
+    let set_pin_map = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_SET_PIN.into()),
+        ),
+        (Value::Integer(3.into()), client_cose.to_cbor_value()),
+        (Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())),
+        (Value::Integer(5.into()), Value::Bytes(new_pin_enc)),
+    ];
     let packet_set = encode_cbor_value(&Value::Map(set_pin_map)).unwrap();
     let mut full_packet_set = vec![CTAP_CMD_CLIENT_PIN];
     full_packet_set.extend_from_slice(&packet_set);
@@ -201,12 +209,13 @@ fn test_client_pin_protocol_1_and_2() {
 
     // 4. Get token using Protocol 2 with permissions MC and GA
     // Step 4a: Get Key Agreement for Proto 2
-    let mut req_ka2 = Vec::new();
-    req_ka2.push((Value::Integer(1.into()), Value::Integer(2.into()))); // proto 2
-    req_ka2.push((
-        Value::Integer(2.into()),
-        Value::Integer(SUBCMD_GET_KEY_AGREEMENT.into()),
-    ));
+    let req_ka2 = vec![
+        (Value::Integer(1.into()), Value::Integer(2.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_GET_KEY_AGREEMENT.into()),
+        ),
+    ];
     let packet_ka2 = encode_cbor_value(&Value::Map(req_ka2)).unwrap();
     let mut full_packet_ka2 = vec![CTAP_CMD_CLIENT_PIN];
     full_packet_ka2.extend_from_slice(&packet_ka2);
@@ -228,20 +237,23 @@ fn test_client_pin_protocol_1_and_2() {
     let pin_hash_enc = PinProtocol2::encrypt(&e_ks2, &iv, &p_hash);
 
     let perms = PIN_UV_PERM_MC | PIN_UV_PERM_GA;
-    let mut req_token = Vec::new();
-    req_token.push((Value::Integer(1.into()), Value::Integer(2.into()))); // proto 2
-    req_token.push((
-        Value::Integer(2.into()),
-        Value::Integer(SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS.into()),
-    ));
-    req_token.push((Value::Integer(3.into()), client_cose2.to_cbor_value()));
-    req_token.push((Value::Integer(6.into()), Value::Bytes(pin_hash_enc)));
-    req_token.push((Value::Integer(9.into()), Value::Integer((perms as i64).into())));
-    req_token.push((
-        Value::Integer(10.into()),
-        Value::Text(String::from("example.com")),
-    ));
-
+    let req_token = vec![
+        (Value::Integer(1.into()), Value::Integer(2.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS.into()),
+        ),
+        (Value::Integer(3.into()), client_cose2.to_cbor_value()),
+        (Value::Integer(6.into()), Value::Bytes(pin_hash_enc)),
+        (
+            Value::Integer(9.into()),
+            Value::Integer((perms as i64).into()),
+        ),
+        (
+            Value::Integer(10.into()),
+            Value::Text(String::from("example.com")),
+        ),
+    ];
     let packet_token = encode_cbor_value(&Value::Map(req_token)).unwrap();
     let mut full_packet_token = vec![CTAP_CMD_CLIENT_PIN];
     full_packet_token.extend_from_slice(&packet_token);
@@ -302,36 +314,50 @@ fn test_make_credential_and_get_assertion_all_algorithms() {
         let client_data_hash = [0x11u8; 32];
 
         // 1. Build MakeCredential request
-        let mut req = Vec::new();
-        req.push((Value::Integer(1.into()), Value::Bytes(client_data_hash.to_vec())));
-
+        let mut req = vec![(
+            Value::Integer(1.into()),
+            Value::Bytes(client_data_hash.to_vec()),
+        )];
         // rp
-        let mut rp = Vec::new();
-        rp.push((Value::Text("id".into()), Value::Text("aegiskey.dev".into())));
-        rp.push((Value::Text("name".into()), Value::Text("AegisKey Dev".into())));
+        let rp = vec![
+            (Value::Text("id".into()), Value::Text("aegiskey.dev".into())),
+            (
+                Value::Text("name".into()),
+                Value::Text("AegisKey Dev".into()),
+            ),
+        ];
         req.push((Value::Integer(2.into()), Value::Map(rp)));
 
         // user
-        let mut user = Vec::new();
-        user.push((Value::Text("id".into()), Value::Bytes(vec![1, 2, 3, 4])));
-        user.push((Value::Text("name".into()), Value::Text("alice".into())));
-        user.push((Value::Text("displayName".into()), Value::Text("Alice Smith".into())));
+        let user = vec![
+            (Value::Text("id".into()), Value::Bytes(vec![1, 2, 3, 4])),
+            (Value::Text("name".into()), Value::Text("alice".into())),
+            (
+                Value::Text("displayName".into()),
+                Value::Text("Alice Smith".into()),
+            ),
+        ];
         req.push((Value::Integer(3.into()), Value::Map(user)));
 
         // pubKeyCredParams
-        let mut param = Vec::new();
-        param.push((Value::Text("type".into()), Value::Text("public-key".into())));
-        param.push((Value::Text("alg".into()), Value::Integer((alg as i64).into())));
-        req.push((Value::Integer(4.into()), Value::Array(vec![Value::Map(param)])));
+        let param = vec![
+            (Value::Text("type".into()), Value::Text("public-key".into())),
+            (
+                Value::Text("alg".into()),
+                Value::Integer((alg as i64).into()),
+            ),
+        ];
+        req.push((
+            Value::Integer(4.into()),
+            Value::Array(vec![Value::Map(param)]),
+        ));
 
         // options: rk = true
-        let mut opts = Vec::new();
-        opts.push((Value::Text("rk".into()), Value::Bool(true)));
+        let opts = vec![(Value::Text("rk".into()), Value::Bool(true))];
         req.push((Value::Integer(7.into()), Value::Map(opts)));
 
         // extensions: hmac-secret = true
-        let mut exts = Vec::new();
-        exts.push((Value::Text("hmac-secret".into()), Value::Bool(true)));
+        let exts = vec![(Value::Text("hmac-secret".into()), Value::Bool(true))];
         req.push((Value::Integer(6.into()), Value::Map(exts)));
 
         let req_bytes = encode_cbor_value(&Value::Map(req)).unwrap();
@@ -339,7 +365,11 @@ fn test_make_credential_and_get_assertion_all_algorithms() {
         packet.extend_from_slice(&req_bytes);
 
         let res = engine.process_packet(&packet, 1001, &mut rng);
-        assert_eq!(res[0], CTAP1_ERR_SUCCESS, "MakeCredential failed for alg {}", alg);
+        assert_eq!(
+            res[0], CTAP1_ERR_SUCCESS,
+            "MakeCredential failed for alg {}",
+            alg
+        );
 
         let map = decode_cbor_map(&res[1..]).unwrap();
         let auth_data_val = get_int_key(&map, 2)
@@ -356,22 +386,33 @@ fn test_make_credential_and_get_assertion_all_algorithms() {
         let cred_id = auth_data[55..55 + cred_id_len].to_vec();
 
         // 2. Perform GetAssertion
-        let mut ga_req = Vec::new();
-        ga_req.push((Value::Integer(1.into()), Value::Text("aegiskey.dev".into())));
-        ga_req.push((Value::Integer(2.into()), Value::Bytes(client_data_hash.to_vec())));
-
+        let mut ga_req = vec![
+            (Value::Integer(1.into()), Value::Text("aegiskey.dev".into())),
+            (
+                Value::Integer(2.into()),
+                Value::Bytes(client_data_hash.to_vec()),
+            ),
+        ];
         // allowList
-        let mut desc = Vec::new();
-        desc.push((Value::Text("type".into()), Value::Text("public-key".into())));
-        desc.push((Value::Text("id".into()), Value::Bytes(cred_id.clone())));
-        ga_req.push((Value::Integer(3.into()), Value::Array(vec![Value::Map(desc)])));
+        let desc = vec![
+            (Value::Text("type".into()), Value::Text("public-key".into())),
+            (Value::Text("id".into()), Value::Bytes(cred_id.clone())),
+        ];
+        ga_req.push((
+            Value::Integer(3.into()),
+            Value::Array(vec![Value::Map(desc)]),
+        ));
 
         let ga_packet_bytes = encode_cbor_value(&Value::Map(ga_req)).unwrap();
         let mut ga_packet = vec![CTAP_CMD_GET_ASSERTION];
         ga_packet.extend_from_slice(&ga_packet_bytes);
 
         let ga_res = engine.process_packet(&ga_packet, 1001, &mut rng);
-        assert_eq!(ga_res[0], CTAP1_ERR_SUCCESS, "GetAssertion failed for alg {}", alg);
+        assert_eq!(
+            ga_res[0], CTAP1_ERR_SUCCESS,
+            "GetAssertion failed for alg {}",
+            alg
+        );
 
         let ga_map = decode_cbor_map(&ga_res[1..]).unwrap();
         let ga_auth_data = get_int_key(&ga_map, 2).expect("authData in assertion missing");
@@ -413,7 +454,11 @@ fn test_large_blobs_read_write() {
 
     // Setup PIN & get LBW token
     let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
-    let ka_res = engine.process_packet(&[CTAP_CMD_CLIENT_PIN, 0xA2, 0x01, 0x01, 0x02, 0x02], 1001, &mut rng);
+    let ka_res = engine.process_packet(
+        &[CTAP_CMD_CLIENT_PIN, 0xA2, 0x01, 0x01, 0x02, 0x02],
+        1001,
+        &mut rng,
+    );
     let ka_map = decode_cbor_map(&ka_res[1..]).unwrap();
     let auth_cose = CoseKey::from_cbor_value(get_int_key(&ka_map, 1).unwrap()).unwrap();
     let shared = client_ecdh.compute_shared_secret(&auth_cose).unwrap();
@@ -423,25 +468,45 @@ fn test_large_blobs_read_write() {
     let pin_auth = PinProtocol1::authenticate(&k, &pin_enc);
 
     // Set PIN
-    let mut set_req = Vec::new();
-    set_req.push((Value::Integer(1.into()), Value::Integer(1.into())));
-    set_req.push((Value::Integer(2.into()), Value::Integer(SUBCMD_SET_PIN.into())));
-    set_req.push((Value::Integer(3.into()), client_ecdh.to_cose_key().to_cbor_value()));
-    set_req.push((Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())));
-    set_req.push((Value::Integer(5.into()), Value::Bytes(pin_enc)));
+    let set_req = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_SET_PIN.into()),
+        ),
+        (
+            Value::Integer(3.into()),
+            client_ecdh.to_cose_key().to_cbor_value(),
+        ),
+        (Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())),
+        (Value::Integer(5.into()), Value::Bytes(pin_enc)),
+    ];
     let p_bytes = encode_cbor_value(&Value::Map(set_req)).unwrap();
     let mut full_p = vec![CTAP_CMD_CLIENT_PIN];
     full_p.extend_from_slice(&p_bytes);
-    assert_eq!(engine.process_packet(&full_p, 1001, &mut rng)[0], CTAP1_ERR_SUCCESS);
+    assert_eq!(
+        engine.process_packet(&full_p, 1001, &mut rng)[0],
+        CTAP1_ERR_SUCCESS
+    );
 
     // Get Token with LBW permission
     let p_hash_enc = PinProtocol1::encrypt(&k, &pin_hash(b"4321"));
-    let mut tok_req = Vec::new();
-    tok_req.push((Value::Integer(1.into()), Value::Integer(1.into())));
-    tok_req.push((Value::Integer(2.into()), Value::Integer(SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS.into())));
-    tok_req.push((Value::Integer(3.into()), client_ecdh.to_cose_key().to_cbor_value()));
-    tok_req.push((Value::Integer(6.into()), Value::Bytes(p_hash_enc)));
-    tok_req.push((Value::Integer(9.into()), Value::Integer((PIN_UV_PERM_LBW as i64).into())));
+    let tok_req = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS.into()),
+        ),
+        (
+            Value::Integer(3.into()),
+            client_ecdh.to_cose_key().to_cbor_value(),
+        ),
+        (Value::Integer(6.into()), Value::Bytes(p_hash_enc)),
+        (
+            Value::Integer(9.into()),
+            Value::Integer((PIN_UV_PERM_LBW as i64).into()),
+        ),
+    ];
     let t_bytes = encode_cbor_value(&Value::Map(tok_req)).unwrap();
     let mut full_t = vec![CTAP_CMD_CLIENT_PIN];
     full_t.extend_from_slice(&t_bytes);
@@ -459,8 +524,7 @@ fn test_large_blobs_read_write() {
     let blob_hash = sha256(&blob_data);
     let lb_auth = PinProtocol1::authenticate(&token, &blob_hash);
 
-    let mut set_lb = Vec::new();
-    set_lb.push((Value::Integer(2.into()), Value::Bytes(blob_data.clone())));
+    let mut set_lb = vec![(Value::Integer(2.into()), Value::Bytes(blob_data.clone()))];
     set_lb.push((Value::Integer(3.into()), Value::Integer(0.into()))); // offset = 0
     set_lb.push((Value::Integer(5.into()), Value::Bytes(lb_auth.to_vec())));
     set_lb.push((Value::Integer(6.into()), Value::Integer(1.into())));
@@ -468,12 +532,16 @@ fn test_large_blobs_read_write() {
     let lb_packet = encode_cbor_value(&Value::Map(set_lb)).unwrap();
     let mut full_lb = vec![CTAP_CMD_LARGE_BLOBS];
     full_lb.extend_from_slice(&lb_packet);
-    assert_eq!(engine.process_packet(&full_lb, 1001, &mut rng)[0], CTAP1_ERR_SUCCESS);
+    assert_eq!(
+        engine.process_packet(&full_lb, 1001, &mut rng)[0],
+        CTAP1_ERR_SUCCESS
+    );
 
     // Read Large Blob back
-    let mut get_lb = Vec::new();
-    get_lb.push((Value::Integer(1.into()), Value::Integer(256.into()))); // get 256 bytes
-    get_lb.push((Value::Integer(3.into()), Value::Integer(0.into()))); // offset 0
+    let get_lb = vec![
+        (Value::Integer(1.into()), Value::Integer(256.into())),
+        (Value::Integer(3.into()), Value::Integer(0.into())),
+    ];
     let get_lb_packet = encode_cbor_value(&Value::Map(get_lb)).unwrap();
     let mut full_get_lb = vec![CTAP_CMD_LARGE_BLOBS];
     full_get_lb.extend_from_slice(&get_lb_packet);
@@ -495,7 +563,11 @@ fn test_credential_management_and_rk() {
 
     // 1. Setup PIN & get CM permission token
     let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
-    let ka_res = engine.process_packet(&[CTAP_CMD_CLIENT_PIN, 0xA2, 0x01, 0x01, 0x02, 0x02], 1001, &mut rng);
+    let ka_res = engine.process_packet(
+        &[CTAP_CMD_CLIENT_PIN, 0xA2, 0x01, 0x01, 0x02, 0x02],
+        1001,
+        &mut rng,
+    );
     let ka_map = decode_cbor_map(&ka_res[1..]).unwrap();
     let auth_cose = CoseKey::from_cbor_value(get_int_key(&ka_map, 1).unwrap()).unwrap();
     let shared = client_ecdh.compute_shared_secret(&auth_cose).unwrap();
@@ -504,35 +576,58 @@ fn test_credential_management_and_rk() {
     let pin_enc = PinProtocol1::encrypt(&k, &pad_pin(b"987654").unwrap());
     let pin_auth = PinProtocol1::authenticate(&k, &pin_enc);
 
-    let mut set_req = Vec::new();
-    set_req.push((Value::Integer(1.into()), Value::Integer(1.into())));
-    set_req.push((Value::Integer(2.into()), Value::Integer(SUBCMD_SET_PIN.into())));
-    set_req.push((Value::Integer(3.into()), client_ecdh.to_cose_key().to_cbor_value()));
-    set_req.push((Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())));
-    set_req.push((Value::Integer(5.into()), Value::Bytes(pin_enc)));
+    let set_req = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_SET_PIN.into()),
+        ),
+        (
+            Value::Integer(3.into()),
+            client_ecdh.to_cose_key().to_cbor_value(),
+        ),
+        (Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())),
+        (Value::Integer(5.into()), Value::Bytes(pin_enc)),
+    ];
     let p_bytes = encode_cbor_value(&Value::Map(set_req)).unwrap();
     let mut full_p = vec![CTAP_CMD_CLIENT_PIN];
     full_p.extend_from_slice(&p_bytes);
-    assert_eq!(engine.process_packet(&full_p, 1001, &mut rng)[0], CTAP1_ERR_SUCCESS);
+    assert_eq!(
+        engine.process_packet(&full_p, 1001, &mut rng)[0],
+        CTAP1_ERR_SUCCESS
+    );
 
     // 2. Make Resident Credential
     let client_data_hash = [0x33u8; 32];
-    let mut req = Vec::new();
-    req.push((Value::Integer(1.into()), Value::Bytes(client_data_hash.to_vec())));
-    let mut rp = Vec::new();
-    rp.push((Value::Text("id".into()), Value::Text("example.org".into())));
-    rp.push((Value::Text("name".into()), Value::Text("Example Org".into())));
+    let mut req = vec![(
+        Value::Integer(1.into()),
+        Value::Bytes(client_data_hash.to_vec()),
+    )];
+    let rp = vec![
+        (Value::Text("id".into()), Value::Text("example.org".into())),
+        (
+            Value::Text("name".into()),
+            Value::Text("Example Org".into()),
+        ),
+    ];
     req.push((Value::Integer(2.into()), Value::Map(rp)));
-    let mut user = Vec::new();
-    user.push((Value::Text("id".into()), Value::Bytes(vec![9, 9, 9])));
-    user.push((Value::Text("name".into()), Value::Text("bob".into())));
+    let user = vec![
+        (Value::Text("id".into()), Value::Bytes(vec![9, 9, 9])),
+        (Value::Text("name".into()), Value::Text("bob".into())),
+    ];
     req.push((Value::Integer(3.into()), Value::Map(user)));
-    let mut param = Vec::new();
-    param.push((Value::Text("type".into()), Value::Text("public-key".into())));
-    param.push((Value::Text("alg".into()), Value::Integer((COSE_ALG_ES256 as i64).into())));
-    req.push((Value::Integer(4.into()), Value::Array(vec![Value::Map(param)])));
-    let mut opts = Vec::new();
-    opts.push((Value::Text("rk".into()), Value::Bool(true)));
+    let param = vec![
+        (Value::Text("type".into()), Value::Text("public-key".into())),
+        (
+            Value::Text("alg".into()),
+            Value::Integer((COSE_ALG_ES256 as i64).into()),
+        ),
+    ];
+    req.push((
+        Value::Integer(4.into()),
+        Value::Array(vec![Value::Map(param)]),
+    ));
+    let opts = vec![(Value::Text("rk".into()), Value::Bool(true))];
     req.push((Value::Integer(7.into()), Value::Map(opts)));
 
     let mc_bytes = encode_cbor_value(&Value::Map(req)).unwrap();
@@ -543,12 +638,22 @@ fn test_credential_management_and_rk() {
 
     // 3. Obtain Token with CM permission
     let p_hash_enc = PinProtocol1::encrypt(&k, &pin_hash(b"987654"));
-    let mut tok_req = Vec::new();
-    tok_req.push((Value::Integer(1.into()), Value::Integer(1.into())));
-    tok_req.push((Value::Integer(2.into()), Value::Integer(SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS.into())));
-    tok_req.push((Value::Integer(3.into()), client_ecdh.to_cose_key().to_cbor_value()));
-    tok_req.push((Value::Integer(6.into()), Value::Bytes(p_hash_enc)));
-    tok_req.push((Value::Integer(9.into()), Value::Integer((PIN_UV_PERM_CM as i64).into())));
+    let tok_req = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_GET_PIN_UV_AUTH_TOKEN_USING_PIN_WITH_PERMISSIONS.into()),
+        ),
+        (
+            Value::Integer(3.into()),
+            client_ecdh.to_cose_key().to_cbor_value(),
+        ),
+        (Value::Integer(6.into()), Value::Bytes(p_hash_enc)),
+        (
+            Value::Integer(9.into()),
+            Value::Integer((PIN_UV_PERM_CM as i64).into()),
+        ),
+    ];
     let t_bytes = encode_cbor_value(&Value::Map(tok_req)).unwrap();
     let mut full_t = vec![CTAP_CMD_CLIENT_PIN];
     full_t.extend_from_slice(&t_bytes);
@@ -563,11 +668,14 @@ fn test_credential_management_and_rk() {
 
     // 4. Test getCredsMetadata
     let auth_param = PinProtocol1::authenticate(&cm_token, &[SUBCMD_GET_CREDS_METADATA as u8]);
-    let mut meta_req = Vec::new();
-    meta_req.push((Value::Integer(1.into()), Value::Integer(SUBCMD_GET_CREDS_METADATA.into())));
-    meta_req.push((Value::Integer(3.into()), Value::Integer(1.into())));
-    meta_req.push((Value::Integer(4.into()), Value::Bytes(auth_param.to_vec())));
-
+    let meta_req = vec![
+        (
+            Value::Integer(1.into()),
+            Value::Integer(SUBCMD_GET_CREDS_METADATA.into()),
+        ),
+        (Value::Integer(3.into()), Value::Integer(1.into())),
+        (Value::Integer(4.into()), Value::Bytes(auth_param.to_vec())),
+    ];
     let meta_packet = encode_cbor_value(&Value::Map(meta_req)).unwrap();
     let mut full_meta = vec![CTAP_CMD_CREDENTIAL_MANAGEMENT];
     full_meta.extend_from_slice(&meta_packet);
@@ -579,11 +687,17 @@ fn test_credential_management_and_rk() {
 
     // 5. Enumerate RPs Begin
     let auth_param_rp = PinProtocol1::authenticate(&cm_token, &[SUBCMD_ENUMERATE_RPS_BEGIN as u8]);
-    let mut enum_rp_req = Vec::new();
-    enum_rp_req.push((Value::Integer(1.into()), Value::Integer(SUBCMD_ENUMERATE_RPS_BEGIN.into())));
-    enum_rp_req.push((Value::Integer(3.into()), Value::Integer(1.into())));
-    enum_rp_req.push((Value::Integer(4.into()), Value::Bytes(auth_param_rp.to_vec())));
-
+    let enum_rp_req = vec![
+        (
+            Value::Integer(1.into()),
+            Value::Integer(SUBCMD_ENUMERATE_RPS_BEGIN.into()),
+        ),
+        (Value::Integer(3.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(4.into()),
+            Value::Bytes(auth_param_rp.to_vec()),
+        ),
+    ];
     let erp_packet = encode_cbor_value(&Value::Map(enum_rp_req)).unwrap();
     let mut full_erp = vec![CTAP_CMD_CREDENTIAL_MANAGEMENT];
     full_erp.extend_from_slice(&erp_packet);
@@ -593,7 +707,10 @@ fn test_credential_management_and_rk() {
     let erp_map = decode_cbor_map(&erp_res[1..]).unwrap();
     let rp_val = get_int_key(&erp_map, 3).unwrap();
     if let Value::Map(m) = rp_val {
-        assert_eq!(get_text_key(m, "id"), Some(&Value::Text("example.org".into())));
+        assert_eq!(
+            get_text_key(m, "id"),
+            Some(&Value::Text("example.org".into()))
+        );
     } else {
         panic!("RP not a map");
     }
@@ -607,20 +724,26 @@ fn test_rk_deny_policy() {
     engine.set_rk_deny_policy(true);
 
     let client_data_hash = [0x77u8; 32];
-    let mut req = Vec::new();
-    req.push((Value::Integer(1.into()), Value::Bytes(client_data_hash.to_vec())));
-    let mut rp = Vec::new();
-    rp.push((Value::Text("id".into()), Value::Text("deny.org".into())));
+    let mut req = vec![(
+        Value::Integer(1.into()),
+        Value::Bytes(client_data_hash.to_vec()),
+    )];
+    let rp = vec![(Value::Text("id".into()), Value::Text("deny.org".into()))];
     req.push((Value::Integer(2.into()), Value::Map(rp)));
-    let mut user = Vec::new();
-    user.push((Value::Text("id".into()), Value::Bytes(vec![1])));
+    let user = vec![(Value::Text("id".into()), Value::Bytes(vec![1]))];
     req.push((Value::Integer(3.into()), Value::Map(user)));
-    let mut param = Vec::new();
-    param.push((Value::Text("type".into()), Value::Text("public-key".into())));
-    param.push((Value::Text("alg".into()), Value::Integer((COSE_ALG_ES256 as i64).into())));
-    req.push((Value::Integer(4.into()), Value::Array(vec![Value::Map(param)])));
-    let mut opts = Vec::new();
-    opts.push((Value::Text("rk".into()), Value::Bool(true)));
+    let param = vec![
+        (Value::Text("type".into()), Value::Text("public-key".into())),
+        (
+            Value::Text("alg".into()),
+            Value::Integer((COSE_ALG_ES256 as i64).into()),
+        ),
+    ];
+    req.push((
+        Value::Integer(4.into()),
+        Value::Array(vec![Value::Map(param)]),
+    ));
+    let opts = vec![(Value::Text("rk".into()), Value::Bool(true))];
     req.push((Value::Integer(7.into()), Value::Map(opts)));
 
     let mc_bytes = encode_cbor_value(&Value::Map(req)).unwrap();
@@ -640,11 +763,14 @@ fn test_authenticator_config() {
     assert!(!engine.info_config.enterprise_attestation);
 
     // Call authenticatorConfig to enable enterprise attestation
-    let mut cfg_req = Vec::new();
-    cfg_req.push((Value::Integer(1.into()), Value::Integer(CONFIG_ENABLE_ENTERPRISE_ATTESTATION.into())));
-    cfg_req.push((Value::Integer(3.into()), Value::Integer(1.into())));
-    cfg_req.push((Value::Integer(4.into()), Value::Bytes(vec![0u8; 16])));
-
+    let cfg_req = vec![
+        (
+            Value::Integer(1.into()),
+            Value::Integer(CONFIG_ENABLE_ENTERPRISE_ATTESTATION.into()),
+        ),
+        (Value::Integer(3.into()), Value::Integer(1.into())),
+        (Value::Integer(4.into()), Value::Bytes(vec![0u8; 16])),
+    ];
     let cfg_packet = encode_cbor_value(&Value::Map(cfg_req)).unwrap();
     let mut full_cfg = vec![CTAP_CMD_CONFIG];
     full_cfg.extend_from_slice(&cfg_packet);

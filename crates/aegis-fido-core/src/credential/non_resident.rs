@@ -1,12 +1,15 @@
-use alloc::string::String;
-use alloc::vec::Vec;
+#![allow(deprecated)] // RustCrypto 0.14 deprecated re-export; upgrade to generic-array 1.x needs major bump (out of scope), behavior identical.
+                      // generic-array 0.14: Nonce::from_slice deprecated, no 0.14-free alternative
+                      // without major aes-gcm bump. Behavior identical.
+use crate::credential::record::CredentialRecord;
+use crate::crypto::hash::sha256;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
+use alloc::string::String;
+use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
-use crate::credential::record::CredentialRecord;
-use crate::crypto::hash::sha256;
 use zeroize::Zeroize;
 
 const CRED_WRAP_VERSION: u8 = 0x01;
@@ -65,12 +68,10 @@ impl CredentialWrapper {
         plaintext.extend_from_slice(&(record.public_key_cose.len() as u16).to_be_bytes());
         plaintext.extend_from_slice(&record.public_key_cose);
 
-        let ciphertext = cipher
-            .encrypt(nonce, plaintext.as_ref())
-            .map_err(|_| {
-                plaintext.zeroize();
-                "AES-GCM encryption failed"
-            })?;
+        let ciphertext = cipher.encrypt(nonce, plaintext.as_ref()).map_err(|_| {
+            plaintext.zeroize();
+            "AES-GCM encryption failed"
+        })?;
 
         let mut wrapped_id = Vec::with_capacity(1 + 12 + ciphertext.len());
         wrapped_id.push(CRED_WRAP_VERSION);
@@ -83,7 +84,12 @@ impl CredentialWrapper {
     }
 
     /// Unwraps an encrypted credential ID into a CredentialRecord
-    pub fn unwrap(&self, cred_id: &[u8], rp_id: &str, stored_sign_count: u32) -> Result<CredentialRecord, &'static str> {
+    pub fn unwrap(
+        &self,
+        cred_id: &[u8],
+        rp_id: &str,
+        stored_sign_count: u32,
+    ) -> Result<CredentialRecord, &'static str> {
         if cred_id.len() < 1 + 12 + 16 {
             return Err("Credential ID too short");
         }
@@ -225,5 +231,3 @@ impl CredentialWrapper {
         })
     }
 }
-
-

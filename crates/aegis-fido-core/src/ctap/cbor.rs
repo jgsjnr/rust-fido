@@ -1,7 +1,6 @@
-use alloc::string::String;
+use crate::ctap::status_code::CtapError;
 use alloc::vec::Vec;
 use ciborium::value::Value;
-use crate::ctap::status_code::CtapError;
 
 pub fn decode_cbor_map(data: &[u8]) -> Result<Vec<(Value, Value)>, CtapError> {
     if data.is_empty() {
@@ -14,7 +13,7 @@ pub fn decode_cbor_map(data: &[u8]) -> Result<Vec<(Value, Value)>, CtapError> {
     }
 }
 
-pub fn get_int_key<'a>(map: &'a [(Value, Value)], key: i64) -> Option<&'a Value> {
+pub fn get_int_key(map: &[(Value, Value)], key: i64) -> Option<&Value> {
     for (k, v) in map {
         if let Value::Integer(i) = k {
             let actual: i128 = (*i).into();

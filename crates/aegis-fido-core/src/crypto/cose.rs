@@ -85,20 +85,34 @@ impl CoseKey {
     pub fn to_cbor_value(&self) -> Value {
         match self {
             Self::Ec2 { alg, crv, x, y } => {
-                let mut map = Vec::new();
-                map.push((Value::Integer(1.into()), Value::Integer(COSE_KTY_EC2.into())));
-                map.push((Value::Integer(3.into()), Value::Integer((*alg as i64).into())));
-                map.push((Value::Integer((-1).into()), Value::Integer((*crv).into())));
-                map.push((Value::Integer((-2).into()), Value::Bytes(x.clone())));
-                map.push((Value::Integer((-3).into()), Value::Bytes(y.clone())));
+                let map = vec![
+                    (
+                        Value::Integer(1.into()),
+                        Value::Integer(COSE_KTY_EC2.into()),
+                    ),
+                    (
+                        Value::Integer(3.into()),
+                        Value::Integer((*alg as i64).into()),
+                    ),
+                    (Value::Integer((-1).into()), Value::Integer((*crv).into())),
+                    (Value::Integer((-2).into()), Value::Bytes(x.clone())),
+                    (Value::Integer((-3).into()), Value::Bytes(y.clone())),
+                ];
                 Value::Map(map)
             }
             Self::Okp { alg, crv, x } => {
-                let mut map = Vec::new();
-                map.push((Value::Integer(1.into()), Value::Integer(COSE_KTY_OKP.into())));
-                map.push((Value::Integer(3.into()), Value::Integer((*alg as i64).into())));
-                map.push((Value::Integer((-1).into()), Value::Integer((*crv).into())));
-                map.push((Value::Integer((-2).into()), Value::Bytes(x.clone())));
+                let map = vec![
+                    (
+                        Value::Integer(1.into()),
+                        Value::Integer(COSE_KTY_OKP.into()),
+                    ),
+                    (
+                        Value::Integer(3.into()),
+                        Value::Integer((*alg as i64).into()),
+                    ),
+                    (Value::Integer((-1).into()), Value::Integer((*crv).into())),
+                    (Value::Integer((-2).into()), Value::Bytes(x.clone())),
+                ];
                 Value::Map(map)
             }
         }

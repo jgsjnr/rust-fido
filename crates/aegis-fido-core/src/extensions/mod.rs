@@ -1,11 +1,7 @@
-use alloc::collections::BTreeMap;
+use crate::crypto::cose::CoseKey;
 use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
-use crate::crypto::cose::CoseKey;
-use crate::crypto::ecdh::EcdhKeyAgreement;
-use crate::crypto::hash::{hmac_sha256, sha256};
-use crate::crypto::pin_protocol::{PinProtocol1, PinProtocol2};
 
 pub const EXT_CRED_PROTECT: &str = "credProtect";
 pub const EXT_HMAC_SECRET: &str = "hmac-secret";
@@ -84,7 +80,8 @@ impl ExtensionInputs {
                         inputs.hmac_secret_make_cred = *b;
                     }
                     Value::Map(sub_map) => {
-                        inputs.hmac_secret_get_assertion = Self::parse_hmac_secret_get_assertion(sub_map);
+                        inputs.hmac_secret_get_assertion =
+                            Self::parse_hmac_secret_get_assertion(sub_map);
                     }
                     _ => {}
                 },
@@ -129,7 +126,9 @@ impl ExtensionInputs {
         inputs
     }
 
-    fn parse_hmac_secret_get_assertion(sub_map: &[(Value, Value)]) -> Option<HmacSecretGetAssertionInput> {
+    fn parse_hmac_secret_get_assertion(
+        sub_map: &[(Value, Value)],
+    ) -> Option<HmacSecretGetAssertionInput> {
         let mut key_agreement = None;
         let mut salt_enc = None;
         let mut salt_auth = None;
@@ -179,44 +178,71 @@ impl ExtensionOutputs {
         let mut map = Vec::new();
 
         if let Some(cp) = self.cred_protect {
-            map.push((Value::Text(String::from(EXT_CRED_PROTECT)), Value::Integer((cp as i64).into())));
+            map.push((
+                Value::Text(String::from(EXT_CRED_PROTECT)),
+                Value::Integer((cp as i64).into()),
+            ));
         }
 
         if self.hmac_secret_make_cred {
-            map.push((Value::Text(String::from(EXT_HMAC_SECRET)), Value::Bool(true)));
+            map.push((
+                Value::Text(String::from(EXT_HMAC_SECRET)),
+                Value::Bool(true),
+            ));
         }
 
         if let Some(ref enc) = self.hmac_secret_output_enc {
-            map.push((Value::Text(String::from(EXT_HMAC_SECRET)), Value::Bytes(enc.clone())));
+            map.push((
+                Value::Text(String::from(EXT_HMAC_SECRET)),
+                Value::Bytes(enc.clone()),
+            ));
         }
 
         if let Some(ref blob) = self.cred_blob {
-            map.push((Value::Text(String::from(EXT_CRED_BLOBS)), Value::Bytes(blob.clone())));
+            map.push((
+                Value::Text(String::from(EXT_CRED_BLOBS)),
+                Value::Bytes(blob.clone()),
+            ));
         }
 
         if let Some(ref lb_key) = self.large_blob_key {
-            map.push((Value::Text(String::from(EXT_LARGE_BLOB_KEY)), Value::Bytes(lb_key.clone())));
+            map.push((
+                Value::Text(String::from(EXT_LARGE_BLOB_KEY)),
+                Value::Bytes(lb_key.clone()),
+            ));
         }
 
         if let Some(mpl) = self.min_pin_length {
-            map.push((Value::Text(String::from(EXT_MIN_PIN_LENGTH)), Value::Integer((mpl as i64).into())));
+            map.push((
+                Value::Text(String::from(EXT_MIN_PIN_LENGTH)),
+                Value::Integer((mpl as i64).into()),
+            ));
         }
 
         if let Some(comp) = self.pin_complexity {
-            map.push((Value::Text(String::from(EXT_PIN_COMPLEXITY)), Value::Bool(comp)));
+            map.push((
+                Value::Text(String::from(EXT_PIN_COMPLEXITY)),
+                Value::Bool(comp),
+            ));
         }
 
         if let Some(ref uvm_data) = self.uvm {
             let mut list = Vec::new();
             for item in uvm_data {
-                let sub: Vec<Value> = item.iter().map(|&x| Value::Integer((x as i64).into())).collect();
+                let sub: Vec<Value> = item
+                    .iter()
+                    .map(|&x| Value::Integer((x as i64).into()))
+                    .collect();
                 list.push(Value::Array(sub));
             }
             map.push((Value::Text(String::from(EXT_UVM)), Value::Array(list)));
         }
 
         if let Some(tpp) = self.third_party_payment {
-            map.push((Value::Text(String::from(EXT_THIRD_PARTY_PAYMENT)), Value::Bool(tpp)));
+            map.push((
+                Value::Text(String::from(EXT_THIRD_PARTY_PAYMENT)),
+                Value::Bool(tpp),
+            ));
         }
 
         if map.is_empty() {

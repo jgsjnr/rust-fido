@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_doc_comments)] // Uniffi-generated scaffolding in OUT_DIR (third-party, cannot edit); behavior identical.
 //! UniFFI bridge for the Android app (`aegis_bridge` cdylib).
 //!
 //! Strictly mirrors `docs/ble-protocol.md` (frozen) and re-exports
@@ -241,12 +242,9 @@ pub fn cose_key_info(cbor: Vec<u8>) -> Result<String, BridgeError> {
             x.len(),
             y.len()
         )),
-        CoseKey::Okp { alg, crv, x } => Ok(format!(
-            "kty=OKP crv={} alg={} x_len={}",
-            crv,
-            alg,
-            x.len()
-        )),
+        CoseKey::Okp { alg, crv, x } => {
+            Ok(format!("kty=OKP crv={} alg={} x_len={}", crv, alg, x.len()))
+        }
     }
 }
 
@@ -313,7 +311,10 @@ pub fn oath_account_from_path(path: String) -> Option<String> {
 fn extract_json_string(json: &str, key: &str) -> Option<String> {
     let pattern = format!("\"{key}\"");
     let after_key = json.find(pattern.as_str())?;
-    let rest = json[after_key + pattern.len()..].split_once(':')?.1.trim_start();
+    let rest = json[after_key + pattern.len()..]
+        .split_once(':')?
+        .1
+        .trim_start();
     let body = rest.strip_prefix('"')?;
     let mut out = String::new();
     let mut escaped = false;
@@ -335,7 +336,10 @@ fn extract_json_string(json: &str, key: &str) -> Option<String> {
 fn extract_json_u32(json: &str, key: &str) -> Option<u32> {
     let pattern = format!("\"{key}\"");
     let after_key = json.find(pattern.as_str())?;
-    let rest = json[after_key + pattern.len()..].split_once(':')?.1.trim_start();
+    let rest = json[after_key + pattern.len()..]
+        .split_once(':')?
+        .1
+        .trim_start();
     let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
         return None;
@@ -379,7 +383,10 @@ mod tests {
         assert_eq!(info.len_uuid, 0xFFF3);
         assert_eq!(info.revision_uuid, 0xFFF4);
         assert_eq!(info.gatt_revision, 0x01);
-        assert_eq!((info.op_ping, info.op_msg, info.op_cancel), (0x81, 0x83, 0xBE));
+        assert_eq!(
+            (info.op_ping, info.op_msg, info.op_cancel),
+            (0x81, 0x83, 0xBE)
+        );
         assert_eq!(info.max_fragment_bytes, 244);
         assert_eq!(info.control_point_length, 512);
     }
@@ -431,7 +438,10 @@ mod tests {
         env.extend_from_slice(&[9u8; 20]);
         env.extend_from_slice(&[0u8; 16]);
         assert!(envelope_validate(env.clone()).is_ok());
-        assert_eq!(envelope_validate(b"lixo".to_vec()), Err(BridgeError::InvalidEnvelope));
+        assert_eq!(
+            envelope_validate(b"lixo".to_vec()),
+            Err(BridgeError::InvalidEnvelope)
+        );
         let mut bad = env.clone();
         bad[0] ^= 0xFF;
         assert_eq!(envelope_validate(bad), Err(BridgeError::InvalidEnvelope));
@@ -445,13 +455,20 @@ mod tests {
         let pt = b"oath-export-backup".to_vec();
         let env = envelope_seal(key.clone(), pt.clone(), aad.clone(), nonce).unwrap();
         assert_eq!(&env[..5], &[0x41, 0x45, 0x47, 0x4E, 0x01]);
-        assert_eq!(envelope_validate(env.clone()).unwrap() as usize, env.len() - 17);
+        assert_eq!(
+            envelope_validate(env.clone()).unwrap() as usize,
+            env.len() - 17
+        );
         let back = envelope_open(key, env.clone(), aad).unwrap();
         assert_eq!(back, pt);
         let mut tampered = env;
         tampered[20] ^= 0x01;
         assert_eq!(
-            envelope_open(vec![0x42u8; 32], tampered, b"Aegis-Vault-Header-v1".to_vec()),
+            envelope_open(
+                vec![0x42u8; 32],
+                tampered,
+                b"Aegis-Vault-Header-v1".to_vec()
+            ),
             Err(BridgeError::CryptoError)
         );
     }
@@ -461,12 +478,16 @@ mod tests {
         let cbor = CoseKey::p256(vec![1u8; 32], vec![2u8; 32]).to_cbor_bytes();
         let info = cose_key_info(cbor).unwrap();
         assert_eq!(info, "kty=EC2 crv=1 alg=-7 x_len=32 y_len=32");
-        assert_eq!(cose_key_info(b"not-cbor".to_vec()), Err(BridgeError::InvalidCose));
+        assert_eq!(
+            cose_key_info(b"not-cbor".to_vec()),
+            Err(BridgeError::InvalidCose)
+        );
     }
 
     #[test]
     fn oath_response_parses_code_only() {
-        let json = r#"{"account":"GitHub:alice","code":"287082","remaining_seconds":28}"#.to_string();
+        let json =
+            r#"{"account":"GitHub:alice","code":"287082","remaining_seconds":28}"#.to_string();
         let parsed = oath_parse_response(json).unwrap();
         assert_eq!(parsed.account, "GitHub:alice");
         assert_eq!(parsed.code, "287082");
@@ -475,7 +496,8 @@ mod tests {
         assert!(!oath_code_valid("28708".to_string()));
         assert!(!oath_code_valid("287082123".to_string()));
         assert!(!oath_code_valid("28a082".to_string()));
-        let bad = r#"{"account":"GitHub:alice","code":"28a082","remaining_seconds":28}"#.to_string();
+        let bad =
+            r#"{"account":"GitHub:alice","code":"28a082","remaining_seconds":28}"#.to_string();
         assert_eq!(oath_parse_response(bad), Err(BridgeError::InvalidOath));
     }
 
@@ -534,6 +556,9 @@ mod tests {
             Some("GitHub".to_string())
         );
         assert_eq!(oath_account_from_path("/oath/code".to_string()), None);
-        assert_eq!(oath_account_from_path("/oath/code?account=".to_string()), None);
+        assert_eq!(
+            oath_account_from_path("/oath/code?account=".to_string()),
+            None
+        );
     }
 }

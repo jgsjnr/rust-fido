@@ -6,13 +6,15 @@ use rand_core::{CryptoRng, RngCore};
 use crate::crypto::cose::CoseKey;
 use crate::crypto::ecdh::EcdhKeyAgreement;
 use crate::crypto::pin_protocol::{pin_hash, PinProtocol1, PinProtocol2};
-use crate::ctap::cbor::{decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_field, get_int_key};
+use crate::ctap::cbor::{
+    decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_field, get_int_key,
+};
 use crate::ctap::status_code::CtapError;
 use crate::extensions::check_pin_complexity;
-use crate::oath::crypto::constant_time_eq;
-use zeroize::Zeroize;
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::oath::crypto::constant_time_eq;
+use zeroize::Zeroize;
 
 pub const SUBCMD_GET_PIN_RETRIES: i64 = 0x01;
 pub const SUBCMD_GET_KEY_AGREEMENT: i64 = 0x02;
@@ -97,7 +99,10 @@ impl ClientPinState {
         required_perm: u32,
         rp_id: Option<&str>,
     ) -> Result<(), CtapError> {
-        let session = self.active_session.as_ref().ok_or(CtapError::PinTokenExpired)?;
+        let session = self
+            .active_session
+            .as_ref()
+            .ok_or(CtapError::PinTokenExpired)?;
 
         if session.protocol != protocol {
             return Err(CtapError::PinAuthInvalid);
@@ -173,21 +178,24 @@ impl ClientPinHandler {
     }
 
     fn handle_get_pin_retries(state: &ClientPinState) -> Result<Vec<u8>, CtapError> {
-        let mut map = Vec::new();
-        map.push((
-            Value::Integer(3.into()),
-            Value::Integer((state.pin_retries as i64).into()),
-        ));
-        map.push((Value::Integer(4.into()), Value::Bool(state.power_cycle_state)));
+        let map = vec![
+            (
+                Value::Integer(3.into()),
+                Value::Integer((state.pin_retries as i64).into()),
+            ),
+            (
+                Value::Integer(4.into()),
+                Value::Bool(state.power_cycle_state),
+            ),
+        ];
         encode_cbor_value(&Value::Map(map))
     }
 
     fn handle_get_uv_retries(state: &ClientPinState) -> Result<Vec<u8>, CtapError> {
-        let mut map = Vec::new();
-        map.push((
+        let map = vec![(
             Value::Integer(5.into()),
             Value::Integer((state.uv_retries as i64).into()),
-        ));
+        )];
         encode_cbor_value(&Value::Map(map))
     }
     fn handle_get_pin_uv_auth_token_using_uv(state: &ClientPinState) -> Result<Vec<u8>, CtapError> {
@@ -205,8 +213,7 @@ impl ClientPinHandler {
         let cose_key = ecdh.to_cose_key();
         state.ephemeral_key = Some(ecdh);
 
-        let mut map = Vec::new();
-        map.push((Value::Integer(1.into()), cose_key.to_cbor_value()));
+        let map = vec![(Value::Integer(1.into()), cose_key.to_cbor_value())];
         encode_cbor_value(&Value::Map(map))
     }
 
@@ -219,10 +226,16 @@ impl ClientPinHandler {
             return Err(CtapError::PinAuthInvalid);
         }
 
-        let ecdh = state.ephemeral_key.as_ref().ok_or(CtapError::PinAuthInvalid)?;
+        let ecdh = state
+            .ephemeral_key
+            .as_ref()
+            .ok_or(CtapError::PinAuthInvalid)?;
         let peer_cose_val = get_int_key(map, 3).ok_or(CtapError::MissingParameter)?;
-        let peer_cose = CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
-        let shared_secret = ecdh.compute_shared_secret(&peer_cose).map_err(|_| CtapError::InvalidParameter)?;
+        let peer_cose =
+            CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
+        let shared_secret = ecdh
+            .compute_shared_secret(&peer_cose)
+            .map_err(|_| CtapError::InvalidParameter)?;
 
         let new_pin_enc = get_bytes_field(map, 5)?;
         let pin_auth = get_bytes_field(map, 4)?;
@@ -291,10 +304,16 @@ impl ClientPinHandler {
             return Err(CtapError::PinBlocked);
         }
 
-        let ecdh = state.ephemeral_key.as_ref().ok_or(CtapError::PinAuthInvalid)?;
+        let ecdh = state
+            .ephemeral_key
+            .as_ref()
+            .ok_or(CtapError::PinAuthInvalid)?;
         let peer_cose_val = get_int_key(map, 3).ok_or(CtapError::MissingParameter)?;
-        let peer_cose = CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
-        let shared_secret = ecdh.compute_shared_secret(&peer_cose).map_err(|_| CtapError::InvalidParameter)?;
+        let peer_cose =
+            CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
+        let shared_secret = ecdh
+            .compute_shared_secret(&peer_cose)
+            .map_err(|_| CtapError::InvalidParameter)?;
 
         let pin_hash_enc = get_bytes_field(map, 6)?;
         let new_pin_enc = get_bytes_field(map, 5)?;
@@ -331,7 +350,8 @@ impl ClientPinHandler {
             }
             2 => {
                 let (e_ks, _m_ks) = PinProtocol2::kdf(&shared_secret);
-                PinProtocol2::decrypt(&e_ks, &pin_hash_enc).map_err(|_| CtapError::PinAuthInvalid)?
+                PinProtocol2::decrypt(&e_ks, &pin_hash_enc)
+                    .map_err(|_| CtapError::PinAuthInvalid)?
             }
             _ => return Err(CtapError::InvalidParameter),
         };
@@ -391,10 +411,16 @@ impl ClientPinHandler {
             return Err(CtapError::PinBlocked);
         }
 
-        let ecdh = state.ephemeral_key.as_ref().ok_or(CtapError::PinAuthInvalid)?;
+        let ecdh = state
+            .ephemeral_key
+            .as_ref()
+            .ok_or(CtapError::PinAuthInvalid)?;
         let peer_cose_val = get_int_key(map, 3).ok_or(CtapError::MissingParameter)?;
-        let peer_cose = CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
-        let shared_secret = ecdh.compute_shared_secret(&peer_cose).map_err(|_| CtapError::InvalidParameter)?;
+        let peer_cose =
+            CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
+        let shared_secret = ecdh
+            .compute_shared_secret(&peer_cose)
+            .map_err(|_| CtapError::InvalidParameter)?;
 
         let pin_hash_enc = get_bytes_field(map, 6)?;
 
@@ -406,14 +432,15 @@ impl ClientPinHandler {
             }
             2 => {
                 let (e_ks, _m_ks) = PinProtocol2::kdf(&shared_secret);
-                PinProtocol2::decrypt(&e_ks, &pin_hash_enc).map_err(|_| CtapError::PinAuthInvalid)?
+                PinProtocol2::decrypt(&e_ks, &pin_hash_enc)
+                    .map_err(|_| CtapError::PinAuthInvalid)?
             }
             _ => return Err(CtapError::InvalidParameter),
         };
 
         let stored_cur = *state.pin_hash.as_ref().unwrap();
-        let cur_ok = decrypted_hash.len() >= 16
-            && constant_time_eq(&decrypted_hash[..16], &stored_cur);
+        let cur_ok =
+            decrypted_hash.len() >= 16 && constant_time_eq(&decrypted_hash[..16], &stored_cur);
         if !cur_ok {
             decrypted_hash.zeroize();
             return Err(state.decrement_pin_retries());
@@ -448,8 +475,7 @@ impl ClientPinHandler {
             _ => return Err(CtapError::InvalidParameter),
         };
 
-        let mut resp = Vec::new();
-        resp.push((Value::Integer(2.into()), Value::Bytes(enc_token)));
+        let resp = vec![(Value::Integer(2.into()), Value::Bytes(enc_token))];
         encode_cbor_value(&Value::Map(resp))
     }
 
@@ -466,10 +492,16 @@ impl ClientPinHandler {
             return Err(CtapError::PinBlocked);
         }
 
-        let ecdh = state.ephemeral_key.as_ref().ok_or(CtapError::PinAuthInvalid)?;
+        let ecdh = state
+            .ephemeral_key
+            .as_ref()
+            .ok_or(CtapError::PinAuthInvalid)?;
         let peer_cose_val = get_int_key(map, 3).ok_or(CtapError::MissingParameter)?;
-        let peer_cose = CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
-        let shared_secret = ecdh.compute_shared_secret(&peer_cose).map_err(|_| CtapError::InvalidParameter)?;
+        let peer_cose =
+            CoseKey::from_cbor_value(peer_cose_val).map_err(|_| CtapError::InvalidParameter)?;
+        let shared_secret = ecdh
+            .compute_shared_secret(&peer_cose)
+            .map_err(|_| CtapError::InvalidParameter)?;
 
         let pin_hash_enc = get_bytes_field(map, 6)?;
         let permissions = get_int_field(map, 9)? as u32;
@@ -487,14 +519,15 @@ impl ClientPinHandler {
             }
             2 => {
                 let (e_ks, _m_ks) = PinProtocol2::kdf(&shared_secret);
-                PinProtocol2::decrypt(&e_ks, &pin_hash_enc).map_err(|_| CtapError::PinAuthInvalid)?
+                PinProtocol2::decrypt(&e_ks, &pin_hash_enc)
+                    .map_err(|_| CtapError::PinAuthInvalid)?
             }
             _ => return Err(CtapError::InvalidParameter),
         };
 
         let stored_cur = *state.pin_hash.as_ref().unwrap();
-        let cur_ok = decrypted_hash.len() >= 16
-            && constant_time_eq(&decrypted_hash[..16], &stored_cur);
+        let cur_ok =
+            decrypted_hash.len() >= 16 && constant_time_eq(&decrypted_hash[..16], &stored_cur);
         if !cur_ok {
             decrypted_hash.zeroize();
             return Err(state.decrement_pin_retries());
@@ -528,8 +561,7 @@ impl ClientPinHandler {
             _ => return Err(CtapError::InvalidParameter),
         };
 
-        let mut resp = Vec::new();
-        resp.push((Value::Integer(2.into()), Value::Bytes(enc_token)));
+        let resp = vec![(Value::Integer(2.into()), Value::Bytes(enc_token))];
         encode_cbor_value(&Value::Map(resp))
     }
 
@@ -548,7 +580,13 @@ impl ClientPinHandler {
         let mut msg = Vec::new();
         msg.extend_from_slice(&(new_min as u64).to_be_bytes());
 
-        state.verify_token_permission(&pin_auth, &msg, protocol, PIN_UV_PERM_ACFG | PIN_UV_PERM_CM, None)?;
+        state.verify_token_permission(
+            &pin_auth,
+            &msg,
+            protocol,
+            PIN_UV_PERM_ACFG | PIN_UV_PERM_CM,
+            None,
+        )?;
 
         if new_min < state.min_pin_length {
             return Err(CtapError::PinPolicyViolation);

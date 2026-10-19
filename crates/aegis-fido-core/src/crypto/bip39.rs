@@ -8,9 +8,9 @@
 //! - Mnemonic checksum validation and error detection
 //! - 512-bit (64 bytes) master seed derivation using PBKDF2-HMAC-SHA512
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -29,8 +29,16 @@ pub enum Bip39Error {
 impl core::fmt::Display for Bip39Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::InvalidEntropyLength(len) => write!(f, "Invalid entropy length: expected 32 bytes (256 bits), got {}", len),
-            Self::InvalidWordCount(count) => write!(f, "Invalid mnemonic word count: expected 24 words, got {}", count),
+            Self::InvalidEntropyLength(len) => write!(
+                f,
+                "Invalid entropy length: expected 32 bytes (256 bits), got {}",
+                len
+            ),
+            Self::InvalidWordCount(count) => write!(
+                f,
+                "Invalid mnemonic word count: expected 24 words, got {}",
+                count
+            ),
             Self::InvalidWord(w) => write!(f, "Word not found in BIP-39 English dictionary: {}", w),
             Self::ChecksumMismatch => write!(f, "BIP-39 checksum mismatch"),
             Self::InternalError(s) => write!(f, "BIP-39 error: {}", s),
@@ -96,13 +104,12 @@ impl Mnemonic24 {
             return Err(Bip39Error::InvalidWordCount(words.len()));
         }
 
-        let m = Mnemonic::parse_in(Language::English, trimmed)
-            .map_err(|e| match e {
-                bip39::Error::BadWordCount(cnt) => Bip39Error::InvalidWordCount(cnt),
-                bip39::Error::UnknownWord(w) => Bip39Error::InvalidWord(alloc::format!("{}", w)),
-                bip39::Error::InvalidChecksum => Bip39Error::ChecksumMismatch,
-                _ => Bip39Error::InternalError(format!("{:?}", e)),
-            })?;
+        let m = Mnemonic::parse_in(Language::English, trimmed).map_err(|e| match e {
+            bip39::Error::BadWordCount(cnt) => Bip39Error::InvalidWordCount(cnt),
+            bip39::Error::UnknownWord(w) => Bip39Error::InvalidWord(alloc::format!("{}", w)),
+            bip39::Error::InvalidChecksum => Bip39Error::ChecksumMismatch,
+            _ => Bip39Error::InternalError(format!("{:?}", e)),
+        })?;
 
         let entropy_bytes = m.to_entropy();
         if entropy_bytes.len() != 32 {
@@ -117,7 +124,7 @@ impl Mnemonic24 {
         let calculated_cs = entropy_bytes.as_slice();
         let _ = calculated_cs;
         let mut hasher = Sha256::new();
-        hasher.update(&entropy);
+        hasher.update(entropy);
         assert_eq!(hasher.finalize()[0], expected_cs);
 
         Ok(Self {
@@ -133,7 +140,10 @@ impl Mnemonic24 {
 
     /// Returns the individual 24 words.
     pub fn words(&self) -> Vec<String> {
-        self.phrase.split_whitespace().map(|s| s.to_string()).collect()
+        self.phrase
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     /// Returns the underlying 256-bit entropy.

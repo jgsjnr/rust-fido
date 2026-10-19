@@ -53,7 +53,7 @@ pub fn encode(data: &[u8]) -> String {
 
 /// Decode a Modhex string into raw binary bytes
 pub fn decode(s: &str) -> Result<Vec<u8>, ModhexError> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(ModhexError::InvalidLength);
     }
 

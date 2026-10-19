@@ -1,16 +1,17 @@
 //! USB Descriptors for AegisKey S3 Authenticator (Composite USB Device).
 //!
 //! Configures:
-//! - VID: 0x303A (Espressif Systems)
-//! - PID: 0xAE61 (AegisKey S3 Authenticator)
-//! - Manufacturer: "Aegis Security"
-//! - Product: "AegisKey S3 Authenticator"
-//! - Serial: "AEGIS-S3-XXXX"
-//! - Interface 0: FIDO2 CTAPHID (Interrupt IN/OUT 64 bytes)
-//! - Interface 1: CCID SmartCard (Bulk IN 0x83, Bulk OUT 0x03, Interrupt IN 0x84)
-//! - Interface 2: HID Keyboard (Interrupt IN 0x85 8 bytes)
-//! - Interface 3: WinUSB High-Speed Direct Management (Bulk OUT 0x02, Bulk IN 0x82)
-//! - Microsoft OS 2.0 Descriptors for automatic WinUSB.sys driver binding.
+//!   - VID: 0x303A (Espressif Systems)
+//!   - PID: 0xAE61 (AegisKey S3 Authenticator)
+//!   - Manufacturer: "Aegis Security"
+//!   - Product: "AegisKey S3 Authenticator"
+//!   - Serial: "AEGIS-S3-XXXX"
+//!   - Interface 0: FIDO2 CTAPHID (Interrupt IN/OUT 64 bytes)
+//!   - Interface 1: CCID SmartCard (Bulk IN 0x83, Bulk OUT 0x03, Interrupt IN 0x84)
+//!   - Interface 2: HID Keyboard (Interrupt IN 0x85 8 bytes)
+//!   - Interface 3: WinUSB High-Speed Direct Management (Bulk OUT 0x02, Bulk IN 0x82)
+//!   - Microsoft OS 2.0 Descriptors for automatic WinUSB.sys driver binding.
+//!
 //! 100% Native Rust implementation.
 
 pub const USB_VID: u16 = 0x303A;
@@ -30,21 +31,21 @@ pub const WINUSB_INTERFACE_STRING: &str = "AegisKey WinUSB Direct Management";
 /// Usage Page (0xF1D0), Usage (0x01)
 pub const CTAPHID_REPORT_DESCRIPTOR: &[u8] = &[
     0x06, 0xD0, 0xF1, // Usage Page (FIDO Alliance 0xF1D0)
-    0x09, 0x01,       // Usage (U2F / FIDO Authenticator)
-    0xA1, 0x01,       // Collection (Application)
-    0x09, 0x20,       //   Usage (Data In)
-    0x15, 0x00,       //   Logical Minimum (0)
+    0x09, 0x01, // Usage (U2F / FIDO Authenticator)
+    0xA1, 0x01, // Collection (Application)
+    0x09, 0x20, //   Usage (Data In)
+    0x15, 0x00, //   Logical Minimum (0)
     0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08,       //   Report Size (8 bits)
-    0x95, 0x40,       //   Report Count (64 bytes)
-    0x81, 0x02,       //   Input (Data, Variable, Absolute)
-    0x09, 0x21,       //   Usage (Data Out)
-    0x15, 0x00,       //   Logical Minimum (0)
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0x09, 0x21, //   Usage (Data Out)
+    0x15, 0x00, //   Logical Minimum (0)
     0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08,       //   Report Size (8 bits)
-    0x95, 0x40,       //   Report Count (64 bytes)
-    0x91, 0x02,       //   Output (Data, Variable, Absolute)
-    0xC0,             // End Collection
+    0x75, 0x08, //   Report Size (8 bits)
+    0x95, 0x40, //   Report Count (64 bytes)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)
+    0xC0, // End Collection
 ];
 
 /// Standard USB HID Keyboard Report Descriptor (63 bytes).
@@ -80,7 +81,7 @@ pub const KEYBOARD_REPORT_DESCRIPTOR: &[u8] = &[
     0x19, 0x00, //   Usage Minimum (0)
     0x29, 0x65, //   Usage Maximum (101)
     0x81, 0x00, //   Input (Data, Array) - Key arrays (6 bytes)
-    0xC0,       // End Collection
+    0xC0, // End Collection
 ];
 
 /// Builds the 18-byte standard USB Device Descriptor.
@@ -116,7 +117,7 @@ pub fn build_configuration_descriptor() -> Vec<u8> {
     desc.extend_from_slice(&[
         9,    // bLength
         0x02, // bDescriptorType: CONFIGURATION
-        0, 0, // wTotalLength (filled at the end)
+        0, 0,    // wTotalLength (filled at the end)
         4,    // bNumInterfaces: 4 interfaces
         1,    // bConfigurationValue: 1
         0,    // iConfiguration: 0
@@ -152,14 +153,10 @@ pub fn build_configuration_descriptor() -> Vec<u8> {
     desc.extend_from_slice(&hid_rep_len.to_le_bytes());
 
     // Endpoint 1 IN (Interrupt, 64 bytes, 5ms interval)
-    desc.extend_from_slice(&[
-        7, 0x05, 0x81, 0x03, 64, 0x00, 5,
-    ]);
+    desc.extend_from_slice(&[7, 0x05, 0x81, 0x03, 64, 0x00, 5]);
 
     // Endpoint 1 OUT (Interrupt, 64 bytes, 5ms interval)
-    desc.extend_from_slice(&[
-        7, 0x05, 0x01, 0x03, 64, 0x00, 5,
-    ]);
+    desc.extend_from_slice(&[7, 0x05, 0x01, 0x03, 64, 0x00, 5]);
 
     // ========================================================================
     // Interface 1: CCID SmartCard
@@ -226,15 +223,11 @@ pub fn build_configuration_descriptor() -> Vec<u8> {
 
     // Keyboard HID Descriptor
     let kbd_rep_len = KEYBOARD_REPORT_DESCRIPTOR.len() as u16;
-    desc.extend_from_slice(&[
-        9, 0x21, 0x11, 0x01, 0x00, 1, 0x22,
-    ]);
+    desc.extend_from_slice(&[9, 0x21, 0x11, 0x01, 0x00, 1, 0x22]);
     desc.extend_from_slice(&kbd_rep_len.to_le_bytes());
 
     // Keyboard Interrupt IN (0x85, 8 bytes, 10ms interval)
-    desc.extend_from_slice(&[
-        7, 0x05, 0x85, 0x03, 8, 0x00, 10,
-    ]);
+    desc.extend_from_slice(&[7, 0x05, 0x85, 0x03, 8, 0x00, 10]);
 
     // ========================================================================
     // Interface 3: WinUSB Vendor Bulk Direct Management
@@ -273,7 +266,7 @@ pub fn build_bos_descriptor(vendor_code: u8, ms_os_20_len: u16) -> Vec<u8> {
         5,    // bLength
         0x0F, // bDescriptorType: BOS
         0, 0, // wTotalLength (filled at the end)
-        1,    // bNumDeviceCaps: 1
+        1, // bNumDeviceCaps: 1
     ]);
 
     // Microsoft OS 2.0 Platform Capability Descriptor (28 bytes)

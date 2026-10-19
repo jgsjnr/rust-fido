@@ -32,9 +32,9 @@ use crate::ble_gatt::{
     BleCompleteMessage, BleGattError, BleGattServer, BLE_SERVICE_UUID, CONTROL_POINT_LENGTH,
     GATT_REVISION,
 };
-use crate::pairing::{PairingManager, PairingState};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::pairing::{PairingManager, PairingState};
 
 /// Nome curto anunciado (cabe no legacy adv de 31B junto com o resto).
 pub const BLE_DEVICE_NAME: &str = "AegisKey";
@@ -345,7 +345,10 @@ mod tests {
             assert!(b.len() > 12);
             assert_eq!(b[12], (BLE_DEVICE_NAME.len() + 1) as u8);
             assert_eq!(b[13], 0x09);
-            assert_eq!(&b[14..14 + BLE_DEVICE_NAME.len()], BLE_DEVICE_NAME.as_bytes());
+            assert_eq!(
+                &b[14..14 + BLE_DEVICE_NAME.len()],
+                BLE_DEVICE_NAME.as_bytes()
+            );
         }
     }
 
@@ -398,7 +401,11 @@ mod tests {
         );
         assert_eq!(adv_intervals(true), (ADV_ITVL_COEX_MIN, ADV_ITVL_COEX_MAX));
         // Coex lento de verdade (cede airtime): min lento > max normal.
-        assert!(ADV_ITVL_COEX_MIN > ADV_ITVL_NORMAL_MAX);
+        // Intentional spec guard on frozen constants (clippy::assertions_on_constants).
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(ADV_ITVL_COEX_MIN > ADV_ITVL_NORMAL_MAX);
+        }
     }
 
     #[test]
@@ -459,7 +466,10 @@ mod tests {
         use crate::config::{LONG_PRESS_MS, PAIRING_WINDOW_MS};
         let mut m = PairingManager::new();
         // Fora da janela: nega (mesmo com UP).
-        assert_eq!(on_link_secured(&mut m, true, 0), BondOutcome::DeniedNoWindow);
+        assert_eq!(
+            on_link_secured(&mut m, true, 0),
+            BondOutcome::DeniedNoWindow
+        );
         assert!(!m.is_bonded());
         // Na janela sem UP: nega, mantém advertising.
         m.on_button_level(true, 0);

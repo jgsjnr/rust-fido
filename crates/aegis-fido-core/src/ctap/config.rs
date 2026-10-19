@@ -27,15 +27,9 @@ impl ConfigHandler {
         let pin_auth = get_bytes_field(&map, 4)?;
 
         // Verify token permission ACFG
-        let mut msg = Vec::new();
-        msg.push(sub_command as u8);
-        let _ = pin_state.verify_token_permission(
-            &pin_auth,
-            &msg,
-            protocol,
-            PIN_UV_PERM_ACFG,
-            None,
-        );
+        let msg = vec![sub_command as u8];
+        let _ =
+            pin_state.verify_token_permission(&pin_auth, &msg, protocol, PIN_UV_PERM_ACFG, None);
 
         match sub_command {
             CONFIG_ENABLE_ENTERPRISE_ATTESTATION => {
@@ -46,9 +40,7 @@ impl ConfigHandler {
                 // Toggles alwaysUv
                 encode_cbor_value(&Value::Map(Vec::new()))
             }
-            CONFIG_SET_MIN_PIN_LENGTH => {
-                encode_cbor_value(&Value::Map(Vec::new()))
-            }
+            CONFIG_SET_MIN_PIN_LENGTH => encode_cbor_value(&Value::Map(Vec::new())),
             _ => Err(CtapError::InvalidSubcommand),
         }
     }

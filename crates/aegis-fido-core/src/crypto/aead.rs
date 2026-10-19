@@ -1,13 +1,17 @@
+#![allow(deprecated)]
+// RustCrypto 0.14 deprecated re-export; upgrade to generic-array 1.x needs major bump (out of scope), behavior identical.
 //! Authenticated Encryption with Associated Data (AEAD) via AES-256-GCM.
 //!
 //! 100% Native Rust implementation conforming to NIST SP 800-38D.
 //! Used for sealing credentials, passkeys, master seeds, and secure blobs.
 
-use alloc::vec::Vec;
+// generic-array 0.14 deprecation (via aes-gcm 0.10): Nonce::from_slice has no 0.14-free
+// alternative without major bump; Key init migrated to new_from_slice. Identical behavior.
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
-    Aes256Gcm, Key, Nonce,
+    Aes256Gcm, Nonce,
 };
+use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,10 +43,16 @@ pub fn aes_256_gcm_encrypt(
     plaintext: &[u8],
     aad: &[u8],
 ) -> Result<Vec<u8>, AeadError> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new_from_slice(key).expect("AES-256-GCM key is always 32 bytes");
     let nonce_arr = Nonce::from_slice(nonce);
     cipher
-        .encrypt(nonce_arr, Payload { msg: plaintext, aad })
+        .encrypt(
+            nonce_arr,
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .map_err(|_| AeadError::EncryptionFailed)
 }
 
@@ -54,10 +64,16 @@ pub fn aes_256_gcm_decrypt(
     ciphertext_and_tag: &[u8],
     aad: &[u8],
 ) -> Result<Vec<u8>, AeadError> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new_from_slice(key).expect("AES-256-GCM key is always 32 bytes");
     let nonce_arr = Nonce::from_slice(nonce);
     cipher
-        .decrypt(nonce_arr, Payload { msg: ciphertext_and_tag, aad })
+        .decrypt(
+            nonce_arr,
+            Payload {
+                msg: ciphertext_and_tag,
+                aad,
+            },
+        )
         .map_err(|_| AeadError::DecryptionFailed)
 }
 
@@ -80,11 +96,7 @@ pub fn seal_blob<R: RngCore + CryptoRng>(
 }
 
 /// Convenience envelope: Extracts 12-byte nonce and decrypts `nonce || ciphertext || tag`.
-pub fn open_blob(
-    master_key: &[u8; 32],
-    payload: &[u8],
-    aad: &[u8],
-) -> Result<Vec<u8>, AeadError> {
+pub fn open_blob(master_key: &[u8; 32], payload: &[u8], aad: &[u8]) -> Result<Vec<u8>, AeadError> {
     if payload.len() < 12 + 16 {
         return Err(AeadError::CiphertextTooShort);
     }
@@ -141,7 +153,8 @@ mod tests {
     #[test]
     fn test_aes_256_gcm_nist_test_vector() {
         // NIST SP 800-38D Test Case:
-        let key = hex::decode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308").unwrap();
+        let key = hex::decode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")
+            .unwrap();
         let mut key_arr = [0u8; 32];
         key_arr.copy_from_slice(&key);
 

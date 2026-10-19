@@ -1,6 +1,6 @@
-use alloc::vec::Vec;
 use crate::crypto::aes_cbc::{aes_256_cbc_decrypt, aes_256_cbc_encrypt};
 use crate::crypto::hash::{hkdf_sha256, hmac_sha256, sha256};
+use alloc::vec::Vec;
 
 pub fn pad_pin(pin: &[u8]) -> Result<[u8; 64], &'static str> {
     if pin.len() < 4 || pin.len() > 63 {
@@ -70,7 +70,7 @@ impl PinProtocol2 {
     }
 
     pub fn decrypt(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, &'static str> {
-        if ciphertext.len() < 32 || (ciphertext.len() - 16) % 16 != 0 {
+        if ciphertext.len() < 32 || !(ciphertext.len() - 16).is_multiple_of(16) {
             return Err("Invalid ciphertext length for Protocol 2");
         }
         let mut iv = [0u8; 16];
@@ -82,4 +82,3 @@ impl PinProtocol2 {
         hmac_sha256(key, message)
     }
 }
-

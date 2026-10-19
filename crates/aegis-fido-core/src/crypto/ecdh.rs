@@ -1,8 +1,8 @@
+use crate::crypto::cose::CoseKey;
 use alloc::vec::Vec;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use p256::{PublicKey, SecretKey, ecdh::diffie_hellman, EncodedPoint};
+use p256::{ecdh::diffie_hellman, PublicKey, SecretKey};
 use rand_core::{CryptoRng, RngCore};
-use crate::crypto::cose::CoseKey;
 
 #[derive(Clone)]
 pub struct EcdhKeyAgreement {
@@ -63,13 +63,13 @@ impl EcdhKeyAgreement {
         sec1.extend_from_slice(x);
         sec1.extend_from_slice(y);
 
-        let peer_pub = PublicKey::from_sec1_bytes(&sec1)
-            .map_err(|_| "Invalid peer public key point")?;
+        let peer_pub =
+            PublicKey::from_sec1_bytes(&sec1).map_err(|_| "Invalid peer public key point")?;
 
         let shared = diffie_hellman(self.private_key.to_nonzero_scalar(), peer_pub.as_affine());
         let raw_secret = shared.raw_secret_bytes();
         let mut out = [0u8; 32];
-        out.copy_from_slice(raw_secret.as_slice());
+        out.copy_from_slice(raw_secret.as_ref());
         Ok(out)
     }
 }

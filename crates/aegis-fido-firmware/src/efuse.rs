@@ -173,8 +173,8 @@ impl EfuseStorage for MockEfuseStorage {
         }
 
         // In OTP memory, bits can only transition from 0 to 1 (bitwise OR)
-        for i in 0..EFUSE_KEY_LEN {
-            self.blocks[block as usize][i] |= data[i];
+        for (dst, src) in self.blocks[block as usize].iter_mut().zip(data.iter()) {
+            *dst |= *src;
         }
 
         Ok(())

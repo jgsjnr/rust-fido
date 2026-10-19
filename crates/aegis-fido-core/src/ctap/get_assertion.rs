@@ -10,7 +10,9 @@ use crate::crypto::ecdh::EcdhKeyAgreement;
 use crate::crypto::hash::{hmac_sha256, sha256};
 use crate::crypto::keys::FidoKeyPair;
 use crate::crypto::pin_protocol::{PinProtocol1, PinProtocol2};
-use crate::ctap::cbor::{decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_key, get_text_key};
+use crate::ctap::cbor::{
+    decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_key, get_text_key,
+};
 use crate::ctap::client_pin::{ClientPinState, PIN_UV_PERM_GA};
 use crate::ctap::status_code::CtapError;
 use crate::extensions::{
@@ -66,7 +68,11 @@ impl GetAssertionHandler {
                             if res_cred.rp_id == rp_id {
                                 candidates.push(res_cred.clone());
                             }
-                        } else if let Ok(non_res_cred) = wrapper.unwrap(cred_id, &rp_id, store.get_persistent_sign_count(cred_id)) {
+                        } else if let Ok(non_res_cred) = wrapper.unwrap(
+                            cred_id,
+                            &rp_id,
+                            store.get_persistent_sign_count(cred_id),
+                        ) {
                             candidates.push(non_res_cred);
                         }
                     }
@@ -104,9 +110,9 @@ impl GetAssertionHandler {
         let first_cand = &candidates[0];
         let mut uv_required = uv_requested;
         if let Some(cp) = first_cand.cred_protect {
-            if cp == CRED_PROTECT_REQUIRED {
-                uv_required = true;
-            } else if cp == CRED_PROTECT_OPTIONAL_WITH_LIST && !had_allow_list {
+            if cp == CRED_PROTECT_REQUIRED
+                || (cp == CRED_PROTECT_OPTIONAL_WITH_LIST && !had_allow_list)
+            {
                 uv_required = true;
             }
         }
@@ -156,13 +162,7 @@ impl GetAssertionHandler {
         assertion_state.cached_rp_id_hash = rp_id_hash;
         assertion_state.cached_uv_success = uv_success;
 
-        Self::format_assertion_response(
-            store,
-            assertion_state,
-            &ext_inputs,
-            total_candidates,
-            rng,
-        )
+        Self::format_assertion_response(store, assertion_state, &ext_inputs, total_candidates, rng)
     }
 
     pub fn handle_next<S: CredentialStore, R: RngCore + CryptoRng>(
@@ -215,11 +215,13 @@ impl GetAssertionHandler {
                 let decrypted_salts = match hmac_in.pin_uv_protocol {
                     1 => {
                         let k = PinProtocol1::kdf(&shared_secret);
-                        PinProtocol1::decrypt(&k, &hmac_in.salt_enc).map_err(|_| CtapError::PinAuthInvalid)?
+                        PinProtocol1::decrypt(&k, &hmac_in.salt_enc)
+                            .map_err(|_| CtapError::PinAuthInvalid)?
                     }
                     2 => {
                         let (e_ks, _m_ks) = PinProtocol2::kdf(&shared_secret);
-                        PinProtocol2::decrypt(&e_ks, &hmac_in.salt_enc).map_err(|_| CtapError::PinAuthInvalid)?
+                        PinProtocol2::decrypt(&e_ks, &hmac_in.salt_enc)
+                            .map_err(|_| CtapError::PinAuthInvalid)?
                     }
                     _ => return Err(CtapError::InvalidParameter),
                 };
@@ -306,9 +308,16 @@ impl GetAssertionHandler {
         let mut resp = Vec::new();
 
         // 1: credential map
-        let mut cred_map = Vec::new();
-        cred_map.push((Value::Text(String::from("id")), Value::Bytes(cred.id.clone())));
-        cred_map.push((Value::Text(String::from("type")), Value::Text(String::from("public-key"))));
+        let cred_map = vec![
+            (
+                Value::Text(String::from("id")),
+                Value::Bytes(cred.id.clone()),
+            ),
+            (
+                Value::Text(String::from("type")),
+                Value::Text(String::from("public-key")),
+            ),
+        ];
         resp.push((Value::Integer(1.into()), Value::Map(cred_map)));
 
         // 2: authData
@@ -319,20 +328,28 @@ impl GetAssertionHandler {
 
         // 4: user map (if resident)
         if cred.is_resident {
-            let mut user_map = Vec::new();
-            user_map.push((Value::Text(String::from("id")), Value::Bytes(cred.user_id.clone())));
+            let mut user_map = vec![(
+                Value::Text(String::from("id")),
+                Value::Bytes(cred.user_id.clone()),
+            )];
             if let Some(ref name) = cred.user_name {
                 user_map.push((Value::Text(String::from("name")), Value::Text(name.clone())));
             }
             if let Some(ref disp) = cred.user_display_name {
-                user_map.push((Value::Text(String::from("displayName")), Value::Text(disp.clone())));
+                user_map.push((
+                    Value::Text(String::from("displayName")),
+                    Value::Text(disp.clone()),
+                ));
             }
             resp.push((Value::Integer(4.into()), Value::Map(user_map)));
         }
 
         // 5: numberOfCredentials (if > 1)
         if total_candidates > 1 {
-            resp.push((Value::Integer(5.into()), Value::Integer((total_candidates as i64).into())));
+            resp.push((
+                Value::Integer(5.into()),
+                Value::Integer((total_candidates as i64).into()),
+            ));
         }
 
         // 7: largeBlobKey

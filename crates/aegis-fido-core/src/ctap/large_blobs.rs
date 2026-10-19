@@ -11,15 +11,9 @@ use crate::ctap::status_code::CtapError;
 
 pub const MAX_LARGE_BLOB_SIZE: usize = 2048;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct LargeBlobsStorage {
     data: Vec<u8>,
-}
-
-impl Default for LargeBlobsStorage {
-    fn default() -> Self {
-        Self { data: Vec::new() }
-    }
 }
 
 impl LargeBlobsStorage {
@@ -35,11 +29,7 @@ impl LargeBlobsStorage {
         Ok(self.data[offset..end].to_vec())
     }
 
-    pub fn write(
-        &mut self,
-        offset: usize,
-        bytes: &[u8],
-    ) -> Result<(), CtapError> {
+    pub fn write(&mut self, offset: usize, bytes: &[u8]) -> Result<(), CtapError> {
         let needed_len = offset + bytes.len();
         if needed_len > MAX_LARGE_BLOB_SIZE {
             return Err(CtapError::LimitExceeded);
@@ -85,8 +75,7 @@ impl LargeBlobsHandler {
                 _ => return Err(CtapError::CborUnexpectedType),
             };
             let chunk = storage.read(offset, count as usize)?;
-            let mut resp = Vec::new();
-            resp.push((Value::Integer(1.into()), Value::Bytes(chunk)));
+            let resp = vec![(Value::Integer(1.into()), Value::Bytes(chunk))];
             return encode_cbor_value(&Value::Map(resp));
         }
 
@@ -98,13 +87,8 @@ impl LargeBlobsHandler {
             // Validate pinAuth with LBW permission
             // Message: sha256(set_bytes)
             let msg = sha256(&set_bytes);
-            let token_verified = pin_state.verify_token_permission(
-                &pin_auth,
-                &msg,
-                protocol,
-                PIN_UV_PERM_LBW,
-                None,
-            );
+            let token_verified =
+                pin_state.verify_token_permission(&pin_auth, &msg, protocol, PIN_UV_PERM_LBW, None);
 
             // Also check raw set_bytes if client authenticated over set_bytes directly
             if token_verified.is_err() {

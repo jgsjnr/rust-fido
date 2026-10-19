@@ -45,14 +45,24 @@ pub fn compute_hmac(algo: OathAlgorithm, key: &[u8], data: &[u8]) -> Vec<u8> {
 }
 
 /// Dynamic truncation according to RFC 4226 (HOTP) / RFC 6238 (TOTP)
-pub fn calculate_code(algo: OathAlgorithm, secret: &[u8], counter_or_challenge: u64, digits: u8) -> u32 {
+pub fn calculate_code(
+    algo: OathAlgorithm,
+    secret: &[u8],
+    counter_or_challenge: u64,
+    digits: u8,
+) -> u32 {
     let counter_bytes = counter_or_challenge.to_be_bytes();
     let digest = compute_hmac(algo, secret, &counter_bytes);
     truncate_digest(&digest, digits)
 }
 
 /// Calculate code directly from an arbitrary challenge byte slice (typically 8 bytes big-endian)
-pub fn calculate_code_from_challenge(algo: OathAlgorithm, secret: &[u8], challenge: &[u8], digits: u8) -> u32 {
+pub fn calculate_code_from_challenge(
+    algo: OathAlgorithm,
+    secret: &[u8],
+    challenge: &[u8],
+    digits: u8,
+) -> u32 {
     let digest = compute_hmac(algo, secret, challenge);
     truncate_digest(&digest, digits)
 }
@@ -68,9 +78,9 @@ pub fn truncate_digest(digest: &[u8], digits: u8) -> u32 {
     }
 
     let binary = (((digest[offset] & 0x7F) as u32) << 24)
-        | (((digest[offset + 1] & 0xFF) as u32) << 16)
-        | (((digest[offset + 2] & 0xFF) as u32) << 8)
-        | ((digest[offset + 3] & 0xFF) as u32);
+        | ((digest[offset + 1] as u32) << 16)
+        | ((digest[offset + 2] as u32) << 8)
+        | (digest[offset + 3] as u32);
 
     let d = match digits {
         6 => 1_000_000,

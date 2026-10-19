@@ -1,9 +1,11 @@
+#![allow(deprecated)] // RustCrypto 0.14 deprecated re-export; upgrade to generic-array 1.x needs major bump (out of scope), behavior identical.
 extern crate alloc;
 
+use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
+use aes::Aes128;
 use alloc::string::String;
 use alloc::vec::Vec;
-use aes::Aes128;
-use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
+// See aes_cbc.rs: generic-array 0.14 deprecated re-export; upgrade needs major RustCrypto bump.
 use aes::cipher::generic_array::GenericArray;
 
 use super::modhex;
@@ -72,7 +74,7 @@ impl YubiOtpPayload {
         payload
     }
 
-    fn to_bytes_unchecksummed(&self) -> [u8; 14] {
+    fn to_bytes_unchecksummed(self) -> [u8; 14] {
         let mut b = [0u8; 14];
         b[0..6].copy_from_slice(&self.uid);
         b[6..8].copy_from_slice(&self.use_counter.to_le_bytes());
@@ -170,7 +172,7 @@ impl YubiOtpGenerator {
         );
 
         let payload_bytes = payload.to_bytes();
-        let cipher = Aes128::new(GenericArray::from_slice(&self.aes_key));
+        let cipher = Aes128::new_from_slice(&self.aes_key).expect("AES-128 key is always 16 bytes");
         let mut block = GenericArray::clone_from_slice(&payload_bytes);
         cipher.encrypt_block(&mut block);
 
@@ -199,12 +201,13 @@ impl YubiOtpGenerator {
             }
         }
 
-        let cipher_bytes = modhex::decode(ciphertext_str).map_err(|_| YubiOtpError::InvalidModhex)?;
+        let cipher_bytes =
+            modhex::decode(ciphertext_str).map_err(|_| YubiOtpError::InvalidModhex)?;
         if cipher_bytes.len() != 16 {
             return Err(YubiOtpError::InvalidLength);
         }
 
-        let cipher = Aes128::new(GenericArray::from_slice(&self.aes_key));
+        let cipher = Aes128::new_from_slice(&self.aes_key).expect("AES-128 key is always 16 bytes");
         let mut block = GenericArray::clone_from_slice(&cipher_bytes);
         cipher.decrypt_block(&mut block);
 

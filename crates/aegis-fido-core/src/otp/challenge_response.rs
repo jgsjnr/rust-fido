@@ -24,21 +24,11 @@ pub enum ChallengeResponseError {
 }
 
 /// Configuration for a YubiKey Challenge-Response slot
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChallengeResponseSlot {
     pub key: Vec<u8>,
     pub require_touch: bool,
     pub is_configured: bool,
-}
-
-impl Default for ChallengeResponseSlot {
-    fn default() -> Self {
-        Self {
-            key: Vec::new(),
-            require_touch: false,
-            is_configured: false,
-        }
-    }
 }
 
 impl ChallengeResponseSlot {
@@ -69,8 +59,8 @@ impl ChallengeResponseSlot {
             }
         }
 
-        let mut mac = HmacSha1::new_from_slice(&self.key)
-            .map_err(|_| ChallengeResponseError::CryptoError)?;
+        let mut mac =
+            HmacSha1::new_from_slice(&self.key).map_err(|_| ChallengeResponseError::CryptoError)?;
         mac.update(challenge);
         let result = mac.finalize().into_bytes();
 

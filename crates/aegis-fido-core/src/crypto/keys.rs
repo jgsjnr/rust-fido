@@ -1,8 +1,8 @@
-use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
 use crate::crypto::cose::{
     CoseKey, COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512,
 };
+use alloc::vec::Vec;
+use rand_core::{CryptoRng, RngCore};
 
 #[derive(Clone)]
 pub enum FidoKeyPair {
@@ -56,23 +56,23 @@ impl FidoKeyPair {
     pub fn from_private_bytes(alg: i32, bytes: &[u8]) -> Result<Self, &'static str> {
         match alg {
             COSE_ALG_ES256 => {
-                let sk = p256::ecdsa::SigningKey::from_slice(bytes)
-                    .map_err(|_| "Invalid ES256 key")?;
+                let sk =
+                    p256::ecdsa::SigningKey::from_slice(bytes).map_err(|_| "Invalid ES256 key")?;
                 Ok(Self::Es256(sk))
             }
             COSE_ALG_ES384 => {
-                let sk = p384::ecdsa::SigningKey::from_slice(bytes)
-                    .map_err(|_| "Invalid ES384 key")?;
+                let sk =
+                    p384::ecdsa::SigningKey::from_slice(bytes).map_err(|_| "Invalid ES384 key")?;
                 Ok(Self::Es384(sk))
             }
             COSE_ALG_ES512 => {
-                let sk = p521::ecdsa::SigningKey::from_slice(bytes)
-                    .map_err(|_| "Invalid ES512 key")?;
+                let sk =
+                    p521::ecdsa::SigningKey::from_slice(bytes).map_err(|_| "Invalid ES512 key")?;
                 Ok(Self::Es512(sk))
             }
             COSE_ALG_ES256K => {
-                let sk = k256::ecdsa::SigningKey::from_slice(bytes)
-                    .map_err(|_| "Invalid ES256K key")?;
+                let sk =
+                    k256::ecdsa::SigningKey::from_slice(bytes).map_err(|_| "Invalid ES256K key")?;
                 Ok(Self::Es256k(sk))
             }
             COSE_ALG_EDDSA => {
@@ -90,7 +90,6 @@ impl FidoKeyPair {
 
     /// Returns the public key encoded in COSE format
     pub fn to_cose_key(&self) -> CoseKey {
-        use p256::elliptic_curve::sec1::ToEncodedPoint;
         match self {
             Self::Es256(sk) => {
                 let vk = sk.verifying_key();

@@ -19,7 +19,10 @@ pub enum KdfError {
 impl core::fmt::Display for KdfError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::InvalidOutputLength => write!(f, "Requested HKDF output length exceeds maximum (255 * HashLen)"),
+            Self::InvalidOutputLength => write!(
+                f,
+                "Requested HKDF output length exceeds maximum (255 * HashLen)"
+            ),
             Self::InvalidKeyLength => write!(f, "Invalid HMAC key length"),
         }
     }
@@ -27,8 +30,8 @@ impl core::fmt::Display for KdfError {
 
 /// Computes HMAC-SHA256 of data using the given key.
 pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
-        .expect("HMAC can take key of any length");
+    let mut mac =
+        <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC can take key of any length");
     mac.update(data);
     let result = mac.finalize();
     let bytes = result.into_bytes();
@@ -57,13 +60,13 @@ pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Result<Vec<u8>
         return Ok(Vec::new());
     }
 
-    let n = (length + 31) / 32;
+    let n = length.div_ceil(32);
     let mut okm = Vec::with_capacity(n * 32);
     let mut t: Vec<u8> = Vec::new();
 
     for i in 1..=n {
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(prk)
-            .map_err(|_| KdfError::InvalidKeyLength)?;
+        let mut mac =
+            <HmacSha256 as Mac>::new_from_slice(prk).map_err(|_| KdfError::InvalidKeyLength)?;
         mac.update(&t);
         mac.update(info);
         mac.update(&[i as u8]);
@@ -78,7 +81,12 @@ pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Result<Vec<u8>
 }
 
 /// Full HKDF-SHA256 (Extract + Expand)
-pub fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8], length: usize) -> Result<Vec<u8>, KdfError> {
+pub fn hkdf_sha256(
+    salt: &[u8],
+    ikm: &[u8],
+    info: &[u8],
+    length: usize,
+) -> Result<Vec<u8>, KdfError> {
     let prk = hkdf_extract(salt, ikm);
     hkdf_expand(&prk, info, length)
 }
@@ -101,7 +109,8 @@ mod tests {
         let l = 42;
 
         let expected_prk = "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5";
-        let expected_okm = "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865";
+        let expected_okm =
+            "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865";
 
         let prk = hkdf_extract(&salt, &ikm);
         assert_eq!(hex::encode(prk), expected_prk);

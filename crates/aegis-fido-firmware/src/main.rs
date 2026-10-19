@@ -9,12 +9,13 @@
 //! - BOOT Button User Presence (GPIO 0) and Long-press (2s) TOTP auto-typer
 //! - Hardware-backed cryptographic persistence with eFuse OTP master key.
 
-use core::time::Duration;
-use aegis_fido_core::oath::OathApplet;
-use aegis_fido_core::otp::rescue::RescueEngine;
-use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
 #[cfg(target_os = "espidf")]
 use aegis_fido_core::ctap::CTAP_CMD_RESET;
+use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
+use aegis_fido_core::oath::OathApplet;
+use aegis_fido_core::otp::rescue::RescueEngine;
+#[cfg(target_os = "espidf")]
+use aegis_fido_firmware::led::LedEffect;
 #[cfg(all(feature = "debug-terminal", target_os = "espidf"))]
 use aegis_fido_firmware::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 use aegis_fido_firmware::{
@@ -25,14 +26,16 @@ use aegis_fido_firmware::{
     persistence::{RamFlashBackend, SecureStorage},
     provision::load_device_keys,
     totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_SHOW_TICKS},
-    watchdog::Watchdog,
     usb_descriptors,
+    watchdog::Watchdog,
 };
-#[cfg(target_os = "espidf")]
-use aegis_fido_firmware::led::LedEffect;
 use aegis_fido_usb::ctaphid::CtapHidManager;
 #[cfg(target_os = "espidf")]
-use aegis_fido_usb::ctaphid::{CtapHidFramer, RawPacket, CAPABILITY_CBOR, CAPABILITY_WINK, CMD_CANCEL, CMD_CBOR, CMD_INIT, CMD_MSG, CMD_PING, CMD_WINK, PACKET_SIZE, STATUS_UPNEEDED};
+use aegis_fido_usb::ctaphid::{
+    CtapHidFramer, RawPacket, CAPABILITY_CBOR, CAPABILITY_WINK, CMD_CANCEL, CMD_CBOR, CMD_INIT,
+    CMD_MSG, CMD_PING, CMD_WINK, PACKET_SIZE, STATUS_UPNEEDED,
+};
+use core::time::Duration;
 
 #[cfg(target_os = "espidf")]
 extern "C" {
@@ -73,18 +76,26 @@ fn extract_rp_and_user(cmd: u8, payload: &[u8]) -> (String, String, &'static str
         if cmd == CTAP_CMD_MAKE_CREDENTIAL {
             let mut rp_id = String::from("localhost");
             let mut user_name = String::from("Passkey");
-            if let Some(ciborium::value::Value::Map(rp_map)) = aegis_fido_core::ctap::cbor::get_int_key(&map, 2) {
+            if let Some(ciborium::value::Value::Map(rp_map)) =
+                aegis_fido_core::ctap::cbor::get_int_key(&map, 2)
+            {
                 for (k, v) in rp_map {
-                    if let (ciborium::value::Value::Text(key), ciborium::value::Value::Text(val)) = (k, v) {
+                    if let (ciborium::value::Value::Text(key), ciborium::value::Value::Text(val)) =
+                        (k, v)
+                    {
                         if key == "id" {
                             rp_id = val.clone();
                         }
                     }
                 }
             }
-            if let Some(ciborium::value::Value::Map(user_map)) = aegis_fido_core::ctap::cbor::get_int_key(&map, 3) {
+            if let Some(ciborium::value::Value::Map(user_map)) =
+                aegis_fido_core::ctap::cbor::get_int_key(&map, 3)
+            {
                 for (k, v) in user_map {
-                    if let (ciborium::value::Value::Text(key), ciborium::value::Value::Text(val)) = (k, v) {
+                    if let (ciborium::value::Value::Text(key), ciborium::value::Value::Text(val)) =
+                        (k, v)
+                    {
                         if key == "name" || key == "displayName" {
                             user_name = val.clone();
                         }
@@ -94,7 +105,9 @@ fn extract_rp_and_user(cmd: u8, payload: &[u8]) -> (String, String, &'static str
             return (rp_id, user_name, "Registro de Passkey");
         } else if cmd == CTAP_CMD_GET_ASSERTION {
             let mut rp_id = String::from("localhost");
-            if let Some(ciborium::value::Value::Text(s)) = aegis_fido_core::ctap::cbor::get_int_key(&map, 1) {
+            if let Some(ciborium::value::Value::Text(s)) =
+                aegis_fido_core::ctap::cbor::get_int_key(&map, 1)
+            {
                 rp_id = s.clone();
             }
             return (rp_id, "Credencial Residente".into(), "Autenticação FIDO2");
@@ -120,9 +133,9 @@ fn ble_dispatch_complete(
     binding_mgr: &mut aegis_fido_firmware::binding::BindingManager,
     storage: &mut SecureStorage<RamFlashBackend>,
 ) {
+    use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use aegis_fido_firmware::ble_gatt as g;
     use aegis_fido_firmware::ble_nimble as ble;
-    use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
 
     let op = msg.opcode;
     let p = &msg.payload;
@@ -226,7 +239,10 @@ fn ble_dispatch_complete(
             // corretos); executor TLV on-device = follow-up.
             match g::authorize_vendor_op(o, binding_mgr.is_claimed(), false, up) {
                 Ok(()) => {
-                    kprintln!("[BLE] op vendor 0x{:02X} com gate ok (executor = follow-up)", o);
+                    kprintln!(
+                        "[BLE] op vendor 0x{:02X} com gate ok (executor = follow-up)",
+                        o
+                    );
                     ble::notify_frame(o, 0x04, &[])
                 }
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
@@ -263,7 +279,11 @@ fn run_authenticator() {
     kprintln!("\r\n============================================================");
     kprintln!("   AegisKey S3 Authenticator - Firmware Booting up");
     kprintln!("   Target: ESP32-S3 (Dual-Core Xtensa LX7 @ 240MHz)");
-    kprintln!("   VID: 0x{:04X} | PID: 0x{:04X}", usb_descriptors::USB_VID, usb_descriptors::USB_PID);
+    kprintln!(
+        "   VID: 0x{:04X} | PID: 0x{:04X}",
+        usb_descriptors::USB_VID,
+        usb_descriptors::USB_PID
+    );
     kprintln!("   Manufacturer: {}", usb_descriptors::MANUFACTURER_STRING);
     kprintln!("   Product:      {}", usb_descriptors::PRODUCT_STRING);
     kprintln!("   Serial:       {}", usb_descriptors::SERIAL_NUMBER_STRING);
@@ -346,7 +366,10 @@ fn run_authenticator() {
             let mut salt = [0u8; 32];
             rng.fill_bytes(&mut master_key);
             rng.fill_bytes(&mut salt);
-            aegis_fido_firmware::provision::DeviceKeys { master_key, device_salt: salt }
+            aegis_fido_firmware::provision::DeviceKeys {
+                master_key,
+                device_salt: salt,
+            }
         }
     };
     let master_key = keys.master_key;
@@ -358,7 +381,9 @@ fn run_authenticator() {
     let mut storage = SecureStorage::new(flash_backend, &master_key, &salt);
     // AUDIT-PREP: wiring na Wave4
 
-    let init_nonce = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C];
+    let init_nonce = [
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+    ];
     storage
         .store("boot_state", b"BOOT_SUCCESS_V1", &init_nonce)
         .expect("Persist boot state");
@@ -367,7 +392,9 @@ fn run_authenticator() {
     // Binding: dono exclusivo de BLE vendor + WiFi mgmt (release exige vinculo
     // para CONFIGURAR; teste faz bypass com ltrace). USB/CTAP zero mudanca.
     // Carrega da NVS (par ausente = Unclaimed; parcial = Corrupted e exige reset).
-    let mut binding_mgr = match aegis_fido_firmware::binding::BindingManager::load_from_storage(&storage) {
+    let mut binding_mgr = match aegis_fido_firmware::binding::BindingManager::load_from_storage(
+        &storage,
+    ) {
         Ok(m) => {
             kprintln!("[INIT] Binding loaded (claimed={}).", m.is_claimed());
             m
@@ -500,9 +527,12 @@ fn run_authenticator() {
                 let pass_bytes = storage
                     .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
                     .unwrap_or_default();
-                let pass_opt = aegis_fido_firmware::wifi_ap::resolve_ap_password(
-                    if pass_bytes.is_empty() { None } else { Some(&pass_bytes) },
-                );
+                let pass_opt =
+                    aegis_fido_firmware::wifi_ap::resolve_ap_password(if pass_bytes.is_empty() {
+                        None
+                    } else {
+                        Some(&pass_bytes)
+                    });
                 let pass_str = pass_opt.unwrap_or_default();
                 // Nunca loga a senha.
                 let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
@@ -510,7 +540,10 @@ fn run_authenticator() {
                     wifi_ap_active = true;
                     kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
                 } else {
-                    kprintln!("[WIFI] AP start rc={} (nova tentativa no proximo poll).", rc);
+                    kprintln!(
+                        "[WIFI] AP start rc={} (nova tentativa no proximo poll).",
+                        rc
+                    );
                 }
             } else {
                 let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
@@ -528,7 +561,10 @@ fn run_authenticator() {
                 let ip = aegis_fido_firmware::wifi_station::esp_sta_ip();
                 kprintln!(
                     "[WIFI] station conectada (DHCP {}.{}.{}.{}).",
-                    ip[0], ip[1], ip[2], ip[3]
+                    ip[0],
+                    ip[1],
+                    ip[2],
+                    ip[3]
                 );
             }
         } else if sta_radio == aegis_fido_firmware::wifi_station::STA_FAILED {
@@ -566,7 +602,11 @@ fn run_authenticator() {
         {
             let _ = aegis_fido_firmware::wifi_station::esp_sta_stop();
             sta_mgr.disconnect();
-            sta_radio = aegis_fido_firmware::wifi_station::STA_OFF;
+            // Local cache update; refreshed via esp_sta_state() below. Retained for readability (no behavior change).
+            #[allow(unused_assignments)]
+            {
+                sta_radio = aegis_fido_firmware::wifi_station::STA_OFF;
+            }
         }
         mdns_mgr.update(pairing_open_now, sta_mgr.is_up());
         let mdns_want = mdns_mgr.is_active();
@@ -641,7 +681,9 @@ fn run_authenticator() {
                                     aegis_fido_firmware::led::Color::GREEN,
                                 ));
                             }
-                            kprintln!("[BLE] bonding ok: advertising parado, pareamento encerrado.");
+                            kprintln!(
+                                "[BLE] bonding ok: advertising parado, pareamento encerrado."
+                            );
                         }
                         ble::BondOutcome::DeniedNoPresence => {
                             ble_bond_pending = true;
@@ -669,6 +711,8 @@ fn run_authenticator() {
                 _ => {}
             }
             // Bonding pendente: conclui quando o usuario tocar no BOOT.
+            // Nested to avoid simultaneous &mut/& borrows of pairing_mgr in one condition; readability intentional.
+            #[allow(clippy::collapsible_if)]
             if ble_bond_pending && touch_latched && pairing_mgr.is_pairing_window_open(now_ms) {
                 if ble::on_link_secured(&mut pairing_mgr, true, now_ms) == ble::BondOutcome::Paired
                 {
@@ -683,9 +727,7 @@ fn run_authenticator() {
                     });
                     #[cfg(target_os = "espidf")]
                     if let Some(ref mut led) = display_mgr.led_controller {
-                        led.set_effect(LedEffect::Solid(
-                            aegis_fido_firmware::led::Color::GREEN,
-                        ));
+                        led.set_effect(LedEffect::Solid(aegis_fido_firmware::led::Color::GREEN));
                     }
                     kprintln!("[BLE] bonding ok (apos UP): advertising parado.");
                 }
@@ -727,17 +769,24 @@ fn run_authenticator() {
                 touch_latched = true;
                 rescue_engine.set_user_presence(true);
                 touch_expire_tick = tick + 150; // Keep touch valid for 1.5 seconds
-                kprintln!("[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED.");
+                kprintln!(
+                    "[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED."
+                );
             } else if let Some(start) = press_start_tick {
                 // Phase8 UX-conex: hold>=5000 PairingReady vence; TOTP so em [2s,5s) sem pairing.
                 let held_ms = tick.saturating_sub(start).saturating_mul(10);
-                let hold_action = aegis_fido_firmware::pairing_flow::classify_hold(held_ms, pairing_open_now);
+                let hold_action =
+                    aegis_fido_firmware::pairing_flow::classify_hold(held_ms, pairing_open_now);
                 if hold_action == aegis_fido_firmware::pairing_flow::HoldAction::PairingReady {
                     kprintln!("[PAIRING] 5s hold detected! Pairing window open (60s).");
                 }
                 // WAVE8: long-press 2s -> CALCULATE no device (UP confirmado pelo hold).
-                if hold_action == aegis_fido_firmware::pairing_flow::HoldAction::Totp && totp_display_until <= tick {
-                    kprintln!("[LONG PRESS] 2-second hold detected! Calculating OATH TOTP on device...");
+                if hold_action == aegis_fido_firmware::pairing_flow::HoldAction::Totp
+                    && totp_display_until <= tick
+                {
+                    kprintln!(
+                        "[LONG PRESS] 2-second hold detected! Calculating OATH TOTP on device..."
+                    );
                     totp_display_until = tick + TOTP_SHOW_TICKS; // 15s (igual Vault auto-clear)
                     let entries = collect_totp_codes(&mut oath_applet, now_secs, true);
                     if entries.is_empty() {
@@ -748,7 +797,11 @@ fn run_authenticator() {
                         totp_account_idx %= entries.len();
                         let entry = &entries[totp_account_idx];
                         // Log so rotulo/contagem — codigo e segredo nunca vao para o log.
-                        kprintln!("[TOTP] account '{}' ({} conta(s))", entry.account, entries.len());
+                        kprintln!(
+                            "[TOTP] account '{}' ({} conta(s))",
+                            entry.account,
+                            entries.len()
+                        );
                         display_mgr.set_screen(UiScreen::TotpCode {
                             label: entry.account.clone(),
                             code: entry.code.clone(),
@@ -824,15 +877,18 @@ fn run_authenticator() {
         // C. Service USB CTAPHID Packets
         #[cfg(target_os = "espidf")]
         if usb_installed {
-            let bytes_read = unsafe {
-                aegis_usb_pop_packet(rx_buf.as_mut_ptr(), PACKET_SIZE as u16)
-            };
+            let bytes_read =
+                unsafe { aegis_usb_pop_packet(rx_buf.as_mut_ptr(), PACKET_SIZE as u16) };
 
             if bytes_read == PACKET_SIZE as u16 {
                 match ctaphid_mgr.process_packet(&rx_buf, now_ms) {
                     Ok(Some(msg)) => {
-                        kprintln!("[CTAPHID] Message received! CID: 0x{:08X}, CMD: 0x{:02X}, Len: {}",
-                                 msg.cid, msg.cmd, msg.payload.len());
+                        kprintln!(
+                            "[CTAPHID] Message received! CID: 0x{:08X}, CMD: 0x{:02X}, Len: {}",
+                            msg.cid,
+                            msg.cmd,
+                            msg.payload.len()
+                        );
 
                         match msg.cmd {
                             CMD_INIT => {
@@ -844,11 +900,16 @@ fn run_authenticator() {
                                         msg.cid,
                                         &nonce,
                                         new_cid,
-                                        1, 0, 0,
+                                        1,
+                                        0,
+                                        0,
                                         CAPABILITY_WINK | CAPABILITY_CBOR,
                                     );
                                     unsafe {
-                                        aegis_usb_send_report(resp_pkt.as_ptr(), PACKET_SIZE as u16);
+                                        aegis_usb_send_report(
+                                            resp_pkt.as_ptr(),
+                                            PACKET_SIZE as u16,
+                                        );
                                     }
                                     kprintln!("[CTAPHID] Allocated CID: 0x{:08X}", new_cid);
                                 }
@@ -874,7 +935,11 @@ fn run_authenticator() {
                             }
                             CMD_CBOR | CMD_MSG => {
                                 // 1. Determine if this command requires User Presence (UP)
-                                let ctap_subcmd = if !msg.payload.is_empty() { msg.payload[0] } else { 0 };
+                                let ctap_subcmd = if !msg.payload.is_empty() {
+                                    msg.payload[0]
+                                } else {
+                                    0
+                                };
                                 let is_up_required = match msg.cmd {
                                     CMD_CBOR => {
                                         ctap_subcmd == CTAP_CMD_MAKE_CREDENTIAL
@@ -894,7 +959,8 @@ fn run_authenticator() {
                                     _ => false,
                                 };
 
-                                let (rp_id, user_name, op_name) = extract_rp_and_user(ctap_subcmd, &msg.payload);
+                                let (rp_id, user_name, op_name) =
+                                    extract_rp_and_user(ctap_subcmd, &msg.payload);
 
                                 let mut up_confirmed = false;
                                 if is_up_required {
@@ -904,7 +970,11 @@ fn run_authenticator() {
                                         rescue_engine.set_user_presence(true);
                                         kprintln!("[UP] Touch already latched on GPIO 0! Confirming User Presence for: {}", rp_id);
                                     } else {
-                                        kprintln!("[UP] Touch required for {} ({})! Waiting up to 25s...", rp_id, op_name);
+                                        kprintln!(
+                                            "[UP] Touch required for {} ({})! Waiting up to 25s...",
+                                            rp_id,
+                                            op_name
+                                        );
 
                                         display_mgr.set_screen(UiScreen::UserPresencePrompt {
                                             rp_id: rp_id.clone(),
@@ -931,13 +1001,16 @@ fn run_authenticator() {
 
                                             // Advance Display animation & countdown bar
                                             if wait_step % 25 == 0 {
-                                                let rem_s = 25u32.saturating_sub((wait_step * 20 / 1000) as u32);
-                                                display_mgr.set_screen(UiScreen::UserPresencePrompt {
-                                                    rp_id: rp_id.clone(),
-                                                    user_name: user_name.clone(),
-                                                    operation: op_name.into(),
-                                                    remaining_seconds: rem_s,
-                                                });
+                                                let rem_s = 25u32
+                                                    .saturating_sub((wait_step * 20 / 1000) as u32);
+                                                display_mgr.set_screen(
+                                                    UiScreen::UserPresencePrompt {
+                                                        rp_id: rp_id.clone(),
+                                                        user_name: user_name.clone(),
+                                                        operation: op_name.into(),
+                                                        remaining_seconds: rem_s,
+                                                    },
+                                                );
                                             }
                                             display_mgr.tick(Duration::from_millis(wait_step * 20));
 
@@ -961,11 +1034,19 @@ fn run_authenticator() {
                                             {
                                                 let mut check_buf = [0u8; PACKET_SIZE];
                                                 let n = unsafe {
-                                                    aegis_usb_pop_packet(check_buf.as_mut_ptr(), PACKET_SIZE as u16)
+                                                    aegis_usb_pop_packet(
+                                                        check_buf.as_mut_ptr(),
+                                                        PACKET_SIZE as u16,
+                                                    )
                                                 };
                                                 if n == PACKET_SIZE as u16 {
-                                                    if let Ok(raw_pkt) = CtapHidManager::parse_raw_packet(&check_buf) {
-                                                        if let RawPacket::Init { cid, cmd, .. } = raw_pkt {
+                                                    if let Ok(raw_pkt) =
+                                                        CtapHidManager::parse_raw_packet(&check_buf)
+                                                    {
+                                                        if let RawPacket::Init {
+                                                            cid, cmd, ..
+                                                        } = raw_pkt
+                                                        {
                                                             if cid == msg.cid && cmd == CMD_CANCEL {
                                                                 kprintln!("[UP] Host cancelled transaction (CMD_CANCEL received).");
                                                                 break;
@@ -988,13 +1069,17 @@ fn run_authenticator() {
                                                 sbuf[..pre.len()].copy_from_slice(pre);
                                                 let mut slen = pre.len();
                                                 let idb = rp_id.as_bytes();
-                                                let mut take = (sbuf.len() - slen).min(idb.len().min(48));
+                                                let mut take =
+                                                    (sbuf.len() - slen).min(idb.len().min(48));
                                                 while take > 0 && !rp_id.is_char_boundary(take) {
                                                     take -= 1;
                                                 }
-                                                sbuf[slen..slen + take].copy_from_slice(&idb[..take]);
+                                                sbuf[slen..slen + take]
+                                                    .copy_from_slice(&idb[..take]);
                                                 slen += take;
-                                                core::str::from_utf8(&sbuf[..slen]).unwrap_or("Dominio: ?").into()
+                                                core::str::from_utf8(&sbuf[..slen])
+                                                    .unwrap_or("Dominio: ?")
+                                                    .into()
                                             },
                                         });
                                     } else {
@@ -1011,27 +1096,39 @@ fn run_authenticator() {
                                 ctap_engine.set_user_presence(up_confirmed);
 
                                 let mut rng = rand_core::OsRng;
-                                let ctap_res = ctap_engine.process_packet(
-                                    &msg.payload,
-                                    now_secs,
-                                    &mut rng,
+                                let ctap_res =
+                                    ctap_engine.process_packet(&msg.payload, now_secs, &mut rng);
+
+                                kprintln!(
+                                    "[CTAP2] Response status: 0x{:02X}, length: {} bytes",
+                                    ctap_res.get(0).unwrap_or(&0xFF),
+                                    ctap_res.len()
                                 );
 
-                                kprintln!("[CTAP2] Response status: 0x{:02X}, length: {} bytes",
-                                         ctap_res.get(0).unwrap_or(&0xFF), ctap_res.len());
-
-                                let pkts = CtapHidFramer::frame_message(msg.cid, msg.cmd, &ctap_res);
+                                let pkts =
+                                    CtapHidFramer::frame_message(msg.cid, msg.cmd, &ctap_res);
                                 for (p_idx, p) in pkts.iter().enumerate() {
                                     let sent = unsafe {
                                         aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16)
                                     };
                                     if !sent {
-                                        kprintln!("[USB] Error: packet {}/{} failed to send!", p_idx + 1, pkts.len());
-                                        aegis_fido_firmware::ltrace!(LtCat::Transport, LtEvt::TpError, "usb");
+                                        kprintln!(
+                                            "[USB] Error: packet {}/{} failed to send!",
+                                            p_idx + 1,
+                                            pkts.len()
+                                        );
+                                        aegis_fido_firmware::ltrace!(
+                                            LtCat::Transport,
+                                            LtEvt::TpError,
+                                            "usb"
+                                        );
                                     }
                                 }
-                                kprintln!("[CTAPHID] Sent CTAP response ({} bytes in {} USB packets)",
-                                         ctap_res.len(), pkts.len());
+                                kprintln!(
+                                    "[CTAPHID] Sent CTAP response ({} bytes in {} USB packets)",
+                                    ctap_res.len(),
+                                    pkts.len()
+                                );
 
                                 // Return display back to idle standby after brief celebration
                                 if is_up_required && up_confirmed {
@@ -1086,5 +1183,3 @@ fn run_authenticator() {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-
-

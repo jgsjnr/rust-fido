@@ -6,10 +6,14 @@ use rand_core::{CryptoRng, RngCore};
 use crate::credential::non_resident::CredentialWrapper;
 use crate::credential::record::CredentialRecord;
 use crate::credential::store::CredentialStore;
-use crate::crypto::cose::{CoseKey, COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512};
+use crate::crypto::cose::{
+    COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512,
+};
 use crate::crypto::hash::sha256;
 use crate::crypto::keys::FidoKeyPair;
-use crate::ctap::cbor::{decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_key, get_text_key};
+use crate::ctap::cbor::{
+    decode_cbor_map, encode_cbor_value, get_bytes_field, get_int_key, get_text_key,
+};
 use crate::ctap::client_pin::{ClientPinState, PIN_UV_PERM_MC};
 use crate::ctap::info::AuthenticatorInfoConfig;
 use crate::ctap::status_code::CtapError;
@@ -18,6 +22,9 @@ use crate::extensions::{ExtensionInputs, ExtensionOutputs, CRED_PROTECT_REQUIRED
 pub struct MakeCredentialHandler;
 
 impl MakeCredentialHandler {
+    // CTAP2 MakeCredential requires full authenticator context (store, wrapper, PIN, config, UP, policy, payload, RNG).
+    // Grouping into a struct would break the stable handler API; arity is inherent to the spec.
+    #[allow(clippy::too_many_arguments)]
     pub fn handle<S: CredentialStore, R: RngCore + CryptoRng>(
         store: &mut S,
         wrapper: &CredentialWrapper,
@@ -103,7 +110,9 @@ impl MakeCredentialHandler {
             for item in exclude_list {
                 if let Value::Map(im) = item {
                     if let Some(Value::Bytes(cred_id)) = get_text_key(im, "id") {
-                        if store.get(cred_id).is_some() || wrapper.unwrap(cred_id, &rp_id, 0).is_ok() {
+                        if store.get(cred_id).is_some()
+                            || wrapper.unwrap(cred_id, &rp_id, 0).is_ok()
+                        {
                             return Err(CtapError::CredentialExcluded);
                         }
                     }
@@ -235,9 +244,13 @@ impl MakeCredentialHandler {
             let mut cred_id = [0u8; 16];
             rng.fill_bytes(&mut cred_id);
             record.id = cred_id.to_vec();
-            store.save(record.clone()).map_err(|_| CtapError::KeyStoreFull)?;
+            store
+                .save(record.clone())
+                .map_err(|_| CtapError::KeyStoreFull)?;
         } else {
-            let wrapped_id = wrapper.wrap(&record, rng).map_err(|_| CtapError::Processing)?;
+            let wrapped_id = wrapper
+                .wrap(&record, rng)
+                .map_err(|_| CtapError::Processing)?;
             record.id = wrapped_id;
         }
 
@@ -276,9 +289,14 @@ impl MakeCredentialHandler {
         let att_sig = crate::ctap::attestation::sign_batch_attestation(&to_sign);
 
         let mut att_stmt = Vec::new();
-        att_stmt.push((Value::Text(String::from("alg")), Value::Integer((-7i64).into())));
+        att_stmt.push((
+            Value::Text(String::from("alg")),
+            Value::Integer((-7i64).into()),
+        ));
         att_stmt.push((Value::Text(String::from("sig")), Value::Bytes(att_sig)));
-        let x5c_arr = vec![Value::Bytes(crate::ctap::attestation::AEGIS_ATTESTATION_CERT_DER.to_vec())];
+        let x5c_arr = vec![Value::Bytes(
+            crate::ctap::attestation::AEGIS_ATTESTATION_CERT_DER.to_vec(),
+        )];
         att_stmt.push((Value::Text(String::from("x5c")), Value::Array(x5c_arr)));
 
         // Standard CTAP 2.0 / 2.1 response structure:
@@ -287,7 +305,10 @@ impl MakeCredentialHandler {
         // 0x03: attStmt (map)
         // 0x05: largeBlobKey (byte string, optional)
         let mut resp = Vec::new();
-        resp.push((Value::Integer(1.into()), Value::Text(String::from("packed"))));
+        resp.push((
+            Value::Integer(1.into()),
+            Value::Text(String::from("packed")),
+        ));
         resp.push((Value::Integer(2.into()), Value::Bytes(auth_data)));
         resp.push((Value::Integer(3.into()), Value::Map(att_stmt)));
         if let Some(lb_key) = ext_outputs.large_blob_key {

@@ -1,7 +1,7 @@
 extern crate alloc;
 
-use alloc::vec::Vec;
 use super::yubikey_otp::YubiOtpGenerator;
+use alloc::vec::Vec;
 
 /// USB HID Keyboard Scancodes (Usage Page 0x07)
 pub const HID_KEY_NONE: u8 = 0x00;
@@ -11,20 +11,11 @@ pub const HID_KEY_TAB: u8 = 0x2B;
 /// Standard 8-byte USB HID Keyboard report
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
+#[derive(Default)]
 pub struct HidKeyboardReport {
     pub modifier: u8,
     pub reserved: u8,
     pub keycodes: [u8; 6],
-}
-
-impl Default for HidKeyboardReport {
-    fn default() -> Self {
-        Self {
-            modifier: 0,
-            reserved: 0,
-            keycodes: [0; 6],
-        }
-    }
 }
 
 impl HidKeyboardReport {
@@ -33,10 +24,11 @@ impl HidKeyboardReport {
     }
 
     pub fn key_down(scancode: u8, modifier: u8) -> Self {
-        let mut report = Self::default();
-        report.modifier = modifier;
-        report.keycodes[0] = scancode;
-        report
+        Self {
+            modifier,
+            keycodes: [scancode, 0, 0, 0, 0, 0],
+            ..Self::default()
+        }
     }
 
     pub fn to_bytes(&self) -> [u8; 8] {
@@ -136,11 +128,7 @@ impl OtpAutoTyper {
     }
 
     /// On button press trigger (e.g. GPIO 0 press), generate OTP and return HID keyboard report stream
-    pub fn on_button_press(
-        &self,
-        generator: &mut YubiOtpGenerator,
-        nonce: u16,
-    ) -> Vec<[u8; 8]> {
+    pub fn on_button_press(&self, generator: &mut YubiOtpGenerator, nonce: u16) -> Vec<[u8; 8]> {
         let token = generator.generate_token(nonce);
         string_to_hid_reports(&token, self.append_enter)
     }

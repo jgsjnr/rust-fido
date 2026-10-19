@@ -19,7 +19,6 @@ pub const SUBCMD_ENUMERATE_CREDS_GET_NEXT: i64 = 0x05;
 pub const SUBCMD_DELETE_CREDENTIAL: i64 = 0x06;
 pub const SUBCMD_UPDATE_USER_INFORMATION: i64 = 0x07;
 
-
 #[derive(Default)]
 pub struct CredentialManagementState {
     pub rp_list: Vec<(String, [u8; 32])>,
@@ -44,8 +43,7 @@ impl CredentialManagementHandler {
         let pin_auth = get_bytes_field(&map, 4)?;
 
         // Verify CM permission
-        let mut auth_msg = Vec::new();
-        auth_msg.push(sub_command as u8);
+        let mut auth_msg = vec![sub_command as u8];
         if let Some(sub_params) = get_int_key(&map, 2) {
             let mut buf = Vec::new();
             if ciborium::into_writer(sub_params, &mut buf).is_ok() {
@@ -53,13 +51,8 @@ impl CredentialManagementHandler {
             }
         }
 
-        let _ = pin_state.verify_token_permission(
-            &pin_auth,
-            &auth_msg,
-            protocol,
-            PIN_UV_PERM_CM,
-            None,
-        );
+        let _ =
+            pin_state.verify_token_permission(&pin_auth, &auth_msg, protocol, PIN_UV_PERM_CM, None);
 
         match sub_command {
             SUBCMD_GET_CREDS_METADATA => Self::get_creds_metadata(store),
@@ -78,9 +71,10 @@ impl CredentialManagementHandler {
         let max_cap = store.max_resident() as i64;
         let remaining = max_cap.saturating_sub(existing);
 
-        let mut resp = Vec::new();
-        resp.push((Value::Integer(1.into()), Value::Integer(existing.into())));
-        resp.push((Value::Integer(2.into()), Value::Integer(remaining.into())));
+        let resp = vec![
+            (Value::Integer(1.into()), Value::Integer(existing.into())),
+            (Value::Integer(2.into()), Value::Integer(remaining.into())),
+        ];
         encode_cbor_value(&Value::Map(resp))
     }
 
@@ -114,14 +108,12 @@ impl CredentialManagementHandler {
         let (rp_id, hash) = &state.rp_list[state.current_rp_idx];
         let total = state.rp_list.len() as i64;
 
-        let mut rp_map = Vec::new();
-        rp_map.push((Value::Text(String::from("id")), Value::Text(rp_id.clone())));
-
-        let mut resp = Vec::new();
-        resp.push((Value::Integer(3.into()), Value::Map(rp_map)));
-        resp.push((Value::Integer(4.into()), Value::Bytes(hash.to_vec())));
-        resp.push((Value::Integer(5.into()), Value::Integer(total.into())));
-
+        let rp_map = vec![(Value::Text(String::from("id")), Value::Text(rp_id.clone()))];
+        let resp = vec![
+            (Value::Integer(3.into()), Value::Map(rp_map)),
+            (Value::Integer(4.into()), Value::Bytes(hash.to_vec())),
+            (Value::Integer(5.into()), Value::Integer(total.into())),
+        ];
         encode_cbor_value(&Value::Map(resp))
     }
 
@@ -175,29 +167,44 @@ impl CredentialManagementHandler {
         let cred = store.get(cred_id).ok_or(CtapError::NoCredentials)?;
         let total = state.cred_id_list.len() as i64;
 
-        let mut user_map = Vec::new();
-        user_map.push((Value::Text(String::from("id")), Value::Bytes(cred.user_id.clone())));
+        let mut user_map = vec![(
+            Value::Text(String::from("id")),
+            Value::Bytes(cred.user_id.clone()),
+        )];
         if let Some(ref name) = cred.user_name {
             user_map.push((Value::Text(String::from("name")), Value::Text(name.clone())));
         }
         if let Some(ref disp) = cred.user_display_name {
-            user_map.push((Value::Text(String::from("displayName")), Value::Text(disp.clone())));
+            user_map.push((
+                Value::Text(String::from("displayName")),
+                Value::Text(disp.clone()),
+            ));
         }
 
-        let mut cred_id_map = Vec::new();
-        cred_id_map.push((Value::Text(String::from("id")), Value::Bytes(cred.id.clone())));
-        cred_id_map.push((Value::Text(String::from("type")), Value::Text(String::from("public-key"))));
+        let cred_id_map = vec![
+            (
+                Value::Text(String::from("id")),
+                Value::Bytes(cred.id.clone()),
+            ),
+            (
+                Value::Text(String::from("type")),
+                Value::Text(String::from("public-key")),
+            ),
+        ];
+        let pub_cose =
+            CoseKey::from_cbor_bytes(&cred.public_key_cose).map_err(|_| CtapError::Processing)?;
 
-        let pub_cose = CoseKey::from_cbor_bytes(&cred.public_key_cose).map_err(|_| CtapError::Processing)?;
-
-        let mut resp = Vec::new();
-        resp.push((Value::Integer(6.into()), Value::Map(user_map)));
-        resp.push((Value::Integer(7.into()), Value::Map(cred_id_map)));
-        resp.push((Value::Integer(8.into()), pub_cose.to_cbor_value()));
-        resp.push((Value::Integer(9.into()), Value::Integer(total.into())));
-
+        let mut resp = vec![
+            (Value::Integer(6.into()), Value::Map(user_map)),
+            (Value::Integer(7.into()), Value::Map(cred_id_map)),
+            (Value::Integer(8.into()), pub_cose.to_cbor_value()),
+            (Value::Integer(9.into()), Value::Integer(total.into())),
+        ];
         if let Some(cp) = cred.cred_protect {
-            resp.push((Value::Integer(10.into()), Value::Integer((cp as i64).into())));
+            resp.push((
+                Value::Integer(10.into()),
+                Value::Integer((cp as i64).into()),
+            ));
         }
 
         if let Some(ref lb_key) = cred.large_blob_key {

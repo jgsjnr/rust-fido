@@ -9,25 +9,27 @@
 //!   * Authenticated payload envelope with AES-256-GCM and strict AAD validation
 //! - Zeroize memory clearing for master keys and private scalar material
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
-use p256::{PublicKey as P256PublicKey, EncodedPoint as P256EncodedPoint};
+use p256::{EncodedPoint as P256EncodedPoint, PublicKey as P256PublicKey};
 
 pub mod policy;
 pub mod secrets;
 pub mod store;
+use crate::crypto::aead::{
+    aes_256_gcm_decrypt, aes_256_gcm_encrypt, open_blob, seal_blob, AeadError,
+};
+use crate::crypto::curves::{CoseAlgorithm, CryptoError, KeyPair, PublicKey};
+use crate::crypto::kdf::{hkdf_sha256, KdfError};
 pub use policy::VaultPolicy;
 pub use secrets::VaultSecrets;
 pub use store::VaultStore;
-use crate::crypto::aead::{aes_256_gcm_decrypt, aes_256_gcm_encrypt, open_blob, seal_blob, AeadError};
-use crate::crypto::curves::{CoseAlgorithm, CryptoError, KeyPair, PublicKey};
-use crate::crypto::kdf::{hkdf_sha256, KdfError};
 
 /// Fase6 -- PIN-bound envelope constants (BLE-protocol 5: AEGN|0x01|NONCE12|CT+TAG, min 33B; 9.2 tag 0x04 opaco).
 pub const VAULT_ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E];
@@ -56,7 +58,10 @@ impl core::fmt::Display for VaultError {
             Self::AeadError(e) => write!(f, "AEAD error: {}", e),
             Self::KdfError(e) => write!(f, "KDF error: {}", e),
             Self::SerializationError(s) => write!(f, "Serialization error: {}", s),
-            Self::AuthenticationFailed => write!(f, "Vault authentication failed (tag mismatch or invalid PIN token)"),
+            Self::AuthenticationFailed => write!(
+                f,
+                "Vault authentication failed (tag mismatch or invalid PIN token)"
+            ),
             Self::InvalidPublicKey => write!(f, "Invalid P-256 public key for ECDH agreement"),
             Self::PasskeyNotFound => write!(f, "Passkey credential ID not found"),
             Self::DuplicatePasskey => write!(f, "Passkey with this credential ID already exists"),
@@ -211,7 +216,11 @@ impl AegisVault {
 
     /// Stores a new passkey. Replaces existing passkey if credential ID matches.
     pub fn put(&mut self, passkey: VaultPasskey) {
-        if let Some(pos) = self.passkeys.iter().position(|p| p.credential_id == passkey.credential_id) {
+        if let Some(pos) = self
+            .passkeys
+            .iter()
+            .position(|p| p.credential_id == passkey.credential_id)
+        {
             self.passkeys[pos] = passkey;
         } else {
             self.passkeys.push(passkey);
@@ -220,17 +229,25 @@ impl AegisVault {
 
     /// Retrieves a passkey reference by credential ID.
     pub fn get(&self, credential_id: &[u8]) -> Option<&VaultPasskey> {
-        self.passkeys.iter().find(|p| p.credential_id == credential_id)
+        self.passkeys
+            .iter()
+            .find(|p| p.credential_id == credential_id)
     }
 
     /// Retrieves a mutable passkey reference by credential ID.
     pub fn get_mut(&mut self, credential_id: &[u8]) -> Option<&mut VaultPasskey> {
-        self.passkeys.iter_mut().find(|p| p.credential_id == credential_id)
+        self.passkeys
+            .iter_mut()
+            .find(|p| p.credential_id == credential_id)
     }
 
     /// Deletes a passkey by credential ID. Returns true if found and removed.
     pub fn delete(&mut self, credential_id: &[u8]) -> bool {
-        if let Some(pos) = self.passkeys.iter().position(|p| p.credential_id == credential_id) {
+        if let Some(pos) = self
+            .passkeys
+            .iter()
+            .position(|p| p.credential_id == credential_id)
+        {
             self.passkeys.remove(pos);
             true
         } else {
@@ -290,8 +307,9 @@ impl AegisVault {
         // Parse client ephemeral public key
         let client_point = P256EncodedPoint::from_bytes(client_pubkey_sec1)
             .map_err(|_| VaultError::InvalidPublicKey)?;
-        let client_pub = Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&client_point))
-            .ok_or(VaultError::InvalidPublicKey)?;
+        let client_pub =
+            Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&client_point))
+                .ok_or(VaultError::InvalidPublicKey)?;
 
         // Generate authenticator ephemeral P-256 key pair
         let auth_secret = p256::ecdh::EphemeralSecret::random(rng);
@@ -305,7 +323,7 @@ impl AegisVault {
         // Derive session key via HKDF-SHA256 bound to pin_token
         let salt = pin_token;
         let info = b"Aegis-Vault-Export-Session-v1";
-        let session_key_vec = hkdf_sha256(salt, z.as_slice(), info, 32)?;
+        let session_key_vec = hkdf_sha256(salt, z.as_ref(), info, 32)?;
         let mut session_key = [0u8; 32];
         session_key.copy_from_slice(&session_key_vec);
 
@@ -357,8 +375,9 @@ impl AegisVault {
         // Parse authenticator ephemeral public key
         let auth_point = P256EncodedPoint::from_bytes(&package.auth_ephemeral_pubkey)
             .map_err(|_| VaultError::InvalidPublicKey)?;
-        let auth_pub = Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&auth_point))
-            .ok_or(VaultError::InvalidPublicKey)?;
+        let auth_pub =
+            Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&auth_point))
+                .ok_or(VaultError::InvalidPublicKey)?;
 
         // Compute ECDH shared secret
         let shared_secret = client_secret.diffie_hellman(&auth_pub);
@@ -367,7 +386,7 @@ impl AegisVault {
         // Derive session key
         let salt = pin_token;
         let info = b"Aegis-Vault-Export-Session-v1";
-        let session_key_vec = hkdf_sha256(salt, z.as_slice(), info, 32)?;
+        let session_key_vec = hkdf_sha256(salt, z.as_ref(), info, 32)?;
         let mut session_key = [0u8; 32];
         session_key.copy_from_slice(&session_key_vec);
 
@@ -378,8 +397,13 @@ impl AegisVault {
         aad.extend_from_slice(client_pubkey_sec1);
 
         // Decrypt AES-256-GCM envelope
-        let decrypted_cbor = aes_256_gcm_decrypt(&session_key, &package.nonce, &package.ciphertext_and_tag, &aad)
-            .map_err(|_| VaultError::AuthenticationFailed)?;
+        let decrypted_cbor = aes_256_gcm_decrypt(
+            &session_key,
+            &package.nonce,
+            &package.ciphertext_and_tag,
+            &aad,
+        )
+        .map_err(|_| VaultError::AuthenticationFailed)?;
 
         session_key.zeroize();
 
@@ -426,11 +450,7 @@ impl AegisVault {
     /// and minimum length 33B, then derives the same K_enc and decrypts.
     /// Wrong PIN or tampered bytes map to AuthenticationFailed; malformed
     /// envelope maps to InvalidPayload. Session key zeroized.
-    pub fn open_envelope(
-        &self,
-        envelope: &[u8],
-        pin_token: &[u8],
-    ) -> Result<Vec<u8>, VaultError> {
+    pub fn open_envelope(&self, envelope: &[u8], pin_token: &[u8]) -> Result<Vec<u8>, VaultError> {
         if envelope.len() < VAULT_ENVELOPE_MIN_LEN {
             return Err(VaultError::InvalidPayload);
         }
@@ -517,7 +537,9 @@ mod tests {
         assert!(!sealed_blob.is_empty());
 
         let mut restored_vault = AegisVault::from_master_seed(&seed).unwrap();
-        let loaded_count = restored_vault.load_from_blob(&sealed_blob).expect("Load blob");
+        let loaded_count = restored_vault
+            .load_from_blob(&sealed_blob)
+            .expect("Load blob");
         assert_eq!(loaded_count, 5);
         assert_eq!(restored_vault.len(), 5);
 
@@ -563,7 +585,10 @@ mod tests {
             &client_pub_sec1,
             wrong_pin_token,
         );
-        assert!(matches!(import_tampered, Err(VaultError::AuthenticationFailed)));
+        assert!(matches!(
+            import_tampered,
+            Err(VaultError::AuthenticationFailed)
+        ));
 
         // 8. Negative test: Tampering with ciphertext must fail authentication
         let mut tampered_package = export_package.clone();
@@ -574,7 +599,9 @@ mod tests {
             &client_pub_sec1,
             pin_token,
         );
-        assert!(matches!(import_corrupted, Err(VaultError::AuthenticationFailed)));
+        assert!(matches!(
+            import_corrupted,
+            Err(VaultError::AuthenticationFailed)
+        ));
     }
 }
-

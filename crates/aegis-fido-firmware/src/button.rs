@@ -136,6 +136,8 @@ impl<I: ButtonInput> BootButton<I> {
 }
 
 /// Hardware BOOT button input on GPIO 0 (active-low with pullup).
+// gpio/initialized retained for ESP-IDF hardware handle; unused on host tests but required on device. No logic change.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct EspBootButtonInput {
     gpio: i32,
@@ -181,6 +183,8 @@ impl ButtonInput for EspBootButtonInput {
 }
 
 /// Hardware KEY button input on GPIO 14 (LilyGO T-Display-S3) or GPIO 35 (LilyGO TTGO T-Display Classic).
+// Same as above: hardware handle retained for device builds.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct EspKeyButtonInput {
     gpio: i32,
@@ -327,7 +331,7 @@ impl<B: ButtonInput, K: ButtonInput> DualButtonManager<B, K> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MockButtonInput {
     pub pressed: std::sync::Arc<core::sync::atomic::AtomicBool>,
 }
@@ -371,12 +375,8 @@ mod tests {
         let input = MockButtonInput::new();
         let button = BootButton::new(input);
 
-        let res = button.wait_for_user_presence(
-            Duration::from_millis(100),
-            |_| {},
-            || false,
-            |_| {},
-        );
+        let res =
+            button.wait_for_user_presence(Duration::from_millis(100), |_| {}, || false, |_| {});
 
         assert_eq!(res, Err(UserPresenceError::Timeout));
     }
