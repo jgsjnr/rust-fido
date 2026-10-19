@@ -55,8 +55,10 @@ dependencies = [
  "hex",
  "hmac",
  "log",
+ "p256",
  "rand_core",
  "sha2",
+ "signature",
  "zeroize",
 ]
 

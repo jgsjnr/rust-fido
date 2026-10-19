@@ -9,6 +9,7 @@
 //! - Wave4: pairing journey (5s hold), BLE GATT 0xFFFD, WiFi AP, UI journey.
 
 pub mod ble_gatt;
+pub mod ble_nimble;
 pub mod binding;
 pub mod recovery;
 pub mod button;
@@ -40,3 +41,4 @@ pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
 pub use persistence::{FlashStorageBackend, MockFlashBackend, RamFlashBackend, SecureStorage, StorageError};
 pub use watchdog::{StaticBuf, Watchdog};
 pub use usb_descriptors::*;
+

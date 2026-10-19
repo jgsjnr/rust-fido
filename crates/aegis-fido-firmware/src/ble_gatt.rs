@@ -386,9 +386,19 @@ impl BleGattServer {
         payload.to_vec()
     }
 
-    /// Inicia advertising stub (ESP usa NimBLE via esp-idf-svc quando disponivel).
+    /// Shim de compatibilidade (Etapa B: radio real em ble_nimble).
+    ///
+    /// No host retorna Ok sem efeito. No ESP o advertising real e
+    /// ligado/desligado pelo main via ble_nimble::{esp_ble_start,
+    /// esp_ble_stop} (NimBLE, componente C aegis_ble), somente em modo
+    /// pareamento. Mantido para nao quebrar chamadores/host.
     pub fn start_advertising(_pairing_flag: bool) -> Result<(), &'static str> {
-        // Host: stub. ESP: NimBLE `esp-idf-svc` quando `target_os = espidf`.
+        // Host: shim inerte; ESP usa ble_nimble (NimBLE, aegis_ble).
+        Ok(())
+    }
+
+    /// Para o advertising (shim de compat; ESP usa ble_nimble::esp_ble_stop).
+    pub fn stop_advertising() -> Result<(), &'static str> {
         Ok(())
     }
 }

@@ -28,6 +28,9 @@ function Initialize-EspEnvironment {
     } else {
         Write-Warn "IDF_PATH nao encontrado em $preferredIdf. O Cargo tentara autodetectar."
     }
+    # Etapa B (BLE NimBLE): esp-idf-sys nao aplica sdkconfig.defaults.* sozinho
+    # neste env; aponta os defaults BT/BLE-only do workspace root.
+    $env:ESP_IDF_SDKCONFIG_DEFAULTS = Join-Path $global:RepoRoot "sdkconfig.defaults.esp32s3"
 
     $global:EsptoolExe = $null
     $candidates = @(

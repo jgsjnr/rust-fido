@@ -103,6 +103,140 @@ fn extract_rp_and_user(cmd: u8, payload: &[u8]) -> (String, String, &'static str
     ("WebAuthn".into(), "Chave FIDO2".into(), "Autorização FIDO2")
 }
 
+/// Etapa B — despacha 1 mensagem GATT completa e notifica via FFF2.
+///
+/// PING ecoa; CANCEL confirma vazio; MSG delega ao `CtapEngine` (mesmo
+/// `[cmd, CBOR...]` do `CMD_CBOR` USB); bind-mgmt `0x28-0x2D` usa os helpers
+/// de `ble_gatt` (gates binding -> UP -> PIN preservados); vendor `0x20-0x27`
+/// valida os gates e responde `0x04` (executor on-device = follow-up,
+/// `docs/ble-nimble.md`). USB/CTAP intactos.
+#[allow(clippy::too_many_arguments)]
+fn ble_dispatch_complete(
+    msg: aegis_fido_firmware::ble_gatt::BleCompleteMessage,
+    up: bool,
+    pairing_window_open: bool,
+    now_secs: u64,
+    ctap_engine: &mut CtapEngine,
+    binding_mgr: &mut aegis_fido_firmware::binding::BindingManager,
+    storage: &mut SecureStorage<RamFlashBackend>,
+) {
+    use aegis_fido_firmware::ble_gatt as g;
+    use aegis_fido_firmware::ble_nimble as ble;
+    use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
+
+    let op = msg.opcode;
+    let p = &msg.payload;
+    let frame: Vec<u8> = match op {
+        g::OP_PING => ble::notify_frame(op, 0x00, &g::BleGattServer::dispatch_ping(p)),
+        g::OP_CANCEL => ble::notify_frame(op, 0x00, &[]),
+        g::OP_MSG => {
+            ctap_engine.set_user_presence(up);
+            let mut rng = rand_core::OsRng;
+            let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
+            ble::notify_frame(op, 0x00, &resp)
+        }
+        g::OP_BIND_CLAIM => {
+            if p.len() != BIND_PUB_LEN + BIND_ID_LEN {
+                ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
+            } else {
+                let mut app_pub = [0u8; BIND_PUB_LEN];
+                let mut binding_id = [0u8; BIND_ID_LEN];
+                app_pub.copy_from_slice(&p[..BIND_PUB_LEN]);
+                binding_id.copy_from_slice(&p[BIND_PUB_LEN..]);
+                match g::dispatch_bind_claim(
+                    binding_mgr,
+                    storage,
+                    &app_pub,
+                    &binding_id,
+                    pairing_window_open,
+                    up,
+                ) {
+                    Ok(()) => ble::notify_frame(op, 0x00, &binding_id),
+                    Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
+                }
+            }
+        }
+        g::OP_BIND_CHALLENGE => {
+            if !p.is_empty() {
+                ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
+            } else {
+                let mut rng = rand_core::OsRng;
+                match g::dispatch_bind_challenge(binding_mgr, storage, &mut rng) {
+                    Ok(ch) => ble::notify_frame(op, 0x00, &ch),
+                    Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
+                }
+            }
+        }
+        g::OP_BIND_VERIFY => {
+            if p.len() < 1 + BIND_CHALLENGE_LEN + 32 {
+                ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
+            } else {
+                let vop = p[0];
+                let mut ch = [0u8; BIND_CHALLENGE_LEN];
+                let mut ph = [0u8; 32];
+                ch.copy_from_slice(&p[1..1 + BIND_CHALLENGE_LEN]);
+                ph.copy_from_slice(&p[1 + BIND_CHALLENGE_LEN..1 + BIND_CHALLENGE_LEN + 32]);
+                match g::dispatch_bind_verify(binding_mgr, &p[65..], &ch, vop, &ph) {
+                    Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                    Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
+                }
+            }
+        }
+        g::OP_BIND_RELEASE => {
+            if p.len() < BIND_CHALLENGE_LEN + 32 {
+                ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
+            } else {
+                let mut ch = [0u8; BIND_CHALLENGE_LEN];
+                let mut ph = [0u8; 32];
+                ch.copy_from_slice(&p[..BIND_CHALLENGE_LEN]);
+                ph.copy_from_slice(&p[BIND_CHALLENGE_LEN..BIND_CHALLENGE_LEN + 32]);
+                match g::dispatch_bind_release(
+                    binding_mgr,
+                    storage,
+                    &p[BIND_CHALLENGE_LEN + 32..],
+                    &ch,
+                    &ph,
+                    up,
+                ) {
+                    Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                    Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
+                }
+            }
+        }
+        g::OP_RECOVERY_SET => match core::str::from_utf8(p) {
+            Ok(pin) => match g::dispatch_recovery_set(storage, pin, up) {
+                Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
+            },
+            Err(_) => {
+                ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
+            }
+        },
+        g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(p) {
+            Ok(pin) => match g::dispatch_recovery_unlock(storage, binding_mgr, pin, up) {
+                Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
+            },
+            Err(_) => {
+                ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
+            }
+        },
+        o if g::is_vendor_keys_oath_op(o) => {
+            // Gates §9.4 preservados (app ve NEED_UP/NEED_BINDING/NEED_PIN
+            // corretos); executor TLV on-device = follow-up.
+            match g::authorize_vendor_op(o, binding_mgr.is_claimed(), false, up) {
+                Ok(()) => {
+                    kprintln!("[BLE] op vendor 0x{:02X} com gate ok (executor = follow-up)", o);
+                    ble::notify_frame(o, 0x04, &[])
+                }
+                Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
+            }
+        }
+        _ => ble::notify_frame(op, 0x04, &[]),
+    };
+    let _ = ble::esp_ble_notify(&frame);
+}
+
 #[no_mangle]
 pub extern "C" fn app_main() {
     #[cfg(target_os = "espidf")]
@@ -283,6 +417,11 @@ fn run_authenticator() {
     let mut totp_account_idx: usize = 0;
     // Phase8 UX-conex: PairingManager orfao agora alimentado no loop (hold 5s vence TOTP 2s).
     let mut pairing_mgr = aegis_fido_firmware::pairing::PairingManager::new();
+    // Etapa B (BLE NimBLE real): servidor GATT 0xFFFD + estado do radio.
+    let mut ble_server = aegis_fido_firmware::ble_gatt::BleGattServer::new();
+    let mut ble_adv_active = false;
+    let mut ble_bond_pending = false;
+    let mut ble_rx = [0u8; aegis_fido_firmware::ble_nimble::BLE_RX_FRAGMENT_MAX];
     // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
     let mut wifi_ap_mgr = aegis_fido_firmware::wifi_ap::WifiApManager::new();
     let mut mdns_mgr = aegis_fido_firmware::mdns::MdnsManager::new();
@@ -345,6 +484,127 @@ fn run_authenticator() {
         wifi_ap_mgr.update(pairing_open_now, false, now_ms);
         sta_mgr.update(pairing_open_now, false, now_ms);
         mdns_mgr.update(pairing_open_now, sta_mgr.is_up());
+        // Etapa B (BLE NimBLE real): advertising SOMENTE em PairingBle com
+        // janela aberta; fora disso o radio fica mudo (privacidade + bateria).
+        // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.
+        let ble_want_adv = aegis_fido_firmware::ble_nimble::should_advertise(&pairing_mgr, now_ms);
+        if ble_want_adv != ble_adv_active {
+            if ble_want_adv {
+                let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
+                let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(true, wifi_active);
+                if rc == 0 {
+                    ble_adv_active = true;
+                } else {
+                    kprintln!("[BLE] adv start rc={} (nova tentativa no proximo poll)", rc);
+                }
+            } else {
+                let _ = aegis_fido_firmware::ble_nimble::esp_ble_stop();
+                ble_adv_active = false;
+                ble_bond_pending = false;
+            }
+        }
+        // Etapa B: bomba BLE (eventos GAP + fragmentos FFF1). USB intacto.
+        {
+            use aegis_fido_firmware::ble_nimble as ble;
+            match ble::esp_ble_poll_event() {
+                e if e == ble::BLE_EVT_SECURED => {
+                    match ble::on_link_secured(&mut pairing_mgr, touch_latched, now_ms) {
+                        ble::BondOutcome::Paired => {
+                            touch_latched = false;
+                            ble_bond_pending = false;
+                            rescue_engine.set_user_presence(true);
+                            let _ = ble::esp_ble_stop();
+                            ble_adv_active = false;
+                            display_mgr.set_screen(UiScreen::Success {
+                                title: "DISPOSITIVO PAREADO".into(),
+                                subtitle: "BLE seguro ativo".into(),
+                            });
+                            #[cfg(target_os = "espidf")]
+                            if let Some(ref mut led) = display_mgr.led_controller {
+                                led.set_effect(LedEffect::Solid(
+                                    aegis_fido_firmware::led::Color::GREEN,
+                                ));
+                            }
+                            kprintln!("[BLE] bonding ok: advertising parado, pareamento encerrado.");
+                        }
+                        ble::BondOutcome::DeniedNoPresence => {
+                            ble_bond_pending = true;
+                            kprintln!("[BLE] link seguro sem UP: toque no BOOT para confirmar.");
+                            display_mgr.set_screen(UiScreen::UserPresencePrompt {
+                                rp_id: "Pareamento BLE".into(),
+                                user_name: "App AegisKey".into(),
+                                operation: "Confirmar pareamento".into(),
+                                remaining_seconds: 25,
+                            });
+                        }
+                        ble::BondOutcome::DeniedNoWindow => {
+                            kprintln!("[BLE] link seguro fora da janela: ignorado.");
+                        }
+                    }
+                }
+                e if e == ble::BLE_EVT_DISCONNECTED => {
+                    kprintln!("[BLE] central desconectou.");
+                    ble_adv_active = false;
+                    ble_bond_pending = false;
+                }
+                e if e == ble::BLE_EVT_CONNECTED => {
+                    kprintln!("[BLE] central conectou (aguardando bonding).");
+                }
+                _ => {}
+            }
+            // Bonding pendente: conclui quando o usuario tocar no BOOT.
+            if ble_bond_pending && touch_latched && pairing_mgr.is_pairing_window_open(now_ms) {
+                if ble::on_link_secured(&mut pairing_mgr, true, now_ms) == ble::BondOutcome::Paired
+                {
+                    touch_latched = false;
+                    ble_bond_pending = false;
+                    rescue_engine.set_user_presence(true);
+                    let _ = ble::esp_ble_stop();
+                    ble_adv_active = false;
+                    display_mgr.set_screen(UiScreen::Success {
+                        title: "DISPOSITIVO PAREADO".into(),
+                        subtitle: "BLE seguro ativo".into(),
+                    });
+                    #[cfg(target_os = "espidf")]
+                    if let Some(ref mut led) = display_mgr.led_controller {
+                        led.set_effect(LedEffect::Solid(
+                            aegis_fido_firmware::led::Color::GREEN,
+                        ));
+                    }
+                    kprintln!("[BLE] bonding ok (apos UP): advertising parado.");
+                }
+            }
+            // Fragmentos FFF1 -> reassemble -> dispatch -> notify FFF2.
+            let rx_n = ble::esp_ble_fetch_rx(&mut ble_rx);
+            if rx_n > 0 {
+                let up = touch_latched;
+                let frag = &ble_rx[..rx_n as usize];
+                match ble::feed_control_write(&mut ble_server, frag, up) {
+                    Ok(Some(msg)) => {
+                        touch_latched = false;
+                        ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
+                        ble_dispatch_complete(
+                            msg,
+                            up,
+                            pairing_open_now,
+                            now_secs,
+                            &mut ctap_engine,
+                            &mut binding_mgr,
+                            &mut storage,
+                        );
+                    }
+                    Ok(None) => {
+                        ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
+                    }
+                    Err(e) => {
+                        kprintln!("[BLE] fragmento rejeitado: {}", e);
+                        let op = frag.first().copied().unwrap_or(0x83);
+                        let frame = ble::notify_frame(op, e.to_vendor_status(), &[]);
+                        let _ = ble::esp_ble_notify(&frame);
+                    }
+                }
+            }
+        }
         if is_boot_pressed {
             if press_start_tick.is_none() {
                 press_start_tick = Some(tick);

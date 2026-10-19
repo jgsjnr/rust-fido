@@ -1,5 +1,9 @@
+# NOTA: legado, nao aplicado pelo build S3 (o build aplica o arquivo do
+# workspace root via ESP_IDF_SDKCONFIG_DEFAULTS em scripts/common.ps1).
+# Mantido por historico; o bloco BT/NimBLE vivo esta no sdkconfig.defaults.esp32s3 do workspace root.
 CONFIG_TINYUSB=y
 CONFIG_TINYUSB_HID_COUNT=1
 CONFIG_TINYUSB_NO_DEFAULT_TASK=n
 CONFIG_TINYUSB_TASK_STACK_SIZE=4096
 CONFIG_TINYUSB_TASK_PRIORITY=5
+
