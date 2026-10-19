@@ -1,4 +1,4 @@
-//! Wave4 — WiFi AP `AegisKey-XXXX` (feature `wifi`, host stub).
+//! Wave4 — WiFi AP `AegisKey-XXXX` (Etapa B: radio real via `aegis_wifi`).
 //!
 //! - SSID deriva do serial (`AegisKey-` + sufixo de 4).
 //! - Senha default provisionada; TROCA so via app autenticado (UP+PIN),
@@ -103,7 +103,7 @@ pub fn is_valid_wifi_password(pass: &str) -> bool {
         && pass.is_ascii()
 }
 
-/// Gerente do AP (sem I/O; ESP liga o radio via `start_ap_esp`).
+/// Gerente do AP (sem I/O; ESP liga o radio via `esp_ap_start`, componente C `aegis_wifi`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WifiApManager {
     state: WifiApState,
@@ -262,9 +262,75 @@ pub fn handle_get_oath_code(
     Err(WifiApError::UnknownAccount)
 }
 
-/// Stub ESP: liga o radio (quando `target_os = espidf` usa esp-idf-svc).
-pub fn start_ap_esp(_ssid: &str) -> Result<(), &'static str> {
-    Ok(())
+// ---------------------------------------------------------------------------
+// Radio real: FFI manual com o componente C `aegis_wifi`
+// (mesmo padrao do `ble_nimble.rs` com `aegis_ble`; sem bindgen, sem novos
+// deps, sem features do esp-idf-svc além de `binstart`).
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "espidf")]
+extern "C" {
+    fn aegis_wifi_ap_start(ssid: *const u8, ssid_len: i32, pass: *const u8, pass_len: i32) -> i32;
+    fn aegis_wifi_ap_stop() -> i32;
+    fn aegis_wifi_off() -> i32;
+}
+
+/// Liga o AP real (`0` ok, negativo = erro do C).
+/// `pass` vazia = rede aberta (bootstrap na janela curta de pareamento).
+#[cfg(target_os = "espidf")]
+pub fn esp_ap_start(ssid: &str, pass: &str) -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "wifi-ap");
+    unsafe {
+        aegis_wifi_ap_start(
+            ssid.as_ptr(),
+            ssid.len().min(i32::MAX as usize) as i32,
+            pass.as_ptr(),
+            pass.len().min(i32::MAX as usize) as i32,
+        )
+    }
+}
+
+/// Desliga o AP (rebaixa p/ station ou desliga o radio; `0` ok).
+#[cfg(target_os = "espidf")]
+pub fn esp_ap_stop() -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi-ap");
+    unsafe { aegis_wifi_ap_stop() }
+}
+
+/// Power-down total do radio (bateria): chamar com AP off + station off.
+/// Idempotente; `0` ok.
+#[cfg(target_os = "espidf")]
+pub fn esp_wifi_off() -> i32 {
+    unsafe { aegis_wifi_off() }
+}
+
+// Shims inertes no host (sem radio; politica testada por unidade).
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_ap_start(_ssid: &str, _pass: &str) -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_ap_stop() -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_wifi_off() -> i32 {
+    0
+}
+
+/// Senha efetiva do AP a partir dos bytes da NVS (`WIFI_PASS_NVS_KEY`).
+/// `None`/bytes invalidos => rede aberta (bootstrap na janela curta).
+/// Nunca loga o conteudo: o chamador so repassa ao radio.
+pub fn resolve_ap_password(stored: Option<&[u8]>) -> Option<String> {
+    let bytes = stored?;
+    if bytes.is_empty() {
+        return None;
+    }
+    let pass = core::str::from_utf8(bytes).ok()?;
+    if !is_valid_wifi_password(pass) {
+        return None;
+    }
+    Some(String::from(pass))
 }
 
 
@@ -410,6 +476,26 @@ mod tests {
         assert_eq!(
             handle_get_oath_code("unknown", secrets, 59, true),
             Err(WifiApError::UnknownAccount)
+        );
+    }
+
+    #[test]
+    fn host_shims_inertes() {
+        assert_eq!(esp_ap_start("AegisKey-00AF", "senha-segura-123"), 0);
+        assert_eq!(esp_ap_start("AegisKey-00AF", ""), 0);
+        assert_eq!(esp_ap_stop(), 0);
+        assert_eq!(esp_wifi_off(), 0);
+    }
+
+    #[test]
+    fn ap_password_resolve_sem_expor() {
+        assert_eq!(resolve_ap_password(None), None);
+        assert_eq!(resolve_ap_password(Some(b"")), None);
+        assert_eq!(resolve_ap_password(Some(b"curta")), None);
+        assert_eq!(resolve_ap_password(Some(&[0xFF, 0xFE, 0x00])), None);
+        assert_eq!(
+            resolve_ap_password(Some(b"senha-segura-123")).as_deref(),
+            Some("senha-segura-123")
         );
     }
 

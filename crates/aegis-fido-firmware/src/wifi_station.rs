@@ -1,4 +1,4 @@
-//! Phase8 - WiFi station (conecta no roteador, host stub + ESP station).
+//! Phase8 - WiFi station (conecta no roteador; Etapa B: radio real via `aegis_wifi`).
 //!
 //! - Credenciais em NVS cifrada (`SecureStorage`, envelope AES-GCM AEGN v1).
 //! - Chaves NVS `wifi_sta_ssid` + `wifi_sta_pass` (par, nunca em claro no log).
@@ -130,7 +130,7 @@ pub enum WifiStationState {
     Connected,
 }
 
-/// Gerente da station (sem I/O; ESP liga via `start_station_esp`).
+/// Gerente da station (sem I/O; ESP liga via `esp_sta_start`, componente C `aegis_wifi`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WifiStationManager {
     state: WifiStationState,
@@ -203,9 +203,93 @@ impl Default for WifiStationManager {
     }
 }
 
-/// Stub ESP: liga a station (quando `target_os = espidf` usa esp-idf-svc).
-pub fn start_station_esp(_ssid: &str) -> Result<(), &str> {
-    Ok(())
+// ---------------------------------------------------------------------------
+// Radio real: FFI manual com o componente C `aegis_wifi`
+// (mesmo padrao do `ble_nimble.rs` com `aegis_ble`; sem bindgen, sem novos
+// deps, sem features do esp-idf-svc além de `binstart`).
+// ---------------------------------------------------------------------------
+
+/// Station desligada (radio livre p/ AP ou power-down).
+pub const STA_OFF: i32 = 0;
+/// Conectando (aguarda GOT_IP; sem bloqueio).
+pub const STA_CONNECTING: i32 = 1;
+/// Conectada com IP (mDNS pode ligar).
+pub const STA_CONNECTED: i32 = 2;
+/// Falhou (o Rust re-arma com backoff; sem retry automatico no C).
+pub const STA_FAILED: i32 = 3;
+
+/// Backoff entre tentativas de station (bateria: radio desliga entre elas).
+pub const WIFI_STA_RETRY_BACKOFF_MS: u64 = 60_000;
+
+/// `true` quando deve tentar conectar: primeira vez ou backoff vencido.
+pub fn sta_retry_due(now_ms: u64, last_attempt_ms: Option<u64>) -> bool {
+    match last_attempt_ms {
+        None => true,
+        Some(t) => now_ms.saturating_sub(t) >= WIFI_STA_RETRY_BACKOFF_MS,
+    }
+}
+
+#[cfg(target_os = "espidf")]
+extern "C" {
+    fn aegis_wifi_sta_start(ssid: *const u8, ssid_len: i32, pass: *const u8, pass_len: i32) -> i32;
+    fn aegis_wifi_sta_stop() -> i32;
+    fn aegis_wifi_sta_state() -> i32;
+    fn aegis_wifi_sta_ip(out_ip: *mut u8) -> i32;
+}
+
+/// Conecta a station real (`0` ok, negativo = erro do C; nao bloqueia).
+#[cfg(target_os = "espidf")]
+pub fn esp_sta_start(ssid: &str, pass: &str) -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "station");
+    unsafe {
+        aegis_wifi_sta_start(
+            ssid.as_ptr(),
+            ssid.len().min(i32::MAX as usize) as i32,
+            pass.as_ptr(),
+            pass.len().min(i32::MAX as usize) as i32,
+        )
+    }
+}
+
+/// Desconecta a station (`0` ok).
+#[cfg(target_os = "espidf")]
+pub fn esp_sta_stop() -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "station");
+    unsafe { aegis_wifi_sta_stop() }
+}
+
+/// Estado atual do radio (`STA_*`; poll sem bloqueio).
+#[cfg(target_os = "espidf")]
+pub fn esp_sta_state() -> i32 {
+    unsafe { aegis_wifi_sta_state() }
+}
+
+/// IP atual da station (zeros quando sem IP).
+#[cfg(target_os = "espidf")]
+pub fn esp_sta_ip() -> [u8; 4] {
+    let mut out = [0u8; 4];
+    unsafe {
+        aegis_wifi_sta_ip(out.as_mut_ptr());
+    }
+    out
+}
+
+// Shims inertes no host (sem radio; politica testada por unidade).
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_sta_start(_ssid: &str, _pass: &str) -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_sta_stop() -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_sta_state() -> i32 {
+    STA_OFF
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_sta_ip() -> [u8; 4] {
+    [0, 0, 0, 0]
 }
 
 
@@ -323,6 +407,25 @@ mod tests {
         m.update(true, true, 2000);
         assert_eq!(m.state(), WifiStationState::Off);
         assert!(!m.is_up());
+    }
+
+    #[test]
+    fn host_shims_inertes() {
+        assert_eq!(esp_sta_start("Casa-5G", "senha-segura-123"), 0);
+        assert_eq!(esp_sta_stop(), 0);
+        assert_eq!(esp_sta_state(), STA_OFF);
+        assert_eq!(esp_sta_ip(), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn retry_backoff_poupanca_bateria() {
+        assert!(sta_retry_due(0, None));
+        assert!(!sta_retry_due(1_000, Some(0)));
+        assert!(!sta_retry_due(WIFI_STA_RETRY_BACKOFF_MS - 1, Some(0)));
+        assert!(sta_retry_due(WIFI_STA_RETRY_BACKOFF_MS, Some(0)));
+        assert!(sta_retry_due(99_000, Some(0)));
+        // Skew de relogio (now < last): nao tenta em loop.
+        assert!(!sta_retry_due(0, Some(10_000)));
     }
 
     #[test]

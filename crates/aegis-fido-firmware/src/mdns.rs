@@ -1,4 +1,4 @@
-//! Phase8 - mDNS `aegiskey-XXXX.local` (host stub + ESP mDNS).
+//! Phase8 - mDNS `aegiskey-XXXX.local` (Etapa B: responder real via `aegis_wifi`).
 //!
 //! - Hostname deriva do serial (`aegiskey-` + sufixo de 4, lowercase).
 //! - mDNS+station SO fora de pareamento; durante pareamento usa fallback AP.
@@ -57,7 +57,7 @@ pub enum MdnsState {
     Active,
 }
 
-/// Gerente do mDNS (sem I/O; ESP liga via `start_mdns_esp`).
+/// Gerente do mDNS (sem I/O; ESP liga via `esp_mdns_start`, componente C `aegis_wifi`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MdnsManager {
     state: MdnsState,
@@ -108,9 +108,51 @@ impl Default for MdnsManager {
     }
 }
 
-/// Stub ESP: liga o responder (quando `target_os = espidf` usa esp-idf-svc).
-pub fn start_mdns_esp(_hostname: &str) -> Result<(), &str> {
-    Ok(())
+// ---------------------------------------------------------------------------
+// Radio real: FFI manual com o componente C `aegis_wifi` (responder minimo
+// sobre sockets lwIP; o IDF v5.3 nao tem `mdns` no core). Mesmo padrao do
+// `ble_nimble.rs` com `aegis_ble`: sem bindgen, sem novos deps.
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "espidf")]
+extern "C" {
+    fn aegis_mdns_start(host: *const u8, host_len: i32) -> i32;
+    fn aegis_mdns_stop() -> i32;
+}
+
+/// Liga o responder mDNS (`0` ok, negativo = erro do C).
+/// `host` SEM o sufixo `.local` (ex.: `aegiskey-00af`).
+#[cfg(target_os = "espidf")]
+pub fn esp_mdns_start(host: &str) -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "mdns");
+    unsafe {
+        aegis_mdns_start(
+            host.as_ptr(),
+            host.len().min(i32::MAX as usize) as i32,
+        )
+    }
+}
+
+/// Desliga o responder (`0` ok).
+#[cfg(target_os = "espidf")]
+pub fn esp_mdns_stop() -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "mdns");
+    unsafe { aegis_mdns_stop() }
+}
+
+// Shims inertes no host (sem radio; politica testada por unidade).
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_mdns_start(_host: &str) -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_mdns_stop() -> i32 {
+    0
+}
+
+/// Tira o sufixo `.local` p/ a FFI (`aegiskey-00af.local` -> `aegiskey-00af`).
+pub fn mdns_bare_hostname(host: &str) -> &str {
+    host.strip_suffix(MDNS_SUFFIX).unwrap_or(host)
 }
 
 #[cfg(test)]
@@ -148,6 +190,18 @@ mod tests {
         assert!(m.is_active());
         m.shutdown();
         assert!(!m.is_active());
+    }
+
+    #[test]
+    fn host_shims_inertes() {
+        assert_eq!(esp_mdns_start("aegiskey-00af"), 0);
+        assert_eq!(esp_mdns_stop(), 0);
+    }
+
+    #[test]
+    fn bare_hostname_tira_suffix() {
+        assert_eq!(mdns_bare_hostname("aegiskey-00af.local"), "aegiskey-00af");
+        assert_eq!(mdns_bare_hostname("aegiskey-00af"), "aegiskey-00af");
     }
 
     #[test]

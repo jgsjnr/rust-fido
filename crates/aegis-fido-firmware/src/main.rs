@@ -426,6 +426,11 @@ fn run_authenticator() {
     let mut wifi_ap_mgr = aegis_fido_firmware::wifi_ap::WifiApManager::new();
     let mut mdns_mgr = aegis_fido_firmware::mdns::MdnsManager::new();
     let mut sta_mgr = aegis_fido_firmware::wifi_station::WifiStationManager::new();
+    // Etapa B (WiFi real): espelhos do radio p/ edge-trigger + backoff.
+    let mut wifi_ap_active = false;
+    let mut mdns_active = false;
+    let mut wifi_radio_on = false;
+    let mut last_sta_attempt_ms: Option<u64> = None;
     // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
     // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
 
@@ -480,10 +485,121 @@ fn run_authenticator() {
         // Binding + recovery: fiação transporte GATT/main (tick todo poll; USB intacto).
         binding_mgr.tick(now_ms);
         let _ = binding_mgr.is_claimed();
-        // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
+        // Etapa B (WiFi real via `aegis_wifi`): AP em pareamento (SSID do
+        // serial + senha da NVS, aberta no bootstrap), station fora dele com
+        // backoff (bateria), mDNS com station up, power-down fora de uso.
+        // Precedencia de radio: USB (controlador dedicado, intacto) > WiFi >
+        // BLE (intervalo lento com WiFi ativo; ver `adv_intervals`).
         wifi_ap_mgr.update(pairing_open_now, false, now_ms);
-        sta_mgr.update(pairing_open_now, false, now_ms);
+        let ap_want = wifi_ap_mgr.is_active(now_ms);
+        if ap_want != wifi_ap_active {
+            if ap_want {
+                let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
+                    usb_descriptors::SERIAL_NUMBER_STRING,
+                );
+                let pass_bytes = storage
+                    .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
+                    .unwrap_or_default();
+                let pass_opt = aegis_fido_firmware::wifi_ap::resolve_ap_password(
+                    if pass_bytes.is_empty() { None } else { Some(&pass_bytes) },
+                );
+                let pass_str = pass_opt.unwrap_or_default();
+                // Nunca loga a senha.
+                let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
+                if rc == 0 {
+                    wifi_ap_active = true;
+                    kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
+                } else {
+                    kprintln!("[WIFI] AP start rc={} (nova tentativa no proximo poll).", rc);
+                }
+            } else {
+                let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
+                wifi_ap_active = false;
+                kprintln!("[WIFI] AP off.");
+            }
+        }
+        // Station: so fora de pareamento, com credenciais e backoff 60s.
+        let has_creds = aegis_fido_firmware::wifi_station::has_station_credentials(&storage);
+        sta_mgr.update(pairing_open_now, has_creds, now_ms);
+        let mut sta_radio = aegis_fido_firmware::wifi_station::esp_sta_state();
+        if sta_radio == aegis_fido_firmware::wifi_station::STA_CONNECTED {
+            if !sta_mgr.is_up() {
+                sta_mgr.on_connected();
+                let ip = aegis_fido_firmware::wifi_station::esp_sta_ip();
+                kprintln!(
+                    "[WIFI] station conectada (DHCP {}.{}.{}.{}).",
+                    ip[0], ip[1], ip[2], ip[3]
+                );
+            }
+        } else if sta_radio == aegis_fido_firmware::wifi_station::STA_FAILED {
+            sta_mgr.on_failed();
+        }
+        if matches!(
+            sta_mgr.state(),
+            aegis_fido_firmware::wifi_station::WifiStationState::Connecting { .. }
+        ) && sta_radio == aegis_fido_firmware::wifi_station::STA_OFF
+            && !pairing_open_now
+            && aegis_fido_firmware::wifi_station::sta_retry_due(now_ms, last_sta_attempt_ms)
+        {
+            let got = storage.load(aegis_fido_firmware::wifi_station::WIFI_STA_SSID_NVS_KEY);
+            let got_pass = storage.load(aegis_fido_firmware::wifi_station::WIFI_STA_PASS_NVS_KEY);
+            match (got, got_pass) {
+                (Ok(ssid_b), Ok(pass_b)) => {
+                    match (core::str::from_utf8(&ssid_b), core::str::from_utf8(&pass_b)) {
+                        (Ok(ssid), Ok(pass)) => {
+                            // Credenciais nunca vao para o log.
+                            let rc = aegis_fido_firmware::wifi_station::esp_sta_start(ssid, pass);
+                            last_sta_attempt_ms = Some(now_ms);
+                            if rc != 0 {
+                                kprintln!("[WIFI] station start rc={}.", rc);
+                                sta_mgr.on_failed();
+                            }
+                        }
+                        _ => sta_mgr.on_failed(),
+                    }
+                }
+                _ => sta_mgr.on_failed(),
+            }
+        }
+        if (pairing_open_now || !has_creds)
+            && sta_radio != aegis_fido_firmware::wifi_station::STA_OFF
+        {
+            let _ = aegis_fido_firmware::wifi_station::esp_sta_stop();
+            sta_mgr.disconnect();
+            sta_radio = aegis_fido_firmware::wifi_station::STA_OFF;
+        }
         mdns_mgr.update(pairing_open_now, sta_mgr.is_up());
+        let mdns_want = mdns_mgr.is_active();
+        if mdns_want != mdns_active {
+            if mdns_want {
+                let host = aegis_fido_firmware::mdns::mdns_hostname_for_serial(
+                    usb_descriptors::SERIAL_NUMBER_STRING,
+                );
+                let bare = aegis_fido_firmware::mdns::mdns_bare_hostname(&host);
+                let rc = aegis_fido_firmware::mdns::esp_mdns_start(bare);
+                if rc == 0 {
+                    mdns_active = true;
+                    kprintln!("[WIFI] mDNS '{}' on.", host);
+                } else {
+                    kprintln!("[WIFI] mDNS start rc={}.", rc);
+                }
+            } else {
+                let _ = aegis_fido_firmware::mdns::esp_mdns_stop();
+                mdns_active = false;
+            }
+        }
+        // Bateria: radio totalmente off fora de uso (nem AP, nem station).
+        // Rele apos start/stop deste poll (evita off imediato).
+        sta_radio = aegis_fido_firmware::wifi_station::esp_sta_state();
+        let radio_in_use =
+            wifi_ap_active || sta_radio != aegis_fido_firmware::wifi_station::STA_OFF;
+        if !radio_in_use && wifi_radio_on {
+            let _ = aegis_fido_firmware::wifi_ap::esp_wifi_off();
+            wifi_radio_on = false;
+            kprintln!("[WIFI] radio off (bateria).");
+        } else if radio_in_use {
+            wifi_radio_on = true;
+        }
         // Etapa B (BLE NimBLE real): advertising SOMENTE em PairingBle com
         // janela aberta; fora disso o radio fica mudo (privacidade + bateria).
         // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.

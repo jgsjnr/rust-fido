@@ -45,7 +45,7 @@ embuild = { version = "0.33", features = ["espidf"] }
 [package.metadata.esp-idf-sys]
 esp_idf_component_manager = false
 extra_components = [
-    { component_dirs = [ "components/tinyusb", "components/esp_tinyusb", "components/aegis_usb", "components/aegis_ble" ] }
+    { component_dirs = [ "components/tinyusb", "components/esp_tinyusb", "components/aegis_usb", "components/aegis_ble", "components/aegis_wifi" ] }
 ]
 
 
