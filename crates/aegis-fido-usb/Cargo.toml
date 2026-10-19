@@ -9,6 +9,12 @@ repository.workspace = true
 [dependencies]
 aegis-fido-core = { path = "../aegis-fido-core" }
 log = { workspace = true }
+zeroize = { workspace = true }
+
+[features]
+# LAB-ONLY: habilita mocks PIV (FCI/CHUID/CCC) para testes de laboratorio.
+# Default-off; builds sem a feature retornam 6A 82 em GET DATA.
+lab-mocks = []
 
 [dev-dependencies]
 hex = { workspace = true }

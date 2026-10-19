@@ -3,6 +3,14 @@
 //! Compliant with ISO 7816-4 and USB CCID Specification Rev 1.1.
 //! Supports Yubico OATH applet (YKOATH) and FIDO U2F/CTAP applet routing.
 //! 100% Native Rust implementation.
+//!
+//! PIV routing is wired through [`crate::piv::PivApplet`] owned by
+//! [`CcidTransport`]; SELECT PIV returns the shared `PIV_FCI` from `piv.rs`
+//! (no inline duplicate).
+// TODO(Wave 2 E-B2/S-C1): zeroizar CommandApdu.data/ResponseApdu
+// (dados sensiveis em memoria; usar `zeroize` com `Zeroizing`/`Drop`).
+
+use crate::piv::PivApplet;
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
 pub const AEGIS_ATR: &[u8] = &[
@@ -228,6 +236,11 @@ impl ResponseApdu {
 pub trait CcidApduHandler {
     fn handle_oath_apdu(&mut self, apdu: &CommandApdu) -> ResponseApdu;
     fn handle_fido_apdu(&mut self, apdu: &CommandApdu) -> ResponseApdu;
+    /// Handles APDUs routed to the PIV applet. Defaults to `6D 00`
+    /// so existing handlers (e.g. `DefaultCcidHandler`) keep working.
+    fn handle_piv_apdu(&mut self, _apdu: &CommandApdu) -> ResponseApdu {
+        ResponseApdu::status(SW_INS_NOT_SUPPORTED)
+    }
 }
 
 /// Default dummy handler for standalone testing.
@@ -257,6 +270,7 @@ impl CcidApduHandler for DefaultCcidHandler {
 pub struct CcidTransport {
     pub selected_applet: SelectedApplet,
     pub card_powered: bool,
+    pub piv: PivApplet,
 }
 
 impl Default for CcidTransport {
@@ -270,6 +284,7 @@ impl CcidTransport {
         Self {
             selected_applet: SelectedApplet::None,
             card_powered: false,
+            piv: PivApplet::new(),
         }
     }
 
@@ -306,6 +321,7 @@ impl CcidTransport {
             PC_TO_RDR_ICC_POWER_OFF => {
                 self.card_powered = false;
                 self.selected_applet = SelectedApplet::None;
+                self.piv = PivApplet::new();
                 Ok(Self::build_slot_status_response(slot, seq, 0x02)) // 0x02: Card absent/powered off
             }
 
@@ -365,6 +381,7 @@ impl CcidTransport {
         if apdu.ins == 0xA4 && apdu.p1 == 0x04 {
             if apdu.data == AID_YKOATH {
                 self.selected_applet = SelectedApplet::Oath;
+                self.piv = PivApplet::new();
                 // Return YKOATH applet version / name: "AegisKey OATH"
                 let mut name_resp = Vec::new();
                 name_resp.push(0x79); // Name tag
@@ -373,21 +390,30 @@ impl CcidTransport {
                 return ResponseApdu::ok(name_resp);
             } else if apdu.data == AID_FIDO_U2F {
                 self.selected_applet = SelectedApplet::FidoU2f;
+                self.piv = PivApplet::new();
                 // Return FIDO U2F V2 version string: "U2F_V2"
                 return ResponseApdu::ok(b"U2F_V2".to_vec());
             } else if apdu.data == AID_PIV {
-                self.selected_applet = SelectedApplet::Piv;
-                return ResponseApdu::ok(vec![0x61, 0x05, 0x4F, 0x03, 0xA0, 0x00, 0x00]);
+                let resp = self.piv.handle(apdu);
+                self.selected_applet = if self.piv.is_selected() {
+                    SelectedApplet::Piv
+                } else {
+                    SelectedApplet::None
+                };
+                return resp;
             } else {
                 self.selected_applet = SelectedApplet::None;
+                self.piv = PivApplet::new();
                 return ResponseApdu::status(SW_NOT_FOUND);
             }
         }
 
         // Route to the currently selected applet
-        match self.selected_applet {
+        let applet = self.selected_applet;
+        match applet {
             SelectedApplet::Oath => handler.handle_oath_apdu(apdu),
             SelectedApplet::FidoU2f => handler.handle_fido_apdu(apdu),
+            SelectedApplet::Piv => self.piv.handle(apdu),
             _ => ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED),
         }
     }
@@ -494,5 +520,65 @@ mod tests {
         assert_eq!(apdu_resp[6], 0x90);
         assert_eq!(apdu_resp[7], 0x00);
         assert_eq!(transport.selected_applet, SelectedApplet::FidoU2f);
+    }
+
+    fn xfr_block(apdu_bytes: &[u8], seq: u8) -> Vec<u8> {
+        let mut msg = vec![PC_TO_RDR_XFR_BLOCK];
+        msg.extend_from_slice(&(apdu_bytes.len() as u32).to_le_bytes());
+        msg.push(0);
+        msg.push(seq);
+        msg.extend_from_slice(&[0, 0, 0]);
+        msg.extend_from_slice(apdu_bytes);
+        msg
+    }
+
+    #[test]
+    fn should_select_piv_and_serve_chuid_via_transport() {
+        // Arrange
+        let mut transport = CcidTransport::new();
+        let mut handler = DefaultCcidHandler;
+        transport.card_powered = true;
+        let mut select = vec![0x00, 0xA4, 0x04, 0x00, 0x05];
+        select.extend_from_slice(AID_PIV);
+
+        // Act: SELECT PIV via CCID
+        let resp = transport
+            .process_ccid_message(&xfr_block(&select, 1), &mut handler)
+            .unwrap();
+
+        // Assert: applet seleciona via PivApplet compartilhado
+        let apdu_resp = &resp[10..];
+        assert_eq!(transport.selected_applet, SelectedApplet::Piv);
+        assert!(transport.piv.is_selected());
+        assert_eq!(apdu_resp[apdu_resp.len() - 2..], [0x90, 0x00]);
+
+        // Act: GET DATA CHUID (5C 03 5F C1 02) pelo transporte
+        let get_data = vec![0x00, 0xCB, 0x3F, 0xFF, 0x05, 0x5C, 0x03, 0x5F, 0xC1, 0x02];
+        let resp = transport
+            .process_ccid_message(&xfr_block(&get_data, 2), &mut handler)
+            .unwrap();
+
+        // Assert
+        let apdu_resp = &resp[10..];
+        assert_eq!(apdu_resp[apdu_resp.len() - 2..], [0x90, 0x00]);
+        assert_eq!(&apdu_resp[..4], &[0x5F, 0xC1, 0x02, 0x00]);
+    }
+
+    #[test]
+    fn should_return_6985_for_piv_unselected_via_transport() {
+        // Arrange
+        let mut transport = CcidTransport::new();
+        let mut handler = DefaultCcidHandler;
+        transport.card_powered = true;
+
+        // Act: GET DATA sem SELECT previo
+        let get_data = vec![0x00, 0xCB, 0x3F, 0xFF, 0x05, 0x5C, 0x03, 0x5F, 0xC1, 0x02];
+        let resp = transport
+            .process_ccid_message(&xfr_block(&get_data, 7), &mut handler)
+            .unwrap();
+
+        // Assert
+        let apdu_resp = &resp[10..];
+        assert_eq!(apdu_resp[apdu_resp.len() - 2..], [0x69, 0x85]);
     }
 }

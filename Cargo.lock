@@ -69,6 +69,7 @@ dependencies = [
  "aegis-fido-core",
  "hex",
  "log",
+ "zeroize",
 ]
 
 [[package]]
