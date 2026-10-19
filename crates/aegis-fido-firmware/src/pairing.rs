@@ -170,6 +170,40 @@ impl PairingManager {
     pub fn lock(&mut self) {
         self.state = PairingState::Locked;
     }
+
+    /// Abre a MESMA janela de 60s do hold 5s via comando de teste (test-mode).
+    ///
+    /// Software abre a janela, NAO confirma presenca: `bonded` segue `false`
+    /// e os gates posteriores (UP por operacao + bonding) continuam exigidos.
+    /// Auditoria: o `ltrace!` carrega `source=software` para distinguir do
+    /// hold fisico (que registra o clock puro).
+    #[cfg(feature = "test-mode")]
+    pub fn open_test_window(&mut self, now_ms: u64) {
+        self.state = PairingState::PairingBle {
+            expires_ms: now_ms.saturating_add(PAIRING_WINDOW_MS),
+        };
+        crate::ltrace!(LtCat::Pairing, LtEvt::PairingArming, SoftwareArming(now_ms));
+    }
+}
+
+/// Comando de teste que abre a janela de pareamento (so existe com test-mode).
+///
+/// Sem a feature a linha e desconhecida: nenhum dispatch a reconhece.
+#[cfg(feature = "test-mode")]
+pub const TEST_PAIRING_OPEN_CMD: &str = "TEST_PAIRING_OPEN";
+
+/// Detalhe do `ltrace!` para abertura via software (auditoria).
+///
+/// `Display` = `software now_ms=<t>` - distingue do hold fisico no monitor.
+#[cfg(feature = "test-mode")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoftwareArming(pub u64);
+
+#[cfg(feature = "test-mode")]
+impl core::fmt::Display for SoftwareArming {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "software now_ms={}", self.0)
+    }
 }
 
 impl Default for PairingManager {
@@ -240,5 +274,54 @@ mod tests {
         assert!(matches!(m.state(), PairingState::PairingAp { .. }));
         m.enter_ble_mode();
         assert!(matches!(m.state(), PairingState::PairingBle { .. }));
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn test_window_opens_same_60s_window_without_presence() {
+        let mut m = PairingManager::new();
+        m.open_test_window(1000);
+        assert!(m.is_pairing_window_open(1000));
+        assert!(m.is_pairing_window_open(1000 + PAIRING_WINDOW_MS - 1));
+        // Software abre a janela, NAO confirma presenca nem bonding.
+        assert!(!m.is_bonded());
+        assert!(!m.complete_pairing(false, 1100));
+        assert!(!m.is_bonded());
+        // Expira em 60s igual ao hold: tick move para Locked.
+        m.tick(1000 + PAIRING_WINDOW_MS);
+        assert_eq!(m.state(), PairingState::Locked);
+        assert!(!m.is_pairing_window_open(1000 + PAIRING_WINDOW_MS));
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn test_window_ltrace_marks_software_source() {
+        use core::fmt::Write as _;
+        let mut buf = [0u8; 64];
+        let len = {
+            let mut w = FmtBuf { buf: &mut buf, len: 0 };
+            let _ = write!(w, "{}", SoftwareArming(1234));
+            w.len
+        };
+        let text = core::str::from_utf8(&buf[..len]).expect("ascii");
+        assert!(text.contains("software"), "audit must tell software apart from hold");
+        assert!(text.contains("1234"));
+        assert_eq!(TEST_PAIRING_OPEN_CMD, "TEST_PAIRING_OPEN");
+    }
+
+    #[cfg(feature = "test-mode")]
+    struct FmtBuf<'a> {
+        buf: &'a mut [u8],
+        len: usize,
+    }
+
+    #[cfg(feature = "test-mode")]
+    impl core::fmt::Write for FmtBuf<'_> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            let take = s.len().min(self.buf.len().saturating_sub(self.len));
+            self.buf[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
+            self.len += take;
+            Ok(())
+        }
     }
 }

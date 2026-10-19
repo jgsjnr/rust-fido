@@ -945,9 +945,15 @@ fn run_authenticator() {
             }
         }
 
-        // Wave7 test-mode: answer TEST_LIFETIME_DUMP from the serial inbox (metadata only).
+        // Wave7 test-mode: TEST_PAIRING_OPEN (mesma janela 60s do hold 5s,
+        // source=software; UP/bonding seguem exigidos) + TEST_LIFETIME_DUMP.
         #[cfg(all(feature = "test-mode", not(target_os = "espidf")))]
         while let Ok(cmd) = diag_rx.try_recv() {
+            if cmd.trim() == aegis_fido_firmware::pairing::TEST_PAIRING_OPEN_CMD {
+                pairing_mgr.open_test_window(now_ms);
+                std::println!("pairing_open window_s=60 source=software");
+                continue;
+            }
             let extra = format!("uptime_s={} up_latched={}", tick * 10 / 1000, touch_latched);
             if let Some(resp) =
                 aegis_fido_firmware::lifetime_trace::dispatch_test_command(&cmd, &extra)
@@ -1265,9 +1271,13 @@ fn run_authenticator() {
                 serial_is_up_required, SerialFeed, SerialGate,
             };
             #[cfg(feature = "test-mode")]
-            use aegis_fido_firmware::serial_ctaphid::dispatch_serial_text_line;
+            use aegis_fido_firmware::serial_ctaphid::{
+                dispatch_serial_pairing_line, dispatch_serial_text_line,
+            };
 
-            // D1. Diagnostic text lines (dump with test-mode; idle use only).
+            // D1. Diagnostic text lines (test-mode only; idle use only).
+            // TEST_PAIRING_OPEN abre a mesma janela 60s do hold (software);
+            // TEST_LIFETIME_DUMP responde o dump. Release: linhas desconhecidas.
             #[cfg(feature = "test-mode")]
             {
                 let mut chunk = [0u8; 32];
@@ -1275,13 +1285,19 @@ fn run_authenticator() {
                 for b in chunk.iter().take(n as usize) {
                     if *b == b'\n' {
                         if let Ok(line) = core::str::from_utf8(&serial_line) {
-                            let extra = format!(
-                                "uptime_s={} up_latched={}",
-                                tick * 10 / 1000,
-                                touch_latched
-                            );
-                            if let Some(resp) = dispatch_serial_text_line(line, &extra) {
+                            if let Some(resp) =
+                                dispatch_serial_pairing_line(line, &mut pairing_mgr, now_ms)
+                            {
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else {
+                                let extra = format!(
+                                    "uptime_s={} up_latched={}",
+                                    tick * 10 / 1000,
+                                    touch_latched
+                                );
+                                if let Some(resp) = dispatch_serial_text_line(line, &extra) {
+                                    serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                                }
                             }
                         }
                         serial_line.clear();

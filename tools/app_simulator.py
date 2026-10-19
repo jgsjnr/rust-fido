@@ -73,6 +73,7 @@ STATUS_KEEPALIVE_UP_NEEDED = 0x02
 
 PAIRING_WINDOW_SECS = 60
 TEST_DUMP_CMD = "TEST_LIFETIME_DUMP"
+TEST_PAIRING_OPEN_CMD = "TEST_PAIRING_OPEN"
 
 # Fase6 vendor ops (BLE appendix 9, frozen range 0x20-0x27).
 OP_KEY_GEN = 0x20
@@ -611,6 +612,20 @@ class Session:
         log_event("LIFETIME_DUMP", "bytes=%d" % len(text))
         return text
 
+    def test_pairing_open(self, timeout_s=5.0):
+        """TEST_PAIRING_OPEN (test-mode fw only): device opens the same 60s
+        pairing window as the 5s BOOT hold (source=software, no UP confirm).
+        Mirrors menu 9: tracks the window locally so privileged ops pass the
+        host-side gate while the window lasts."""
+        if not self.test_mode:
+            raise PermissionError("pairing-open needs --test-mode (firmware must have test-mode)")
+        text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s)
+        if "pairing_open" not in text or "source=software" not in text:
+            raise ValueError("device did not open pairing (test-mode firmware?)")
+        self.confirm_pairing()
+        log_event("TEST_PAIRING_OPEN", "window_s=%d" % PAIRING_WINDOW_SECS)
+        return text
+
     # -- HTTP AP ----------------------------------------------------------
     def http_get(self, path):
         url = self.ap_base + path
@@ -690,6 +705,7 @@ def run_menu(args):
         print(" 8 WiFi config (HTTP, priv)  9 confirm pairing-mode (hold 5s BOOT)")
         if args.test_mode:
             print(" 10 TEST_LIFETIME_DUMP (test-mode fw)")
+            print(" 11 TEST_PAIRING_OPEN 60s (test-mode fw, sem segurar BOOT)")
         print(" q quit")
         try:
             choice = ask("> ").strip().lower()
@@ -753,6 +769,8 @@ def run_menu(args):
                 sess.confirm_pairing()
             elif choice == "10" and args.test_mode:
                 print(sess.lifetime_dump())
+            elif choice == "11" and args.test_mode:
+                print(sess.test_pairing_open())
             else:
                 print("unknown option")
         except PermissionError as e:
@@ -898,6 +916,31 @@ def run_self_test():
         def write(self, data):
             return len(data)
 
+    def t_pairing_open_cmd():
+        assert TEST_PAIRING_OPEN_CMD == "TEST_PAIRING_OPEN"
+        now = [2000.0]
+        s = Session("http://127.0.0.1:9", test_mode=True, clock=lambda: now[0])
+        try:
+            s.require_pairing("make_credential")
+            raise AssertionError("should deny before open")
+        except PermissionError:
+            pass
+        # Device ack path is covered firmware-side; host tracks the window.
+        s.confirm_pairing()
+        s.require_pairing("make_credential")
+        now[0] += PAIRING_WINDOW_SECS + 1
+        try:
+            s.require_pairing("make_credential")
+            raise AssertionError("should expire")
+        except PermissionError:
+            pass
+        s2 = Session("http://127.0.0.1:9", clock=lambda: now[0])
+        try:
+            s2.test_pairing_open()
+            raise AssertionError("needs --test-mode flag")
+        except PermissionError:
+            pass
+
     def t_stream_skips_variable_heartbeat():
         # Stale idle heartbeat (variable length + CRLF, NOT 64B-aligned)
         # ahead of a 2-packet response must still reassemble.
@@ -952,6 +995,7 @@ def run_self_test():
              ("wifi password", t_wifi_pw), ("hex parse", t_hex),
              ("heartbeat idle ignored", t_heartbeat_idle_ignored),
              ("heartbeat mid reassembly", t_heartbeat_mid_reassembly),
+             ("pairing open cmd", t_pairing_open_cmd),
              ("stream skips heartbeat", t_stream_skips_variable_heartbeat),
              ("stream resync corrupt", t_stream_resync_after_corrupt_byte)]
     for name, fn in cases:

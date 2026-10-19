@@ -260,6 +260,37 @@ pub fn dispatch_serial_text_line(line: &str, extra_states: &str) -> Option<Strin
     }
 }
 
+/// Dispatches `TEST_PAIRING_OPEN` (test-mode only).
+///
+/// Abre a MESMA janela de 60s do hold 5s via
+/// [`crate::pairing::PairingManager::open_test_window`]: software abre a
+/// janela, NAO confirma presenca (gates UP/bonding seguem exigidos).
+/// Retorna o ack na batida exata, `None` caso contrario; sem `test-mode`
+/// o comando nao existe (sempre `None`, comando desconhecido).
+#[cfg(feature = "test-mode")]
+pub fn dispatch_serial_pairing_line(
+    line: &str,
+    pairing: &mut crate::pairing::PairingManager,
+    now_ms: u64,
+) -> Option<String> {
+    if line.trim() == crate::pairing::TEST_PAIRING_OPEN_CMD {
+        pairing.open_test_window(now_ms);
+        Some(String::from("pairing_open window_s=60 source=software\n"))
+    } else {
+        None
+    }
+}
+
+/// Release: `TEST_PAIRING_OPEN` nao existe (comando desconhecido, sem janela).
+#[cfg(not(feature = "test-mode"))]
+pub fn dispatch_serial_pairing_line(
+    _line: &str,
+    _pairing: &mut crate::pairing::PairingManager,
+    _now_ms: u64,
+) -> Option<String> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,5 +544,36 @@ mod tests {
     #[test]
     fn dump_absent_without_test_mode() {
         assert!(dispatch_serial_text_line("TEST_LIFETIME_DUMP", "").is_none());
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn pairing_open_reuses_hold_window_and_expires() {
+        use crate::config::PAIRING_WINDOW_MS;
+        use crate::pairing::PairingManager;
+        let mut m = PairingManager::new();
+        let ack =
+            dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 5000).expect("ack");
+        assert!(ack.contains("pairing_open"));
+        assert!(ack.contains("source=software"));
+        assert!(m.is_pairing_window_open(5000));
+        assert!(!m.is_bonded());
+        // Expira em 60s igual ao hold fisico.
+        m.tick(5000 + PAIRING_WINDOW_MS);
+        assert!(!m.is_pairing_window_open(5000 + PAIRING_WINDOW_MS));
+        // Qualquer outra linha: comando desconhecido, janela intacta.
+        let mut m2 = PairingManager::new();
+        assert!(dispatch_serial_pairing_line("TEST_PAIRING_OPEN_EXTRA", &mut m2, 0).is_none());
+        assert!(dispatch_serial_pairing_line("NOPE", &mut m2, 0).is_none());
+        assert!(!m2.is_pairing_window_open(0));
+    }
+
+    #[cfg(not(feature = "test-mode"))]
+    #[test]
+    fn pairing_open_unknown_without_test_mode() {
+        use crate::pairing::PairingManager;
+        let mut m = PairingManager::new();
+        assert!(dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 0).is_none());
+        assert!(!m.is_pairing_window_open(0));
     }
 }
