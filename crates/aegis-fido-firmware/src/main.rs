@@ -594,6 +594,10 @@ fn run_authenticator() {
         pairing_mgr.on_button_level(is_boot_pressed, now_ms);
         pairing_mgr.tick(now_ms);
         let pairing_open_now = pairing_mgr.is_pairing_window_open(now_ms);
+        // Exclusao mutua de radio (OOM BT+WiFi): BLE anuncia SOMENTE em
+        // PairingBle; WiFi (AP/station/mDNS) fica desligado nesse estado.
+        let ble_pairing_now =
+            aegis_fido_firmware::ble_nimble::should_advertise(&pairing_mgr, now_ms);
         // Binding + recovery: fiação transporte GATT/main (tick todo poll; USB intacto).
         binding_mgr.tick(now_ms);
         let _ = binding_mgr.is_claimed();
@@ -601,11 +605,12 @@ fn run_authenticator() {
         // serial + senha da NVS, aberta no bootstrap), station fora dele com
         // backoff (bateria), mDNS com station up, power-down fora de uso.
         // Precedencia de radio: USB (controlador dedicado, intacto) > WiFi >
-        // BLE (intervalo lento com WiFi ativo; ver `adv_intervals`).
+        // BLE. BLE e WiFi sao mutuamente exclusivos (heap do S3 nao suporta
+        // os dois juntos); PairingBle desliga todo WiFi, PairingAp desliga BLE.
         wifi_ap_mgr.update(pairing_open_now, false, now_ms);
         let ap_want = wifi_ap_mgr.is_active(now_ms);
         if ap_want != wifi_ap_active {
-            if ap_want {
+            if ap_want && !ble_pairing_now {
                 let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
                     usb_descriptors::SERIAL_NUMBER_STRING,
                 );
@@ -660,6 +665,7 @@ fn run_authenticator() {
             aegis_fido_firmware::wifi_station::WifiStationState::Connecting { .. }
         ) && sta_radio == aegis_fido_firmware::wifi_station::STA_OFF
             && !pairing_open_now
+            && !ble_pairing_now
             && aegis_fido_firmware::wifi_station::sta_retry_due(now_ms, last_sta_attempt_ms)
         {
             let got = storage.load(aegis_fido_firmware::wifi_station::WIFI_STA_SSID_NVS_KEY);
@@ -682,7 +688,7 @@ fn run_authenticator() {
                 _ => sta_mgr.on_failed(),
             }
         }
-        if (pairing_open_now || !has_creds)
+        if (pairing_open_now || ble_pairing_now || !has_creds)
             && sta_radio != aegis_fido_firmware::wifi_station::STA_OFF
         {
             let _ = aegis_fido_firmware::wifi_station::esp_sta_stop();
@@ -693,7 +699,7 @@ fn run_authenticator() {
                 sta_radio = aegis_fido_firmware::wifi_station::STA_OFF;
             }
         }
-        mdns_mgr.update(pairing_open_now, sta_mgr.is_up());
+        mdns_mgr.update(pairing_open_now || ble_pairing_now, sta_mgr.is_up());
         let mdns_want = mdns_mgr.is_active();
         if mdns_want != mdns_active {
             if mdns_want {

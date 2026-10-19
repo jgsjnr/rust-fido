@@ -7,9 +7,13 @@
  *
  * Sequência de init copiada do exemplo oficial IDF v5.3.1
  * examples/bluetooth/nimble/bleprph (host NimBLE + FreeRTOS):
- *   nvs_flash -> esp_nimble_hci_init -> nimble_port_init -> ble_hs_cfg
- *   (sync/reset/store_status, sm JustWorks+bonding) -> ble_store_config_init
- *   -> gatts_count/add -> gap device name -> nimble_port_freertos_init.
+ *   nvs_flash -> nimble_port_init (controller+HCI+host internos)
+ *   -> ble_hs_cfg (sync/reset/store_status, sm JustWorks+bonding)
+ *   -> ble_store_config_init -> gatts_count/add -> gap device name
+ *   -> nimble_port_freertos_init.
+ * NAO chamar esp_nimble_hci_init() separado: no IDF v5 ele ja vive dentro
+ * de nimble_port_init()/esp_nimble_init(); a chamada avulsa falha com
+ * ESP_FAIL (rc=-1 em loop) e quebra a coexistencia WiFi/BLE no S3.
  *
  * Concorrência: callbacks GAP/GATT rodam na task NimBLE; o loop Rust consome
  * por poll (poll-read-clear sob critical section). 1 fragmento FFF1 pendente
@@ -394,11 +398,9 @@ static int ensure_init(void)
         ESP_LOGW(TAG, "nvs_flash_init: %s", esp_err_to_name(err));
     }
 
-    err = esp_nimble_hci_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_nimble_hci_init: %s", esp_err_to_name(err));
-        return -1;
-    }
+    /* IDF v5: nimble_port_init() ja faz controller_enable + hci_init
+     * internamente; a chamada avulsa de esp_nimble_hci_init() aqui retornava
+     * ESP_FAIL (-1) em loop. NAO reintroduzir. */
     err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nimble_port_init: %s", esp_err_to_name(err));
