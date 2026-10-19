@@ -21,6 +21,59 @@ pub trait CredentialStore {
 pub const SIGN_JOURNAL_MAGIC: u32 = 0x534A4E31;
 pub const SIGN_JOURNAL_MAX_BLOB_ENTRIES: usize = 256;
 
+/// Fase6 — maximo de KeySlots (§9 TLV total <=512B, label 1..32B).
+pub const MAX_KEY_SLOTS: usize = 32;
+/// Fase6 — bounds do label KeySlot (§9.2 tag 0x02 utf8 1..32B).
+pub const MAX_KEY_LABEL_BYTES: usize = 32;
+pub const MIN_KEY_LABEL_BYTES: usize = 1;
+/// Fase6 — flags de uso (bitmask; 0 reservado).
+pub const KEY_USE_SIGN: u8 = 0x01;
+pub const KEY_USE_AUTH: u8 = 0x02;
+
+/// Fase6 — metadados de chave (nunca privada; §9.7 SAI so metadados).
+/// Reutiliza journal existente (`sign_count` monotonico) e zeroize on drop.
+#[derive(Debug, Clone, PartialEq, Eq, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+pub struct KeySlot {
+    /// Slot id (0..MAX_KEY_SLOTS).
+    pub id: u8,
+    /// Algoritmo COSE (-7,-8,-35,-36,-47; sem nova cripto).
+    pub alg: i32,
+    /// Rotulo utf8 1..32B (§9.2 tag 0x02).
+    pub label: String,
+    /// Uso bitmask (KEY_USE_*; 0 invalido).
+    pub uso: u8,
+    /// Timestamp de criacao (opaco, sem relogio no core).
+    pub created: u64,
+    /// Contador monotonico (journal existente).
+    pub sign_count: u32,
+}
+
+impl KeySlot {
+    /// Cria slot validando bounds §9.2.
+    pub fn new(id: u8, alg: i32, label: String, uso: u8, created: u64) -> Result<Self, &'static str> {
+        if (id as usize) >= MAX_KEY_SLOTS {
+            return Err("bad slot");
+        }
+        if !matches!(alg, -7 | -8 | -35 | -36 | -47) {
+            return Err("bad alg");
+        }
+        let n = label.len();
+        if !(MIN_KEY_LABEL_BYTES..=MAX_KEY_LABEL_BYTES).contains(&n) {
+            return Err("bad label");
+        }
+        if uso == 0 {
+            return Err("bad uso");
+        }
+        Ok(Self { id, alg, label, uso, created, sign_count: 0 })
+    }
+
+    /// Incremento monotonico saturante (mesmo padrao do journal).
+    pub fn increment_sign_count(&mut self) -> u32 {
+        self.sign_count = self.sign_count.saturating_add(1);
+        self.sign_count
+    }
+}
+
 pub struct MemoryCredentialStore {
     credentials: Vec<CredentialRecord>,
     max_credentials: usize,
@@ -277,6 +330,21 @@ mod tests {
         s.increment_sign_count(&[7, 7, 7]).unwrap();
         s.import_sign_counts(&blob2).unwrap();
         assert_eq!(s.get_persistent_sign_count(&[7, 7, 7]), 3);
+    }
+
+    #[test]
+    fn keyslot_bounds_fase6() {
+        let ok = KeySlot::new(0, -7, alloc::string::String::from("a"), KEY_USE_SIGN, 0).unwrap();
+        assert_eq!(ok.sign_count, 0);
+        assert!(KeySlot::new(0, -7, alloc::string::String::from(""), KEY_USE_SIGN, 0).is_err());
+        let big = alloc::string::String::from_utf8(vec![b'x'; MAX_KEY_LABEL_BYTES + 1]).unwrap();
+        assert!(KeySlot::new(0, -7, big, KEY_USE_SIGN, 0).is_err());
+        assert!(KeySlot::new(MAX_KEY_SLOTS as u8, -7, alloc::string::String::from("a"), KEY_USE_SIGN, 0).is_err());
+        assert!(KeySlot::new(0, -99, alloc::string::String::from("a"), KEY_USE_SIGN, 0).is_err());
+        assert!(KeySlot::new(0, -7, alloc::string::String::from("a"), 0, 0).is_err());
+        let mut s = KeySlot::new(1, -8, alloc::string::String::from("k"), KEY_USE_SIGN | KEY_USE_AUTH, 7).unwrap();
+        assert_eq!(s.increment_sign_count(), 1);
+        assert_eq!(s.increment_sign_count(), 2);
     }
 }
 

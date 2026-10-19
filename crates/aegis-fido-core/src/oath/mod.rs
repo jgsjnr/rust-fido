@@ -14,7 +14,7 @@ pub mod presence;
 pub mod tlv;
 pub mod types;
 
-pub use applet::{OathApplet, APPLET_VERSION, MAX_CREDENTIALS};
+pub use applet::{OathApplet, OathCodeResult, OathDeviceError, OathSlot, APPLET_VERSION, HOTP_JOURNAL_MAGIC, HOTP_JOURNAL_MAX_ENTRIES, MAX_CREDENTIALS, MAX_OATH_DIGITS, MAX_OATH_LABEL_BYTES, MAX_OATH_SLOTS, MIN_OATH_DIGITS, MIN_OATH_LABEL_BYTES, OATH_PERIOD_SECS, OATH_TLV_MAX_BYTES};
 pub use crypto::{calculate_code, calculate_code_from_challenge, compute_hmac, pbkdf2_sha1, truncate_digest};
 pub use presence::{
     AlwaysPresentVerifier, Gpio0TouchVerifier, MockPresenceVerifier, NeverPresentVerifier,

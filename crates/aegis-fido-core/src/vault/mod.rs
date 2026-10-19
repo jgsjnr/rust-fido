@@ -29,6 +29,13 @@ use crate::crypto::aead::{aes_256_gcm_decrypt, aes_256_gcm_encrypt, open_blob, s
 use crate::crypto::curves::{CoseAlgorithm, CryptoError, KeyPair, PublicKey};
 use crate::crypto::kdf::{hkdf_sha256, KdfError};
 
+/// Fase6 -- PIN-bound envelope constants (BLE-protocol 5: AEGN|0x01|NONCE12|CT+TAG, min 33B; 9.2 tag 0x04 opaco).
+pub const VAULT_ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E];
+pub const VAULT_ENVELOPE_VERSION: u8 = 0x01;
+pub const VAULT_ENVELOPE_MIN_LEN: usize = 4 + 1 + 12 + 16;
+pub const VAULT_ENVELOPE_INFO: &[u8] = b"Aegis-Vault-Envelope-v1";
+pub const VAULT_ENVELOPE_AAD: &[u8] = b"Aegis-Vault-Envelope-v1";
+
 #[derive(Debug)]
 pub enum VaultError {
     CryptoError(CryptoError),
@@ -386,6 +393,60 @@ impl AegisVault {
         }
 
         Ok(imported_count)
+    }
+
+    /// Fase6 -- PIN-bound envelope seal (AEGN|0x01|NONCE12|CT+TAG, min 33B).
+    ///
+    /// Derives K_enc = HKDF-SHA256(salt = pin_token, IKM = master_key,
+    /// info = VAULT_ENVELOPE_INFO, 32) and seals plaintext with AES-256-GCM
+    /// (AAD = VAULT_ENVELOPE_AAD). Session key is zeroized before return.
+    pub fn seal_envelope<R: RngCore + CryptoRng>(
+        &self,
+        plaintext: &[u8],
+        pin_token: &[u8],
+        rng: &mut R,
+    ) -> Result<Vec<u8>, VaultError> {
+        let session_vec = hkdf_sha256(pin_token, &self.master_key, VAULT_ENVELOPE_INFO, 32)?;
+        let mut session_key = [0u8; 32];
+        session_key.copy_from_slice(&session_vec);
+        let mut nonce = [0u8; 12];
+        rng.fill_bytes(&mut nonce);
+        let ct = aes_256_gcm_encrypt(&session_key, &nonce, plaintext, VAULT_ENVELOPE_AAD)
+            .map_err(|_| VaultError::AuthenticationFailed)?;
+        session_key.zeroize();
+        let mut env = Vec::with_capacity(4 + 1 + 12 + ct.len());
+        env.extend_from_slice(&VAULT_ENVELOPE_MAGIC);
+        env.push(VAULT_ENVELOPE_VERSION);
+        env.extend_from_slice(&nonce);
+        env.extend_from_slice(&ct);
+        Ok(env)
+    }
+
+    /// Fase6 -- PIN-bound envelope open. Validates magic AEGN, version 0x01
+    /// and minimum length 33B, then derives the same K_enc and decrypts.
+    /// Wrong PIN or tampered bytes map to AuthenticationFailed; malformed
+    /// envelope maps to InvalidPayload. Session key zeroized.
+    pub fn open_envelope(
+        &self,
+        envelope: &[u8],
+        pin_token: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        if envelope.len() < VAULT_ENVELOPE_MIN_LEN {
+            return Err(VaultError::InvalidPayload);
+        }
+        if envelope[0..4] != VAULT_ENVELOPE_MAGIC || envelope[4] != VAULT_ENVELOPE_VERSION {
+            return Err(VaultError::InvalidPayload);
+        }
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&envelope[5..17]);
+        let ct = &envelope[17..];
+        let session_vec = hkdf_sha256(pin_token, &self.master_key, VAULT_ENVELOPE_INFO, 32)?;
+        let mut session_key = [0u8; 32];
+        session_key.copy_from_slice(&session_vec);
+        let pt = aes_256_gcm_decrypt(&session_key, &nonce, ct, VAULT_ENVELOPE_AAD)
+            .map_err(|_| VaultError::AuthenticationFailed)?;
+        session_key.zeroize();
+        Ok(pt)
     }
 }
 

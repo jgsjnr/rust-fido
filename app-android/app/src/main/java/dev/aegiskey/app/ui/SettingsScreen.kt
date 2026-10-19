@@ -1,7 +1,9 @@
-package dev.aegiskey.app.ui
+﻿package dev.aegiskey.app.ui
 
+import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.security.SanitizedLog
@@ -39,8 +42,13 @@ import kotlinx.coroutines.withContext
 /**
  * Settings (contract section 6 + hygiene): AP password swap via UP+PIN
  * (POST /config/wifi), bonded-device list, double-confirmed LOCAL wipe
- * (app data only — device state untouched, no wipe endpoint in contract),
+ * (app data only -- device state untouched, no wipe endpoint in contract),
  * and the sanitized event log (names only, never values).
+ *
+ * The bonded list requires BLUETOOTH_CONNECT (API 31+ runtime). The
+ * permission itself is requested once in ScanPairScreen (single owner);
+ * here we only gate the read so the screen never throws
+ * SecurityException when the permission is missing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,9 +62,17 @@ fun SettingsScreen() {
     var wipeStep by remember { mutableIntStateOf(0) }
     var logTick by remember { mutableIntStateOf(0) }
 
-    val bonded = remember {
-        val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        manager.adapter?.bondedDevices?.map { it.address }?.sorted().orEmpty()
+    val hasConnect = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.BLUETOOTH_CONNECT
+    ) == PackageManager.PERMISSION_GRANTED
+    val bonded = remember(hasConnect) {
+        if (!hasConnect) emptyList()
+        else {
+            val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            runCatching {
+                manager.adapter?.bondedDevices?.map { it.address }?.sorted().orEmpty()
+            }.getOrDefault(emptyList())
+        }
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { inner ->
@@ -83,7 +99,12 @@ fun SettingsScreen() {
             Text("Result: $passMsg")
 
             Text("Bonded devices", style = MaterialTheme.typography.titleMedium)
-            if (bonded.isEmpty()) Text("none")
+            if (!hasConnect) {
+                Text(
+                    "Bluetooth permission needed -- grant Scan + Conexao on the Pair screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else if (bonded.isEmpty()) Text("none")
             for (address in bonded) {
                 ListItem(headlineContent = { Text("Bonded device") }, supportingContent = { Text(address) })
             }

@@ -31,6 +31,26 @@ pub const OP_MSG: u8 = 0x83;
 /// CTAP2-BLE CANCEL (aborta transacao ativa).
 pub const OP_CANCEL: u8 = 0xBE;
 
+/// Fase6 apendice 9.1 - faixa vendor Keys/OATH sobre BLE (FFF1 control-point).
+/// Reservados, GATT inalterado, revisao permanece 0x01. Decoders Wave4
+/// desconhecem e descartam sem NACK que quebre 9.6 (sem reenvio como 0x83).
+pub const OP_KEY_GEN_ONDEVICE: u8 = 0x20;
+pub const OP_KEY_IMPORT_ENVELOPE: u8 = 0x21;
+pub const OP_KEY_LIST: u8 = 0x22;
+pub const OP_KEY_DELETE: u8 = 0x23;
+pub const OP_OATH_PUT: u8 = 0x24;
+pub const OP_OATH_LIST: u8 = 0x25;
+pub const OP_OATH_CODE: u8 = 0x26;
+pub const OP_OATH_DELETE: u8 = 0x27;
+/// Limites da faixa vendor Fase6.
+pub const VENDOR_OP_MIN: u8 = OP_KEY_GEN_ONDEVICE;
+pub const VENDOR_OP_MAX: u8 = OP_OATH_DELETE;
+
+/// Retorna true para opcodes vendor Fase6 0x20-0x27 (reservados).
+pub fn is_vendor_keys_oath_op(op: u8) -> bool {
+    (VENDOR_OP_MIN..=VENDOR_OP_MAX).contains(&op)
+}
+
 /// Limite de reassemble (== envelope MAX-ESP, sem alloc extra).
 pub const CONTROL_POINT_LENGTH: usize = 512;
 /// Revisao GATT inicial (FFF4).
@@ -409,6 +429,21 @@ mod tests {
     #[test]
     fn ping_echoes_without_ctap() {
         assert_eq!(BleGattServer::dispatch_ping(b"abc"), b"abc");
+    }
+
+    #[test]
+    fn fase6_vendor_ops_reservados() {
+        assert_eq!(VENDOR_OP_MIN, 0x20);
+        assert_eq!(VENDOR_OP_MAX, 0x27);
+        for op in [OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_KEY_DELETE, OP_OATH_PUT, OP_OATH_LIST, OP_OATH_CODE, OP_OATH_DELETE] {
+            assert!(is_vendor_keys_oath_op(op));
+            assert!(op != OP_PING && op != OP_MSG && op != OP_CANCEL);
+        }
+        assert!(!is_vendor_keys_oath_op(OP_PING));
+        assert!(!is_vendor_keys_oath_op(OP_MSG));
+        assert!(!is_vendor_keys_oath_op(OP_CANCEL));
+        assert!(!is_vendor_keys_oath_op(0x1F));
+        assert!(!is_vendor_keys_oath_op(0x28));
     }
 }
 

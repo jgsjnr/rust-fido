@@ -46,7 +46,7 @@ pub const SW_INS_NOT_SUPPORTED: u16 = 0x6D00;
 pub const SW_CLA_NOT_SUPPORTED: u16 = 0x6E00;
 
 /// Supported HMAC Algorithms in YKOATH
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, zeroize::Zeroize)]
 #[repr(u8)]
 pub enum OathAlgorithm {
     Sha1 = 0x01,
@@ -66,7 +66,7 @@ impl OathAlgorithm {
 }
 
 /// OATH Type: HOTP (event-based) or TOTP (time-based)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, zeroize::Zeroize)]
 #[repr(u8)]
 pub enum OathType {
     Hotp = 0x10,

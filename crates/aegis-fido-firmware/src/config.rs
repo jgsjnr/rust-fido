@@ -39,6 +39,22 @@ pub const MAX_PIN_RETRIES_BOUND: u8 = 8;
 pub const DEFAULT_UV_RETRIES: u8 = 3;
 /// Upper bound for UV retries.
 pub const MAX_UV_RETRIES_BOUND: u8 = 3;
+/// Fase6 - default key slots (9 TLV <=512B; sem quebra Wave3).
+pub const DEFAULT_MAX_KEYS: usize = 32;
+/// Lower bound for key slots.
+pub const MIN_KEYS: usize = 1;
+/// Upper bound (const com bound) for key slots.
+pub const MAX_KEYS_BOUND: usize = 64;
+
+/// Fase6 - default OATH slots (9 MAX_CREDENTIALS=64).
+pub const DEFAULT_MAX_OATH: usize = 64;
+/// Lower bound for OATH slots.
+pub const MIN_OATH: usize = 1;
+/// Upper bound for OATH slots (igual MAX_CREDENTIALS).
+pub const MAX_OATH_BOUND: usize = 64;
+
+/// Fase6 - label maximo compartilhado (9.2/9.3 1..32B utf8).
+pub const MAX_LABEL_BYTES: usize = 32;
 
 /// Wave4 — long-press to enter pairing (GPIO0, debounce 50ms).
 pub const LONG_PRESS_MS: u64 = 5000;
@@ -62,6 +78,10 @@ pub enum ConfigError {
     InvalidPinRetries,
     /// UV retries out of bound.
     InvalidUvRetries,
+    /// Fase6: key slots out of bound.
+    InvalidMaxKeys,
+    /// Fase6: OATH slots out of bound.
+    InvalidMaxOath,
 }
 
 impl core::fmt::Display for ConfigError {
@@ -72,6 +92,8 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidMinPinLength => write!(f, "min_pin_length out of bound"),
             Self::InvalidPinRetries => write!(f, "pin_retries out of bound"),
             Self::InvalidUvRetries => write!(f, "uv_retries out of bound"),
+            Self::InvalidMaxKeys => write!(f, "max_keys out of bound"),
+            Self::InvalidMaxOath => write!(f, "max_oath out of bound"),
         }
     }
 }
@@ -89,6 +111,10 @@ pub struct DeviceConfig {
     pub pin_retries: u8,
     /// UV retries.
     pub uv_retries: u8,
+    /// Fase6: max key slots.
+    pub max_keys: usize,
+    /// Fase6: max OATH slots.
+    pub max_oath: usize,
 }
 
 impl DeviceConfig {
@@ -99,6 +125,8 @@ impl DeviceConfig {
         min_pin_length: u32,
         pin_retries: u8,
         uv_retries: u8,
+        max_keys: usize,
+        max_oath: usize,
     ) -> Result<Self, ConfigError> {
         if !(MIN_RESIDENT_CREDENTIALS..=MAX_RESIDENT_CREDENTIALS_BOUND)
             .contains(&max_resident_credentials)
@@ -117,12 +145,20 @@ impl DeviceConfig {
         if uv_retries == 0 || uv_retries > MAX_UV_RETRIES_BOUND {
             return Err(ConfigError::InvalidUvRetries);
         }
+        if !(MIN_KEYS..=MAX_KEYS_BOUND).contains(&max_keys) {
+            return Err(ConfigError::InvalidMaxKeys);
+        }
+        if !(MIN_OATH..=MAX_OATH_BOUND).contains(&max_oath) {
+            return Err(ConfigError::InvalidMaxOath);
+        }
         Ok(Self {
             max_resident_credentials,
             max_plaintext_bytes,
             min_pin_length,
             pin_retries,
             uv_retries,
+            max_keys,
+            max_oath,
         })
     }
 
@@ -134,6 +170,8 @@ impl DeviceConfig {
             min_pin_length: DEFAULT_MIN_PIN_LENGTH,
             pin_retries: DEFAULT_PIN_RETRIES,
             uv_retries: DEFAULT_UV_RETRIES,
+            max_keys: DEFAULT_MAX_KEYS,
+            max_oath: DEFAULT_MAX_OATH,
         }
     }
 }
@@ -156,18 +194,20 @@ mod tests {
         assert_eq!(cfg.min_pin_length, 4);
         assert_eq!(cfg.pin_retries, 8);
         assert_eq!(cfg.uv_retries, 3);
+        assert_eq!(cfg.max_keys, DEFAULT_MAX_KEYS);
+        assert_eq!(cfg.max_oath, DEFAULT_MAX_OATH);
     }
 
     #[test]
     fn new_accepts_defaults() {
-        let cfg = DeviceConfig::new(50, 512, 4, 8, 3).expect("defaults valid");
+        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH).expect("defaults valid");
         assert_eq!(cfg, DeviceConfig::default());
     }
 
     #[test]
     fn rejects_zero_resident() {
         assert_eq!(
-            DeviceConfig::new(0, 512, 4, 8, 3),
+            DeviceConfig::new(0, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidMaxResident)
         );
     }
@@ -175,7 +215,7 @@ mod tests {
     #[test]
     fn rejects_over_bound_resident() {
         assert_eq!(
-            DeviceConfig::new(MAX_RESIDENT_CREDENTIALS_BOUND + 1, 512, 4, 8, 3),
+            DeviceConfig::new(MAX_RESIDENT_CREDENTIALS_BOUND + 1, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidMaxResident)
         );
     }
@@ -183,7 +223,7 @@ mod tests {
     #[test]
     fn rejects_over_bound_plaintext() {
         assert_eq!(
-            DeviceConfig::new(50, MAX_PLAINTEXT_BYTES_BOUND + 1, 4, 8, 3),
+            DeviceConfig::new(50, MAX_PLAINTEXT_BYTES_BOUND + 1, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidMaxPlaintext)
         );
     }
@@ -191,7 +231,7 @@ mod tests {
     #[test]
     fn rejects_zero_plaintext() {
         assert_eq!(
-            DeviceConfig::new(50, 0, 4, 8, 3),
+            DeviceConfig::new(50, 0, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidMaxPlaintext)
         );
     }
@@ -199,11 +239,11 @@ mod tests {
     #[test]
     fn rejects_pin_length_bounds() {
         assert_eq!(
-            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_LOWER - 1, 8, 3),
+            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_LOWER - 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidMinPinLength)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_UPPER + 1, 8, 3),
+            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_UPPER + 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidMinPinLength)
         );
     }
@@ -211,20 +251,44 @@ mod tests {
     #[test]
     fn rejects_retries_bounds() {
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 0, 3),
+            DeviceConfig::new(50, 512, 4, 0, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidPinRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, MAX_PIN_RETRIES_BOUND + 1, 3),
+            DeviceConfig::new(50, 512, 4, MAX_PIN_RETRIES_BOUND + 1, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidPinRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 0),
+            DeviceConfig::new(50, 512, 4, 8, 0, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidUvRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, MAX_UV_RETRIES_BOUND + 1),
+            DeviceConfig::new(50, 512, 4, 8, MAX_UV_RETRIES_BOUND + 1, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
             Err(ConfigError::InvalidUvRetries)
         );
+    }
+
+    #[test]
+    fn fase6_keys_oath_bounds() {
+        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH).expect("fase6 defaults valid");
+        assert_eq!(cfg.max_keys, 32);
+        assert_eq!(cfg.max_oath, 64);
+        assert_eq!(
+            DeviceConfig::new(50, 512, 4, 8, 3, 0, DEFAULT_MAX_OATH),
+            Err(ConfigError::InvalidMaxKeys)
+        );
+        assert_eq!(
+            DeviceConfig::new(50, 512, 4, 8, 3, MAX_KEYS_BOUND + 1, DEFAULT_MAX_OATH),
+            Err(ConfigError::InvalidMaxKeys)
+        );
+        assert_eq!(
+            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, 0),
+            Err(ConfigError::InvalidMaxOath)
+        );
+        assert_eq!(
+            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, MAX_OATH_BOUND + 1),
+            Err(ConfigError::InvalidMaxOath)
+        );
+        assert_eq!(MAX_LABEL_BYTES, 32);
     }
 }

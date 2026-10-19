@@ -16,6 +16,7 @@ pub mod efuse;
 pub mod identity;
 pub mod led;
 pub mod migrations;
+pub mod oath_store;
 pub mod pairing;
 pub mod pairing_led;
 pub mod persistence;
