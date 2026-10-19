@@ -53,6 +53,13 @@ pub const MIN_OATH: usize = 1;
 /// Upper bound for OATH slots (igual MAX_CREDENTIALS).
 pub const MAX_OATH_BOUND: usize = 64;
 
+/// Vault - default per-item slots (`vault/<label>`, quota via `vault/index`).
+pub const DEFAULT_MAX_VAULT_SLOTS: usize = 32;
+/// Lower bound for vault slots.
+pub const MIN_VAULT_SLOTS: usize = 1;
+/// Upper bound (const com bound) for vault slots.
+pub const MAX_VAULT_SLOTS_BOUND: usize = 64;
+
 /// Fase6 - label maximo compartilhado (9.2/9.3 1..32B utf8).
 pub const MAX_LABEL_BYTES: usize = 32;
 
@@ -82,6 +89,8 @@ pub enum ConfigError {
     InvalidMaxKeys,
     /// Fase6: OATH slots out of bound.
     InvalidMaxOath,
+    /// Vault: per-item slots out of bound.
+    InvalidMaxVault,
 }
 
 impl core::fmt::Display for ConfigError {
@@ -94,6 +103,7 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidUvRetries => write!(f, "uv_retries out of bound"),
             Self::InvalidMaxKeys => write!(f, "max_keys out of bound"),
             Self::InvalidMaxOath => write!(f, "max_oath out of bound"),
+            Self::InvalidMaxVault => write!(f, "max_vault_slots out of bound"),
         }
     }
 }
@@ -115,10 +125,15 @@ pub struct DeviceConfig {
     pub max_keys: usize,
     /// Fase6: max OATH slots.
     pub max_oath: usize,
+    /// Vault: max per-item slots (`vault/<label>`).
+    pub max_vault_slots: usize,
 }
 
 impl DeviceConfig {
     /// Validates bounds; returns `Err` on any out-of-bound input.
+    #[allow(clippy::too_many_arguments)]
+    // Eight validated limits in one positional constructor (established
+    // `new()` pattern); arity grew 7 -> 8 with `max_vault_slots`.
     pub fn new(
         max_resident_credentials: usize,
         max_plaintext_bytes: usize,
@@ -127,6 +142,7 @@ impl DeviceConfig {
         uv_retries: u8,
         max_keys: usize,
         max_oath: usize,
+        max_vault_slots: usize,
     ) -> Result<Self, ConfigError> {
         if !(MIN_RESIDENT_CREDENTIALS..=MAX_RESIDENT_CREDENTIALS_BOUND)
             .contains(&max_resident_credentials)
@@ -151,6 +167,9 @@ impl DeviceConfig {
         if !(MIN_OATH..=MAX_OATH_BOUND).contains(&max_oath) {
             return Err(ConfigError::InvalidMaxOath);
         }
+        if !(MIN_VAULT_SLOTS..=MAX_VAULT_SLOTS_BOUND).contains(&max_vault_slots) {
+            return Err(ConfigError::InvalidMaxVault);
+        }
         Ok(Self {
             max_resident_credentials,
             max_plaintext_bytes,
@@ -159,6 +178,7 @@ impl DeviceConfig {
             uv_retries,
             max_keys,
             max_oath,
+            max_vault_slots,
         })
     }
 
@@ -172,6 +192,7 @@ impl DeviceConfig {
             uv_retries: DEFAULT_UV_RETRIES,
             max_keys: DEFAULT_MAX_KEYS,
             max_oath: DEFAULT_MAX_OATH,
+            max_vault_slots: DEFAULT_MAX_VAULT_SLOTS,
         }
     }
 }
@@ -196,18 +217,19 @@ mod tests {
         assert_eq!(cfg.uv_retries, 3);
         assert_eq!(cfg.max_keys, DEFAULT_MAX_KEYS);
         assert_eq!(cfg.max_oath, DEFAULT_MAX_OATH);
+        assert_eq!(cfg.max_vault_slots, DEFAULT_MAX_VAULT_SLOTS);
     }
 
     #[test]
     fn new_accepts_defaults() {
-        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH).expect("defaults valid");
+        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS).expect("defaults valid");
         assert_eq!(cfg, DeviceConfig::default());
     }
 
     #[test]
     fn rejects_zero_resident() {
         assert_eq!(
-            DeviceConfig::new(0, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(0, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxResident)
         );
     }
@@ -215,7 +237,7 @@ mod tests {
     #[test]
     fn rejects_over_bound_resident() {
         assert_eq!(
-            DeviceConfig::new(MAX_RESIDENT_CREDENTIALS_BOUND + 1, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(MAX_RESIDENT_CREDENTIALS_BOUND + 1, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxResident)
         );
     }
@@ -223,7 +245,7 @@ mod tests {
     #[test]
     fn rejects_over_bound_plaintext() {
         assert_eq!(
-            DeviceConfig::new(50, MAX_PLAINTEXT_BYTES_BOUND + 1, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, MAX_PLAINTEXT_BYTES_BOUND + 1, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxPlaintext)
         );
     }
@@ -231,7 +253,7 @@ mod tests {
     #[test]
     fn rejects_zero_plaintext() {
         assert_eq!(
-            DeviceConfig::new(50, 0, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 0, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxPlaintext)
         );
     }
@@ -239,11 +261,11 @@ mod tests {
     #[test]
     fn rejects_pin_length_bounds() {
         assert_eq!(
-            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_LOWER - 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_LOWER - 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMinPinLength)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_UPPER + 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_UPPER + 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMinPinLength)
         );
     }
@@ -251,44 +273,59 @@ mod tests {
     #[test]
     fn rejects_retries_bounds() {
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 0, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, 4, 0, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidPinRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, MAX_PIN_RETRIES_BOUND + 1, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, 4, MAX_PIN_RETRIES_BOUND + 1, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidPinRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 0, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, 4, 8, 0, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidUvRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, MAX_UV_RETRIES_BOUND + 1, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, 4, 8, MAX_UV_RETRIES_BOUND + 1, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidUvRetries)
         );
     }
 
     #[test]
     fn fase6_keys_oath_bounds() {
-        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH).expect("fase6 defaults valid");
+        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS).expect("fase6 defaults valid");
         assert_eq!(cfg.max_keys, 32);
         assert_eq!(cfg.max_oath, 64);
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, 0, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, 4, 8, 3, 0, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxKeys)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, MAX_KEYS_BOUND + 1, DEFAULT_MAX_OATH),
+            DeviceConfig::new(50, 512, 4, 8, 3, MAX_KEYS_BOUND + 1, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxKeys)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, 0),
+            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, 0, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxOath)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, MAX_OATH_BOUND + 1),
+            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, MAX_OATH_BOUND + 1, DEFAULT_MAX_VAULT_SLOTS),
             Err(ConfigError::InvalidMaxOath)
         );
         assert_eq!(MAX_LABEL_BYTES, 32);
+    }
+
+    #[test]
+    fn vault_slots_bounds() {
+        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS)
+            .expect("vault defaults valid");
+        assert_eq!(cfg.max_vault_slots, 32);
+        assert_eq!(
+            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, 0),
+            Err(ConfigError::InvalidMaxVault)
+        );
+        assert_eq!(
+            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, MAX_VAULT_SLOTS_BOUND + 1),
+            Err(ConfigError::InvalidMaxVault)
+        );
     }
 }
