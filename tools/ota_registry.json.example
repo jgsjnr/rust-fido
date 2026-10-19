@@ -1,0 +1,17 @@
+{
+  "_comment": "OTA device registry EXAMPLE. Copy to ota_registry.json and replace placeholders. NEVER commit real keys or production serials. Fingerprint each entry out-of-band before trusting it.",
+  "devices": [
+    {
+      "serial": "AEGIS-S3-0001",
+      "aaguid": "11111111-2222-3333-4444-555555555555",
+      "pubkey_ed25519_hex": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "note": "EXAMPLE placeholder key (64 zero-ish bytes shown as A*64). Fingerprint: verify via factory QR before use."
+    },
+    {
+      "serial": "AEGIS-S3-0002",
+      "aaguid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "pubkey_ed25519_hex": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "note": "EXAMPLE placeholder key (B*64). Fingerprint: verify via factory QR before use."
+    }
+  ]
+}

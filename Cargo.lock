@@ -51,6 +51,7 @@ dependencies = [
  "aegis-fido-usb",
  "aes-gcm",
  "ciborium",
+ "ed25519-dalek",
  "embedded-graphics",
  "embuild",
  "esp-idf-hal",
