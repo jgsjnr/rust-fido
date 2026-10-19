@@ -8,6 +8,8 @@ use zeroize::Zeroize;
 
 use crate::crypto::hash::sha256;
 use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 use super::crypto::{calculate_code, calculate_code_from_challenge, pbkdf2_sha1, verify_challenge_response};
 use super::presence::PresenceVerifier;
@@ -632,6 +634,7 @@ impl OathApplet {
                 touch_required,
             ));
         }
+        crate::ltrace!(LtCat::Oath, LtEvt::OathPut, name);
         Ok(())
     }
 
@@ -699,6 +702,7 @@ impl OathApplet {
         if s.len() > width {
             s = s[s.len() - width..].to_string();
         }
+        crate::ltrace!(LtCat::Oath, LtEvt::OathCode, name);
         Ok(OathCodeResult {
             code: s,
             digits: cred.digits,
@@ -731,6 +735,7 @@ impl OathApplet {
             .ok_or(OathDeviceError::NoSlot)?;
         self.credentials[pos].secret.zeroize();
         self.credentials.remove(pos);
+        crate::ltrace!(LtCat::Oath, LtEvt::OathDelete, name);
         Ok(())
     }
 

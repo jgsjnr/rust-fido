@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.security.AppLock
+import dev.aegiskey.app.security.FeatureFlags
 import dev.aegiskey.app.net.WifiApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -49,6 +51,12 @@ import java.io.File
 @Composable
 fun VaultScreen() {
     val context = LocalContext.current
+    val appLock = remember { AppLock(context) }
+    var unlocked by remember { mutableStateOf(!FeatureFlags.ENABLE_APP_LOCK) }
+    if (FeatureFlags.ENABLE_APP_LOCK && !unlocked) {
+        LockScreen(appLock = appLock, onUnlocked = { unlocked = true })
+        return
+    }
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var baseUrl by remember { mutableStateOf("http://192.168.4.1") }

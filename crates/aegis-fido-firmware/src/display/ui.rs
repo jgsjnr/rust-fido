@@ -556,10 +556,10 @@ mod tests {
         };
         AegisUiRenderer::render(&err, &mut buffer);
 
-        // 6. TOTP Screen
+        // 6. TOTP Screen (WAVE8: codigo de vetor RFC real, nunca literal falso)
         let totp = UiScreen::TotpCode {
             label: "GitHub: junior".into(),
-            code: "839 204".into(),
+            code: "287082".into(),
             remaining_seconds: 28,
         };
         AegisUiRenderer::render(&totp, &mut buffer);

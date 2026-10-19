@@ -260,7 +260,39 @@ pub fn oath_remaining_seconds(unix_seconds: u64) -> u32 {
     30 - (unix_seconds % 30) as u32
 }
 
-/// `true` for WPA2-usable AP passwords (ASCII, 8-63 chars).
+/// PBKDF2-SHA1 iterations for the app lock verifier (mirrors YKOATH set_password).
+pub const APP_LOCK_PBKDF2_ITERATIONS: u32 = 1000;
+/// Minimum app-lock salt length in bytes.
+pub const APP_LOCK_SALT_MIN_LEN: usize = 16;
+/// Maximum app-lock salt length in bytes.
+pub const APP_LOCK_SALT_MAX_LEN: usize = 64;
+/// App-lock verifier length in bytes.
+pub const APP_LOCK_VERIFIER_LEN: usize = 32;
+
+/// Derives the app-lock verifier with the existing PBKDF2-SHA1 primitive.
+///
+/// password is zeroized before return; salt must be 16..64B of app
+/// randomness, password 1..128B. Errors carry no payload (never secrets).
+pub fn app_lock_derive(mut password: Vec<u8>, salt: Vec<u8>) -> Result<Vec<u8>, BridgeError> {
+    if password.is_empty()
+        || password.len() > 128
+        || salt.len() < APP_LOCK_SALT_MIN_LEN
+        || salt.len() > APP_LOCK_SALT_MAX_LEN
+    {
+        password.zeroize();
+        return Err(BridgeError::CryptoError);
+    }
+    let out = aegis_fido_core::oath::pbkdf2_sha1(
+        &password,
+        &salt,
+        APP_LOCK_PBKDF2_ITERATIONS,
+        APP_LOCK_VERIFIER_LEN,
+    );
+    password.zeroize();
+    Ok(out)
+}
+
+/// True for WPA2-usable AP passwords (ASCII, 8-63 chars).
 pub fn wifi_password_valid(password: String) -> bool {
     (MIN_WIFI_PASS_LEN..=MAX_WIFI_PASS_LEN).contains(&password.len()) && password.is_ascii()
 }
@@ -445,6 +477,39 @@ mod tests {
         assert!(!oath_code_valid("28a082".to_string()));
         let bad = r#"{"account":"GitHub:alice","code":"28a082","remaining_seconds":28}"#.to_string();
         assert_eq!(oath_parse_response(bad), Err(BridgeError::InvalidOath));
+    }
+
+    #[test]
+    fn app_lock_derive_is_deterministic_and_salted() {
+        let salt = vec![0x11u8; 16];
+        let a = app_lock_derive(b"correct-horse".to_vec(), salt.clone()).unwrap();
+        let b = app_lock_derive(b"correct-horse".to_vec(), salt.clone()).unwrap();
+        assert_eq!(a.len(), APP_LOCK_VERIFIER_LEN);
+        assert_eq!(a, b);
+        let c = app_lock_derive(b"correct-horse".to_vec(), vec![0x22u8; 16]).unwrap();
+        assert_ne!(a, c);
+        let d = app_lock_derive(b"wrong-horse".to_vec(), salt).unwrap();
+        assert_ne!(a, d);
+    }
+
+    #[test]
+    fn app_lock_derive_rejects_bad_inputs() {
+        assert_eq!(
+            app_lock_derive(vec![], vec![0x11u8; 16]),
+            Err(BridgeError::CryptoError)
+        );
+        assert_eq!(
+            app_lock_derive(vec![0x41u8; 129], vec![0x11u8; 16]),
+            Err(BridgeError::CryptoError)
+        );
+        assert_eq!(
+            app_lock_derive(b"pw".to_vec(), vec![0x11u8; 15]),
+            Err(BridgeError::CryptoError)
+        );
+        assert_eq!(
+            app_lock_derive(b"pw".to_vec(), vec![0x11u8; 65]),
+            Err(BridgeError::CryptoError)
+        );
     }
 
     #[test]

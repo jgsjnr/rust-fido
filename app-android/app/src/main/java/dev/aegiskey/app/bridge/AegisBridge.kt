@@ -60,6 +60,15 @@ object AegisBridge {
         OathEntry(parsed.account, parsed.code, parsed.remainingSeconds.toInt())
     }.recoverCatching { throw sanitize(it) }
 
+    /** Derives the app-lock verifier via the Rust bridge PBKDF2 (fail closed). */
+    fun appLockDerive(password: ByteArray, salt: ByteArray): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.appLockDerive(
+            password.map { it.toUByte() },
+            salt.map { it.toUByte() }
+        ).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
     /** Local 6-8 digit check (device JSON is re-validated in Rust). */
     fun codeValid(code: String): Boolean =
         code.length in 6..8 && code.all { it.isDigit() }

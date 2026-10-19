@@ -43,3 +43,29 @@ Mesmos estados via LED:
 - Menu/UI nao chamam `set_user_presence(true)` sozinhas; UP vem do botao (`BootButton`/`DualButtonManager`) com latch uso unico.
 - Troca de senha WiFi e `GET /oath/code` exigem UP (+PIN para senha); UI so exibe resultado.
 - SSID `AegisKey-XXXX` deriva do serial (`ap_ssid_for_serial`); codigo 6 digitos via TRNG no chamador.
+
+## 6. WAVE8 — TOTP real no display (sem literais)
+
+- `main.rs` NAO contem mais codigos TOTP literais (`482 915` etc removidos).
+- Long-press BOOT 2s (`TOTP_LONG_PRESS_TICKS`) -> `totp_view::collect_totp_codes`
+  (`OathApplet::device_list` + `device_code`, UP confirmado pelo hold) -> `UiScreen::TotpCode`
+  com codigo real + countdown 30s (`T = unix/30`, `remaining = 30 - unix%30`).
+- Sem contas no NVS -> `UiScreen::Error{"Sem contas OATH — adicione via app"}` (nunca codigo falso).
+- KEY (GPIO 14) alterna entre as contas reais; countdown recalculado a cada 1s (virada da janela).
+- Visivel por 15s (`TOTP_SHOW_TICKS` = `VAULT_AUTO_CLEAR_SECS`); depois volta a `Home`.
+- Log so rotulo/contagem — codigo e segredo nunca vao para tela/log.
+- `UiJourney::to_ui_screen_at(now)` espelha cada estado na LilyGO ST7789 135x240;
+  `Vault` repassa o codigo do device sem tocar.
+
+## 7. Telas de erro (WAVE8)
+
+| Situacao | Tela LCD | LED headless |
+|----------|----------|--------------|
+| sem UP (toque nao confirmado) | `Error{"Sem toque UP - pressione BOOT"}` | `ErrorFlash` |
+| sem PIN (operacao exige PIN) | `Error{"PIN exigido - desbloqueie no app"}` | `ErrorFlash` |
+| timeout (pareamento 60s, UP 25s, CTAP 30s) | `Error{"Tempo esgotado - tente de novo"}` | `ErrorFlash` |
+| sem contas OATH (long-press) | `Error{"Sem contas OATH — adicione via app"}` | `ErrorFlash` |
+| bloqueado | `Error{"BLOQUEADO - novo hold 5s"}` | `ErrorFlash` |
+
+Transicoes: `Boot -> Home -> PairingBLE/AP <-> Home -> Vault -> Home` (auto-limpa 15s);
+qualquer timeout/erro -> `Locked`; `Busy` (CTAP em curso) -> `Home`/`Vault` ao fim ou `Locked` em 30s.

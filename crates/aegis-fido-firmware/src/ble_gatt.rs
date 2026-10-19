@@ -12,6 +12,8 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use aegis_fido_core::policy::{PolicyError, UpOnly, UpPolicy};
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 /// UUID16 do servico GATT (congelado para o app Android).
 pub const BLE_SERVICE_UUID: u16 = 0xFFFD;
@@ -305,6 +307,7 @@ impl BleGattServer {
     ) -> Result<Option<BleCompleteMessage>, BleGattError> {
         UpOnly.check_up(false, presence_confirmed)?;
         if fragment.first() == Some(&OP_CANCEL) {
+            crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "ble");
             self.reassembler.cancel();
             self.status = 0;
             return Ok(Some(BleCompleteMessage {
@@ -313,7 +316,21 @@ impl BleGattServer {
             }));
         }
         self.status = 1;
-        let out = self.reassembler.feed(fragment)?;
+        let was_active = self.reassembler.is_active();
+        let out = match self.reassembler.feed(fragment) {
+            Err(e) => {
+                crate::ltrace!(LtCat::Transport, LtEvt::TpError, "ble");
+                return Err(e);
+            }
+            Ok(done) => {
+                if done.is_some() {
+                    crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "ble");
+                } else if !was_active {
+                    crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "ble");
+                }
+                done
+            }
+        };
         if out.is_some() {
             self.status = 0;
         }

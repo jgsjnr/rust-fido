@@ -21,7 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.security.AppLock
+import dev.aegiskey.app.security.FeatureFlags
+import dev.aegiskey.app.security.SanitizedLog
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +50,14 @@ private fun hexToBytes(hex: String): ByteArray {
 @Composable
 fun AccountsScreen(client: AegisBleClient) {
     val state by client.state.collectAsState()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val appLock = remember { AppLock(context) }
+    var unlocked by remember { mutableStateOf(!FeatureFlags.ENABLE_APP_LOCK) }
+    if (FeatureFlags.ENABLE_APP_LOCK && !unlocked) {
+        LockScreen(appLock = appLock, onUnlocked = { unlocked = true })
+        return
+    }
     var busy by remember { mutableStateOf(false) }
     var mcHex by remember { mutableStateOf("") }
     var result by remember { mutableStateOf("—") }
@@ -74,6 +85,17 @@ fun AccountsScreen(client: AegisBleClient) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Link: ${state.connection} · FFF2: ${BleContract.statusLabel(state.status)}")
+            if (FeatureFlags.ENABLE_DEVICE_PRESS && state.status == BleContract.STATUS_UP_NEEDED) {
+                PressDeviceSheet(
+                    statusLabel = BleContract.statusLabel(state.status),
+                    onCancel = {
+                        scope.launch(Dispatchers.IO) {
+                            client.cancel()
+                            SanitizedLog.record(SanitizedLog.Event.DEVICE_PRESS_CANCELLED)
+                        }
+                    }
+                )
+            }
             if (busy) CircularProgressIndicator()
             Button(onClick = { send(BleContract.CTAP_CMD_GET_INFO, "") }, enabled = !busy) {
                 Text("GetInfo (0x04)")

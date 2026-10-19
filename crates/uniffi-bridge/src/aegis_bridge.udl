@@ -16,6 +16,7 @@ namespace aegis_bridge {
     u32 oath_remaining_seconds(u64 unix_seconds);
     boolean wifi_password_valid(string password);
     string? oath_account_from_path(string path);
+    [Throws=BridgeError] sequence<u8> app_lock_derive(sequence<u8> password, sequence<u8> salt);
 };
 
 dictionary BleInfo {

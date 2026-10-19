@@ -7,6 +7,8 @@
 
 use crate::button::DEBOUNCE_TIME_MS;
 use crate::config::{LONG_PRESS_MS, PAIRING_WINDOW_MS};
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 /// Debounce minimo antes de considerar borda estavel (ms).
 pub const PAIRING_DEBOUNCE_MS: u64 = DEBOUNCE_TIME_MS;
@@ -98,6 +100,7 @@ impl PairingManager {
             PairingState::Idle | PairingState::Locked => {
                 if pressed {
                     self.state = PairingState::Arming { start_ms: now_ms };
+                    crate::ltrace!(LtCat::Pairing, LtEvt::PairingArming, now_ms);
                 }
             }
             PairingState::Arming { start_ms } => {
@@ -128,6 +131,7 @@ impl PairingManager {
             PairingState::PairingBle { expires_ms } | PairingState::PairingAp { expires_ms }
                 if now_ms >= expires_ms => {
                 self.state = PairingState::Locked;
+                crate::ltrace!(LtCat::Pairing, LtEvt::PairingTimeout, now_ms);
             }
             _ => {}
         }
@@ -156,6 +160,7 @@ impl PairingManager {
         if !presence_confirmed {
             return false;
         }
+        crate::ltrace!(LtCat::Pairing, LtEvt::PairingPaired, now_ms);
         self.bonded = true;
         self.state = PairingState::Idle;
         true

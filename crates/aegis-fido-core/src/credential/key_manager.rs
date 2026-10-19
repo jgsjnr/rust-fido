@@ -18,6 +18,8 @@ use crate::credential::store::KeySlot;
 use crate::crypto::curves::{CoseAlgorithm, KeyPair};
 use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
 use crate::vault::AegisVault;
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 /// 9.5 closed status set (response wire [op:1, status:1, TLV...]).
 pub const STATUS_OK: u8 = 0x00;
@@ -84,6 +86,7 @@ pub struct KeyManager {
 
 impl Drop for KeyManager {
     fn drop(&mut self) {
+        crate::ltrace!(LtCat::KeySlot, LtEvt::KeyWipe, self.secrets.len());
         for s in self.secrets.iter_mut() {
             s.private_key.zeroize();
         }
@@ -153,6 +156,7 @@ impl KeyManager {
             alg: alg.to_i32(),
             private_key: kp.private_key_bytes(),
         });
+        crate::ltrace!(LtCat::KeySlot, LtEvt::KeyCreate, slot_id);
         Ok(slot)
     }
 
@@ -194,6 +198,7 @@ impl KeyManager {
             alg: alg.to_i32(),
             private_key: kp.private_key_bytes(),
         });
+        crate::ltrace!(LtCat::KeySlot, LtEvt::KeyCreate, slot_id);
         Ok(slot)
     }
 
@@ -217,6 +222,7 @@ impl KeyManager {
             self.secrets[spos].private_key.zeroize();
             self.secrets.remove(spos);
         }
+        crate::ltrace!(LtCat::KeySlot, LtEvt::KeyDelete, slot_id);
         Ok(())
     }
 
@@ -237,6 +243,7 @@ impl KeyManager {
         if let Some(slot) = self.slots.iter_mut().find(|s| s.id == slot_id) {
             slot.increment_sign_count();
         }
+        crate::ltrace!(LtCat::KeySlot, LtEvt::KeyUse, slot_id);
         Ok(sig)
     }
 

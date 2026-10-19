@@ -11,6 +11,8 @@ use crate::ctap::status_code::CtapError;
 use crate::extensions::check_pin_complexity;
 use crate::oath::crypto::constant_time_eq;
 use zeroize::Zeroize;
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 pub const SUBCMD_GET_PIN_RETRIES: i64 = 0x01;
 pub const SUBCMD_GET_KEY_AGREEMENT: i64 = 0x02;
@@ -78,9 +80,11 @@ impl ClientPinState {
     fn decrement_pin_retries(&mut self) -> CtapError {
         self.pin_retries = self.pin_retries.saturating_sub(1);
         if self.pin_retries == 0 {
+            crate::ltrace!(LtCat::Pin, LtEvt::PinBlocked, self.pin_retries);
             self.power_cycle_state = true;
             CtapError::PinBlocked
         } else {
+            crate::ltrace!(LtCat::Pin, LtEvt::PinRetry, self.pin_retries);
             CtapError::PinInvalid
         }
     }

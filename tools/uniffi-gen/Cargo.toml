@@ -1,0 +1,12 @@
+[package]
+name = "uniffi-gen"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "uniffi-gen"
+path = "src/main.rs"
+
+[dependencies]
+uniffi = { version = "=0.28.3", features = ["bindgen"] }
+camino = "=1.1.12"

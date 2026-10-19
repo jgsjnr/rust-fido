@@ -10,10 +10,13 @@
 //! - Hardware-backed cryptographic persistence with eFuse OTP master key.
 
 use core::time::Duration;
+use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::otp::rescue::RescueEngine;
 use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
 #[cfg(target_os = "espidf")]
 use aegis_fido_core::ctap::CTAP_CMD_RESET;
+#[cfg(all(feature = "debug-terminal", target_os = "espidf"))]
+use aegis_fido_firmware::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 use aegis_fido_firmware::{
     button::{DualButtonManager, EspBootButtonInput, EspKeyButtonInput},
     display::{DisplayManager, UiScreen},
@@ -21,6 +24,7 @@ use aegis_fido_firmware::{
     led::{EspWs2812Output, Ws2812Controller},
     persistence::{RamFlashBackend, SecureStorage},
     provision::load_device_keys,
+    totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_LONG_PRESS_TICKS, TOTP_SHOW_TICKS},
     watchdog::Watchdog,
     usb_descriptors,
 };
@@ -242,6 +246,8 @@ fn run_authenticator() {
     let mut ctaphid_mgr = CtapHidManager::new();
     #[allow(unused_mut)]
     let mut ctap_engine = CtapEngine::new(master_key, 0);
+    // WAVE8: OATH real no device (contas do NVS via PUT; display calcula CALCULATE no long-press).
+    let mut oath_applet = OathApplet::new();
     #[cfg(not(target_os = "espidf"))]
     let _ = (&ctaphid_mgr, &ctap_engine);
     let mut rescue_engine = RescueEngine::new();
@@ -261,16 +267,38 @@ fn run_authenticator() {
     let mut press_start_tick: Option<u64> = None;
     let mut totp_display_until: u64 = 0;
     let mut totp_account_idx: usize = 0;
-    let totp_accounts: [(&str, &str); 3] = [
-        ("GitHub: aegis-admin", "482 915"),
-        ("Google: junior@aegiskey.dev", "720 184"),
-        ("AWS: root-production", "934 602"),
-    ];
+    // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
+    // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
 
     #[cfg(target_os = "espidf")]
     let mut rx_buf = [0u8; PACKET_SIZE];
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
+
+    // Wave7 test-mode: serial diagnostic inbox (host stdio; on ESP-IDF wire UART RX to dispatch_test_command).
+    #[cfg(all(feature = "test-mode", not(target_os = "espidf")))]
+    let diag_rx = {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let _ = std::thread::Builder::new()
+            .name("aegis_diag".into())
+            .spawn(move || {
+                use std::io::BufRead as _;
+                let stdin = std::io::stdin();
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match stdin.lock().read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            if tx.send(line.clone()).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+        rx
+    };
 
     loop {
         watchdog.feed(tick); // L5: feed no hot path, sem sleep
@@ -294,16 +322,26 @@ fn run_authenticator() {
                 touch_expire_tick = tick + 150; // Keep touch valid for 1.5 seconds
                 kprintln!("[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED.");
             } else if let Some(start) = press_start_tick {
-                // Check for 2.0s Long Press -> Trigger TOTP code display
-                if (tick - start) >= 200 && totp_display_until <= tick {
-                    kprintln!("[LONG PRESS] 2-second hold detected! Showing OATH TOTP 2FA code...");
-                    totp_display_until = tick + 500; // Show for 5 seconds
-                    let (label, code) = totp_accounts[totp_account_idx];
-                    display_mgr.set_screen(UiScreen::TotpCode {
-                        label: label.into(),
-                        code: code.into(),
-                        remaining_seconds: 28,
-                    });
+                // WAVE8: long-press 2s -> CALCULATE no device (UP confirmado pelo hold).
+                if (tick - start) >= TOTP_LONG_PRESS_TICKS && totp_display_until <= tick {
+                    kprintln!("[LONG PRESS] 2-second hold detected! Calculating OATH TOTP on device...");
+                    totp_display_until = tick + TOTP_SHOW_TICKS; // 15s (igual Vault auto-clear)
+                    let entries = collect_totp_codes(&mut oath_applet, now_secs, true);
+                    if entries.is_empty() {
+                        display_mgr.set_screen(UiScreen::Error {
+                            message: NO_ACCOUNTS_MSG.into(),
+                        });
+                    } else {
+                        totp_account_idx %= entries.len();
+                        let entry = &entries[totp_account_idx];
+                        // Log so rotulo/contagem — codigo e segredo nunca vao para o log.
+                        kprintln!("[TOTP] account '{}' ({} conta(s))", entry.account, entries.len());
+                        display_mgr.set_screen(UiScreen::TotpCode {
+                            label: entry.account.clone(),
+                            code: entry.code.clone(),
+                            remaining_seconds: entry.remaining_seconds,
+                        });
+                    }
                 }
             }
         } else {
@@ -320,17 +358,51 @@ fn run_authenticator() {
             }
         }
 
-        // Handle KEY button (GPIO 14) to cycle TOTP accounts
+        // WAVE8: KEY (GPIO 14) alterna entre as contas reais do device.
         if is_key_pressed {
-            totp_account_idx = (totp_account_idx + 1) % totp_accounts.len();
-            let (label, code) = totp_accounts[totp_account_idx];
-            kprintln!("[KEY BUTTON] Cycled TOTP Account -> {}", label);
-            totp_display_until = tick + 500; // Display for 5 seconds
-            display_mgr.set_screen(UiScreen::TotpCode {
-                label: label.into(),
-                code: code.into(),
-                remaining_seconds: 30,
-            });
+            let entries = collect_totp_codes(&mut oath_applet, now_secs, true);
+            if entries.is_empty() {
+                totp_display_until = tick + TOTP_SHOW_TICKS;
+                display_mgr.set_screen(UiScreen::Error {
+                    message: NO_ACCOUNTS_MSG.into(),
+                });
+            } else {
+                totp_account_idx = (totp_account_idx + 1) % entries.len();
+                let entry = &entries[totp_account_idx];
+                kprintln!("[KEY BUTTON] Cycled TOTP Account -> {}", entry.account);
+                totp_display_until = tick + TOTP_SHOW_TICKS; // 15s (igual Vault auto-clear)
+                display_mgr.set_screen(UiScreen::TotpCode {
+                    label: entry.account.clone(),
+                    code: entry.code.clone(),
+                    remaining_seconds: entry.remaining_seconds,
+                });
+            }
+        }
+
+        // WAVE8: enquanto o TOTP esta visivel, atualiza o countdown a cada 1s
+        // (codigo recalculado no device — trata a virada da janela de 30s).
+        if totp_display_until > tick && tick.is_multiple_of(100) {
+            let entries = collect_totp_codes(&mut oath_applet, now_secs, true);
+            if !entries.is_empty() {
+                totp_account_idx %= entries.len();
+                let entry = &entries[totp_account_idx];
+                display_mgr.set_screen(UiScreen::TotpCode {
+                    label: entry.account.clone(),
+                    code: entry.code.clone(),
+                    remaining_seconds: entry.remaining_seconds,
+                });
+            }
+        }
+
+        // Wave7 test-mode: answer TEST_LIFETIME_DUMP from the serial inbox (metadata only).
+        #[cfg(all(feature = "test-mode", not(target_os = "espidf")))]
+        while let Ok(cmd) = diag_rx.try_recv() {
+            let extra = format!("uptime_s={} up_latched={}", tick * 10 / 1000, touch_latched);
+            if let Some(resp) =
+                aegis_fido_firmware::lifetime_trace::dispatch_test_command(&cmd, &extra)
+            {
+                std::println!("{}", resp);
+            }
         }
 
         // B. Update Display Animation & LED
@@ -542,6 +614,7 @@ fn run_authenticator() {
                                     };
                                     if !sent {
                                         kprintln!("[USB] Error: packet {}/{} failed to send!", p_idx + 1, pkts.len());
+                                        aegis_fido_firmware::ltrace!(LtCat::Transport, LtEvt::TpError, "usb");
                                     }
                                 }
                                 kprintln!("[CTAPHID] Sent CTAP response ({} bytes in {} USB packets)",
@@ -568,6 +641,7 @@ fn run_authenticator() {
                     }
                     Err(err) => {
                         kprintln!("[CTAPHID] Protocol error: {}", err);
+                        aegis_fido_firmware::ltrace!(LtCat::Transport, LtEvt::TpError, "usb");
                         let err_pkt = err.to_packet();
                         unsafe {
                             aegis_usb_send_report(err_pkt.as_ptr(), PACKET_SIZE as u16);

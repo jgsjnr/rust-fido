@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+pub mod lifetime;
 pub mod ctap;
 pub mod crypto;
 pub mod oath;
@@ -15,3 +16,4 @@ pub mod policy;
 pub use ctap::CtapEngine;
 pub use vault::AegisVault;
 pub use policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
+pub use lifetime::{LifetimeCategory, LifetimeEvent, LifetimeSnapshot, record, snapshot, write_dump};

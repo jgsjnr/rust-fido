@@ -11,6 +11,8 @@ use alloc::vec::Vec;
 
 use crate::migrations::keys_oath_v6::{oath6_key, validate_v6_label};
 use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 /// Limite do blob OATH por slot (9.3 TLV total <=512B).
 pub const OATH_STORE_MAX_BYTES: usize = 512;
@@ -67,6 +69,7 @@ pub fn oath_store_put<B: FlashStorageBackend>(
         let _ = storage.delete(&key);
         return Err(OathStoreError::Storage);
     }
+    crate::ltrace!(LtCat::Oath, LtEvt::OathPut, label);
     Ok(())
 }
 
@@ -77,7 +80,9 @@ pub fn oath_store_get<B: FlashStorageBackend>(
 ) -> Result<Vec<u8>, OathStoreError> {
     validate_v6_label(label).map_err(|_| OathStoreError::BadLabel)?;
     let key = oath6_key(label);
-    Ok(storage.load(&key)?)
+    let blob = storage.load(&key)?;
+    crate::ltrace!(LtCat::Oath, LtEvt::OathCode, label);
+    Ok(blob)
 }
 
 /// Apaga oath6/<label>; ausente vira NotFound (sem silently-ok).
@@ -91,6 +96,7 @@ pub fn oath_store_delete<B: FlashStorageBackend>(
         return Err(OathStoreError::NotFound);
     }
     storage.delete(&key)?;
+    crate::ltrace!(LtCat::Oath, LtEvt::OathDelete, label);
     Ok(())
 }
 

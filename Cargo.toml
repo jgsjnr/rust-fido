@@ -6,6 +6,7 @@ members = [
     "crates/aegis-fido-firmware",
     "crates/uniffi-bridge",
 ]
+exclude = ["tools/uniffi-gen"]
 
 [workspace.package]
 version = "1.0.0"

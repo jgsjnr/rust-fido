@@ -15,6 +15,8 @@ use alloc::format;
 use aegis_fido_core::oath::{calculate_code, OathAlgorithm};
 use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
 use crate::persistence::{FlashStorageBackend, SecureStorage};
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 
 /// Prefixo do AP.
 pub const WIFI_AP_PREFIX: &str = "AegisKey-";
@@ -132,16 +134,21 @@ impl WifiApManager {
             self.state = WifiApState::Active {
                 expires_ms: now_ms.saturating_add(WIFI_AP_TIMEOUT_MS),
             };
+            crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "wifi");
         }
         if let WifiApState::Active { expires_ms } = self.state {
             if now_ms >= expires_ms {
                 self.state = WifiApState::Off;
+                crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi");
             }
         }
     }
 
     /// Desliga apos configuracao concluida.
     pub fn shutdown_after_config(&mut self) {
+        if self.state != WifiApState::Off {
+            crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi");
+        }
         self.state = WifiApState::Off;
     }
 }

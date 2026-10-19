@@ -4,12 +4,12 @@
     <!-- BLE runtime set (API 31+, minSdk 31 / target 34).
          SCAN with neverForLocation: 0xFFFD service-UUID filter needs no
          location and the app never derives physical location from BLE.
-         ACCESS_FINE/COARSE_LOCATION is therefore INTENTIONALLY ABSENT --
+         ACCESS_FINE/COARSE_LOCATION is therefore INTENTIONALLY ABSENT :
          requesting it would imply location use the app does not perform
          (scan sem location, CDM sem location). Do NOT add it.
          CONNECT covers connectGatt/createBond/bondedDevices/GATT I/O.
          NOT requested on purpose: BLUETOOTH_ADVERTISE (central only, never
-         peripheral), NEARBY_WIFI_DEVICES (no WifiManager scan -- plain
+         peripheral), NEARBY_WIFI_DEVICES (no WifiManager scan : plain
          HttpURLConnection to the AP IP), POST_NOTIFICATIONS (no
          notifications / no foreground service). -->
     <uses-permission

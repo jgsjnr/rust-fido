@@ -29,6 +29,10 @@ object SanitizedLog {
         OATH_FETCHED,
         WIFI_PASSWORD_CHANGED,
         LOCAL_WIPE,
+        APP_LOCK_SET,
+        APP_UNLOCKED,
+        APP_LOCK_FAILED,
+        DEVICE_PRESS_CANCELLED,
         INTEGRITY_CHECK,
     }
 
