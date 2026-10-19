@@ -124,7 +124,7 @@ fun AegisApp(client: AegisBleClient) {
             }
         ) { inner ->
             NavHost(nav, startDestination = "onboarding", Modifier.padding(inner)) {
-                composable("onboarding") { OnboardingScreen(onStart = { nav.navigate("scan") }) }
+                composable("onboarding") { OnboardingScreen(onStart = { nav.navigate("scan") }, onOpenKeys = { nav.navigate("accounts") }, onOpenVault = { nav.navigate("vault") }, onOpenLog = { nav.navigate("log") }, client = client) }
                 composable("scan") { ScanPairScreen(client) }
                 composable("accounts") { AccountsScreen(client) }
                 composable("auth") { AuthScreen(client) }

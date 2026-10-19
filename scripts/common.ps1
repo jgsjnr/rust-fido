@@ -199,9 +199,9 @@ function Invoke-FirmwareElf2Image {
     Write-Info "Convertendo ELF para binario executavel flashavel ($Chip)..."
     
     if ($global:EsptoolExe -match "python -m esptool") {
-        & python -m esptool --chip $Chip elf2image --flash_size 4MB -o $outBinPath $elfPath
+        & python -m esptool --chip $Chip elf2image --flash_size 4MB -o $outBinPath $elfPath | Out-Null
     } else {
-        & $global:EsptoolExe --chip $Chip elf2image --flash_size 4MB -o $outBinPath $elfPath
+        & $global:EsptoolExe --chip $Chip elf2image --flash_size 4MB -o $outBinPath $elfPath | Out-Null
     }
 
     if ($LASTEXITCODE -ne 0) {
