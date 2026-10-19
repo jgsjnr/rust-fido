@@ -29,6 +29,8 @@ if ($Test) {
 }
 
 if (-not $OnlyFlash) {
+    # Classic tem IRAM curta: opt-level=z (testado: economiza o overflow sem mudar logica).
+    $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "z"
     Invoke-FirmwareBuild -Target $target -Feature $feature -Clean:$Clean
     $binPath = Invoke-FirmwareElf2Image -Chip $chip -Target $target -OutBinName $binName
 } else {
