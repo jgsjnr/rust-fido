@@ -74,6 +74,37 @@ let oathAccounts = [
 
 let currentMnemonicWords = [];
 
+// Carteira Cripto (painel assistido, storage-only): somente metadados no
+// formato de WalletRecord — slot_id, rede, rótulo, endereço, gate.
+// Nenhum byte privado, segredo ou OTP existe neste painel. Sem endpoint
+// /api/wallet no servidor: a fonte dos valores reais é o firmware.
+let walletSlots = [
+  {
+    slotId: 0,
+    network: "Bitcoin (BTC)",
+    nvsKey: "wallet_slot_btc",
+    label: "wallet:btc",
+    address: "— (provisionar no firmware)",
+    gate: "UP+PIN"
+  },
+  {
+    slotId: 1,
+    network: "Ethereum / EVM",
+    nvsKey: "wallet_slot_evm",
+    label: "wallet:evm",
+    address: "— (provisionar no firmware)",
+    gate: "UP+PIN"
+  },
+  {
+    slotId: 2,
+    network: "Solana (SOL)",
+    nvsKey: "wallet_slot_sol",
+    label: "wallet:sol",
+    address: "— (provisionar no firmware)",
+    gate: "UP+PIN"
+  }
+];
+
 // ============================================================================
 // Initialization & Navigation
 // ============================================================================
@@ -84,6 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupMnemonic();
   setupVault();
   setupPinPolicies();
+  setupWallet();
   renderCredentialsTable();
   generateInitialMnemonic();
   checkHardwareStatus();
@@ -113,6 +145,10 @@ function setupNavigation() {
     vault: {
       title: "Aegis Vault Container",
       subtitle: "Export and import encrypted passkey containers protected with AES-256-GCM"
+    },
+    wallet: {
+      title: "Carteira Cripto (somente guarda)",
+      subtitle: "Slots BTC / EVM / SOL em storage-only: metadados e endereços, sem segredos, sem OTP"
     },
     settings: {
       title: "PIN & FIDO 2.3 Policies",
@@ -574,6 +610,36 @@ function setupVault() {
       }
     };
     reader.readAsText(fileInput.files[0]);
+  });
+}
+
+// ============================================================================
+// Carteira Cripto (painel assistido, storage-only)
+// ============================================================================
+function setupWallet() {
+  renderWalletTable();
+
+  document.getElementById("btnRefreshWallet").addEventListener("click", () => {
+    renderWalletTable();
+    showToast("Slots da carteira atualizados (painel assistido — firmware é a fonte)", "info");
+  });
+}
+
+function renderWalletTable() {
+  const tbody = document.getElementById("walletTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  walletSlots.forEach((slot) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="rp-badge">${escapeHtml(slot.network)}</span></td>
+      <td><code class="code-snippet">${escapeHtml(slot.nvsKey)}</code></td>
+      <td><code class="code-snippet">${escapeHtml(slot.label)}</code></td>
+      <td>${escapeHtml(slot.address)}</td>
+      <td><span class="badge-algo">${escapeHtml(slot.gate)}</span></td>
+    `;
+    tbody.appendChild(tr);
   });
 }
 

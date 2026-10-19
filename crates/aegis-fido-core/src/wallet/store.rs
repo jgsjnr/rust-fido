@@ -110,8 +110,18 @@ impl WalletStore {
             presence_confirmed,
             rng,
         )?;
+        // Routing entry is pushed before record_for (which needs it for
+        // network_of) and rolled back if record_for fails, so a failed
+        // generate never leaves an orphan routing entry behind.
+        let routing_len = self.networks.len();
         self.networks.push((slot_id, network));
-        self.record_for(slot.id, presence_confirmed)
+        match self.record_for(slot.id, presence_confirmed) {
+            Ok(record) => Ok(record),
+            Err(e) => {
+                self.networks.truncate(routing_len);
+                Err(e)
+            }
+        }
     }
 
     /// IMPORT (gate UP+PIN, inherited): opens the AEGN envelope with the
@@ -147,8 +157,18 @@ impl WalletStore {
             pin_authenticated,
             vault,
         )?;
+        // Same rollback contract as generate: no orphan routing entry when
+        // record_for fails (network_of needs the entry, so push-then-rollback
+        // instead of push-after).
+        let routing_len = self.networks.len();
         self.networks.push((slot_id, network));
-        self.record_for(slot.id, presence_confirmed)
+        match self.record_for(slot.id, presence_confirmed) {
+            Ok(record) => Ok(record),
+            Err(e) => {
+                self.networks.truncate(routing_len);
+                Err(e)
+            }
+        }
     }
 
     /// GET (gate UP, inherited): metadata record with derived address.
