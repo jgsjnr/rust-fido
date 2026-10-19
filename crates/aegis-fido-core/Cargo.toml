@@ -26,6 +26,10 @@ zeroize = { workspace = true }
 rand_core = { workspace = true }
 subtle = { version = "2.6", default-features = false }
 hex = { workspace = true }
+sha3 = { workspace = true }
+ripemd = { workspace = true }
+bech32 = { workspace = true }
+bs58 = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]

@@ -57,3 +57,14 @@ Envelope inalterado (AEGN v1, TRNG interno, zeroize). USB/CTAP nunca toca nestas
 | `rec_pin_hash` | SHA-256(salt\|\|pin) 32B | `0x2C` com UP | `recovery.rs`; segredo nunca sai, nunca logado |
 | `rec_pin_salt` | salt 16B TRNG | `0x2C` com UP | gerado via TRNG injetavel; zeroize apos uso |
 | `rec_pin_retries` | restantes 1B (inicia 8) | `0x2D` decrementa | persistida contra queda; 0 => `Locked` (so reset fisico) |
+
+## Chaves Carteira Cripto (aditivo, DRAFT — reconciliar Step 4)
+
+Envelope inalterado (AEGN v1, TRNG interno, zeroize). Storage-only BTC/EVM/SOL
+sobre `KeyManager`; sem OTP, sem lock dedicado. Detalhe em `docs/carteira-cripto.md`.
+
+| Chave | Conteudo | Gate | Nota |
+| --- | --- | --- | --- |
+| `wallet_slot_btc` | envelope AEGN do segredo BTC | UP+PIN | storage-only; formato reconciliado no Step 4 |
+| `wallet_slot_evm` | envelope AEGN do segredo EVM | UP+PIN | storage-only; formato reconciliado no Step 4 |
+| `wallet_slot_sol` | envelope AEGN do segredo SOL | UP+PIN | storage-only; formato reconciliado no Step 4 |

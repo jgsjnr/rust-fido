@@ -48,6 +48,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           Aegis Vault
         </button>
+        <button class="nav-item" data-tab="wallet">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20M16 15h2"/></svg>
+          Carteira Cripto
+        </button>
         <button class="nav-item" data-tab="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           PIN & Policies
@@ -326,6 +330,64 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
               Decrypt and Restore to Device
             </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: Carteira Cripto (assistido, storage-only) -->
+      <section class="tab-pane" id="pane-wallet">
+        <div class="card glass">
+          <div class="card-header-flex">
+            <div>
+              <h3>Carteira Cripto — Slots (somente guarda)</h3>
+              <p class="card-desc">Painel assistido: lista metadados e endereços dos slots BTC / EVM / SOL. Nenhum segredo ou byte privado trafega nesta aba — a fonte é o firmware.</p>
+            </div>
+            <button class="btn btn-sm btn-outline" id="btnRefreshWallet">Atualizar Slots</button>
+          </div>
+
+          <div class="warning-banner">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
+            <div>
+              <strong>Painel assistido:</strong> sem endpoint <code class="code-snippet">/api/wallet</code> no servidor — os valores abaixo são o mapa de slots esperado. Gerar, importar e ler endereços reais acontecem no firmware sob UP / UP+PIN.
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Rede</th>
+                  <th>Slot (NVS)</th>
+                  <th>Rótulo</th>
+                  <th>Endereço</th>
+                  <th>Gate</th>
+                </tr>
+              </thead>
+              <tbody id="walletTableBody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2col mt-3">
+          <div class="card glass">
+            <h3><span class="icon-circle">📋</span> Como usar (passo a passo)</h3>
+            <p class="card-desc">Operações executadas no firmware; esta aba orienta e exibe somente o resultado público.</p>
+            <ol>
+              <li><strong>Gerar slot (UP):</strong> toque no botão físico para confirmar presença; o firmware cria a chave sob a curva da rede.</li>
+              <li><strong>Importar envelope (UP+PIN):</strong> o envelope AEGN v1 é aberto com a chave vinculada ao PIN; nada é exibido em claro.</li>
+              <li><strong>Ver endereço (UP):</strong> somente o endereço derivado (bech32 / EIP-55 / base58) é listado — nunca o segredo.</li>
+              <li><strong>Apagar slot (UP+PIN):</strong> remove o slot e zera o material com zeroize.</li>
+            </ol>
+          </div>
+
+          <div class="card glass">
+            <h3><span class="icon-circle">🔒</span> Escopo e segurança</h3>
+            <p class="card-desc">Storage-only sobre o KeyManager dedicado; envelope AEGN v1 inalterado.</p>
+            <div class="stat-row"><span>Listar slots / metadados:</span><strong>UP</strong></div>
+            <div class="stat-row"><span>Gravar / ler / apagar slot:</span><strong>UP+PIN</strong></div>
+            <div class="stat-row"><span>Assinar / transmitir transações:</span><strong>fora de escopo</strong></div>
+            <div class="stat-row"><span>OTP / cadeado dedicado:</span><strong>não existe</strong></div>
           </div>
         </div>
       </section>
