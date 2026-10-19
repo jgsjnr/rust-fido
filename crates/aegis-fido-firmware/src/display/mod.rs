@@ -8,13 +8,15 @@ pub mod st7789;
 pub mod ui;
 
 pub use st7789::{St7789Config, St7789Display};
-pub use ui::{colors, AegisUiRenderer, DisplayBuffer, UiScreen, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+pub use ui::{band_count, band_range, colors, AegisUiRenderer, DisplayBand, DisplayBuffer, UiScreen, CLASSIC_BAND_HEIGHT, CLASSIC_HEIGHT, CLASSIC_WIDTH, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 use crate::led::{Color, LedEffect, LedOutput, Ws2812Controller};
 
 /// Unified Display Manager coordinating LCD screen and WS2812 LED feedback
 pub struct DisplayManager<L: LedOutput> {
     pub display: St7789Display,
+    /// Buffer cheio so fora do classic (S3 cabe; classic usa banda de 10800B).
+    #[cfg(not(feature = "board-ttgo-classic"))]
     pub buffer: DisplayBuffer,
     pub current_screen: UiScreen,
     pub led_controller: Option<Ws2812Controller<L>>,
@@ -30,6 +32,7 @@ impl<L: LedOutput> DisplayManager<L> {
 
         Self {
             display: St7789Display::new(St7789Config::default()),
+            #[cfg(not(feature = "board-ttgo-classic"))]
             buffer: DisplayBuffer::new(),
             current_screen: UiScreen::IdleStandby {
                 status_text: "Inicializando...".into(),
@@ -78,12 +81,19 @@ impl<L: LedOutput> DisplayManager<L> {
             }
         }
 
-        // 2. Render UI to FrameBuffer
-        AegisUiRenderer::render(&self.current_screen, &mut self.buffer);
-
-        // 3. Flush to ST7789 if LilyGO T-Display-S3 is enabled
-        if self.is_t_display {
-            let _ = self.display.flush_framebuffer(&self.buffer);
+        // 2+3. Render + flush (classic: bandado sem full 64800B; S3: cheio).
+        #[cfg(feature = "board-ttgo-classic")]
+        {
+            if self.is_t_display {
+                let _ = self.display.flush_screen_banded(&self.current_screen);
+            }
+        }
+        #[cfg(not(feature = "board-ttgo-classic"))]
+        {
+            AegisUiRenderer::render(&self.current_screen, &mut self.buffer);
+            if self.is_t_display {
+                let _ = self.display.flush_framebuffer(&self.buffer);
+            }
         }
     }
 

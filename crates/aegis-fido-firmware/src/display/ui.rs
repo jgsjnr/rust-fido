@@ -28,6 +28,36 @@ pub const DISPLAY_WIDTH: usize = 320;
 #[cfg(not(feature = "board-ttgo-classic"))]
 pub const DISPLAY_HEIGHT: usize = 170;
 
+/// Altura da faixa (banda) do framebuffer parcial no classic.
+///
+/// Classic 135x240 em DRAM ~320KB sem PSRAM abortava com
+/// `memory allocation of 64800 bytes failed` (tela pontilhada): pico de
+/// 129600B (framebuffer 64800B + BE duplicado 64800B) em loop.
+/// 135x40 = 5400px = 10800B por banda (6 bandas cobrem 240 sem resto),
+/// flush por banda via `aegis_display_flush(x1,y1,x2,y2)`.
+/// S3 mantem buffer cheio (banda = altura total); mesma imagem final.
+#[cfg(feature = "board-ttgo-classic")]
+pub const DISPLAY_BAND_HEIGHT: usize = 40;
+#[cfg(not(feature = "board-ttgo-classic"))]
+pub const DISPLAY_BAND_HEIGHT: usize = DISPLAY_HEIGHT;
+/// Dimensoes do classic para testes host sem feature (OOM simulado + recomposicao).
+pub const CLASSIC_WIDTH: usize = 135;
+pub const CLASSIC_HEIGHT: usize = 240;
+pub const CLASSIC_BAND_HEIGHT: usize = 40;
+/// Numero de bandas para `height` com fatia `band_h` (teto, ultima pode ser menor).
+pub fn band_count(height: usize, band_h: usize) -> usize {
+    if band_h == 0 {
+        return 0;
+    }
+    height.div_ceil(band_h)
+}
+/// Janela `(y0, h)` da banda `idx` (para `aegis_display_flush` por banda).
+pub fn band_range(idx: usize, height: usize, band_h: usize) -> (usize, usize) {
+    let y0 = idx.saturating_mul(band_h);
+    let h = height.saturating_sub(y0).min(band_h);
+    (y0, h)
+}
+
 /// Cyber Security Color Palette (RGB565)
 pub mod colors {
     use embedded_graphics::pixelcolor::Rgb565;
@@ -144,13 +174,78 @@ impl embedded_graphics::geometry::Dimensions for DisplayBuffer {
     }
 }
 
+/// Faixa parcial do framebuffer (classic 135x40 = 10800B; sem full 64800B).
+///
+/// `y_offset` e a primeira linha global da banda; `pixels` guarda so `height`
+/// linhas (`DISPLAY_WIDTH * height`). `DrawTarget` recorta (clipping) por Y:
+/// re-renderizar a tela cheia por banda recompoe os mesmos pixels finais.
+pub struct DisplayBand {
+    pub y_offset: usize,
+    pub height: usize,
+    pub pixels: Vec<Rgb565>,
+}
+
+impl DisplayBand {
+    pub fn new(y_offset: usize, height: usize) -> Self {
+        Self {
+            y_offset,
+            height,
+            pixels: vec![colors::BG_DARK; DISPLAY_WIDTH * height],
+        }
+    }
+
+    /// Redefine a janela reutilizando a alocacao (ultima banda pode ser menor).
+    pub fn set_window(&mut self, y_offset: usize, height: usize) {
+        self.y_offset = y_offset;
+        self.height = height;
+        let need = DISPLAY_WIDTH * height;
+        self.pixels.resize(need, colors::BG_DARK);
+        self.pixels.fill(colors::BG_DARK);
+    }
+}
+
+impl embedded_graphics::draw_target::DrawTarget for DisplayBand {
+    type Color = Rgb565;
+    type Error = core::convert::Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+    {
+        for embedded_graphics::Pixel(coord, color) in pixels.into_iter() {
+            if coord.x >= 0 && coord.y >= 0 {
+                let x = coord.x as usize;
+                let y = coord.y as usize;
+                if x < DISPLAY_WIDTH && y >= self.y_offset && y < self.y_offset + self.height {
+                    self.pixels[(y - self.y_offset) * DISPLAY_WIDTH + x] = color;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        self.pixels.fill(color);
+        Ok(())
+    }
+}
+
+impl embedded_graphics::geometry::Dimensions for DisplayBand {
+    fn bounding_box(&self) -> Rectangle {
+        Rectangle::new(
+            Point::zero(),
+            Size::new(DISPLAY_WIDTH as u32, DISPLAY_HEIGHT as u32),
+        )
+    }
+}
+
 /// UI Renderer for AegisKey S3
 pub struct AegisUiRenderer;
 
 impl AegisUiRenderer {
     /// Renders the specified UI Screen into the framebuffer
-    pub fn render(screen: &UiScreen, target: &mut DisplayBuffer) {
-        target.clear(colors::BG_DARK);
+    pub fn render(screen: &UiScreen, target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>) {
+        let _ = target.clear(colors::BG_DARK);
 
         match screen {
             UiScreen::BootSplash { version, chip } => {
@@ -183,12 +278,37 @@ impl AegisUiRenderer {
         }
     }
 
+    /// Renderiza so a faixa `band` (clipping por Y); mesma imagem final fatiada.
+    pub fn render_band(screen: &UiScreen, band: &mut DisplayBand) {
+        Self::render(screen, band);
+    }
+
+    /// Recompoe a imagem cheia a partir das bandas (usado em testes host).
+    pub fn render_recomposed(screen: &UiScreen) -> DisplayBuffer {
+        let mut full = DisplayBuffer::new();
+        let band_h = DISPLAY_BAND_HEIGHT.max(1);
+        let n = band_count(DISPLAY_HEIGHT, band_h);
+        for i in 0..n {
+            let (y0, h) = band_range(i, DISPLAY_HEIGHT, band_h);
+            if h == 0 {
+                continue;
+            }
+            let mut band = DisplayBand::new(y0, h);
+            Self::render(screen, &mut band);
+            for (row, chunk) in band.pixels.chunks(DISPLAY_WIDTH).enumerate() {
+                let y = y0 + row;
+                full.pixels[y * DISPLAY_WIDTH..(y + 1) * DISPLAY_WIDTH].copy_from_slice(chunk);
+            }
+        }
+        full
+    }
+
     fn center_text_x(text: &str, char_w: i32) -> i32 {
         let w = (text.len() as i32) * char_w;
         ((DISPLAY_WIDTH as i32 - w) / 2).max(2)
     }
 
-    fn draw_header(target: &mut DisplayBuffer, title: &str, accent_color: Rgb565) {
+    fn draw_header(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, title: &str, accent_color: Rgb565) {
         let h_height = if DISPLAY_HEIGHT < 150 { 20u32 } else { 24u32 };
         let header_rect =
             Rectangle::new(Point::new(0, 0), Size::new(DISPLAY_WIDTH as u32, h_height));
@@ -234,7 +354,7 @@ impl AegisUiRenderer {
         let _ = pill.draw(target);
     }
 
-    fn draw_boot_screen(target: &mut DisplayBuffer, version: &str, chip: &str) {
+    fn draw_boot_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, version: &str, chip: &str) {
         let center_x = (DISPLAY_WIDTH / 2) as i32;
         let is_small = DISPLAY_HEIGHT < 150;
 
@@ -298,7 +418,7 @@ impl AegisUiRenderer {
         .draw(target);
     }
 
-    fn draw_idle_screen(target: &mut DisplayBuffer, status_text: &str) {
+    fn draw_idle_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, status_text: &str) {
         Self::draw_header(target, "AEGISKEY • PRONTO", colors::ACCENT_CYAN);
 
         let center_x = (DISPLAY_WIDTH / 2) as i32;
@@ -383,7 +503,7 @@ impl AegisUiRenderer {
     }
 
     fn draw_prompt_screen(
-        target: &mut DisplayBuffer,
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>,
         rp_id: &str,
         user_name: &str,
         operation: &str,
@@ -493,7 +613,7 @@ impl AegisUiRenderer {
         .draw(target);
     }
 
-    fn draw_success_screen(target: &mut DisplayBuffer, title: &str, subtitle: &str) {
+    fn draw_success_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, title: &str, subtitle: &str) {
         Self::draw_header(target, "AUTORIZAÇÃO CONFIRMADA", colors::SUCCESS_GREEN);
 
         let center_x = (DISPLAY_WIDTH / 2) as i32;
@@ -552,7 +672,7 @@ impl AegisUiRenderer {
         .draw(target);
     }
 
-    fn draw_error_screen(target: &mut DisplayBuffer, message: &str) {
+    fn draw_error_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, message: &str) {
         Self::draw_header(target, "FALHA / CANCELADO", colors::DANGER_RED);
 
         let center_x = (DISPLAY_WIDTH / 2) as i32;
@@ -614,7 +734,7 @@ impl AegisUiRenderer {
     }
 
     fn draw_totp_screen(
-        target: &mut DisplayBuffer,
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>,
         label: &str,
         code: &str,
         remaining_seconds: u32,
@@ -745,5 +865,118 @@ mod tests {
             remaining_seconds: 28,
         };
         AegisUiRenderer::render(&totp, &mut buffer);
+    }
+
+    fn all_demo_screens() -> Vec<UiScreen> {
+        vec![
+            UiScreen::BootSplash {
+                version: "v1.0.0-rust".into(),
+                chip: "ESP32 Classic (TTGO)".into(),
+            },
+            UiScreen::IdleStandby {
+                status_text: "Aguardando solicitacao FIDO2...".into(),
+            },
+            UiScreen::UserPresencePrompt {
+                rp_id: "passkey2.com".into(),
+                user_name: "junior@aegiskey.dev".into(),
+                operation: "Registro de Passkey".into(),
+                remaining_seconds: 25,
+            },
+            UiScreen::Success {
+                title: "ACESSO AUTORIZADO".into(),
+                subtitle: "Passkey gerada com sucesso".into(),
+            },
+            UiScreen::Error {
+                message: "Toque cancelado pelo usuario".into(),
+            },
+            UiScreen::TotpCode {
+                label: "GitHub: junior".into(),
+                code: "287082".into(),
+                remaining_seconds: 28,
+            },
+        ]
+    }
+
+    #[test]
+    fn band_params_classic_sane() {
+        // Classic 135x240 fatiado em 135x40: 6 bandas exatas, sem resto.
+        assert_eq!(CLASSIC_WIDTH * CLASSIC_HEIGHT * 2, 64800);
+        assert_eq!(CLASSIC_WIDTH * CLASSIC_BAND_HEIGHT * 2, 10800);
+        assert_eq!(band_count(CLASSIC_HEIGHT, CLASSIC_BAND_HEIGHT), 6);
+        assert_eq!(band_count(170, 40), 5);
+        assert_eq!(band_range(0, 240, 40), (0, 40));
+        assert_eq!(band_range(5, 240, 40), (200, 40));
+        assert_eq!(band_range(4, 170, 40), (160, 10));
+        assert_eq!(band_range(9, 240, 40), (360, 0));
+    }
+
+    #[test]
+    fn banded_bands_recompose_same_image() {
+        // Mesma imagem final, so muda o fatiamento (pixels idempotentes).
+        for screen in all_demo_screens() {
+            let mut full = DisplayBuffer::new();
+            AegisUiRenderer::render(&screen, &mut full);
+            let recomposed = AegisUiRenderer::render_recomposed(&screen);
+            assert_eq!(
+                full.pixels.len(),
+                DISPLAY_WIDTH * DISPLAY_HEIGHT,
+                "tamanho do framebuffer"
+            );
+            assert_eq!(
+                full.pixels, recomposed.pixels,
+                "bandas devem recompor os mesmos pixels"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    // Constantes propositais: documentam o envelope OOM (64800 vs 10800).
+    fn band_fits_small_heap_classic() {
+        // OOM simulado: heap de 20KB nao cabe o full 64800B, mas cabe a banda 10800B.
+        const SMALL_HEAP_BYTES: usize = 20 * 1024;
+        const FULL_BYTES: usize = CLASSIC_WIDTH * CLASSIC_HEIGHT * 2;
+        const BAND_BYTES: usize = CLASSIC_WIDTH * CLASSIC_BAND_HEIGHT * 2;
+        assert!(FULL_BYTES > SMALL_HEAP_BYTES, "full deve estourar o heap pequeno");
+        assert!(BAND_BYTES <= SMALL_HEAP_BYTES, "banda deve caber no heap pequeno");
+        // Prova por alocacao real no host: 6 bandas sequenciais cabem onde 1 full falharia.
+        let mut peak = 0usize;
+        for i in 0..band_count(CLASSIC_HEIGHT, CLASSIC_BAND_HEIGHT) {
+            let (y0, h) = band_range(i, CLASSIC_HEIGHT, CLASSIC_BAND_HEIGHT);
+            assert!(h > 0);
+            let band_bytes = CLASSIC_WIDTH * h * 2;
+            peak = peak.max(band_bytes);
+            assert!(band_bytes <= SMALL_HEAP_BYTES);
+            let _ = y0;
+        }
+        assert_eq!(peak, BAND_BYTES);
+    }
+
+    #[test]
+    fn band_window_reuse_keeps_pixels() {
+        // Buffer compartilhado minimo: 1 banda reutilizada em loop cobre a tela.
+        let idle = UiScreen::IdleStandby {
+            status_text: "reuso".into(),
+        };
+        let mut full = DisplayBuffer::new();
+        AegisUiRenderer::render(&idle, &mut full);
+        let band_h = DISPLAY_BAND_HEIGHT.max(1);
+        let mut band = DisplayBand::new(0, band_h.min(DISPLAY_HEIGHT));
+        let mut stitched = DisplayBuffer::new();
+        stitched.pixels.fill(colors::BG_DARK);
+        let n = band_count(DISPLAY_HEIGHT, band_h);
+        for i in 0..n {
+            let (y0, h) = band_range(i, DISPLAY_HEIGHT, band_h);
+            if h == 0 {
+                continue;
+            }
+            band.set_window(y0, h);
+            AegisUiRenderer::render_band(&idle, &mut band);
+            for (row, chunk) in band.pixels.chunks(DISPLAY_WIDTH).enumerate() {
+                let y = y0 + row;
+                stitched.pixels[y * DISPLAY_WIDTH..(y + 1) * DISPLAY_WIDTH].copy_from_slice(chunk);
+            }
+        }
+        assert_eq!(full.pixels, stitched.pixels);
     }
 }

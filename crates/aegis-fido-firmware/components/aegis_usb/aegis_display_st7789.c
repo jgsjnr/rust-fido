@@ -64,6 +64,15 @@
 #define GAP_Y          40
 #endif
 
+// Bandas Rust (ui.rs DISPLAY_BAND_HEIGHT): classic 135x40 = 10800B por
+// transferencia; antes o DMA reservava o full 64800B. S3 mantem o full.
+#define LCD_BAND_HEIGHT 40
+#if defined(CONFIG_IDF_TARGET_ESP32)
+#define LCD_MAX_TRANSFER_SZ (LCD_WIDTH * LCD_BAND_HEIGHT * sizeof(uint16_t))
+#else
+#define LCD_MAX_TRANSFER_SZ (LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t))
+#endif
+
 static esp_lcd_panel_handle_t s_panel_handle = NULL;
 static bool s_initialized = false;
 
@@ -101,7 +110,7 @@ esp_err_t aegis_display_init(void) {
         .miso_io_num = PIN_NUM_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t),
+        .max_transfer_sz = LCD_MAX_TRANSFER_SZ,
     };
 
     esp_err_t ret = spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO);

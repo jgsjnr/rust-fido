@@ -1,12 +1,10 @@
 //! ST7789 IPS LCD Driver for LilyGO T-Display and T-Display-S3.
 
-use super::ui::DisplayBuffer;
+extern crate alloc;
+
+use super::ui::{DisplayBuffer, UiScreen};
 #[cfg(target_os = "espidf")]
-use super::ui::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
-#[cfg(target_os = "espidf")]
-use embedded_graphics::prelude::IntoStorage;
-#[cfg(target_os = "espidf")]
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 #[cfg(target_os = "espidf")]
 extern "C" {
@@ -92,7 +90,12 @@ impl St7789Display {
         }
     }
 
-    /// Flushes the complete framebuffer to the ST7789 controller over SPI
+    /// Flushes the framebuffer in bands reusing a small BE temp.
+    ///
+    /// Antes duplicava o full 64800B (`be_pixels` do tamanho do framebuffer):
+    /// pico de 129600B que abortava o classic em loop. Agora fatia por
+    /// `DISPLAY_BAND_HEIGHT` (classic 135x40 = 10800B) com o mesmo
+    /// `aegis_display_flush(x1,y1,x2,y2)` por banda; mesmos pixels finais.
     pub fn flush_framebuffer(&mut self, buffer: &DisplayBuffer) -> Result<(), &'static str> {
         if !self.is_initialized {
             return Err("Display not initialized");
@@ -100,25 +103,89 @@ impl St7789Display {
 
         #[cfg(target_os = "espidf")]
         unsafe {
+            use super::ui::{DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+            use embedded_graphics::prelude::IntoStorage;
+
             let width = DISPLAY_WIDTH as u16;
-            let height = DISPLAY_HEIGHT as u16;
-
-            let mut be_pixels = Vec::with_capacity(buffer.pixels.len());
-            for p in &buffer.pixels {
-                be_pixels.push((*p).into_storage().swap_bytes());
+            let band_h = DISPLAY_BAND_HEIGHT.max(1);
+            let mut be: Vec<u16> = Vec::with_capacity(DISPLAY_WIDTH * band_h);
+            let mut y0 = 0usize;
+            while y0 < DISPLAY_HEIGHT {
+                let h = (DISPLAY_HEIGHT - y0).min(band_h);
+                be.clear();
+                be.extend(
+                    buffer.pixels[y0 * DISPLAY_WIDTH..(y0 + h) * DISPLAY_WIDTH]
+                        .iter()
+                        .map(|px| (*px).into_storage().swap_bytes()),
+                );
+                aegis_display_flush(
+                    0,
+                    y0 as u16,
+                    width - 1,
+                    (y0 + h - 1) as u16,
+                    be.as_ptr(),
+                    be.len() as u32,
+                );
+                y0 += h;
             }
-
-            aegis_display_flush(
-                0,
-                0,
-                width - 1,
-                height - 1,
-                be_pixels.as_ptr(),
-                be_pixels.len() as u32,
-            );
         }
 
         let _ = buffer;
+        Ok(())
+    }
+
+    /// Renders `screen` directly band-by-band without the full 64800B buffer.
+    ///
+    /// Classic: pico ~10800B (banda RGB565) + ~10800B (BE temporario
+    /// compartilhado e reutilizado), nunca o full. S3 mantem o caminho
+    /// `flush_framebuffer` com buffer cheio; mesma imagem final, so fatiamento.
+    pub fn flush_screen_banded(&mut self, screen: &UiScreen) -> Result<(), &'static str> {
+        if !self.is_initialized {
+            return Err("Display not initialized");
+        }
+        #[cfg(target_os = "espidf")]
+        unsafe {
+            use super::ui::{
+                AegisUiRenderer, DisplayBand, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH,
+            };
+            use embedded_graphics::prelude::IntoStorage;
+
+            let width = DISPLAY_WIDTH as u16;
+            let band_h = DISPLAY_BAND_HEIGHT.max(1);
+            let mut band = DisplayBand::new(0, band_h.min(DISPLAY_HEIGHT));
+            let mut be: Vec<u16> = Vec::with_capacity(DISPLAY_WIDTH * band_h);
+            let mut y0 = 0usize;
+            while y0 < DISPLAY_HEIGHT {
+                let h = (DISPLAY_HEIGHT - y0).min(band_h);
+                band.set_window(y0, h);
+                AegisUiRenderer::render(screen, &mut band);
+                be.clear();
+                be.extend(band.pixels.iter().map(|px| (*px).into_storage().swap_bytes()));
+                aegis_display_flush(
+                    0,
+                    y0 as u16,
+                    width - 1,
+                    (y0 + h - 1) as u16,
+                    be.as_ptr(),
+                    be.len() as u32,
+                );
+                y0 += h;
+            }
+        }
+        #[cfg(not(target_os = "espidf"))]
+        {
+            use super::ui::{AegisUiRenderer, DisplayBand, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT};
+            let band_h = DISPLAY_BAND_HEIGHT.max(1);
+            let mut y0 = 0usize;
+            while y0 < DISPLAY_HEIGHT {
+                let h = (DISPLAY_HEIGHT - y0).min(band_h);
+                let mut band = DisplayBand::new(y0, h);
+                AegisUiRenderer::render(screen, &mut band);
+                let _ = &band;
+                y0 += h;
+            }
+        }
+        let _ = screen;
         Ok(())
     }
 }
