@@ -144,6 +144,27 @@ def parse_init_header(pkt):
     return cid, cmd, total
 
 
+def is_text_chunk(pkt):
+    """Mirror of firmware `is_text_line` (serial_ctaphid.rs).
+
+    True when a 64B chunk looks like log/heartbeat text: at least one
+    non-NUL byte and every non-NUL byte printable ASCII or tab/CR/LF.
+    Binary CTAPHID packets carry CIDs/lengths/CBOR outside that range,
+    so real packets never match; a pathological all-printable packet
+    would be skipped once (caller retries, same contract as firmware).
+    """
+    if len(pkt) != PACKET_SIZE:
+        return False
+    seen = False
+    for b in pkt:
+        if b == 0x00:
+            continue
+        seen = True
+        if not (b in (0x09, 0x0A, 0x0D) or 0x20 <= b <= 0x7E):
+            return False
+    return seen
+
+
 class Reassembler:
     """Reassemble INIT/CONT packets; surfaces keepalive status bytes."""
 
@@ -159,9 +180,11 @@ class Reassembler:
 
     def feed(self, pkt):
         """Feed one 64B packet. Returns (kind, data):
-        ('keepalive', status) | ('message', (cid, cmd, payload)) | ('more', None)."""
+        ('keepalive', status) | ('text', None) | ('message', (cid, cmd, payload)) | ('more', None)."""
         if len(pkt) != PACKET_SIZE:
             raise ValueError("bad packet size")
+        if is_text_chunk(pkt):
+            return ("text", None)
         cid, raw, total = struct.unpack_from(">IBH", pkt, 0)
         if raw == CMD_KEEPALIVE:
             return ("keepalive", pkt[7])
@@ -181,6 +204,49 @@ class Reassembler:
             self.reset()
             return ("message", msg)
         return ("more", None)
+
+
+MIN_TEXT_LINE = 8  # text fast-path: shorter printable runs stay binary (0x0A in headers/CBOR)
+
+
+class SerialStreamReader:
+    """Byte-stream demux: text lines vs 64B CTAPHID frames on one wire.
+
+    The device emits variable-length heartbeat/log lines (LF-terminated)
+    on the same UART as fixed 64B binary packets, so fixed 64B reads
+    misalign after every text line. This reader accumulates bytes,
+    strips LF-terminated printable text lines, and yields the next 64B
+    non-text frame. A frame that still fails to parse is returned to
+    the caller, which drops one byte and retries (sliding resync).
+    """
+    def __init__(self, link):
+        self.link = link
+        self.buf = bytearray()
+
+    def _is_text_line(self, raw):
+        if not raw or b"\x00" in raw:
+            return False
+        return all(b in (0x09, 0x0A, 0x0D) or 0x20 <= b <= 0x7E for b in raw)
+
+    def next_frame(self, deadline_s=2.0):
+        """Return the next 64B frame, skipping interleaved text lines."""
+        while True:
+            nl = self.buf.find(b"\n")
+            if nl + 1 >= MIN_TEXT_LINE and self._is_text_line(bytes(self.buf[:nl + 1])):
+                log_event("SERIAL_TEXT_SKIPPED", "bytes=%d" % (nl + 1))
+                del self.buf[:nl + 1]
+                continue
+            if len(self.buf) >= PACKET_SIZE:
+                frame = bytes(self.buf[:PACKET_SIZE])
+                if is_text_chunk(frame):
+                    log_event("SERIAL_TEXT_SKIPPED", "bytes=%d" % PACKET_SIZE)
+                    del self.buf[:PACKET_SIZE]
+                    continue
+                del self.buf[:PACKET_SIZE]
+                return frame
+            self.buf.extend(self.link.read_exact(1, deadline_s=deadline_s))
+            if len(self.buf) > 4096:
+                raise ValueError("serial stream desync (buffer overflow)")
 
 
 def parse_ctap_response(payload):
@@ -474,11 +540,21 @@ class Session:
         for pkt in packets:
             self.link.write(pkt)
         asm = Reassembler()
+        stream = SerialStreamReader(self.link)
         end = time.monotonic() + timeout_s
         up_announced = False
         while time.monotonic() < end:
-            raw = self.link.read_exact(PACKET_SIZE, deadline_s=2.0)
-            kind, data = asm.feed(raw)
+            raw = stream.next_frame(deadline_s=2.0)
+            try:
+                kind, data = asm.feed(raw)
+            except ValueError:
+                # Stray bytes (e.g. heartbeat tail + packet head):
+                # drop one byte and resync, keep waiting for response.
+                log_event("SERIAL_RESYNC", "dropped=1")
+                stream.buf = bytearray(raw[1:]) + stream.buf
+                continue
+            if kind == "text":
+                continue
             if kind == "keepalive":
                 if data == STATUS_KEEPALIVE_UP_NEEDED and not up_announced:
                     up_announced = True
@@ -790,11 +866,94 @@ def run_self_test():
         except ValueError:
             pass
 
+    def t_heartbeat_idle_ignored():
+        hb = b"[HEARTBEAT] AegisKey S3 alive | uptime: 235s | USB Mounted: false"
+        hb64 = hb[:PACKET_SIZE].ljust(PACKET_SIZE, b"\x00")
+        assert is_text_chunk(hb64)
+        asm = Reassembler()
+        assert asm.feed(hb64) == ("text", None)
+        assert asm.cid is None  # no state touched, no error raised
+
+    def t_heartbeat_mid_reassembly():
+        payload = bytes([0xAB] * 100)
+        pkts = frame_message(0x0A0B0C0D, CMD_CBOR, payload)
+        hb64 = b"[HEARTBEAT] AegisKey S3 alive | uptime: 235s".ljust(PACKET_SIZE, b"\x00")
+        asm = Reassembler()
+        assert asm.feed(pkts[0]) == ("more", None)
+        assert asm.feed(hb64) == ("text", None)
+        kind, got = asm.feed(pkts[1])
+        assert kind == "message"
+        assert got[2] == payload
+
+    class _FakeLink:
+        """Minimal SerialLink stub serving a fixed byte stream."""
+        def __init__(self, stream):
+            self.stream = bytearray(stream)
+        def read_exact(self, n, deadline_s=5.0):
+            if len(self.stream) < n:
+                raise TimeoutError("short stream (%d/%d)" % (len(self.stream), n))
+            out = bytes(self.stream[:n])
+            del self.stream[:n]
+            return out
+        def write(self, data):
+            return len(data)
+
+    def t_stream_skips_variable_heartbeat():
+        # Stale idle heartbeat (variable length + CRLF, NOT 64B-aligned)
+        # ahead of a 2-packet response must still reassemble.
+        payload = bytes([0xAB] * 100)
+        frames = frame_message(0x0A0B0C0D, CMD_CBOR, payload)
+        hb_line = b"[HEARTBEAT] AegisKey S3 alive | uptime: 235s | USB Mounted: false\r\n"
+        assert len(hb_line) % PACKET_SIZE != 0  # misaligned on purpose
+        link = _FakeLink(hb_line + b"".join(frames))
+        stream = SerialStreamReader(link)
+        asm = Reassembler()
+        got = None
+        for _ in range(16):
+            raw = stream.next_frame(deadline_s=1.0)
+            try:
+                kind, data = asm.feed(raw)
+            except ValueError:
+                # Short text tail + frame head: same drop-one-byte
+                # resync the live exchange uses.
+                stream.buf = bytearray(raw[1:]) + stream.buf
+                continue
+            if kind == "message":
+                got = data
+                break
+            assert kind in ("more", "text", "keepalive")
+        assert got is not None and got[2] == payload
+
+    def t_stream_resync_after_corrupt_byte():
+        # One garbage byte prepended (worst-case misalignment): the
+        # drop-one-byte resync recovers the following message.
+        payload = b"serial-ctaphid"
+        frames = frame_message(0x11223344, CMD_CBOR, payload)
+        link = _FakeLink(b"\xFF" + b"".join(frames))
+        stream = SerialStreamReader(link)
+        asm = Reassembler()
+        got = None
+        for _ in range(8):
+            raw = stream.next_frame(deadline_s=1.0)
+            try:
+                kind, data = asm.feed(raw)
+            except ValueError:
+                stream.buf = bytearray(raw[1:]) + stream.buf
+                continue
+            if kind == "message":
+                got = data
+                break
+        assert got is not None and got[2] == payload
+
     cases = [("framing single", t_framing_single), ("framing multi", t_framing_multi),
              ("keepalive", t_keepalive), ("ctap status", t_ctap_status),
              ("pairing gate", t_pairing_gate), ("dump parse", t_dump_parse),
              ("oath json", t_oath_json), ("aegn envelope", t_aegn),
-             ("wifi password", t_wifi_pw), ("hex parse", t_hex)]
+             ("wifi password", t_wifi_pw), ("hex parse", t_hex),
+             ("heartbeat idle ignored", t_heartbeat_idle_ignored),
+             ("heartbeat mid reassembly", t_heartbeat_mid_reassembly),
+             ("stream skips heartbeat", t_stream_skips_variable_heartbeat),
+             ("stream resync corrupt", t_stream_resync_after_corrupt_byte)]
     for name, fn in cases:
         if check(name, fn):
             passed += 1
