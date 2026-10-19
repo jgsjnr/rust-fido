@@ -15,7 +15,13 @@ Permissão BT negada: abre normal, sem SecurityException. FLAG_SECURE confirmado
   aguardando flash + validação IRL.
 - Monitor: 0 linhas `[LT]` em 60s (firmware sem `debug-terminal`).
 
-## 3. Serial E2E COM7 (S3) — EXTERNAL_BLOCKED
+## 3. Serial E2E COM7 (S3) — placa viva, protocolo ausente
+- S3 viva: heartbeat 3s, uptime 207→234s, `USB Mounted: false`.
+- Serial fala texto heartbeat, NÃO CTAPHID-64B (`unexpected continuation` /
+  timeouts de 3/64 bytes); firmware sem test-mode (dump sem resposta).
+- Ops privilegiadas corretamente negadas sem hold físico (5s + menu 9).
+- Live capture: 0 eventos `[LT]` em 45s (só heartbeat).
+- Mesmo diagnóstico da COM8: falta roteamento serial→CtapHidManager no firmware.
 Placa desplugada no momento (sem COM7, sem ROM PID 1001). Reagendar ao reconectar:
 `app_simulator --port COM7 --test-mode` + `live_monitor --port COM7 --log`.
 
@@ -34,6 +40,7 @@ Firmware: zero mudanças. Checar cleartext policy antes do PoC.
 1. [ ] Flash classic com build de bandas + validar fim do OOM (COM8).
 2. [ ] Reconectar S3, rodar bateria COM7 completa.
 3. [ ] PoC ponte `10.0.2.2:8888` (checar cleartext no manifest).
+4. [ ] Firmware com CTAPHID-serial + test-mode + refazer baterias com hold 5s humano.
 4. [ ] Roteamento serial→CTAPHID no firmware (follow-up; hoje só heartbeat).
 5. [ ] `firmware` com `debug-terminal` nos devices de teste (para `[LT]`).
 6. [ ] Tela preta no emulador: já explicado (FLAG_SECURE); sem ação.
