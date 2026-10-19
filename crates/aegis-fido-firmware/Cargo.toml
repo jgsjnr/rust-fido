@@ -14,6 +14,7 @@ board-ttgo-classic = []
 ble = []
 menu = []
 wifi = []
+proximity = []
 # Wave7: lifetime monitor lines (default OFF; release = ltrace! no-op).
 debug-terminal = ["aegis-fido-core/debug-terminal"]
 # Wave7: TEST_LIFETIME_DUMP serial diagnostic (default OFF; absent without it).
