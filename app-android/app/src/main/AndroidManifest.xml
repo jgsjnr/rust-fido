@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- BLE runtime set (API 31+, minSdk 31 / target 34).
@@ -19,6 +19,12 @@
     <!-- WiFi AP transport: POST /ctap, POST /config/wifi, GET /oath/code.
          Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- USB host (CTAPHID 64B, VID 0x303A / PID 0xAE61): unica adicao.
+         Sem permissao nova: UsbManager.requestPermission e runtime via
+         dialogo do sistema. neverForLocation mantido; sem LOCATION. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -36,6 +42,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_FILTER"
+                android:resource="@xml/device_filter" />
         </activity>
     </application>
 </manifest>

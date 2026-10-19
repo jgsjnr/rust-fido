@@ -312,6 +312,46 @@ class AegisBleClient(private val context: Context) {
         return response
     }
 
+    /**
+     * Fase6 vendor op (0x20-0x27): fragmenta [op + TLV] via bridge (mesmo
+     * framing S3) e aguarda [op, status, TLV...]. Retorna null em timeout.
+     * Loga so opcode/status/tamanho (nunca TLV sensivel).
+     */
+    suspend fun sendVendor(opcode: Int, tlv: ByteArray, timeoutMs: Long = 8000): ByteArray? {
+        require(BleContract.isVendorOp(opcode) || BindingOps.isBindingOp(opcode)) {
+            "not a vendor op"
+        }
+        val frags = AegisBridge.splitFragments(opcode, tlv).getOrNull()
+            ?: run {
+                _state.update { it.copy(error = "fragment failed") }
+                DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 vendor fragment failed")
+                return null
+            }
+        val opName = if (BindingOps.isBindingOp(opcode)) BindingOps.opName(opcode) else BleContract.vendorOpName(opcode)
+        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 " + opName + " frags=" + frags.size + " bytes=" + tlv.size)
+        synchronized(notifyBuffer) { notifyBuffer.clear() }
+        val control = char(BleContract.CHAR_CONTROL) ?: return null
+        for (frag in frags) {
+            if (!writeBytes(control, frag)) {
+                DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 " + opName + " write failed")
+                return null
+            }
+        }
+        SanitizedLog.record(SanitizedLog.Event.CTAP_SENT)
+        val response = withTimeoutOrNull(timeoutMs) {
+            while (_state.value.status != BleContract.STATUS_IDLE || notifySize() == 0) delay(50)
+            drainNotify()
+        } ?: run {
+            DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 no response (timeout/UP?)")
+            return null
+        }
+        _state.update { it.copy(lastResponseSize = response.size) }
+        val statusByte = if (response.size >= 2) (response[1].toInt() and 0xFF) else -1
+        DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 vendor bytes=" + response.size + " status=" + statusByte)
+        SanitizedLog.record(SanitizedLog.Event.CTAP_RESPONSE)
+        return response
+    }
+
     /** Single-byte CANCEL (0xBE): aborts the active transaction. */
     suspend fun cancel(): Boolean {
         DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_CANCEL(0xBE)")
@@ -352,3 +392,4 @@ class AegisBleClient(private val context: Context) {
         out
     }
 }
+

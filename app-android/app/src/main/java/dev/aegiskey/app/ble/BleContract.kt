@@ -5,6 +5,7 @@ import java.util.UUID
 /**
  * Frozen BLE contract — mirrors docs/ble-protocol.md and firmware/src/ble_gatt.rs.
  * Single source of truth for 128-bit UUIDs expanded from the 16-bit handles.
+ * Fase6 apendice 9 (vendor 0x20-0x27): GATT inalterado, revisao permanece 0x01.
  */
 object BleContract {
     const val SERVICE_UUID16 = 0xFFFD
@@ -30,6 +31,23 @@ object BleContract {
     const val CTAP_CMD_GET_ASSERTION = 0x02
     const val CTAP_CMD_GET_INFO = 0x04
 
+    // Fase6 vendor ops (FFF1 control-point, framing S3 reutilizado).
+    const val OP_KEY_GEN_ONDEVICE = 0x20
+    const val OP_KEY_IMPORT_ENVELOPE = 0x21
+    const val OP_KEY_LIST = 0x22
+    const val OP_KEY_DELETE = 0x23
+    const val OP_OATH_PUT = 0x24
+    const val OP_OATH_LIST = 0x25
+    const val OP_OATH_CODE = 0x26
+    const val OP_OATH_DELETE = 0x27
+
+    // Vendor status set (fechado, S9.5).
+    const val VENDOR_OK = 0x00
+    const val VENDOR_NEED_UP = 0x01
+    const val VENDOR_NEED_PIN = 0x02
+    const val VENDOR_NO_SLOT = 0x03
+    const val VENDOR_BAD_ENVELOPE = 0x04
+
     fun uuid16(short: Int): UUID =
         UUID.fromString(String.format("0000%04X-0000-1000-8000-00805F9B34FB", short))
 
@@ -45,5 +63,19 @@ object BleContract {
         STATUS_PROCESSING -> "processing"
         STATUS_UP_NEEDED -> "up-needed (press device button)"
         else -> "unknown"
+    }
+
+    fun isVendorOp(op: Int): Boolean = op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE
+
+    fun vendorOpName(op: Int): String = when (op) {
+        OP_KEY_GEN_ONDEVICE -> "0x20 key-gen-ondevice"
+        OP_KEY_IMPORT_ENVELOPE -> "0x21 key-import"
+        OP_KEY_LIST -> "0x22 key-list"
+        OP_KEY_DELETE -> "0x23 key-delete"
+        OP_OATH_PUT -> "0x24 oath-put"
+        OP_OATH_LIST -> "0x25 oath-list"
+        OP_OATH_CODE -> "0x26 oath-code"
+        OP_OATH_DELETE -> "0x27 oath-delete"
+        else -> "0x" + String.format("%02X", op)
     }
 }

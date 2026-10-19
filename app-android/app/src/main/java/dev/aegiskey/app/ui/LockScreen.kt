@@ -3,6 +3,9 @@ package dev.aegiskey.app.ui
 import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,7 +69,7 @@ fun LockScreen(appLock: AppLock, onUnlocked: () -> Unit) {
 
     Scaffold(topBar = { TopAppBar(title = { Text(if (enrolled) "Unlock" else "Set lock password") }) }) { inner ->
         Column(
-            Modifier.padding(inner).padding(16.dp),
+            Modifier.padding(inner).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             OutlinedTextField(

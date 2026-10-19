@@ -42,6 +42,8 @@ pub enum WifiApError {
     UnknownAccount,
     /// AP desligado.
     ApOff,
+    /// Binding ausente/invalido (so o app vinculado gerencia o AP).
+    NeedBinding,
 }
 
 impl core::fmt::Display for WifiApError {
@@ -52,6 +54,7 @@ impl core::fmt::Display for WifiApError {
             Self::InvalidEnvelope => write!(f, "invalid ctap envelope"),
             Self::UnknownAccount => write!(f, "unknown oath account"),
             Self::ApOff => write!(f, "ap off"),
+            Self::NeedBinding => write!(f, "binding required (NEED_BINDING)"),
         }
     }
 }
@@ -262,6 +265,59 @@ pub fn handle_get_oath_code(
 /// Stub ESP: liga o radio (quando `target_os = espidf` usa esp-idf-svc).
 pub fn start_ap_esp(_ssid: &str) -> Result<(), &'static str> {
     Ok(())
+}
+
+
+// Gates de binding para o HTTP mgmt (`binding.rs`).
+//
+// - `POST /config/wifi` (troca de senha): binding + UP + PIN.
+// - `GET /oath/code`: binding + UP (secret nunca sai, como antes).
+// - Ordem canonica: binding -> UP -> PIN. HTTP responde `403 NEED_BINDING`
+//   quando `NeedBinding`; USB/CTAP zero mudanca.
+
+/// Codigo HTTP-body para binding ausente (app alheio ve este codigo).
+pub const WIFI_NEED_BINDING_CODE: &str = "NEED_BINDING";
+
+/// Barreira de binding para rotas mgmt CONFIG (`POST /config/wifi`).
+/// `binding_ok`: `BindingManager::verify` passou (uso unico).
+/// Release exige vinculo; teste faz bypass com ltrace (so UP+PIN).
+pub fn require_bound_session(binding_ok: bool) -> Result<(), WifiApError> {
+    if binding_ok {
+        return Ok(());
+    }
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+        return Ok(());
+    }
+    Err(WifiApError::NeedBinding)
+}
+
+/// Troca a senha do AP com binding: binding + UP + PIN, grava em NVS cifrada.
+/// Rejeita sem binding sem tocar na NVS (funcao sem binding preservada).
+pub fn change_ap_password_bound<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    new_password: &str,
+    binding_ok: bool,
+    pin_authenticated: bool,
+    presence_confirmed: bool,
+) -> Result<(), WifiApError> {
+    require_bound_session(binding_ok)?;
+    change_ap_password(storage, new_password, pin_authenticated, presence_confirmed)
+}
+
+/// Rota `GET /oath/code` (USO): nunca exige vinculo, so UP; so o codigo sai.
+///
+/// Split uso/config (§11): CODE/LIST e USO (senao keypass nao funciona).
+/// `binding_ok` ignorado de proposito (assinatura preservada para compat).
+pub fn handle_get_oath_code_bound(
+    account: &str,
+    secrets: &[(&str, &[u8], OathAlgorithm, u8)],
+    unix_seconds: u64,
+    _binding_ok: bool,
+    presence_confirmed: bool,
+) -> Result<TotpResponse, WifiApError> {
+    let _ = crate::binding::require_bound_usage(_binding_ok);
+    handle_get_oath_code(account, secrets, unix_seconds, presence_confirmed)
 }
 
 #[cfg(test)]

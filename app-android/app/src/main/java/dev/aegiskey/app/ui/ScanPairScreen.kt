@@ -1,4 +1,4 @@
-﻿package dev.aegiskey.app.ui
+package dev.aegiskey.app.ui
 
 import android.Manifest
 import android.app.Activity
@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.aegiskey.app.ble.AegisBleClient
@@ -114,8 +115,8 @@ private fun DeviceRow(
     onNeedPermissions: () -> Unit,
 ) {
     ListItem(
-        headlineContent = { Text(name) },
-        supportingContent = { Text(address) },
+        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = { Text(address, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         trailingContent = {
             Button(onClick = { if (gated) onPair() else onNeedPermissions() }) { Text("Pair") }
         },
@@ -168,7 +169,7 @@ fun ScanPairScreen(client: AegisBleClient) {
             Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Link: ${state.connection} · FFF2: ${BleContract.statusLabel(state.status)}")
+            Text("Link: ${state.connection} · FFF2: ${BleContract.statusLabel(state.status)}", maxLines = 2, overflow = TextOverflow.Ellipsis)
             state.revision?.let { Text("GATT revision: 0x%02X (expected 0x01)".format(it)) }
             if (state.connection == AegisBleClient.Connection.SCANNING) CircularProgressIndicator()
             if (!granted) {
@@ -204,7 +205,7 @@ fun ScanPairScreen(client: AegisBleClient) {
                 )
             }
             if (state.bonded) Text("Bonded (JustWorks+bonding+UP)")
-            state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
+            state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             Text(
                 "UP comes from the device button (hold 5s). The app only surfaces up-needed.",
                 style = MaterialTheme.typography.bodySmall

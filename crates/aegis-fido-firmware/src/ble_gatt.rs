@@ -48,6 +48,44 @@ pub const OP_OATH_DELETE: u8 = 0x27;
 pub const VENDOR_OP_MIN: u8 = OP_KEY_GEN_ONDEVICE;
 pub const VENDOR_OP_MAX: u8 = OP_OATH_DELETE;
 
+/// Binding + recovery sobre GATT (apendice §11, aditivo, sem quebra §1-§10).
+/// Framing §3 reutilizado: `[op:1, len_hi:1, len_lo:1, payload...]`.
+/// GATT inalterado, revisao permanece `0x01`; USB/CTAP zero mudanca.
+pub const OP_BIND_CLAIM: u8 = 0x28;
+/// Pede challenge 32B (req 0B, resp 32B); exige Claimed (senao NEED_BINDING).
+pub const OP_BIND_CHALLENGE: u8 = 0x29;
+/// Verifica prova para um op (helper de teste; req `op(1)||challenge(32)||payload_hash(32)||sig(var)`).
+pub const OP_BIND_VERIFY: u8 = 0x2A;
+/// Libera o dono atual (req `challenge(32)||payload_hash(32)||sig(var)`; wipe).
+pub const OP_BIND_RELEASE: u8 = 0x2B;
+/// Define o PIN de recovery 4-6 digitos (req ascii; exige UP).
+pub const OP_RECOVERY_SET: u8 = 0x2C;
+/// Destrava com PIN + UP e libera re-claim (req ascii; 8 tentativas NVS).
+pub const OP_RECOVERY_UNLOCK: u8 = 0x2D;
+/// Limites da faixa binding mgmt.
+pub const BIND_MGMT_OP_MIN: u8 = OP_BIND_CLAIM;
+pub const BIND_MGMT_OP_MAX: u8 = OP_RECOVERY_UNLOCK;
+
+/// `true` para ops binding mgmt 0x28-0x2D (reservados, fora de 0x20-0x27 e CTAP-BLE).
+pub fn is_bind_mgmt_op(op: u8) -> bool {
+    (BIND_MGMT_OP_MIN..=BIND_MGMT_OP_MAX).contains(&op)
+}
+
+/// USO (CODE/LIST): nunca exige vinculo, so UP fisico (senao keypass nao funciona).
+/// `0x22` KEY_LIST | `0x25` OATH_LIST | `0x26` OATH_CODE.
+pub fn is_usage_op(op: u8) -> bool {
+    matches!(op, OP_KEY_LIST | OP_OATH_LIST | OP_OATH_CODE)
+}
+
+/// CONFIGURAR (GEN/IMPORT/DELETE/PUT/WiFi/claim-mgmt): release exige
+/// vinculo+UP(+PIN); teste exige UP(+PIN) com bypass+l trace.
+pub fn is_config_op(op: u8) -> bool {
+    matches!(
+        op,
+        OP_KEY_GEN_ONDEVICE | OP_KEY_IMPORT_ENVELOPE | OP_KEY_DELETE | OP_OATH_PUT | OP_OATH_DELETE
+    )
+}
+
 /// Retorna true para opcodes vendor Fase6 0x20-0x27 (reservados).
 pub fn is_vendor_keys_oath_op(op: u8) -> bool {
     (VENDOR_OP_MIN..=VENDOR_OP_MAX).contains(&op)
@@ -75,6 +113,10 @@ pub enum BleGattError {
     InvalidFragment,
     /// UP ausente (exigido por operacao).
     PresenceRequired,
+    /// PIN ausente onde exigido (vendor privilegiada 0x21/0x23/0x24/0x27).
+    PinRequired,
+    /// Binding ausente/invalido (NEED_BINDING 0x05, so BLE/WiFi, nunca USB).
+    NeedBinding,
 }
 
 impl core::fmt::Display for BleGattError {
@@ -86,6 +128,8 @@ impl core::fmt::Display for BleGattError {
             Self::Overflow => write!(f, "overflow control-point"),
             Self::InvalidFragment => write!(f, "invalid fragment"),
             Self::PresenceRequired => write!(f, "presence required"),
+            Self::PinRequired => write!(f, "pin required"),
+            Self::NeedBinding => write!(f, "binding required (NEED_BINDING 0x05)"),
         }
     }
 }
@@ -355,6 +399,203 @@ impl Default for BleGattServer {
     }
 }
 
+
+// Gates de binding para ops vendor Fase6 (§9.4 + `binding.rs`).
+//
+// - Privilegiadas `0x21/0x23/0x24/0x27`: binding valido + UP + PIN.
+// - `0x20/0x22/0x25/0x26` (GEN/LIST/CODE): binding valido + UP.
+// - Ordem canonica: binding -> UP -> PIN (app alheio sempre ve NEED_BINDING).
+// - `control_write` e framing §1-§3 intactos; USB/CTAP zero mudanca.
+
+/// Status NEED_BINDING (0x05): extensao §9.5, so BLE/WiFi — nunca USB.
+pub const VENDOR_STATUS_NEED_BINDING: u8 = 0x05;
+
+/// `true` quando o op vendor exige UP+PIN (privilegiadas). Demais: so UP.
+/// `0x21` IMPORT | `0x23` KEY_DELETE | `0x24` OATH_PUT | `0x27` OATH_DELETE.
+pub fn vendor_op_requires_pin(op: u8) -> bool {
+    matches!(
+        op,
+        OP_KEY_IMPORT_ENVELOPE | OP_KEY_DELETE | OP_OATH_PUT | OP_OATH_DELETE
+    )
+}
+
+/// Gate normativo §9.4 + binding para um op vendor.
+///
+/// `binding_ok`: `BindingManager::verify` passou para
+/// `(challenge, op, payload_hash)` de uso unico. Nao faz I/O nem alloc.
+pub fn authorize_vendor_op(
+    op: u8,
+    binding_ok: bool,
+    pin_authenticated: bool,
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    if !is_vendor_keys_oath_op(op) {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    // Split uso/config (§11): USO nunca exige vinculo, so UP fisico.
+    if is_usage_op(op) {
+        if !presence_confirmed {
+            return Err(BleGattError::PresenceRequired);
+        }
+        return Ok(());
+    }
+    // CONFIG: teste faz bypass com ltrace (cripto DESABILITADA); release exige vinculo.
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+    } else if !binding_ok {
+        return Err(BleGattError::NeedBinding);
+    }
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    if vendor_op_requires_pin(op) && !pin_authenticated {
+        return Err(BleGattError::PinRequired);
+    }
+    Ok(())
+}
+
+/// Mapeia `BindingError` para `BleGattError` (fiação GATT §11).
+pub fn binding_err_to_gatt(e: crate::binding::BindingError) -> BleGattError {
+    use crate::binding::BindingError as B;
+    match e {
+        B::NotClaimed | B::BadSignature | B::ChallengeMismatch | B::Replay | B::BadPubkey => {
+            BleGattError::NeedBinding
+        }
+        B::PresenceRequired | B::PairingRequired => BleGattError::PresenceRequired,
+        B::PinRequired => BleGattError::PinRequired,
+        B::AlreadyClaimed | B::Corrupted | B::Storage => BleGattError::InvalidFragment,
+    }
+}
+
+/// Mapeia `RecoveryError` para `BleGattError` (fiação GATT §11).
+pub fn recovery_err_to_gatt(e: crate::recovery::RecoveryError) -> BleGattError {
+    use crate::recovery::RecoveryError as R;
+    match e {
+        R::PresenceRequired => BleGattError::PresenceRequired,
+        R::BadPin | R::Locked => BleGattError::PinRequired,
+        R::NotProvisioned | R::Corrupted | R::Storage => BleGattError::InvalidFragment,
+    }
+}
+
+/// Despacho GATT `OP_BIND_CLAIM` (0x28): `app_pub(65)||binding_id(16)` = 81B.
+///
+/// Exige `Unclaimed` + janela de pareamento + UP + pubkey valida.
+/// Persiste em NVS com verify-after-write. Retorna status wire §9.5+0x05.
+pub fn dispatch_bind_claim<B: crate::persistence::FlashStorageBackend>(
+    binding: &mut crate::binding::BindingManager,
+    storage: &mut crate::persistence::SecureStorage<B>,
+    app_pub: &[u8; crate::binding::BIND_PUB_LEN],
+    binding_id: &[u8; crate::binding::BIND_ID_LEN],
+    pairing_window_open: bool,
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    binding
+        .claim(app_pub, binding_id, pairing_window_open, presence_confirmed)
+        .map_err(binding_err_to_gatt)?;
+    binding.persist(storage).map_err(binding_err_to_gatt)?;
+    Ok(())
+}
+
+/// Despacho GATT `OP_BIND_CHALLENGE` (0x29): emite 32B via TRNG.
+///
+/// Exige Claimed (senao NEED_BINDING); invalida o anterior (so o ultimo vale).
+/// Em test-mode o app pode pular o challenge (bypass); o op segue exigindo
+/// Claimed nas duas modalidades (sem bypass aqui).
+pub fn dispatch_bind_challenge<
+    B: crate::persistence::FlashStorageBackend,
+    R: rand_core::RngCore + rand_core::CryptoRng,
+>(
+    binding: &mut crate::binding::BindingManager,
+    _storage: &crate::persistence::SecureStorage<B>,
+    rng: &mut R,
+) -> Result<[u8; crate::binding::BIND_CHALLENGE_LEN], BleGattError> {
+    binding.new_challenge(rng).map_err(binding_err_to_gatt)
+}
+
+/// Despacho GATT `OP_BIND_VERIFY` (0x2A): checa prova sem executar o op.
+///
+/// Helper de teste/diagnostico (`op||challenge||payload_hash||sig`).
+/// Em test-mode o chamador pode pular (bypass nas CONFIG); a cripto aqui
+/// segue valida nas duas modalidades (sem bypass).
+pub fn dispatch_bind_verify(
+    binding: &mut crate::binding::BindingManager,
+    sig: &[u8],
+    challenge: &[u8; crate::binding::BIND_CHALLENGE_LEN],
+    op: u8,
+    payload_hash: &[u8; crate::binding::BIND_PAYLOAD_HASH_LEN],
+) -> Result<(), BleGattError> {
+    if !is_vendor_keys_oath_op(op) && !is_bind_mgmt_op(op) && op != crate::binding::BIND_OP_RELEASE {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    binding
+        .verify(sig, challenge, op, payload_hash)
+        .map_err(binding_err_to_gatt)
+}
+
+/// Despacho GATT `OP_BIND_RELEASE` (0x2B): dono assina e libera re-claim.
+///
+/// Release exige prova (`challenge||0x52||sha256(binding_id)`); em test-mode
+/// faz bypass com ltrace (só UP, wipe direto). Sucesso faz wipe (NVS+RAM).
+pub fn dispatch_bind_release<B: crate::persistence::FlashStorageBackend>(
+    binding: &mut crate::binding::BindingManager,
+    storage: &mut crate::persistence::SecureStorage<B>,
+    sig: &[u8],
+    challenge: &[u8; crate::binding::BIND_CHALLENGE_LEN],
+    payload_hash: &[u8; crate::binding::BIND_PAYLOAD_HASH_LEN],
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+        binding.wipe(storage);
+        return Ok(());
+    }
+    binding
+        .release_signed(storage, sig, challenge, payload_hash)
+        .map_err(binding_err_to_gatt)
+}
+
+/// Despacho GATT `OP_RECOVERY_SET` (0x2C): define PIN 4-6 digitos (exige UP).
+pub fn dispatch_recovery_set<B: crate::persistence::FlashStorageBackend>(
+    storage: &mut crate::persistence::SecureStorage<B>,
+    pin: &str,
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    crate::recovery::set_recovery_pin(storage, pin, presence_confirmed)
+        .map_err(recovery_err_to_gatt)
+}
+
+/// Despacho GATT `OP_RECOVERY_UNLOCK` (0x2D): UP+PIN => wipe e libera re-claim.
+pub fn dispatch_recovery_unlock<B: crate::persistence::FlashStorageBackend>(
+    storage: &mut crate::persistence::SecureStorage<B>,
+    binding: &mut crate::binding::BindingManager,
+    pin: &str,
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    crate::recovery::recovery_unlock(storage, binding, pin, presence_confirmed)
+        .map_err(recovery_err_to_gatt)
+}
+
+impl BleGattError {
+    /// Status wire §9.5: `0x00` OK | `0x01` NEED_UP | `0x02` NEED_PIN |
+    /// `0x03` NO_SLOT | `0x04` BAD_ENVELOPE | `0x05` NEED_BINDING.
+    /// Framing/opcode mapeiam `0x04` (falha generica, sem retry, §9.6).
+    pub fn to_vendor_status(self) -> u8 {
+        match self {
+            Self::PresenceRequired => 0x01,
+            Self::PinRequired => 0x02,
+            Self::NeedBinding => VENDOR_STATUS_NEED_BINDING,
+            Self::InvalidOpcode
+            | Self::TransactionBusy
+            | Self::NoTransaction
+            | Self::Overflow
+            | Self::InvalidFragment => 0x04,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +702,134 @@ mod tests {
         assert!(!is_vendor_keys_oath_op(OP_CANCEL));
         assert!(!is_vendor_keys_oath_op(0x1F));
         assert!(!is_vendor_keys_oath_op(0x28));
+    }
+
+    #[test]
+    fn bind_mgmt_ops_reservados_sem_colisao() {
+        // 0x28-0x2D fora de 0x20-0x27 e CTAP-BLE (0x81/0x83/0xBE), revisao intacta.
+        for op in [OP_BIND_CLAIM, OP_BIND_CHALLENGE, OP_BIND_VERIFY, OP_BIND_RELEASE, OP_RECOVERY_SET, OP_RECOVERY_UNLOCK] {
+            assert!(is_bind_mgmt_op(op));
+            assert!(!is_vendor_keys_oath_op(op));
+            assert!(op != OP_PING && op != OP_MSG && op != OP_CANCEL);
+        }
+        assert_eq!(BIND_MGMT_OP_MIN, 0x28);
+        assert_eq!(BIND_MGMT_OP_MAX, 0x2D);
+        assert!(!is_bind_mgmt_op(0x20));
+        assert!(!is_bind_mgmt_op(0x27));
+        assert!(!is_bind_mgmt_op(0x2E));
+        assert_eq!(GATT_REVISION, 0x01);
+    }
+
+    #[test]
+    fn split_uso_config_no_transporte() {
+        // USO nunca exige vinculo; CONFIG exige em release, bypass em teste.
+        assert!(is_usage_op(OP_KEY_LIST));
+        assert!(is_usage_op(OP_OATH_LIST));
+        assert!(is_usage_op(OP_OATH_CODE));
+        assert!(!is_usage_op(OP_KEY_GEN_ONDEVICE));
+        assert!(is_config_op(OP_KEY_GEN_ONDEVICE));
+        assert!(is_config_op(OP_KEY_IMPORT_ENVELOPE));
+        assert!(is_config_op(OP_KEY_DELETE));
+        assert!(is_config_op(OP_OATH_PUT));
+        assert!(is_config_op(OP_OATH_DELETE));
+        assert!(!is_config_op(OP_OATH_CODE));
+        // USO sem vinculo passa com UP em qualquer modo.
+        authorize_vendor_op(OP_OATH_CODE, false, false, true).expect("uso passa");
+        authorize_vendor_op(OP_KEY_LIST, false, true, true).expect("uso passa");
+        assert_eq!(
+            authorize_vendor_op(OP_OATH_CODE, false, false, false),
+            Err(BleGattError::PresenceRequired)
+        );
+        // CONFIG sem vinculo: release nega, teste bypassa.
+        if crate::binding::binding_bypass_enabled() {
+            authorize_vendor_op(OP_KEY_DELETE, false, true, true).expect("bypass passa");
+        } else {
+            assert_eq!(
+                authorize_vendor_op(OP_KEY_DELETE, false, true, true),
+                Err(BleGattError::NeedBinding)
+            );
+        }
+    }
+
+    #[test]
+    fn dispatch_claim_challenge_release_roundtrip() {
+        use crate::binding::{BIND_ID_LEN, BIND_PUB_LEN, BindingManager};
+        use crate::persistence::{MockFlashBackend, SecureStorage};
+        let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
+        let mut m = BindingManager::new();
+        let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar");
+        let pt = sk.verifying_key().to_encoded_point(false);
+        let mut sec1 = [0u8; BIND_PUB_LEN];
+        sec1.copy_from_slice(pt.as_bytes());
+        let id = [0xABu8; BIND_ID_LEN];
+        // Claim via GATT (Unclaimed+pareamento+UP).
+        dispatch_bind_claim(&mut m, &mut st, &sec1, &id, true, true).expect("claim gatt ok");
+        assert!(m.is_claimed());
+        // Segundo claim nega (dono preservado).
+        assert!(dispatch_bind_claim(&mut m, &mut st, &sec1, &id, true, true).is_err());
+        // Challenge emite 32B; verify consome (uso unico).
+        let ch = dispatch_bind_challenge(&mut m, &st, &mut rand_core::OsRng).expect("ch");
+        assert!(m.has_active_challenge());
+        let ph = [0x11u8; 32];
+        let msg = BindingManager::signed_message(&ch, OP_KEY_LIST, &ph);
+        let sig = {
+            use signature::Signer;
+            let s: p256::ecdsa::Signature = sk.sign(&msg);
+            s.to_der().as_bytes().to_vec()
+        };
+        dispatch_bind_verify(&mut m, &sig, &ch, OP_KEY_LIST, &ph).expect("verify gatt ok");
+        assert!(!m.has_active_challenge());
+        // Release com prova valida faz wipe (re-claim liberado).
+        let ch2 = dispatch_bind_challenge(&mut m, &st, &mut rand_core::OsRng).expect("ch2");
+        let id_hash = {
+            use sha2::{Digest, Sha256};
+            let d = Sha256::digest(id);
+            let mut o = [0u8; 32];
+            o.copy_from_slice(&d);
+            o
+        };
+        let msg2 = BindingManager::signed_message(&ch2, crate::binding::BIND_OP_RELEASE, &id_hash);
+        let sig2 = {
+            use signature::Signer;
+            let s: p256::ecdsa::Signature = sk.sign(&msg2);
+            s.to_der().as_bytes().to_vec()
+        };
+        if crate::binding::binding_bypass_enabled() {
+            dispatch_bind_release(&mut m, &mut st, &sig2, &ch2, &id_hash, true)
+                .expect("release bypass ok");
+        } else {
+            // Lixo nega e mantem dono.
+            assert!(dispatch_bind_release(&mut m, &mut st, b"lixo", &ch2, &id_hash, true).is_err());
+            assert!(m.is_claimed());
+            dispatch_bind_release(&mut m, &mut st, &sig2, &ch2, &id_hash, true)
+                .expect("release ok");
+        }
+        assert!(!m.is_claimed());
+    }
+
+    #[test]
+    fn dispatch_recovery_set_unlock_via_gatt() {
+        use crate::binding::{BIND_ID_LEN, BIND_PUB_LEN, BindingManager};
+        use crate::persistence::{MockFlashBackend, SecureStorage};
+        let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
+        let mut m = BindingManager::new();
+        let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar");
+        let pt = sk.verifying_key().to_encoded_point(false);
+        let mut sec1 = [0u8; BIND_PUB_LEN];
+        sec1.copy_from_slice(pt.as_bytes());
+        m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true).expect("claim");
+        m.persist(&mut st).expect("persist");
+        // SET exige UP e PIN valido.
+        assert_eq!(
+            dispatch_recovery_set(&mut st, "123", true),
+            Err(BleGattError::PinRequired)
+        );
+        dispatch_recovery_set(&mut st, "4242", true).expect("set ok");
+        // UNLOCK com PIN errado nao destrava; certo + UP destrava e libera re-claim.
+        assert!(dispatch_recovery_unlock(&mut st, &mut m, "0000", true).is_err());
+        assert!(m.is_claimed());
+        dispatch_recovery_unlock(&mut st, &mut m, "4242", true).expect("unlock ok");
+        assert!(!m.is_claimed());
     }
 }
 

@@ -86,4 +86,25 @@ object AegisBridge {
         path.substringAfter('?', "").split('&')
             .firstOrNull { it.startsWith("account=") }
             ?.removePrefix("account=")?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Sela [plaintext] num envelope AEGN (chave/nonce transitorios do chamador;
+     * o app deve passar nonce fresco a cada selagem). Falhas sem payload
+     * (nunca segredos/PII).
+     */
+    fun envelopeSeal(key: ByteArray, plaintext: ByteArray, aad: ByteArray, nonce: ByteArray): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.envelopeSeal(
+            key.map { it.toUByte() },
+            plaintext.map { it.toUByte() },
+            aad.map { it.toUByte() },
+            nonce.map { it.toUByte() },
+        ).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    /** Zera buffers transitorios (chamar em finally apos cada send). */
+    fun wipe(vararg buffers: ByteArray) {
+        for (b in buffers) b.fill(0)
+    }
+
 }

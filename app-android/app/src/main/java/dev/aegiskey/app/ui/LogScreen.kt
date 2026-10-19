@@ -104,6 +104,8 @@ fun LogScreen() {
                     Text(
                         formatTs(entry.ts) + " [" + entry.category + "] " + entry.line,
                         style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         fontFamily = FontFamily.Monospace
                     )
                 }

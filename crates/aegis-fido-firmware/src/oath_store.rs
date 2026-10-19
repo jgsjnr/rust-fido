@@ -30,6 +30,8 @@ pub enum OathStoreError {
     NotFound,
     /// Falha de storage ou verify-after-write.
     Storage,
+    /// Binding ausente/invalido (so o app vinculado escreve/le OATH).
+    NeedBinding,
 }
 
 impl core::fmt::Display for OathStoreError {
@@ -39,6 +41,7 @@ impl core::fmt::Display for OathStoreError {
             Self::TooLarge => write!(f, "oath blob too large"),
             Self::NotFound => write!(f, "oath slot not found"),
             Self::Storage => write!(f, "oath storage failure"),
+            Self::NeedBinding => write!(f, "binding required (NEED_BINDING)"),
         }
     }
 }
@@ -98,6 +101,61 @@ pub fn oath_store_delete<B: FlashStorageBackend>(
     storage.delete(&key)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathDelete, label);
     Ok(())
+}
+
+
+// Gates de binding para OATH PUT/DELETE/LIST/CODE (`binding.rs`).
+//
+// - PUT/DELETE: binding + UP + PIN (UP/PIN checados no transporte via
+//   `authorize_vendor_op`; aqui a barreira e o binding).
+// - GET (LIST/CODE): binding (UP checado no transporte).
+// - Ordem canonica: binding primeiro. Secret nunca sai (como antes).
+
+/// Barreira de binding para slots OATH CONFIG (PUT/DELETE).
+/// Release exige vinculo; teste faz bypass com ltrace (so UP+PIN no transporte).
+pub fn require_bound_oath(binding_ok: bool) -> Result<(), OathStoreError> {
+    if binding_ok {
+        return Ok(());
+    }
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+        return Ok(());
+    }
+    Err(OathStoreError::NeedBinding)
+}
+
+/// Grava blob OATH com binding (PUT 0x24).
+pub fn oath_store_put_bound<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    label: &str,
+    blob: &[u8],
+    binding_ok: bool,
+) -> Result<(), OathStoreError> {
+    require_bound_oath(binding_ok)?;
+    oath_store_put(storage, label, blob)
+}
+
+/// Le blob OATH (USO: LIST 0x25 / CODE 0x26): nunca exige vinculo, so UP no transporte.
+///
+/// Split uso/config (§11): USO sem vinculo passa. `binding_ok` ignorado de
+/// proposito (assinatura preservada para compat com chamadores antigos).
+pub fn oath_store_get_bound<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    label: &str,
+    binding_ok: bool,
+) -> Result<Vec<u8>, OathStoreError> {
+    let _ = crate::binding::require_bound_usage(binding_ok);
+    oath_store_get(storage, label)
+}
+
+/// Apaga slot OATH com binding (DELETE 0x27).
+pub fn oath_store_delete_bound<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    label: &str,
+    binding_ok: bool,
+) -> Result<(), OathStoreError> {
+    require_bound_oath(binding_ok)?;
+    oath_store_delete(storage, label)
 }
 
 #[cfg(test)]

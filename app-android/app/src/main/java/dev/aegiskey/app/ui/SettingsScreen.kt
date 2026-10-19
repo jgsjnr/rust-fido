@@ -1,4 +1,4 @@
-﻿package dev.aegiskey.app.ui
+package dev.aegiskey.app.ui
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.security.SanitizedLog
@@ -52,7 +53,7 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onOpenLog: () -> Unit = {}) {
+fun SettingsScreen(onOpenLog: () -> Unit = {}, client: AegisBleClient? = null) {
     val context = LocalContext.current
     val store = remember { SecureStore(context) }
     val scope = rememberCoroutineScope()
@@ -96,7 +97,7 @@ fun SettingsScreen(onOpenLog: () -> Unit = {}) {
                     }
                 }
             }) { Text("Change AP password") }
-            Text("Result: $passMsg")
+            Text("Result: $passMsg", maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
 
             Text("Bonded devices", style = MaterialTheme.typography.titleMedium)
             if (!hasConnect) {
@@ -109,6 +110,9 @@ fun SettingsScreen(onOpenLog: () -> Unit = {}) {
                 ListItem(headlineContent = { Text("Bonded device") }, supportingContent = { Text(address) })
             }
             Text("Unpair from system Bluetooth settings.", style = MaterialTheme.typography.bodySmall)
+
+            Text("Protecao e recuperacao", style = MaterialTheme.typography.titleMedium)
+            ProtectionRecoverySection(client)
 
             Text("Local data", style = MaterialTheme.typography.titleMedium)
             OutlinedButton(onClick = { wipeStep = 1 }) { Text("Wipe local app data") }

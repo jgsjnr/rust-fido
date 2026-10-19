@@ -48,6 +48,16 @@ gradle wrapper --gradle-version 8.7   # gera ./gradlew (ausente de propósito aq
 - [ ] Vault: código = LCD do device; countdown 30s; copiar funciona; import/export valida `AEGN`.
 - [ ] Settings: senha curta rejeitada local; sem UP+PIN → `401`; wipe duplo só limpa o app.
 
+## 4b. QA protecao e recuperacao (firmware section 11, device real)
+
+- [ ] Wizard mostra "Protecao e recuperacao" apos o vinculo (opcoes A+B, textos simples).
+- [ ] Opcao A guarda a chave-reserva em EncryptedFile; "Apagar" remove so do celular.
+- [ ] Opcao B: senha curta ou diferente rejeitada local (sem BLE); sem UP -> "toque no botao".
+- [ ] "Perdi meu app": 0x2D + UP + senha certa -> vinculo liberado; Continuar abre o claim (0x28).
+- [ ] 0x2D senha errada -> "senha errada" (tentativas caem no device, 8 no total; zerou = reset fisico).
+- [ ] Banner modo: LIST vazio sem dono -> release responde 0x05; teste mostra "MODO TESTE".
+- [ ] Zero `Log.*` novo (so SanitizedLog/DeviceLog); senha nunca em log nem em prefs.
+
 ## 5. Rust (nesta worktree, já verde)
 
 ```sh

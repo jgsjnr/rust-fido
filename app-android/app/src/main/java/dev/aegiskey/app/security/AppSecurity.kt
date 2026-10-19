@@ -35,6 +35,13 @@ object SanitizedLog {
         APP_LOCK_FAILED,
         DEVICE_PRESS_CANCELLED,
         INTEGRITY_CHECK,
+        BINDING_KEY_CREATED,
+        BINDING_CLAIMED,
+        BINDING_SIGNED,
+        BINDING_CLEARED,
+        RECOVERY_PIN_SET,
+        RECOVERY_UNLOCKED,
+        BACKUP_KEY_SAVED,
     }
 
     private const val MAX_EVENTS = 128
@@ -69,6 +76,13 @@ object SanitizedLog {
             Event.APP_LOCK_FAILED -> DeviceLog.append(DeviceLog.Category.LOCK, "app unlock failed")
             Event.DEVICE_PRESS_CANCELLED -> DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_CANCEL(0xBE) user cancelled")
             Event.INTEGRITY_CHECK -> DeviceLog.append(DeviceLog.Category.SYSTEM, "integrity check")
+            Event.BINDING_KEY_CREATED -> DeviceLog.append(DeviceLog.Category.PAIRING, "binding key created (phone only)")
+            Event.BINDING_CLAIMED -> DeviceLog.append(DeviceLog.Category.PAIRING, "binding claimed (owner set)")
+            Event.BINDING_SIGNED -> DeviceLog.append(DeviceLog.Category.PAIRING, "binding challenge signed")
+            Event.BINDING_CLEARED -> DeviceLog.append(DeviceLog.Category.PAIRING, "binding cleared")
+            Event.RECOVERY_PIN_SET -> DeviceLog.append(DeviceLog.Category.PAIRING, "recovery pin set (device only)")
+            Event.RECOVERY_UNLOCKED -> DeviceLog.append(DeviceLog.Category.PAIRING, "recovery unlock ok (re-claim free)")
+            Event.BACKUP_KEY_SAVED -> DeviceLog.append(DeviceLog.Category.PAIRING, "backup key saved (phone only)")
             Event.STATUS_NOTIFY,
             Event.CTAP_SENT,
             Event.CTAP_RESPONSE,
@@ -128,3 +142,4 @@ object PlayIntegrity {
         return Result.Unavailable
     }
 }
+

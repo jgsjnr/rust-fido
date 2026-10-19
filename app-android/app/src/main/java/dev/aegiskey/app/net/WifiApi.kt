@@ -78,6 +78,76 @@ object WifiApi {
         }
     }
 
+    /**
+     * GET /wifi/nets: redes salvas no device.
+     * Aceita `{"nets":["casa","lab"]}` ou `["casa","lab"]`.
+     * Firmware atual ainda nao expoe (404 = vazio amigavel, sem erro).
+     * Loga so a contagem, nunca SSIDs (sem PII).
+     */
+    fun getWifiNets(baseUrl: String): List<String> {
+        val conn = open("$baseUrl/wifi/nets", "GET", "application/json")
+        try {
+            val code = conn.responseCode
+            DeviceLog.append(DeviceLog.Category.WIFI, "HTTP GET /wifi/nets -> HTTP " + code)
+            if (code == 404) return emptyList()
+            if (code !in 200..299) throw IOException("wifi nets failed: HTTP $code")
+            val body = conn.inputStream.bufferedReader().use { it.readText() }.take(4096)
+            val nets = parseNetsJson(body)
+            DeviceLog.append(DeviceLog.Category.WIFI, "HTTP GET /wifi/nets count=" + nets.size)
+            return nets
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
+     * Teste de conexao: qualquer resposta HTTP (ate 404) = alcancavel;
+     * so IOException/timeout = inal Cancavel. Nao loga corpo.
+     */
+    fun testConnection(baseUrl: String): Boolean {
+        return try {
+            val conn = open("$baseUrl/wifi/nets", "GET", "application/json")
+            try {
+                conn.connectTimeout = 3000
+                val code = conn.responseCode
+                DeviceLog.append(DeviceLog.Category.WIFI, "HTTP test -> HTTP " + code)
+                code in 200..599
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun parseNetsJson(body: String): List<String> {
+        return try {
+            val trimmed = body.trim()
+            if (trimmed.startsWith("{")) {
+                val obj = org.json.JSONObject(trimmed)
+                val arr = obj.optJSONArray("nets") ?: return emptyList()
+                readJsonStrings(arr)
+            } else if (trimmed.startsWith("[")) {
+                readJsonStrings(org.json.JSONArray(trimmed))
+            } else {
+                emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun readJsonStrings(arr: org.json.JSONArray): List<String> {
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < arr.length() && out.size < 32) {
+            val s = arr.optString(i, "").trim()
+            if (s.isNotEmpty()) out.add(s.take(64))
+            i += 1
+        }
+        return out
+    }
+
     private fun open(url: String, method: String, contentType: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method

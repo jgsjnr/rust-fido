@@ -9,6 +9,8 @@
 //! - Wave4: pairing journey (5s hold), BLE GATT 0xFFFD, WiFi AP, UI journey.
 
 pub mod ble_gatt;
+pub mod binding;
+pub mod recovery;
 pub mod button;
 pub mod config;
 pub mod display;
@@ -16,9 +18,11 @@ pub mod efuse;
 pub mod identity;
 pub mod led;
 pub mod lifetime_trace;
+pub mod mdns;
 pub mod migrations;
 pub mod oath_store;
 pub mod pairing;
+pub mod pairing_flow;
 pub mod pairing_led;
 pub mod persistence;
 pub mod provision;
@@ -26,6 +30,7 @@ pub mod totp_view;
 pub mod ui_journey;
 pub mod watchdog;
 pub mod wifi_ap;
+pub mod wifi_station;
 pub mod usb_descriptors;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};

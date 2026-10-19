@@ -24,7 +24,7 @@ use aegis_fido_firmware::{
     led::{EspWs2812Output, Ws2812Controller},
     persistence::{RamFlashBackend, SecureStorage},
     provision::load_device_keys,
-    totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_LONG_PRESS_TICKS, TOTP_SHOW_TICKS},
+    totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_SHOW_TICKS},
     watchdog::Watchdog,
     usb_descriptors,
 };
@@ -230,6 +230,20 @@ fn run_authenticator() {
         .expect("Persist boot state");
     kprintln!("[INIT] Encrypted Flash / NVS storage ready.");
 
+    // Binding: dono exclusivo de BLE vendor + WiFi mgmt (release exige vinculo
+    // para CONFIGURAR; teste faz bypass com ltrace). USB/CTAP zero mudanca.
+    // Carrega da NVS (par ausente = Unclaimed; parcial = Corrupted e exige reset).
+    let mut binding_mgr = match aegis_fido_firmware::binding::BindingManager::load_from_storage(&storage) {
+        Ok(m) => {
+            kprintln!("[INIT] Binding loaded (claimed={}).", m.is_claimed());
+            m
+        }
+        Err(e) => {
+            kprintln!("[WARN] Binding store inconsistent ({e}); starting unclaimed (factory_reset recovers).");
+            aegis_fido_firmware::binding::BindingManager::new()
+        }
+    };
+
     // 4. Initialize Hardware Buttons: BOOT (GPIO 0) + Optional KEY (GPIO 14 / GPIO 35)
     kprintln!("[INIT] Initializing Hardware Buttons...");
     let boot_input = EspBootButtonInput::new();
@@ -267,6 +281,12 @@ fn run_authenticator() {
     let mut press_start_tick: Option<u64> = None;
     let mut totp_display_until: u64 = 0;
     let mut totp_account_idx: usize = 0;
+    // Phase8 UX-conex: PairingManager orfao agora alimentado no loop (hold 5s vence TOTP 2s).
+    let mut pairing_mgr = aegis_fido_firmware::pairing::PairingManager::new();
+    // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
+    let mut wifi_ap_mgr = aegis_fido_firmware::wifi_ap::WifiApManager::new();
+    let mut mdns_mgr = aegis_fido_firmware::mdns::MdnsManager::new();
+    let mut sta_mgr = aegis_fido_firmware::wifi_station::WifiStationManager::new();
     // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
     // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
 
@@ -314,6 +334,17 @@ fn run_authenticator() {
         let is_boot_pressed = button_mgr.is_boot_pressed(std::thread::sleep);
         let is_key_pressed = button_mgr.is_key_pressed(std::thread::sleep);
 
+        // Phase8 UX-conex: alimenta PairingManager todo poll (corrige orfao).
+        pairing_mgr.on_button_level(is_boot_pressed, now_ms);
+        pairing_mgr.tick(now_ms);
+        let pairing_open_now = pairing_mgr.is_pairing_window_open(now_ms);
+        // Binding + recovery: fiação transporte GATT/main (tick todo poll; USB intacto).
+        binding_mgr.tick(now_ms);
+        let _ = binding_mgr.is_claimed();
+        // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
+        wifi_ap_mgr.update(pairing_open_now, false, now_ms);
+        sta_mgr.update(pairing_open_now, false, now_ms);
+        mdns_mgr.update(pairing_open_now, sta_mgr.is_up());
         if is_boot_pressed {
             if press_start_tick.is_none() {
                 press_start_tick = Some(tick);
@@ -322,8 +353,14 @@ fn run_authenticator() {
                 touch_expire_tick = tick + 150; // Keep touch valid for 1.5 seconds
                 kprintln!("[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED.");
             } else if let Some(start) = press_start_tick {
+                // Phase8 UX-conex: hold>=5000 PairingReady vence; TOTP so em [2s,5s) sem pairing.
+                let held_ms = tick.saturating_sub(start).saturating_mul(10);
+                let hold_action = aegis_fido_firmware::pairing_flow::classify_hold(held_ms, pairing_open_now);
+                if hold_action == aegis_fido_firmware::pairing_flow::HoldAction::PairingReady {
+                    kprintln!("[PAIRING] 5s hold detected! Pairing window open (60s).");
+                }
                 // WAVE8: long-press 2s -> CALCULATE no device (UP confirmado pelo hold).
-                if (tick - start) >= TOTP_LONG_PRESS_TICKS && totp_display_until <= tick {
+                if hold_action == aegis_fido_firmware::pairing_flow::HoldAction::Totp && totp_display_until <= tick {
                     kprintln!("[LONG PRESS] 2-second hold detected! Calculating OATH TOTP on device...");
                     totp_display_until = tick + TOTP_SHOW_TICKS; // 15s (igual Vault auto-clear)
                     let entries = collect_totp_codes(&mut oath_applet, now_secs, true);

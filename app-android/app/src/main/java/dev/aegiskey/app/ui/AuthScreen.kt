@@ -23,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.security.AppLock
 import dev.aegiskey.app.security.FeatureFlags
@@ -58,7 +59,7 @@ fun AuthScreen(client: AegisBleClient) {
             Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Link: ${state.connection} · FFF2: ${BleContract.statusLabel(state.status)}")
+            Text("Link: ${state.connection} · FFF2: ${BleContract.statusLabel(state.status)}", maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (FeatureFlags.ENABLE_DEVICE_PRESS && state.status == BleContract.STATUS_UP_NEEDED) {
                 PressDeviceSheet(
                     statusLabel = BleContract.statusLabel(state.status),
@@ -104,7 +105,7 @@ fun AuthScreen(client: AegisBleClient) {
                     }
                 }
             ) { Text("Cancel transaction (0xBE)") }
-            Text("Result: $result")
+            Text("Result: $result", maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 "User verification happens on the device (ClientPIN + button).",
                 style = MaterialTheme.typography.bodySmall
