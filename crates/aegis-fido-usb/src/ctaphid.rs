@@ -194,6 +194,14 @@ impl CtapHidManager {
         }
     }
 
+    /// True while a multi-packet message is being reassembled.
+    ///
+    /// Lets a shared-wire transport (serial logs + CTAPHID on one UART)
+    /// suppress log text mid-transaction so binary framing never interleaves.
+    pub fn has_pending_assembly(&self) -> bool {
+        self.active_assembly.is_some()
+    }
+
     /// Locks the channel for the specified duration (in seconds, up to 10s).
     pub fn set_lock(&mut self, cid: u32, lock_secs: u8, now_ms: u64) -> Result<(), CtapHidError> {
         if lock_secs == 0 {

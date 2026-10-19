@@ -64,6 +64,24 @@ void aegis_usb_set_rx_callback(aegis_hid_rx_callback_t callback) {
     (void)callback;
 }
 
+uint16_t aegis_usb_read_chunk(uint8_t *out_buf, uint16_t max_len) {
+    if (!s_initialized || out_buf == NULL || max_len == 0) {
+        return 0;
+    }
+
+    size_t buffered = 0;
+    uart_get_buffered_data_len(UART_PORT, &buffered);
+
+    // Never split a 64-byte packet: packets always win the wire.
+    if (buffered == 0 || buffered >= PACKET_SIZE) {
+        return 0;
+    }
+
+    uint16_t want = (buffered < max_len) ? (uint16_t)buffered : max_len;
+    int read_bytes = uart_read_bytes(UART_PORT, out_buf, want, 0);
+    return (read_bytes > 0) ? (uint16_t)read_bytes : 0;
+}
+
 uint16_t aegis_usb_pop_packet(uint8_t *out_buf, uint16_t max_len) {
     if (!s_initialized || out_buf == NULL || max_len < PACKET_SIZE) {
         return 0;

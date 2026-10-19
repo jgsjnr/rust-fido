@@ -27,6 +27,7 @@ pub mod pairing_flow;
 pub mod pairing_led;
 pub mod persistence;
 pub mod provision;
+pub mod serial_ctaphid;
 pub mod totp_view;
 pub mod ui_journey;
 pub mod watchdog;

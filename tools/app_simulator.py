@@ -27,10 +27,10 @@ is never printed (mirrors SanitizedLog).
 
 Device-side notes:
 - TEST_LIFETIME_DUMP is answered by firmware with `test-mode` (text line over
-  the same serial link; host bridge reads stdin, ESP-IDF wires UART RX).
-- Routing serial CTAPHID bytes into CtapHidManager / vendor dispatch on the
-  device is follow-up firmware work; framing here is implemented and self-tested
-  so both sides share one definition. HTTP routes and the dump work today.
+  the same serial link; host bridge reads stdin, ESP-IDF polls UART RX lines).
+- Serial CTAPHID bytes route into CtapHidManager / vendor dispatch on the
+  device (firmware `serial_ctaphid`, same 64B framing, pairing-mode + UP
+  gates); heartbeat text stays outside the framing and is ignored mid-exchange.
 
 Usage:
   python tools/app_simulator.py [--port COM7] [--baud 115200]

@@ -42,6 +42,13 @@ void aegis_usb_set_rx_callback(aegis_hid_rx_callback_t callback);
  */
 uint16_t aegis_usb_pop_packet(uint8_t *out_buf, uint16_t max_len);
 
+/**
+ * Non-blocking diagnostic text read (TEST_LIFETIME_DUMP with test-mode).
+ * Yields bytes ONLY while fewer than 64 are buffered, so a 64-byte CTAPHID
+ * packet is never split by the dump path.
+ */
+uint16_t aegis_usb_read_chunk(uint8_t *out_buf, uint16_t max_len);
+
 #ifdef __cplusplus
 }
 #endif

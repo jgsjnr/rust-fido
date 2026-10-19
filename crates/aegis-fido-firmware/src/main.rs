@@ -43,6 +43,19 @@ extern "C" {
     fn aegis_usb_is_mounted() -> bool;
     fn aegis_usb_send_report(packet: *const u8, len: u16) -> bool;
     fn aegis_usb_pop_packet(out_buf: *mut u8, max_len: u16) -> u16;
+    // Serial CTAPHID (UART 115200, framing identical to USB). Classic reuses
+    // the UART-backed aegis_usb_* symbols; S3/S2 use aegis_serial_* (UART0
+    // diagnostic channel alongside native USB-OTG).
+    #[cfg(all(feature = "board-ttgo-classic", feature = "test-mode"))]
+    fn aegis_usb_read_chunk(out_buf: *mut u8, max_len: u16) -> u16;
+    #[cfg(not(feature = "board-ttgo-classic"))]
+    fn aegis_serial_init() -> esp_idf_sys::esp_err_t;
+    #[cfg(not(feature = "board-ttgo-classic"))]
+    fn aegis_serial_send_report(packet: *const u8, len: u16) -> bool;
+    #[cfg(not(feature = "board-ttgo-classic"))]
+    fn aegis_serial_pop_packet(out_buf: *mut u8, max_len: u16) -> u16;
+    #[cfg(all(not(feature = "board-ttgo-classic"), feature = "test-mode"))]
+    fn aegis_serial_read_chunk(out_buf: *mut u8, max_len: u16) -> u16;
 }
 
 macro_rules! kprintln {
@@ -114,6 +127,53 @@ fn extract_rp_and_user(cmd: u8, payload: &[u8]) -> (String, String, &'static str
         }
     }
     ("WebAuthn".into(), "Chave FIDO2".into(), "Autorização FIDO2")
+}
+
+/// Serial CTAPHID byte source/sink (UART 115200).
+///
+/// Classic (single serial port): the UART-backed `aegis_usb_*` transport IS
+/// the serial link. S3/S2: `aegis_serial_*` on the UART0 diagnostic channel,
+/// alongside native USB-OTG (whose section below stays untouched).
+#[cfg(target_os = "espidf")]
+fn serial_pop_packet(out: &mut [u8; PACKET_SIZE]) -> u16 {
+    #[cfg(feature = "board-ttgo-classic")]
+    unsafe {
+        aegis_usb_pop_packet(out.as_mut_ptr(), PACKET_SIZE as u16)
+    }
+    #[cfg(not(feature = "board-ttgo-classic"))]
+    unsafe {
+        aegis_serial_pop_packet(out.as_mut_ptr(), PACKET_SIZE as u16)
+    }
+}
+
+/// Sends raw bytes over the serial link (64B CTAPHID packets or dump text).
+#[cfg(target_os = "espidf")]
+fn serial_send_bytes(packet: *const u8, len: u16) -> bool {
+    #[cfg(feature = "board-ttgo-classic")]
+    unsafe {
+        aegis_usb_send_report(packet, len)
+    }
+    #[cfg(not(feature = "board-ttgo-classic"))]
+    unsafe {
+        aegis_serial_send_report(packet, len)
+    }
+}
+
+/// Non-blocking diagnostic text read.
+///
+/// Yields bytes ONLY while fewer than 64 are buffered, so a 64-byte CTAPHID
+/// packet is never split by the dump path: binary bursts always win the wire.
+/// Diagnostic-idle use (TEST_LIFETIME_DUMP with test-mode).
+#[cfg(all(target_os = "espidf", feature = "test-mode"))]
+fn serial_read_chunk(out: &mut [u8], max_len: u16) -> u16 {
+    #[cfg(feature = "board-ttgo-classic")]
+    unsafe {
+        aegis_usb_read_chunk(out.as_mut_ptr(), max_len)
+    }
+    #[cfg(not(feature = "board-ttgo-classic"))]
+    unsafe {
+        aegis_serial_read_chunk(out.as_mut_ptr(), max_len)
+    }
 }
 
 /// Etapa B — despacha 1 mensagem GATT completa e notifica via FFF2.
@@ -307,6 +367,20 @@ fn run_authenticator() {
     let usb_installed = true;
     #[cfg(not(target_os = "espidf"))]
     let _ = usb_installed;
+    // Serial CTAPHID UART ready flag (classic reuses the UART transport above;
+    // S3/S2 bring up UART0 as the diagnostic channel next to native USB).
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    let serial_installed = unsafe {
+        if aegis_serial_init() == esp_idf_sys::ESP_OK {
+            kprintln!("[INIT] Serial CTAPHID UART online (115200 8N1, framing = USB).");
+            true
+        } else {
+            kprintln!("[WARN] Serial CTAPHID UART init failed; USB stays primary.");
+            false
+        }
+    };
+    #[cfg(all(target_os = "espidf", feature = "board-ttgo-classic"))]
+    let serial_installed = usb_installed;
 
     // 1. Initialize Display Subsystem (WS2812 RGB LED on DevKitC-1 + ST7789 IPS LCD on LilyGO T-Display)
     kprintln!("[INIT] Initializing Display & Visual Feedback Engine...");
@@ -425,6 +499,10 @@ fn run_authenticator() {
     let mut oath_applet = OathApplet::new();
     #[cfg(not(target_os = "espidf"))]
     let _ = (&ctaphid_mgr, &ctap_engine);
+    // Classic serves CTAPHID through the serial section D (ctaphid_mgr stays
+    // as the S3-USB manager only).
+    #[cfg(all(target_os = "espidf", feature = "board-ttgo-classic"))]
+    let _ = &ctaphid_mgr;
     let mut rescue_engine = RescueEngine::new();
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
 
@@ -463,6 +541,13 @@ fn run_authenticator() {
 
     #[cfg(target_os = "espidf")]
     let mut rx_buf = [0u8; PACKET_SIZE];
+    // Serial CTAPHID (UART 115200, framing identical to USB): text-tolerant
+    // router plus pairing-mode + UP gates (simulator parity).
+    #[cfg(target_os = "espidf")]
+    let mut serial_router = aegis_fido_firmware::serial_ctaphid::SerialRouter::new();
+    // Diagnostic text-line buffer (TEST_LIFETIME_DUMP with test-mode).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    let mut serial_line: Vec<u8> = Vec::new();
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
 
@@ -874,8 +959,9 @@ fn run_authenticator() {
         // B. Update Display Animation & LED
         display_mgr.tick(elapsed);
 
-        // C. Service USB CTAPHID Packets
-        #[cfg(target_os = "espidf")]
+        // C. Service USB CTAPHID Packets (native USB-OTG; classic serves
+        // the same UART through the serial section D below instead).
+        #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
         if usb_installed {
             let bytes_read =
                 unsafe { aegis_usb_pop_packet(rx_buf.as_mut_ptr(), PACKET_SIZE as u16) };
@@ -1161,8 +1247,277 @@ fn run_authenticator() {
             }
         }
 
-        // Heartbeat log every 3 seconds (300 ticks * 10ms = 3000ms)
-        if tick.is_multiple_of(300) {
+        // D. Service serial CTAPHID (UART 115200, framing identical to USB).
+        //
+        // Classic: this IS the transport (single serial port). S3/S2: UART0
+        // diagnostic channel alongside native USB (section C untouched).
+        // Heartbeat text stays outside the framing (the router ignores it);
+        // test-mode answers TEST_LIFETIME_DUMP text lines on the same wire.
+        // Vendor keys/OATH (0x20-0x27) use the BLE-identical gates with a
+        // status-only answer (on-device executor = follow-up, status 0x04).
+        // Binding mgmt over serial (0x28-0x2D) is follow-up work and answers
+        // ERR_INVALID_CMD like unknown USB commands.
+        #[cfg(target_os = "espidf")]
+        if serial_installed {
+            use aegis_fido_firmware::ble_gatt::is_vendor_keys_oath_op;
+            use aegis_fido_firmware::serial_ctaphid::{
+                authorize_serial, deny_response, dispatch_serial_vendor,
+                serial_is_up_required, SerialFeed, SerialGate,
+            };
+            #[cfg(feature = "test-mode")]
+            use aegis_fido_firmware::serial_ctaphid::dispatch_serial_text_line;
+
+            // D1. Diagnostic text lines (dump with test-mode; idle use only).
+            #[cfg(feature = "test-mode")]
+            {
+                let mut chunk = [0u8; 32];
+                let n = serial_read_chunk(&mut chunk, 32);
+                for b in chunk.iter().take(n as usize) {
+                    if *b == b'\n' {
+                        if let Ok(line) = core::str::from_utf8(&serial_line) {
+                            let extra = format!(
+                                "uptime_s={} up_latched={}",
+                                tick * 10 / 1000,
+                                touch_latched
+                            );
+                            if let Some(resp) = dispatch_serial_text_line(line, &extra) {
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            }
+                        }
+                        serial_line.clear();
+                    } else if serial_line.len() < 48 {
+                        serial_line.push(*b);
+                    } else {
+                        serial_line.clear();
+                    }
+                }
+            }
+
+            // D2. 64-byte packets (INIT/CONT, CID, keepalive — same as USB).
+            let serial_n = serial_pop_packet(&mut rx_buf);
+            if serial_n == PACKET_SIZE as u16 {
+                match serial_router.feed(&rx_buf, now_ms) {
+                    SerialFeed::IgnoredText | SerialFeed::NeedMore => {}
+                    SerialFeed::Error(err) => {
+                        kprintln!("[SERIAL] Protocol error: {}", err);
+                        let pkt = err.to_packet();
+                        serial_send_bytes(pkt.as_ptr(), PACKET_SIZE as u16);
+                    }
+                    SerialFeed::Message(msg) => {
+                        kprintln!(
+                            "[SERIAL] Message! CID: 0x{:08X}, CMD: 0x{:02X}, Len: {}",
+                            msg.cid,
+                            msg.cmd,
+                            msg.payload.len()
+                        );
+                        match msg.cmd {
+                            CMD_INIT => {
+                                if msg.payload.len() >= 8 {
+                                    let mut nonce = [0u8; 8];
+                                    nonce.copy_from_slice(&msg.payload[0..8]);
+                                    let new_cid = serial_router.allocate_cid();
+                                    let pkt = CtapHidFramer::frame_init_response(
+                                        msg.cid,
+                                        &nonce,
+                                        new_cid,
+                                        1,
+                                        0,
+                                        0,
+                                        CAPABILITY_WINK | CAPABILITY_CBOR,
+                                    );
+                                    serial_send_bytes(pkt.as_ptr(), PACKET_SIZE as u16);
+                                    kprintln!("[SERIAL] Allocated CID: 0x{:08X}", new_cid);
+                                }
+                            }
+                            CMD_PING => {
+                                for p in CtapHidFramer::frame_ping(msg.cid, &msg.payload) {
+                                    serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                }
+                            }
+                            CMD_WINK => {
+                                if let Some(ref mut led) = display_mgr.led_controller {
+                                    led.set_effect(LedEffect::Wink);
+                                }
+                                for p in CtapHidFramer::frame_message(msg.cid, CMD_WINK, &[]) {
+                                    serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                }
+                            }
+                            CMD_CBOR | CMD_MSG => {
+                                if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && is_vendor_keys_oath_op(msg.payload[0])
+                                {
+                                    // Vendor keys/OATH: app-driven UP (latch, like
+                                    // BLE); denial carries the BLE wire status.
+                                    let op = msg.payload[0];
+                                    match authorize_serial(
+                                        msg.cmd,
+                                        &msg.payload,
+                                        pairing_open_now,
+                                        touch_latched,
+                                    ) {
+                                        SerialGate::NeedPairing => {
+                                            kprintln!(
+                                                "[SERIAL] Pairing-mode required (hold BOOT 5s)."
+                                            );
+                                            for p in deny_response(&msg) {
+                                                serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                            }
+                                        }
+                                        SerialGate::NeedUp => {
+                                            // NEED_UP (0x01); the app re-sends after
+                                            // the user taps BOOT (BLE parity).
+                                            for p in CtapHidFramer::frame_message(
+                                                msg.cid,
+                                                msg.cmd,
+                                                &[0x01],
+                                            ) {
+                                                serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                            }
+                                        }
+                                        SerialGate::Ok => {
+                                            touch_latched = false;
+                                            rescue_engine.set_user_presence(true);
+                                            let (st, body) = dispatch_serial_vendor(
+                                                op,
+                                                binding_mgr.is_claimed(),
+                                                true,
+                                            );
+                                            let mut resp = Vec::with_capacity(1 + body.len());
+                                            resp.push(st);
+                                            resp.extend_from_slice(&body);
+                                            for p in CtapHidFramer::frame_message(
+                                                msg.cid, msg.cmd, &resp,
+                                            ) {
+                                                serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                            }
+                                        }
+                                    }
+                                } else if authorize_serial(
+                                    msg.cmd,
+                                    &msg.payload,
+                                    pairing_open_now,
+                                    touch_latched,
+                                ) == SerialGate::NeedPairing
+                                {
+                                    kprintln!("[SERIAL] Pairing-mode required (hold BOOT 5s).");
+                                    for p in deny_response(&msg) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else {
+                                    // CTAP/U2F path: latch fast-path, else a
+                                    // bounded 25s UP wait with serial keepalive
+                                    // (same UX contract as the USB section).
+                                    let ctap_subcmd = msg.payload.first().copied().unwrap_or(0);
+                                    let up_needed = serial_is_up_required(msg.cmd, &msg.payload);
+                                    let (rp_id, user_name, op_name) =
+                                        extract_rp_and_user(ctap_subcmd, &msg.payload);
+                                    let mut up_ok = false;
+                                    if up_needed {
+                                        if touch_latched {
+                                            up_ok = true;
+                                            touch_latched = false;
+                                            rescue_engine.set_user_presence(true);
+                                            kprintln!(
+                                                "[SERIAL][UP] Latched touch confirms {}.",
+                                                rp_id
+                                            );
+                                        } else {
+                                            kprintln!(
+                                                "[SERIAL][UP] Touch BOOT for {} ({}), 25s...",
+                                                rp_id,
+                                                op_name
+                                            );
+                                            display_mgr.set_screen(UiScreen::UserPresencePrompt {
+                                                rp_id: rp_id.clone(),
+                                                user_name: user_name.clone(),
+                                                operation: op_name.into(),
+                                                remaining_seconds: 25,
+                                            });
+                                            for wait_step in 0..1250u32 {
+                                                if wait_step % 5 == 0 {
+                                                    let ka = CtapHidFramer::frame_keepalive(
+                                                        msg.cid,
+                                                        STATUS_UPNEEDED,
+                                                    );
+                                                    serial_send_bytes(
+                                                        ka.as_ptr(),
+                                                        PACKET_SIZE as u16,
+                                                    );
+                                                }
+                                                if button_mgr.is_boot_pressed(std::thread::sleep) {
+                                                    up_ok = true;
+                                                    rescue_engine.set_user_presence(true);
+                                                    kprintln!(
+                                                        "[SERIAL][BUTTON] UP confirmed on BOOT."
+                                                    );
+                                                    break;
+                                                }
+                                                if button_mgr.is_key_pressed(std::thread::sleep) {
+                                                    kprintln!(
+                                                        "[SERIAL][BUTTON] Cancelled via KEY."
+                                                    );
+                                                    break;
+                                                }
+                                                std::thread::sleep(Duration::from_millis(20));
+                                            }
+                                            if up_ok {
+                                                display_mgr.set_screen(UiScreen::Success {
+                                                    title: "ACESSO AUTORIZADO".into(),
+                                                    subtitle: rp_id.clone(),
+                                                });
+                                            } else {
+                                                display_mgr.set_screen(UiScreen::Error {
+                                                    message: "Tempo esgotado ou cancelado".into(),
+                                                });
+                                            }
+                                        }
+                                    } else {
+                                        up_ok = true;
+                                    }
+                                    ctap_engine.set_user_presence(up_ok);
+                                    let mut rng = rand_core::OsRng;
+                                    let res = ctap_engine.process_packet(
+                                        &msg.payload,
+                                        now_secs,
+                                        &mut rng,
+                                    );
+                                    kprintln!(
+                                        "[SERIAL][CTAP2] status 0x{:02X}, {} bytes",
+                                        res.first().copied().unwrap_or(0xFF),
+                                        res.len()
+                                    );
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &res) {
+                                        if !serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16) {
+                                            kprintln!("[SERIAL] TX failed (packet dropped).");
+                                        }
+                                    }
+                                    if up_needed && up_ok {
+                                        std::thread::sleep(Duration::from_millis(800));
+                                        display_mgr.set_screen(UiScreen::IdleStandby {
+                                            status_text: "Aguardando solicitação FIDO2...".into(),
+                                        });
+                                    }
+                                }
+                            }
+                            _ => {
+                                let pkt = CtapHidFramer::frame_error(msg.cid, 0x01);
+                                serial_send_bytes(pkt.as_ptr(), PACKET_SIZE as u16);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Heartbeat log every 3 seconds (300 ticks * 10ms = 3000ms).
+        // Silent mid-transaction on the shared serial wire so heartbeat text
+        // never interleaves a 64-byte CTAPHID exchange (framing stays clean).
+        #[cfg(target_os = "espidf")]
+        let serial_busy = serial_router.has_pending();
+        #[cfg(not(target_os = "espidf"))]
+        let serial_busy = false;
+        if tick.is_multiple_of(300) && !serial_busy {
             #[cfg(target_os = "espidf")]
             let usb_mounted = if usb_installed {
                 unsafe { aegis_usb_is_mounted() }
