@@ -327,7 +327,15 @@ async def run_live(args):
         try:
             svcs = getattr(client, "services", None)
             if svcs is None or len(list(svcs)) == 0:
-                svcs = await asyncio.wait_for(client.get_services(), timeout=step_timeout)
+                # bleak >=0.20: sem get_services(); servicos vêm do connect.
+                # Aguarda breve (descoberta assíncrona no backend) e relê.
+                for _ in range(20):
+                    await asyncio.sleep(0.5)
+                    svcs = getattr(client, "services", None)
+                    if svcs is not None and len(list(svcs)) > 0:
+                        break
+            if svcs is None or len(list(svcs)) == 0:
+                raise StageError("DISCOVER", "servicos vazios apos connect (bleak sem get_services)")
             found = set()
             for svc in svcs:
                 for ch in getattr(svc, "characteristics", []):
