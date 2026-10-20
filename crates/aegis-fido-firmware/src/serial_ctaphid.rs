@@ -235,9 +235,16 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
 ///
 /// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
 /// executor = follow-up, same as BLE), denial maps via `to_vendor_status`.
-/// `binding_ok` comes from the caller (`BindingManager::verify` proof).
-pub fn dispatch_serial_vendor(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
-    match authorize_vendor_op(op, binding_ok, false, up) {
+/// `binding_ok` comes from the caller (`BindingManager::verify` proof);
+/// `pin_authenticated` = sessão pinUvAuth viva (plumbing ClientPIN, como
+/// no rescue; fail-closed sem ela).
+pub fn dispatch_serial_vendor(
+    op: u8,
+    binding_ok: bool,
+    pin_authenticated: bool,
+    up: bool,
+) -> (u8, Vec<u8>) {
+    match authorize_vendor_op(op, binding_ok, pin_authenticated, up) {
         Ok(()) => (0x04, Vec::new()),
         Err(e) => (e.to_vendor_status(), Vec::new()),
     }
@@ -679,22 +686,29 @@ mod tests {
     #[test]
     fn vendor_dispatch_mirrors_ble_gates() {
         // USAGE without UP -> NEED_UP (0x01) in every mode.
-        assert_eq!(dispatch_serial_vendor(0x26, false, false).0, 0x01);
-        assert_eq!(dispatch_serial_vendor(0x26, false, true).0, 0x04);
+        assert_eq!(dispatch_serial_vendor(0x26, false, false, false).0, 0x01);
+        assert_eq!(dispatch_serial_vendor(0x26, false, false, true).0, 0x04);
         // CONFIG without binding: release denies NEED_BINDING; test-mode
         // bypasses binding but keeps UP/PIN (BLE parity: PIN-less GEN passes,
-        // PIN-gated DELETE answers NEED_PIN since serial carries no pin auth).
-        let (st, _) = dispatch_serial_vendor(0x20, false, true);
+        // PIN-gated DELETE answers NEED_PIN sem sessão, 0x04 com sessão).
+        let (st, _) = dispatch_serial_vendor(0x20, false, false, true);
         if crate::binding::binding_bypass_enabled() {
             assert_eq!(st, 0x04);
         } else {
             assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
         }
-        let (st_pin, _) = dispatch_serial_vendor(0x23, false, true);
+        let (st_pin, _) = dispatch_serial_vendor(0x23, false, false, true);
         if crate::binding::binding_bypass_enabled() {
             assert_eq!(st_pin, 0x02);
         } else {
             assert_eq!(st_pin, VENDOR_STATUS_NEED_BINDING);
+        }
+        // F1: com sessão PIN viva, privilegiada passa (gate ok -> 0x04).
+        let (st_ok, _) = dispatch_serial_vendor(0x23, false, true, true);
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(st_ok, 0x04);
+        } else {
+            assert_eq!(st_ok, VENDOR_STATUS_NEED_BINDING);
         }
     }
 
@@ -795,21 +809,28 @@ mod tests {
     #[test]
     fn serial_vendor_parity_matrix_all_ops() {
         use crate::ble_gatt::{authorize_vendor_op, OP_OATH_CODE};
-        // Full 0x20-0x27 x (vinculo x UP): serial responde o mesmo status do BLE.
+        // Full 0x20-0x27 x (vinculo x PIN x UP): serial responde o mesmo
+        // status do BLE (paridade exata, F1).
         for op in 0x20u8..=0x27u8 {
             for binding_ok in [false, true] {
-                for up in [false, true] {
-                    let (st_s, _) = dispatch_serial_vendor(op, binding_ok, up);
-                    let st_b = match authorize_vendor_op(op, binding_ok, false, up) {
-                        Ok(()) => 0x04,
-                        Err(e) => e.to_vendor_status(),
-                    };
-                    assert_eq!(st_s, st_b, "op {:02X} bind={} up={}", op, binding_ok, up);
+                for pin in [false, true] {
+                    for up in [false, true] {
+                        let (st_s, _) = dispatch_serial_vendor(op, binding_ok, pin, up);
+                        let st_b = match authorize_vendor_op(op, binding_ok, pin, up) {
+                            Ok(()) => 0x04,
+                            Err(e) => e.to_vendor_status(),
+                        };
+                        assert_eq!(
+                            st_s, st_b,
+                            "op {:02X} bind={} pin={} up={}",
+                            op, binding_ok, pin, up
+                        );
+                    }
                 }
             }
         }
-        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, true).0, 0x04);
-        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false).0, 0x01);
+        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false, true).0, 0x04);
+        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false, false).0, 0x01);
     }
 
     #[test]

@@ -593,6 +593,44 @@ def _d03b(c):
     c.rec("D03b", "getPinToken 1234 (sessão viva)", "pass" if st == 0 else "div", detail)
 
 
+def _ensure_session(c):
+    """Garante sessão PIN viva (reusa D03b ou faz o token inline)."""
+    if getattr(c, "pin_token", False):
+        return True
+    pc = getattr(c, "pin_client", None) or PinClient()
+    try:
+        peer = _pin_ka(c)
+        k, req = pc.token_req(b"1234", peer)
+        st, body = c.s._exchange(CMD_CBOR, bytes([0x06]) + req, timeout_s=10.0, op="e2e")
+        if st == 0:
+            c.pin_token = True
+            return True
+    except (OSError, TimeoutError, ValueError):
+        pass
+    return False
+
+
+def _d01b(c):
+    # F1: com sessão PIN viva, DELETE passa o gate (0x04 = gate-ok).
+    if not _ensure_session(c):
+        c.rec("D01b", "KEY_DELETE com sessão (sem PIN 1234 no device?)", "fail", "token falhou")
+        return
+    c.up()
+    st, _ = c.msg(bytes([OP["KEY_DELETE"]]) + tlv(0x01, bytes([E2E_SLOT_KEY])))
+    c.rec("D01b", "KEY_DELETE com sessão PIN passa", "pass" if st == 0x04 else "div",
+          "status=0x%02X" % st)
+
+
+def _d02b(c):
+    if not _ensure_session(c):
+        c.rec("D02b", "OATH_DELETE com sessão (sem PIN 1234 no device?)", "fail", "token falhou")
+        return
+    c.up()
+    st, _ = c.msg(bytes([OP["OATH_DELETE"]]) + tlv(0x71, E2E_OATH))
+    c.rec("D02b", "OATH_DELETE com sessão PIN passa", "pass" if st == 0x04 else "div",
+          "status=0x%02X" % st)
+
+
 def _d04(c):
     pc = getattr(c, "pin_client", None) or PinClient()
     peer = _pin_ka(c)
@@ -702,6 +740,7 @@ REG = {
     "T21": (_t21, "pairing"), "T22": (_t22, "pairing"),
     "D01": (_d01, "destructive"), "D02": (_d02, "destructive"),
     "D03": (_d03, "destructive"), "D03b": (_d03b, "destructive"),
+    "D01b": (_d01b, "destructive"), "D02b": (_d02b, "destructive"),
     "D04a": (_d04, "destructive"),
     "D05a": (_d05, "destructive"), "D05b": (_d05b, "wipe"), "D05c": (_d05c, "wipe"),
     "D06": (_d06, "destructive"),

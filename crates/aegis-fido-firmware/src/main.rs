@@ -336,8 +336,10 @@ fn ble_dispatch_complete(
         },
         o if g::is_vendor_keys_oath_op(o) => {
             // Gates §9.4 preservados (app ve NEED_UP/NEED_BINDING/NEED_PIN
-            // corretos); executor TLV on-device = follow-up.
-            match g::authorize_vendor_op(o, binding_mgr.is_claimed(), false, up) {
+            // corretos); PIN via plumbing ClientPIN (sessão viva = verificado,
+            // como no rescue); executor TLV on-device = follow-up.
+            let pin_ok = ctap_engine.pin_state.has_valid_pin_uv_session();
+            match g::authorize_vendor_op(o, binding_mgr.is_claimed(), pin_ok, up) {
                 Ok(()) => {
                     kprintln!(
                         "[BLE] op vendor 0x{:02X} com gate ok (executor = follow-up)",
@@ -1900,9 +1902,14 @@ fn run_authenticator() {
                                                     _ => (0x04, Vec::new()),
                                                 }
                                             } else {
+                                                // F1: PIN via plumbing ClientPIN
+                                                // (sessão viva = verificado).
                                                 dispatch_serial_vendor(
                                                     op,
                                                     binding_mgr.is_claimed(),
+                                                    ctap_engine
+                                                        .pin_state
+                                                        .has_valid_pin_uv_session(),
                                                     true,
                                                 )
                                             };

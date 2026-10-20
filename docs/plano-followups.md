@@ -6,7 +6,7 @@ Test-mode continua gated (`docs/test-hooks.md` + release-clean).
 
 ## Ordem (dependências primeiro)
 
-### F1. Plumbing de PIN nas ops vendor [M]
+### F1. Plumbing de PIN nas ops vendor [M] — FEITO 20/10, no ar
 **Problema**: `main.rs` (BLE) e `serial_ctaphid` passam
 `pin_authenticated = false` fixo → IMPORT/DELETE/PUT sempre `0x02`,
 mesmo com sessão PIN viva. O app bate nisso nas telas de gerenciar.
@@ -15,6 +15,8 @@ dispatchs + teste host (sessão viva → gate passa; sem sessão → `0x02`) +
 e2e T15/D01/D02 reais com PIN.
 **Aceite**: PUT com PIN `0x00`; sem PIN `0x02`; release-clean verde.
 **Risco**: baixo (só leitura de estado existente).
+**Prova viva**: D01b/D02b `0x04` com sessão (era `0x02`); D01/D02 sem
+sessão seguem `0x02`. PUT segue `0x04` (executor é F2).
 
 ### F2. Executor vendor keys/OATH on-device [G]
 **Problema**: `0x20–0x27` validam gates e respondem `0x04` — nada é

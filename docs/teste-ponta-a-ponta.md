@@ -59,8 +59,10 @@ em `--only` isolado pode pegar janela residual (ver bugs).
 
 | ID | Funcionalidade | Op | Esperado | Status |
 |---|---|---|---|---|
-| D01 | Apagar chave (UP+PIN; plumbing gap → 0x02) | MSG 0x23 s5 | 0x02 NEED_PIN | PASS |
-| D02 | Apagar OATH (UP+PIN; plumbing gap → 0x02) | MSG 0x27 | 0x02 NEED_PIN | PASS |
+| D01 | Apagar chave sem sessão (pede PIN) | MSG 0x23 s5 | 0x02 NEED_PIN | PASS |
+| D02 | Apagar OATH sem sessão (pede PIN) | MSG 0x27 | 0x02 NEED_PIN | PASS |
+| D01b | KEY_DELETE com sessão PIN (F1) | MSG 0x23 + token | 0x04 gate-ok | PASS |
+| D02b | OATH_DELETE com sessão PIN (F1) | MSG 0x27 + token | 0x04 gate-ok | PASS |
 | D03 | Definir PIN "1234" (muda o device!) | setPIN cripto real | 0x00 (0x33 se já tem) | PASS |
 | D03b | Sessão PIN viva (getPinToken) | token | 0x00 + token oculto | PASS |
 | D04a/b | Trocar PIN 1234→5678→1234 | changePIN | 0x00/0x00 | PASS |
@@ -448,3 +450,23 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 14:52 — phase=base only=D06b
 - [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+
+### 20/10 15:14 — phase=destructive
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x02
+- [PASS] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x02
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x00
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x04 id=bbf0d3b3 (já claimed)
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 15:14 — phase=base only=D01b
+- [PASS] D01b KEY_DELETE com sessão PIN passa — status=0x04
+
+### 20/10 15:14 — phase=base only=D02b
+- [PASS] D02b OATH_DELETE com sessão PIN passa — status=0x04
