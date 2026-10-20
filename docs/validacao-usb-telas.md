@@ -44,6 +44,13 @@ antes do PoC.
 - **NATIVA USB-OTG**: função FIDO2 HID (VID 0x303A/PID 0xAE61) +
   JTAG-serial + download.
 - Uso no PC/celular como chave = porta NATIVA. Monitor/teste = UART.
+- **Armadilha DTR (20/10, real)**: abrir a COM com `pyserial` + `setDTR(True)`
+  (ou o default DTR=True do open) dá transição que **reseta a placa**, e
+  fechar com DTR preso **segura o chip em reset** (silêncio total nas
+  próximas sessões — parecia "crash espontâneo"/"wedge pós-BLE", não era).
+  Regra: `app_simulator.SerialLink` (Win32 cru, sem DTR/RTS) ou raw com
+  `setDTR(False)+setRTS(False)` no open E no close. Uptime monotônico
+  por 144s com connect BLE no meio prova estabilidade sem isso.
 
 ## 6. Modificacoes necessarias (por prioridade)
 

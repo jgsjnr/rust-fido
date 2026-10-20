@@ -24,7 +24,10 @@ stop = False
 
 def session():
     s = serial.Serial(PORT, 115200, timeout=0.5, dsrdtr=False, rtscts=False)
-    s.setDTR(True)
+    # NUNCA setDTR(True): a transicao reseta a placa e fechar com DTR
+    # preso SEGURA o chip em reset (silencio total nas proximas sessoes).
+    s.setDTR(False)
+    s.setRTS(False)
     time.sleep(0.3)
     s.reset_input_buffer()
     s.write(b"TEST_PAIRING_OPEN_300\n")
@@ -37,6 +40,8 @@ def session():
         if d:
             with lock:
                 buf.extend(d)
+    s.setDTR(False)
+    s.setRTS(False)
     s.close()
 
 

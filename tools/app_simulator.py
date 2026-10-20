@@ -615,26 +615,36 @@ class Session:
         log_event("LIFETIME_DUMP", "bytes=%d" % len(text))
         return text
 
-    def test_pairing_open(self, timeout_s=5.0):
+    def test_pairing_open(self, timeout_s=5.0, retries=3):
         """TEST_PAIRING_OPEN (test-mode fw only): device opens the same 60s
         pairing window as the 5s BOOT hold (source=software, no UP confirm).
         Mirrors menu 9: tracks the window locally so privileged ops pass the
-        host-side gate while the window lasts."""
+        host-side gate while the window lasts. Retries: the UART text reader
+        races CTAPHID framing, so a command lost among log lines is resent."""
         if not self.test_mode:
             raise PermissionError("pairing-open needs --test-mode (firmware must have test-mode)")
-        text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s, until=b"pairing_open")
+        text = ""
+        for _ in range(max(1, retries)):
+            text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s, until=b"pairing_open")
+            if "pairing_open" in text and "source=software" in text:
+                break
         if "pairing_open" not in text or "source=software" not in text:
             raise ValueError("device did not open pairing (test-mode firmware?)")
         self.confirm_pairing()
         log_event("TEST_PAIRING_OPEN", "window_s=%d" % PAIRING_WINDOW_SECS)
         return text
 
-    def test_up(self, timeout_s=5.0):
+    def test_up(self, timeout_s=5.0, retries=4):
         """TEST_UP (test-mode fw only): injects ONE BOOT tap in software
-        (same 1.5s latch semantics as the physical tap; single-shot)."""
+        (same 1.5s latch semantics as the physical tap; single-shot).
+        Same resend policy as pairing-open (UART reader race)."""
         if not self.test_mode:
             raise PermissionError("test-up needs --test-mode (firmware must have test-mode)")
-        text = self.send_text_line(TEST_UP_CMD, timeout_s=timeout_s, until=b"up_latched")
+        text = ""
+        for _ in range(max(1, retries)):
+            text = self.send_text_line(TEST_UP_CMD, timeout_s=timeout_s, until=b"up_latched")
+            if "up_latched" in text and "source=software" in text:
+                break
         if "up_latched" not in text or "source=software" not in text:
             raise ValueError("device did not latch UP (test-mode firmware?)")
         log_event("TEST_UP", "latch=1x")

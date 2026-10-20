@@ -600,6 +600,12 @@ fn run_authenticator() {
     let mut sta_mgr = aegis_fido_firmware::wifi_station::WifiStationManager::new();
     // Etapa B (WiFi real): espelhos do radio p/ edge-trigger + backoff.
     let mut wifi_ap_active = false;
+    // Backoff do AP start: sem isso, uma falha (ex. radio com BLE) repete
+    // o start a CADA poll (~10ms) com NVS load + deinit + log — inunda o
+    // UART, esfomeia o loop e desgasta flash. Tenta no max 1x/5s e desiste
+    // apos 3 falhas ate a proxima borda de want.
+    let mut wifi_ap_last_try_ms: u64 = 0;
+    let mut wifi_ap_fails: u32 = 0;
     let mut mdns_active = false;
     let mut wifi_radio_on = false;
     let mut last_sta_attempt_ms: Option<u64> = None;
@@ -689,6 +695,9 @@ fn run_authenticator() {
         // os dois juntos); PairingBle desliga todo WiFi, PairingAp desliga BLE.
         wifi_ap_mgr.update(pairing_open_now, false, now_ms);
         let ap_want = wifi_ap_mgr.is_active(now_ms);
+        if !ap_want {
+            wifi_ap_fails = 0;
+        }
         // Decisao edge-triggered (wifi_ap::ap_poll_action): cada acao
         // executa no maximo uma vez por transicao. O `else` anterior
         // chamava esp_ap_stop() a CADA poll com BLE pareando (spam de
@@ -699,9 +708,17 @@ fn run_authenticator() {
             wifi_ap_active,
         ) {
             aegis_fido_firmware::wifi_ap::ApPollAction::Start => {
-                let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
-                    usb_descriptors::SERIAL_NUMBER_STRING,
-                );
+                if wifi_ap_fails >= 3 {
+                    // Desistiu ate a proxima borda: sem spam, sem churn.
+                } else if now_ms.saturating_sub(wifi_ap_last_try_ms) < 5000
+                    && wifi_ap_last_try_ms != 0
+                {
+                    // Backoff: aguarda 5s entre tentativas.
+                } else {
+                    wifi_ap_last_try_ms = now_ms;
+                    let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
+                        usb_descriptors::SERIAL_NUMBER_STRING,
+                    );
                 let pass_bytes = storage
                     .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
                     .unwrap_or_default();
@@ -716,12 +733,16 @@ fn run_authenticator() {
                 let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
                 if rc == 0 {
                     wifi_ap_active = true;
+                    wifi_ap_fails = 0;
                     kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
                 } else {
-                    kprintln!(
-                        "[WIFI] AP start rc={} (nova tentativa no proximo poll).",
-                        rc
-                    );
+                    wifi_ap_fails = wifi_ap_fails.saturating_add(1);
+                    // Loga só a 1ª falha (as seguintes seriam spam a cada 5s);
+                    // apos 3, desiste ate a proxima borda de want.
+                    if wifi_ap_fails == 1 {
+                        kprintln!("[WIFI] AP start rc={} (backoff 5s, desiste apos 3).", rc);
+                    }
+                }
                 }
             }
             aegis_fido_firmware::wifi_ap::ApPollAction::Stop => {
@@ -952,9 +973,20 @@ fn run_authenticator() {
                 touch_latched = true;
                 rescue_engine.set_user_presence(true);
                 touch_expire_tick = tick + 150; // Keep touch valid for 1.5 seconds
-                kprintln!(
-                    "[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED."
-                );
+                // Distingue software (TEST_UP) do dedo para nao poluir auditoria:
+                // latch valido sem nivel fisico agora => veio de software.
+                #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                let via_software =
+                    !button_mgr.is_boot_pressed(|_| {}) && touch_latched;
+                #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+                let via_software = false;
+                if via_software {
+                    kprintln!("[TEST] UP via software CONFIRMED (latch 1x).");
+                } else {
+                    kprintln!(
+                        "[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED."
+                    );
+                }
             } else if let Some(start) = press_start_tick {
                 // Phase8 UX-conex: hold>=5000 PairingReady vence; TOTP so em [2s,5s) sem pairing.
                 let held_ms = tick.saturating_sub(start).saturating_mul(10);
