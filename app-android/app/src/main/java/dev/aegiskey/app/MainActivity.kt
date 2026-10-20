@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -33,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AccountsScreen
 import dev.aegiskey.app.ui.AegisScreenColumn
@@ -95,6 +97,14 @@ private val BOTTOM_DESTINATIONS = listOf(
 @Composable
 fun AegisApp(client: AegisBleClient) {
     val nav = rememberNavController()
+    // Prova de navegação no Log: cada troca de tela vira "tela=<rota>".
+    DisposableEffect(nav) {
+        val listener = NavController.OnDestinationChangedListener { _, dest, _ ->
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "tela=" + (dest.route ?: "?"))
+        }
+        nav.addOnDestinationChangedListener(listener)
+        onDispose { nav.removeOnDestinationChangedListener(listener) }
+    }
     AegisTheme {
         Scaffold(
             bottomBar = {
@@ -102,7 +112,7 @@ fun AegisApp(client: AegisBleClient) {
                     val entry by nav.currentBackStackEntryAsState()
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
-                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery" -> "connect"
+                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "wallet" -> "connect"
                         else -> current
                     }
                     for (dest in BOTTOM_DESTINATIONS) {

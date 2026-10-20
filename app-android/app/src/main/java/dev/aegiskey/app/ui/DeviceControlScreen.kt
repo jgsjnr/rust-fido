@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.SanitizedLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -78,6 +79,9 @@ fun DeviceControlScreen(
             busy = true
             try {
                 withContext(Dispatchers.IO) { client.ensureSubscribed() }
+                DeviceLog.append(DeviceLog.Category.BLE, "re-assinar ok")
+            } catch (e: Exception) {
+                DeviceLog.append(DeviceLog.Category.BLE, "re-assinar falhou")
             } finally {
                 busy = false
             }
@@ -88,6 +92,7 @@ fun DeviceControlScreen(
         scope.launch(Dispatchers.IO) {
             client.cancel()
             SanitizedLog.record(SanitizedLog.Event.DEVICE_PRESS_CANCELLED)
+            DeviceLog.append(DeviceLog.Category.BLE, "cancel 0xBE enviado")
         }
     }
 
@@ -157,7 +162,10 @@ fun DeviceControlScreen(
             OutlinedButton(onClick = ::doCancel, enabled = !busy && isReady, modifier = Modifier.fillMaxWidth()) {
                 Text("Cancelar operação (0xBE)", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            OutlinedButton(onClick = { client.disconnect() }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = {
+                client.disconnect()
+                DeviceLog.append(DeviceLog.Category.BLE, "desconectado (app)")
+            }, modifier = Modifier.fillMaxWidth()) {
                 Text("Desconectar", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
 

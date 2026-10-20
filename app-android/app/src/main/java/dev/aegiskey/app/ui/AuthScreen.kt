@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.security.AppLock
 import dev.aegiskey.app.security.FeatureFlags
 import dev.aegiskey.app.security.SanitizedLog
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
 import kotlinx.coroutines.Dispatchers
@@ -89,6 +90,10 @@ fun AuthScreen(client: AegisBleClient) {
                                 client.sendMsg(byteArrayOf(BleContract.CTAP_CMD_GET_ASSERTION.toByte()) + cbor)
                             }
                             result = if (response == null) "no response (UP? timeout?)" else "OK · ${response.size} bytes"
+                            DeviceLog.append(
+                                DeviceLog.Category.BLE,
+                                if (response == null) "assertion sem resposta" else "assertion OK bytes=" + response.size,
+                            )
                         } catch (e: Exception) {
                             result = "failed: ${(e.message ?: "error").take(48)}"
                         } finally {

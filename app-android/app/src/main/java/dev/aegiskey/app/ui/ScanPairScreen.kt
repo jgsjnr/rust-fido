@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.SanitizedLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -222,6 +223,7 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
                     address = device.address,
                     gated = granted,
                     onPair = {
+                        DeviceLog.append(DeviceLog.Category.PAIRING, "pair tocado: " + device.name.take(24))
                         client.ensureBonded(device.address)
                         client.connect(device.address)
                     },

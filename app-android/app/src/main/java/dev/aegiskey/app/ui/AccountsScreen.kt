@@ -27,6 +27,7 @@ import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.AppLock
 import dev.aegiskey.app.security.FeatureFlags
 import dev.aegiskey.app.security.SanitizedLog
@@ -128,6 +129,7 @@ fun AccountsScreen(client: AegisBleClient) {
                     }
                     listMsg = null
                 }
+                DeviceLog.append(DeviceLog.Category.BLE, "key list: " + keys.size + " chaves")
             } catch (e: Exception) {
                 listMsg = (e.message ?: "falha ao listar").take(64)
             } finally {
@@ -162,6 +164,7 @@ fun AccountsScreen(client: AegisBleClient) {
                         "chave criada no slot " + slot + " (" + curveOption.title + ")"
                     }
                 }
+                DeviceLog.append(DeviceLog.Category.BLE, "key gen slot=" + slot + " -> " + genMsg.take(40))
             } catch (e: Exception) {
                 genMsg = (e.message ?: "falha ao gerar").take(64)
             } finally {

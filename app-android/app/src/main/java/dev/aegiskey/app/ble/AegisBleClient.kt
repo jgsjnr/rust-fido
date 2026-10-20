@@ -128,6 +128,7 @@ class AegisBleClient(private val context: Context) {
             val bond = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
             _state.update { it.copy(bonded = device?.bondState == BluetoothDevice.BOND_BONDED || bond == BluetoothDevice.BOND_BONDED) }
             SanitizedLog.record(SanitizedLog.Event.BOND_CHANGED)
+            DeviceLog.append(DeviceLog.Category.PAIRING, "bond state=" + bond)
         }
     }
 
@@ -147,10 +148,16 @@ class AegisBleClient(private val context: Context) {
             val device = result.device ?: return
             deviceCache[device.address] = device
             val label = result.scanRecord?.deviceName ?: device.name ?: "AegisKey"
+            var isNew = false
             _state.update { current ->
                 if (current.devices.any { it.address == device.address }) current
-                else current.copy(devices = current.devices + FoundDevice(label.take(48), device.address))
+                else {
+                    isNew = true
+                    current.copy(devices = current.devices + FoundDevice(label.take(48), device.address))
+                }
             }
+            // Só o primeiro avistamento (filtro 0xFFFD já é no hardware).
+            if (isNew) DeviceLog.append(DeviceLog.Category.BLE, "scan achou: " + label.take(24))
         }
     }
 
@@ -165,11 +172,14 @@ class AegisBleClient(private val context: Context) {
             .build()
         scanner.startScan(listOf(filter), settings, scanCallback)
         SanitizedLog.record(SanitizedLog.Event.SCAN_STARTED)
+        DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD started")
     }
 
     fun stopScan() {
         runCatching { adapter()?.bluetoothLeScanner?.stopScan(scanCallback) }
+        val found = _state.value.devices.size
         _state.update { it.copy(connection = Connection.IDLE) }
+        DeviceLog.append(DeviceLog.Category.BLE, "scan stopped (" + found + " na lista)")
     }
 
     // -- connect / bond ---------------------------------------------------------
@@ -185,7 +195,12 @@ class AegisBleClient(private val context: Context) {
 
     fun ensureBonded(address: String) {
         deviceCache[address]?.let { device ->
-            if (device.bondState != BluetoothDevice.BOND_BONDED) device.createBond()
+            if (device.bondState != BluetoothDevice.BOND_BONDED) {
+                DeviceLog.append(DeviceLog.Category.PAIRING, "bond solicitado")
+                device.createBond()
+            } else {
+                DeviceLog.append(DeviceLog.Category.PAIRING, "ja pareado")
+            }
         }
     }
 
@@ -215,6 +230,8 @@ class AegisBleClient(private val context: Context) {
                 DeviceLog.append(DeviceLog.Category.BLE, "GATT disconnected")
                 synchronized(notifyBuffer) { notifyBuffer.clear() }
                 _state.update { it.copy(connection = Connection.IDLE, revision = null, status = BleContract.STATUS_IDLE) }
+            } else if (status != BluetoothGatt.GATT_SUCCESS) {
+                DeviceLog.append(DeviceLog.Category.BLE, "GATT erro status=" + status)
             }
         }
 
@@ -259,11 +276,13 @@ class AegisBleClient(private val context: Context) {
         if (revision != BleContract.GATT_REVISION) {
             _state.update { it.copy(connection = Connection.ERROR, error = "versão incompatível — volte e tente de novo") }
             SanitizedLog.record(SanitizedLog.Event.REVISION_MISMATCH)
+            DeviceLog.append(DeviceLog.Category.BLE, "revisao incompatível")
             disconnect()
             return
         }
         _state.update { it.copy(revision = revision, bonded = bondedOf()) }
         SanitizedLog.record(SanitizedLog.Event.REVISION_OK)
+        DeviceLog.append(DeviceLog.Category.BLE, "revisao ok bonded=" + bondedOf())
         if (subscribeStatus(g)) {
             _state.update { it.copy(connection = Connection.READY, error = null) }
             DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 ok")
