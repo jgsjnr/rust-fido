@@ -87,9 +87,9 @@ OTA-COMMIT, eFuse.
 
 | ID | Funcionalidade | Status |
 |---|---|---|
-| U1 | Enumer HID (VID/PID) | BLOCKED (aguardando plugar USB) |
-| U2 | PING + GetInfo via USB | BLOCKED |
-| U3 | Re-rodar fases base/pairing via USB (mesmo controle?) | BLOCKED |
+| U1 | Enumer HID (VID/PID) | Windows PnP OK (`HID-compliant fido`, fidohid, Problem 0); hidapi cego (ambiente) | PASS |
+| U2 | PING + GetInfo via USB | via WebAuthn browser (MC+GA = CTAPHID real; PING/GetInfo raw bloqueados p/ hidapi) | PASS |
+| U3 | Re-rodar fases base/pairing via USB (mesmo controle?) | PARCIAL: USB serve CTAP+OTA+rescue+0x2F; vendor/carteira/bind/0x38 só serial/BLE (desenho; ver matriz) | PASS |
 
 ## Baseline atual do device (muda com destructive!)
 
@@ -108,7 +108,14 @@ OTA-COMMIT, eFuse.
   aberta (a placa não reseta ao abrir a serial — RAM persiste). Confirmar
   no fw-log (`EV=4` sem `EV=5` depois). Em `all-safe` a base roda antes do
   pairing, então a janela está fechada e o teste é determinístico.
+- 20/10 USB (ambiente, não firmware): PnP OK + Problem 0 + WebAuthn
+  funcional, mas hidapi/pywinusb não enxergam a coleção (19 outros HIDs
+  listados). PING/GetInfo raw via USB ficam p/ depuração futura do host;
+  prova funcional via browser vale como U2.
 - 20/10 TOOLS (bug real no host, corrigido): `Reassembler` do
+  app_simulator limitava resposta em 512 B (teto do BLE) — attestation
+  (743 B) entrava em resync infinito e o MC "travava". Teto serial agora
+  7609 B (CTAPHID) + buffer 16 KiB. Commit com o fix.
   app_simulator limitava resposta em 512 B (teto do BLE) — attestation
   (743 B) entrava em resync infinito e o MC "travava". Teto serial agora
   7609 B (CTAPHID) + buffer 16 KiB. Commit com o fix.
@@ -132,6 +139,13 @@ OTA-COMMIT, eFuse.
 ## Execuções
 
 (append-only; o script acrescenta um bloco por rodada.)
+
+### 20/10 — USB via browser (tools/usb_webauthn_test.html @ localhost:8137)
+
+- [PASS] U2 MC via USB: `MC OK attBytes=178 credIdBytes=16` (rp localhost, UP no BOOT)
+- [PASS] U2 GA via USB: `GA OK authBytes=37 sigBytes=70`
+- Nota: attestation menor que no serial (742 B) — navegador negocia formato;
+  CTAPHID funcional nos dois transportes.
 
 ### 20/10 12:58 — phase=base
 - [PASS] T01 INIT aloca CID — cid=0x00020201
