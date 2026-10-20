@@ -179,10 +179,33 @@ impl PairingManager {
     /// hold fisico (que registra o clock puro).
     #[cfg(feature = "test-mode")]
     pub fn open_test_window(&mut self, now_ms: u64) {
+        self.open_test_window_secs(now_ms, PAIRING_WINDOW_MS / 1000);
+    }
+
+    /// Variante longa (coordenação humana lenta): mesma janela com N segundos.
+    ///
+    /// Test-mode only. Existe para o operador conseguir tocar no BOOT dentro
+    /// da janela sem corrida de 60s; gates idênticos à janela normal.
+    #[cfg(feature = "test-mode")]
+    pub fn open_test_window_secs(&mut self, now_ms: u64, window_secs: u64) {
+        self.state = PairingState::PairingBle {
+            expires_ms: now_ms.saturating_add(window_secs.saturating_mul(1000)),
+        };
+        crate::ltrace!(LtCat::Pairing, LtEvt::PairingArming, SoftwareArming(now_ms));
+    }
+
+    /// Abre a janela de 60s por comando do host (produto, USB/serial).
+    ///
+    /// Software abre a janela, NÃO confirma presença: `bonded` segue `false`
+    /// e os gates (UP por operação + bonding) continuam exigidos — as mesmas
+    /// garantias do hold físico. Segurança: exposto só nos transportes
+    /// físicos (USB nativo + UART); BLE nunca expõe. Auditoria: `ltrace!`
+    /// carrega `source=host` para distinguir do hold e do test-mode.
+    pub fn open_host_window(&mut self, now_ms: u64) {
         self.state = PairingState::PairingBle {
             expires_ms: now_ms.saturating_add(PAIRING_WINDOW_MS),
         };
-        crate::ltrace!(LtCat::Pairing, LtEvt::PairingArming, SoftwareArming(now_ms));
+        crate::ltrace!(LtCat::Pairing, LtEvt::PairingArming, HostArming(now_ms));
     }
 }
 
@@ -191,6 +214,26 @@ impl PairingManager {
 /// Sem a feature a linha e desconhecida: nenhum dispatch a reconhece.
 #[cfg(feature = "test-mode")]
 pub const TEST_PAIRING_OPEN_CMD: &str = "TEST_PAIRING_OPEN";
+
+/// Variante longa (300s) para coordenação humana: mesmos gates, mais folga.
+#[cfg(feature = "test-mode")]
+pub const TEST_PAIRING_OPEN_300_CMD: &str = "TEST_PAIRING_OPEN_300";
+/// Janela longa em segundos.
+#[cfg(feature = "test-mode")]
+pub const TEST_PAIRING_OPEN_300_SECS: u64 = 300;
+
+/// Opcode produto: abre a janela de 60s por comando do host (USB/serial).
+///
+/// Primeiro byte livre após rescue (`0x2E`); `0x2F` reservado aqui.
+/// Segurança: só existe nos transportes físicos (USB nativo + UART);
+/// BLE nunca expõe. Abrir a janela NÃO confirma presença nem bonding:
+/// UP por operação + bonding seguem exigidos (fail-closed).
+pub const OP_HOST_PAIRING_OPEN: u8 = 0x2F;
+
+/// `true` para `[0x2F]` vazio (único formato aceito; resto é ignorado).
+pub fn is_host_pairing_msg(op: u8, payload_len: usize) -> bool {
+    op == OP_HOST_PAIRING_OPEN && payload_len == 0
+}
 
 /// Detalhe do `ltrace!` para abertura via software (auditoria).
 ///
@@ -203,6 +246,18 @@ pub struct SoftwareArming(pub u64);
 impl core::fmt::Display for SoftwareArming {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "software now_ms={}", self.0)
+    }
+}
+
+/// Detalhe do `ltrace!` para abertura via host USB/serial (auditoria).
+///
+/// `Display` = `host now_ms=<t>` - distingue do hold físico e do test-mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostArming(pub u64);
+
+impl core::fmt::Display for HostArming {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "host now_ms={}", self.0)
     }
 }
 
@@ -323,5 +378,29 @@ mod tests {
             self.len += take;
             Ok(())
         }
+    }
+
+    #[test]
+    fn host_window_opens_same_60s_without_presence() {
+        let mut m = PairingManager::new();
+        m.open_host_window(2000);
+        assert!(m.is_pairing_window_open(2000));
+        assert!(m.is_pairing_window_open(2000 + PAIRING_WINDOW_MS - 1));
+        assert!(!m.is_bonded());
+        assert!(!m.complete_pairing(false, 2100));
+        m.tick(2000 + PAIRING_WINDOW_MS);
+        assert!(!m.is_pairing_window_open(2000 + PAIRING_WINDOW_MS));
+    }
+
+    #[test]
+    fn host_pairing_msg_accepts_only_empty_0x2f() {
+        assert!(is_host_pairing_msg(OP_HOST_PAIRING_OPEN, 0));
+        assert_eq!(OP_HOST_PAIRING_OPEN, 0x2F);
+        assert!(!is_host_pairing_msg(OP_HOST_PAIRING_OPEN, 1));
+        assert!(!is_host_pairing_msg(0x2E, 0));
+        assert!(!is_host_pairing_msg(0x30, 0));
+        let text = format!("{}", HostArming(77));
+        assert!(text.contains("host"));
+        assert!(text.contains("77"));
     }
 }

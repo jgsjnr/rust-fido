@@ -1232,6 +1232,27 @@ fn run_authenticator() {
                                             aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
                                         }
                                     }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && aegis_fido_firmware::pairing::is_host_pairing_msg(
+                                        msg.payload[0],
+                                        msg.payload.len() - 1,
+                                    )
+                                {
+                                    // Pareamento por software (produto 0x2F): abre a
+                                    // mesma janela do hold; UP/bonding seguem
+                                    // exigidos. Só existe no USB físico.
+                                    pairing_mgr.open_host_window(now_ms);
+                                    kprintln!("[PAIRING] 0x2F via USB: janela 60s aberta (UP/bond seguem).");
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid,
+                                        msg.cmd,
+                                        &[0x00],
+                                    ) {
+                                        unsafe {
+                                            aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
                                 } else {
                                 // 1. Determine if this command requires User Presence (UP)
                                 let ctap_subcmd = if !msg.payload.is_empty() {
@@ -1770,6 +1791,23 @@ fn run_authenticator() {
                                     resp.extend_from_slice(&body);
                                     for p in CtapHidFramer::frame_message(
                                         msg.cid, msg.cmd, &resp,
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && aegis_fido_firmware::pairing::is_host_pairing_msg(
+                                        msg.payload[0],
+                                        msg.payload.len() - 1,
+                                    )
+                                {
+                                    // Pareamento por software (produto 0x2F) over
+                                    // serial: mesma janela do hold; UP/bonding
+                                    // seguem exigidos. UART = posse física.
+                                    pairing_mgr.open_host_window(now_ms);
+                                    kprintln!("[SERIAL][PAIRING] 0x2F: janela 60s aberta.");
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &[0x00],
                                     ) {
                                         serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                     }

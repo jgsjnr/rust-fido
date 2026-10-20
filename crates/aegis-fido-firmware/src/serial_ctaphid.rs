@@ -444,9 +444,15 @@ pub fn dispatch_serial_pairing_line(
     pairing: &mut crate::pairing::PairingManager,
     now_ms: u64,
 ) -> Option<String> {
-    if line.trim() == crate::pairing::TEST_PAIRING_OPEN_CMD {
+    use crate::pairing::{
+        TEST_PAIRING_OPEN_300_CMD, TEST_PAIRING_OPEN_300_SECS, TEST_PAIRING_OPEN_CMD,
+    };
+    if line.trim() == TEST_PAIRING_OPEN_CMD {
         pairing.open_test_window(now_ms);
         Some(String::from("pairing_open window_s=60 source=software\n"))
+    } else if line.trim() == TEST_PAIRING_OPEN_300_CMD {
+        pairing.open_test_window_secs(now_ms, TEST_PAIRING_OPEN_300_SECS);
+        Some(String::from("pairing_open window_s=300 source=software\n"))
     } else {
         None
     }
@@ -758,6 +764,23 @@ mod tests {
         assert!(dispatch_serial_pairing_line("TEST_PAIRING_OPEN_EXTRA", &mut m2, 0).is_none());
         assert!(dispatch_serial_pairing_line("NOPE", &mut m2, 0).is_none());
         assert!(!m2.is_pairing_window_open(0));
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn pairing_open_300_wide_window_same_gates() {
+        use crate::pairing::{PairingManager, TEST_PAIRING_OPEN_300_SECS};
+        let mut m = PairingManager::new();
+        let ack =
+            dispatch_serial_pairing_line("TEST_PAIRING_OPEN_300", &mut m, 5000).expect("ack");
+        assert!(ack.contains("window_s=300"));
+        assert!(m.is_pairing_window_open(5000));
+        assert!(m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000 - 1));
+        assert!(!m.is_bonded());
+        // Sem presenca nao completa, igual a janela de 60s.
+        assert!(!m.complete_pairing(false, 5100));
+        m.tick(5000 + TEST_PAIRING_OPEN_300_SECS * 1000);
+        assert!(!m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000));
     }
 
     #[cfg(not(feature = "test-mode"))]
