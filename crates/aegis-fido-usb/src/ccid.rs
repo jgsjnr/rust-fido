@@ -364,12 +364,15 @@ impl CcidTransport {
                 self.card_powered = false;
                 self.selected_applet = SelectedApplet::None;
                 self.piv = PivApplet::new();
-                Ok(Self::build_slot_status_response(slot, seq, 0x02)) // 0x02: Card absent/powered off
+                // Slot virtual: cartao sempre presente (remocao nao existe);
+                // 0x00 = pronto. 0x02 faria o host concluir 'sem cartao'.
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
 
             PC_TO_RDR_GET_SLOT_STATUS => {
-                let status = if self.card_powered { 0x00 } else { 0x01 };
-                Ok(Self::build_slot_status_response(slot, seq, status))
+                // Sempre presente+pronto: o UsbCcids conclui 'sem cartao'
+                // com qualquer outro valor e nem chega ao PowerOn.
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
 
             PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
@@ -491,12 +494,13 @@ impl CcidTransport {
                 self.card_powered = false;
                 self.selected_applet = SelectedApplet::None;
                 self.piv = PivApplet::new();
-                Ok(Self::build_slot_status_response(slot, seq, 0x02))
+                // Slot virtual: cartao sempre presente (remocao nao existe).
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
 
             PC_TO_RDR_GET_SLOT_STATUS => {
-                let status = if self.card_powered { 0x00 } else { 0x01 };
-                Ok(Self::build_slot_status_response(slot, seq, status))
+                // Sempre presente+pronto (ver método legado acima).
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
 
             PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
