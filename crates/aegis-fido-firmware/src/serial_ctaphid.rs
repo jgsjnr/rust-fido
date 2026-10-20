@@ -33,7 +33,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
-    authorize_vendor_op, is_bind_mgmt_op, is_vendor_keys_oath_op, BleGattError, OP_KEY_DELETE,
+    authorize_vendor_op, authorize_wallet_op, is_bind_mgmt_op, is_vendor_keys_oath_op,
+    is_wallet_op, BleGattError, OP_KEY_DELETE,
     OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT,
     VENDOR_STATUS_NEED_BINDING,
 };
@@ -91,7 +92,7 @@ pub fn serial_requires_pairing(cmd: u8, payload: &[u8]) -> bool {
                 | OP_KEY_DELETE
                 | OP_OATH_PUT
                 | OP_OATH_DELETE
-        );
+        ) || crate::ble_gatt::is_wallet_op(payload[0]);
     }
     false
 }
@@ -122,7 +123,7 @@ pub fn serial_is_up_required(cmd: u8, payload: &[u8]) -> bool {
     }
     if cmd == CMD_MSG && !payload.is_empty() {
         let op = payload[0];
-        if is_vendor_keys_oath_op(op) {
+        if is_vendor_keys_oath_op(op) || is_wallet_op(op) {
             return true;
         }
         if is_bind_mgmt_op(op) {
@@ -221,7 +222,10 @@ impl Default for SerialRouter {
 /// Vendor ops get `NEED_BINDING` (`0x05`, prompts the pairing ceremony);
 /// CTAP commands get single-byte `NOT_ALLOWED` (`0x30`).
 pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
-    if msg.cmd == CMD_MSG && !msg.payload.is_empty() && is_vendor_keys_oath_op(msg.payload[0]) {
+    if msg.cmd == CMD_MSG
+        && !msg.payload.is_empty()
+        && (is_vendor_keys_oath_op(msg.payload[0]) || is_wallet_op(msg.payload[0]))
+    {
         return CtapHidFramer::frame_message(msg.cid, msg.cmd, &[VENDOR_STATUS_NEED_BINDING]);
     }
     CtapHidFramer::frame_message(msg.cid, msg.cmd, &[SERIAL_DENY_CTAP_STATUS])
@@ -234,6 +238,18 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
 /// `binding_ok` comes from the caller (`BindingManager::verify` proof).
 pub fn dispatch_serial_vendor(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
     match authorize_vendor_op(op, binding_ok, false, up) {
+        Ok(()) => (0x04, Vec::new()),
+        Err(e) => (e.to_vendor_status(), Vec::new()),
+    }
+}
+
+/// Dispatches one wallet op (0x35-0x37) with the exact BLE gates.
+///
+/// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
+/// executor `WalletStore` + NVS = follow-up, same as BLE), denial maps
+/// via `to_vendor_status` (binding → `0x05`, UP → `0x01`).
+pub fn dispatch_serial_wallet(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
+    match authorize_wallet_op(op, binding_ok, up) {
         Ok(()) => (0x04, Vec::new()),
         Err(e) => (e.to_vendor_status(), Vec::new()),
     }
@@ -256,9 +272,9 @@ pub fn is_rescue_msg(cmd: u8, payload: &[u8]) -> bool {
 ///
 /// Pure `RescueEngine::handle_packet` pass-through: UP/PIN latches must be
 /// set by the caller beforehand (`set_user_presence` from the BOOT latch;
-/// PIN stays `false` until ClientPIN-token plumbing lands — remote
-/// killswitch denies fail-closed until then). Returns `(wire_status, body)`
-/// for the caller to frame status-first (`[status, body...]`), same shape
+/// `set_pin_uv_authenticated` from `ClientPinState::has_valid_pin_uv_session`,
+/// wired at all three transports). Returns `(wire_status, body)` for the
+/// caller to frame status-first (`[status, body...]`), same shape
 /// as the bind-mgmt branch.
 pub fn dispatch_serial_rescue(
     engine: &mut aegis_fido_core::otp::rescue::RescueEngine,
@@ -674,6 +690,27 @@ mod tests {
         } else {
             assert_eq!(st_pin, VENDOR_STATUS_NEED_BINDING);
         }
+    }
+
+    #[test]
+    fn wallet_dispatch_mirrors_ble_gates() {
+        // Sem UP (com binding) -> NEED_UP (0x01) em qualquer modo.
+        assert_eq!(dispatch_serial_wallet(0x35, true, false).0, 0x01);
+        assert_eq!(dispatch_serial_wallet(0x36, true, false).0, 0x01);
+        // Sem binding: release nega NEED_BINDING; test-mode faz bypass.
+        let (st, _) = dispatch_serial_wallet(0x37, false, true);
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(st, 0x04);
+        } else {
+            assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
+        }
+        // Gate ok -> 0x04 (executor on-device = follow-up).
+        assert_eq!(dispatch_serial_wallet(0x35, true, true).0, 0x04);
+        // Fora da faixa -> opcode invalido.
+        assert_eq!(
+            dispatch_serial_wallet(0x20, true, true).0,
+            BleGattError::InvalidOpcode.to_vendor_status()
+        );
     }
 
     #[test]

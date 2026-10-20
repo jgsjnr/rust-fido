@@ -103,6 +103,18 @@ len `<0x80` direto, `0x81`+1B, `0x82`+2B).
 | `0x26` | `OATH_CODE` | UP |
 | `0x27` | `OATH_DELETE` | UP+PIN |
 
+### 9.1b Opcodes carteira Fase7 (`0x35-0x37`, FFF1 control-point)
+
+Faixa livre (0x28–0x2D bind, 0x2E rescue, 0x2F reservado, 0x30–0x34 OTA).
+GATT/revisão/framing intactos; executor on-device (`WalletStore` + NVS)
+= follow-up (gate ok responde `0x04`, como §9.4).
+
+| Op | Nome | Gate normativo |
+|----|------|----------------|
+| `0x35` | `WALLET_GEN` | binding + UP |
+| `0x36` | `WALLET_LIST` | binding + UP |
+| `0x37` | `WALLET_ADDR` | binding + UP |
+
 Request wire: `[op:1, len_hi:1, len_lo:1, TLV...]` fragmentado per §3.
 Response wire: `[op:1, status:1, TLV...]` (status §9.5), fragmentado igual.
 

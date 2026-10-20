@@ -116,6 +116,26 @@ pub fn is_vendor_keys_oath_op(op: u8) -> bool {
     (VENDOR_OP_MIN..=VENDOR_OP_MAX).contains(&op)
 }
 
+/// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37.
+///
+/// Mapa da vizinhança (primeiro byte de CMD_MSG): 0x20-0x27 vendor
+/// keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue, 0x2F reservado,
+/// 0x30-0x34 OTA. `0x35` GEN (gera sob a curva da rede), `0x36` LIST
+/// (só metadados `wallet:`), `0x37` ADDR (endereço do slot).
+/// GATT/revisão/framing intactos; executor on-device = follow-up
+/// (como vendor §9.4: gate ok responde `0x04`).
+pub const OP_WALLET_GEN: u8 = 0x35;
+pub const OP_WALLET_LIST: u8 = 0x36;
+pub const OP_WALLET_ADDR: u8 = 0x37;
+/// Limites da faixa wallet Fase7.
+pub const WALLET_OP_MIN: u8 = OP_WALLET_GEN;
+pub const WALLET_OP_MAX: u8 = OP_WALLET_ADDR;
+
+/// Retorna true para opcodes wallet Fase7 0x35-0x37 (reservados).
+pub fn is_wallet_op(op: u8) -> bool {
+    (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&op)
+}
+
 /// Limite de reassemble (== envelope MAX-ESP, sem alloc extra).
 pub const CONTROL_POINT_LENGTH: usize = 512;
 /// Revisao GATT inicial (FFF4).
@@ -492,6 +512,30 @@ pub fn authorize_vendor_op(
     Ok(())
 }
 
+/// Gate normativo carteira Fase7 (R-07): binding válido + UP.
+///
+/// GEN/LIST/ADDR não expõem import/delete (sem PIN nesta faixa); a ordem
+/// canônica binding -> UP é a mesma de vendor. Executor on-device =
+/// follow-up (Wire: gate ok → `0x04`, como vendor §9.4).
+pub fn authorize_wallet_op(
+    op: u8,
+    binding_ok: bool,
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    if !is_wallet_op(op) {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+    } else if !binding_ok {
+        return Err(BleGattError::NeedBinding);
+    }
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    Ok(())
+}
+
 /// Gate normativo proximidade-BLE: ordem binding -> UP -> coex.
 ///
 /// - `!bonded` => `NeedBinding` (0x05, so BLE, nunca USB).
@@ -723,6 +767,39 @@ mod tests {
         assert_eq!(
             s.control_write(&frag, false),
             Err(BleGattError::PresenceRequired)
+        );
+    }
+
+    #[test]
+    fn wallet_ops_live_in_free_range() {
+        for op in [OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR] {
+            assert!(is_wallet_op(op));
+            assert!(!is_vendor_keys_oath_op(op));
+            assert!(!is_bind_mgmt_op(op));
+            assert_ne!(op, 0x2E);
+            assert!(!(0x30..=0x34).contains(&op));
+        }
+        assert_eq!((OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR), (0x35, 0x36, 0x37));
+        assert!(!is_wallet_op(0x20));
+        assert!(!is_wallet_op(0x2F));
+        assert!(!is_wallet_op(0x34));
+    }
+
+    #[test]
+    fn wallet_gate_order_binding_then_up() {
+        // Ordem canônica: binding -> UP (app alheio sempre vê NEED_BINDING).
+        assert_eq!(
+            authorize_wallet_op(OP_WALLET_GEN, false, false),
+            Err(BleGattError::NeedBinding)
+        );
+        assert_eq!(
+            authorize_wallet_op(OP_WALLET_LIST, true, false),
+            Err(BleGattError::PresenceRequired)
+        );
+        assert!(authorize_wallet_op(OP_WALLET_ADDR, true, true).is_ok());
+        assert_eq!(
+            authorize_wallet_op(0x20, true, true),
+            Err(BleGattError::InvalidOpcode)
         );
     }
 

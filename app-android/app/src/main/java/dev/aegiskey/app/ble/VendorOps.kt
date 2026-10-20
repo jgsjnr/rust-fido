@@ -28,6 +28,11 @@ object VendorOps {
     const val OP_OATH_CODE: Int = 0x26
     const val OP_OATH_DELETE: Int = 0x27
 
+    /** Carteira Fase7 (R-07): faixa livre 0x35-0x37 (GATT/revisão intactos). */
+    const val OP_WALLET_GEN: Int = 0x35
+    const val OP_WALLET_LIST: Int = 0x36
+    const val OP_WALLET_ADDR: Int = 0x37
+
     const val STATUS_OK: Int = 0x00
     const val STATUS_NEED_UP: Int = 0x01
     const val STATUS_NEED_PIN: Int = 0x02

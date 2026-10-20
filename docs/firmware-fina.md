@@ -36,6 +36,25 @@ Método geral de estimativa: S = dezenas–poucas centenas B flash e/ou <512B RA
 - Classic: priorizar MOVER `address.rs` + formatação display primeiro (maior alívio opt-z); S3 usa a mesma lista para abrir folga OTA.
 - Sem mudança de layout NVS/journal nem CBOR IDs nesta wave.
 
+## Delta Step4c-medicao (2026-10-20, sem COM8/sem subagentes)
+
+Verificação por grep no firmware (sem chute):
+- `wallet|sha3|ripemd|bech32|bs58`: **zero ocorrências** em
+  `aegis-fido-firmware/src` → encodings nunca linkados no bin ESP. O
+  move `wallet_address` p/ bridge é app-side only (correto); nada a
+  remover do firmware.
+- Display (`display/ui.rs`): **FICA** — LCD físico precisa renderizar
+  no device; "formatação" inseparável do flush por bandas.
+- Reassemble GATT (`ble_gatt.rs` feed): **FICA** — framing §9.6
+  congelado; mover quebraria `BAD_ENVELOPE`/sem-retry.
+- Retry WiFi (`sta_retry_due` + const 60s, ~10 linhas): **FICA** —
+  timing de rádio é crítico no device; economia S não paga o risco.
+- Countdown TOTP display: **JÁ MOVIDO** (`oath_remaining_seconds` no
+  bridge, teste `oath_remaining_mirrors_firmware_window`).
+- SIZE release S3 medido: **2.646.400 B** (era 2.646.512; −112 B da
+  fiação; test-mode soma 0 B). Conclusão Step4c: nada mais a mover
+  nesta wave sem quebrar fronteira ou wire.
+
 ## Delta Wave2 Step4c + plumbing (2026-10-20, branch fd/finalizacao-linux)
 
 - **Bridge move executado**: `wallet_address(network, pubkey_hex)` no

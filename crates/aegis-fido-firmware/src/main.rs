@@ -336,6 +336,20 @@ fn ble_dispatch_complete(
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
             }
         }
+        o if g::is_wallet_op(o) => {
+            // Carteira Fase7 (R-07): binding + UP, sem PIN; executor
+            // on-device (WalletStore + NVS) = follow-up, mesmo padrão §9.4.
+            match g::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
+                Ok(()) => {
+                    kprintln!(
+                        "[BLE] op wallet 0x{:02X} com gate ok (executor = follow-up)",
+                        o
+                    );
+                    ble::notify_frame(o, 0x04, &[])
+                }
+                Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
+            }
+        }
         _ => ble::notify_frame(op, 0x04, &[]),
     };
     let _ = ble::esp_ble_notify(&frame);
@@ -1447,11 +1461,11 @@ fn run_authenticator() {
         // helpers (same binding -> UP -> PIN gates), status-first answer.
         #[cfg(target_os = "espidf")]
         if serial_installed {
-            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op};
+            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op, is_wallet_op};
             use aegis_fido_firmware::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt,
-                dispatch_serial_rescue, dispatch_serial_vendor, is_rescue_msg,
-                serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed, SerialGate,
+                dispatch_serial_rescue, dispatch_serial_vendor, dispatch_serial_wallet,
+                is_rescue_msg, serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed, SerialGate,
             };
             #[cfg(feature = "test-mode")]
             use aegis_fido_firmware::serial_ctaphid::{
@@ -1648,10 +1662,12 @@ fn run_authenticator() {
                                     }
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
-                                    && is_vendor_keys_oath_op(msg.payload[0])
+                                    && (is_vendor_keys_oath_op(msg.payload[0])
+                                        || is_wallet_op(msg.payload[0]))
                                 {
-                                    // Vendor keys/OATH: app-driven UP (latch, like
-                                    // BLE); denial carries the BLE wire status.
+                                    // Vendor keys/OATH + carteira: app-driven UP
+                                    // (latch, like BLE); denial carries the BLE
+                                    // wire status.
                                     let op = msg.payload[0];
                                     match authorize_serial(
                                         msg.cmd,
@@ -1681,11 +1697,19 @@ fn run_authenticator() {
                                         SerialGate::Ok => {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
-                                            let (st, body) = dispatch_serial_vendor(
-                                                op,
-                                                binding_mgr.is_claimed(),
-                                                true,
-                                            );
+                                            let (st, body) = if is_wallet_op(op) {
+                                                dispatch_serial_wallet(
+                                                    op,
+                                                    binding_mgr.is_claimed(),
+                                                    true,
+                                                )
+                                            } else {
+                                                dispatch_serial_vendor(
+                                                    op,
+                                                    binding_mgr.is_claimed(),
+                                                    true,
+                                                )
+                                            };
                                             let mut resp = Vec::with_capacity(1 + body.len());
                                             resp.push(st);
                                             resp.extend_from_slice(&body);
