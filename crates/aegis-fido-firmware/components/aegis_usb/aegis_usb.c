@@ -7,8 +7,12 @@
 #include <string.h>
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
+#include "soc/rtc_cntl_reg.h"
+#include "soc/soc.h"
 #include "tinyusb.h"
 #include "tusb.h"
 #include "class/hid/hid_device.h"
@@ -227,4 +231,13 @@ uint16_t aegis_usb_pop_packet(uint8_t *out_buf, uint16_t max_len) {
         return to_copy;
     }
     return 0;
+}
+
+void aegis_reboot_to_download(void) {
+    ESP_LOGW(TAG, "TEST_DOWNLOAD: rebooting into ROM download via RTC_CNTL");
+    REG_SET_BIT(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+    for (;;) {
+    }
 }

@@ -315,6 +315,18 @@ impl PublicKey {
         self.to_cose_key().to_cbor_bytes()
     }
 
+    /// Ponto SEC1 uncompressed (`04 || x || y`) p/ PIV `7F 49` (F4).
+    /// Ed25519 devolve os 32B crus (PIV-EC só; chamador valida a curva).
+    pub fn to_sec1_uncompressed(&self) -> Vec<u8> {
+        match self {
+            Self::P256(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
+            Self::P384(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
+            Self::P521(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
+            Self::K256(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
+            Self::Ed25519(vk) => vk.to_bytes().to_vec(),
+        }
+    }
+
     pub fn from_cose_key(cose: &CoseKey) -> Result<Self, CryptoError> {
         match cose {
             CoseKey::Ec2 { alg, crv, x, y } => {
@@ -436,8 +448,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_all_five_curves_lifecycle() {
-        let mut rng = rand::rngs::OsRng;
+    fn test_all_five_curves_lifecycle() {        let mut rng = rand::rngs::OsRng;
         let test_message = b"AegisKey FIDO2 Multi-Curve Cryptographic Assertion";
 
         let curves = [
@@ -498,6 +509,23 @@ mod tests {
 
             let sig2 = reimported_kp.sign(test_message).expect("Signing with re-imported key");
             assert!(pubkey.verify(test_message, &sig2).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_sec1_uncompressed_shapes() {
+        // F4: ponto SEC1 p/ template PIV 7F49 (04||x||y).
+        let mut rng = rand::rngs::OsRng;
+        for (curve, len) in [
+            (CoseAlgorithm::ES256, 65),
+            (CoseAlgorithm::ES384, 97),
+            (CoseAlgorithm::ES512, 133),
+            (CoseAlgorithm::ES256K, 65),
+        ] {
+            let kp = KeyPair::generate(curve, &mut rng).expect("gen");
+            let raw = kp.public_key().to_sec1_uncompressed();
+            assert_eq!(raw.len(), len, "{:?}", curve);
+            assert_eq!(raw[0], 0x04, "{:?}", curve);
         }
     }
 }

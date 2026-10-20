@@ -49,6 +49,14 @@ uint16_t aegis_usb_pop_packet(uint8_t *out_buf, uint16_t max_len);
  */
 uint16_t aegis_usb_read_chunk(uint8_t *out_buf, uint16_t max_len);
 
+/**
+ * Reboots straight into the ROM download bootloader via RTC_CNTL
+ * FORCE_DOWNLOAD_BOOT (no buttons, no DTR/RTS circuit needed).
+ * TEST-HOOK: called only from test-mode serial `TEST_DOWNLOAD`.
+ * Never returns.
+ */
+void aegis_reboot_to_download(void);
+
 #ifdef __cplusplus
 }
 #endif

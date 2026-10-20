@@ -918,6 +918,43 @@ REG = {
     "D07": (_d07, "wipe"), "D07b": (_d07b, "wipe"),
     "D08": (_d08, "destructive"),
 }
+
+
+def _bench(c):
+    """Tempos por op (3x cada, ms). Baseline p/ decisão HW (F7)."""
+    import time as _t
+
+    def timed(tid, name, fn, tries=3):
+        ds, ok, detail = [], False, ""
+        for _ in range(tries):
+            t0 = _t.monotonic()
+            try:
+                ok, detail = fn()
+            except Exception as e:
+                detail, ok = str(e)[:60], False
+            ds.append((_t.monotonic() - t0) * 1000)
+            if not ok:
+                break
+        avg = sum(ds) / len(ds)
+        c.rec(tid, "%s [%dms]" % (name, int(avg)), "pass" if ok else "div", detail)
+
+    s = c.s
+    timed("B01", "PING", lambda: (
+        (lambda r: (bytes([r[0]]) + r[1] == b"ping-b", "eco"))(
+            s._exchange(CMD_PING, b"ping-b", timeout_s=10.0, op="e2e"))))
+    timed("B02", "GetInfo", lambda: (
+        (lambda r: (r[0] == 0, "%dB" % len(r[1])))(
+            s._exchange(CMD_CBOR, bytes([0x04]), timeout_s=10.0, op="e2e"))))
+    timed("B03", "MC", lambda: (
+        (lambda r: (r[0] == 0, "%dB" % len(r[1])))(
+            c.ctap_up(CTAP_CMD_MAKE_CREDENTIAL, mc_cbor()))))
+    timed("B04", "GA", lambda: (
+        (lambda r: (r[0] == 0, "%dB" % len(r[1])))(
+            c.ctap_up(CTAP_CMD_GET_ASSERTION, ga_cbor()))))
+
+
+REG["B99"] = (_bench, "bench")
+PHASES["bench"] = ["B99"]
 PHASES = {
     "base": [t for t, (_, p) in REG.items() if p == "base"],
     "pairing": [t for t, (_, p) in REG.items() if p == "pairing"],
@@ -945,7 +982,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default=PORT_DEFAULT)
     ap.add_argument("--phase", default="base",
-                    choices=["base", "pairing", "all-safe", "destructive", "wipe"])
+                    choices=["base", "pairing", "all-safe", "destructive", "wipe", "bench"])
     ap.add_argument("--only", default=None, help="ID único, ex. T17")
     ap.add_argument("--confirm", action="store_true")
     ap.add_argument("--confirm-release", action="store_true",

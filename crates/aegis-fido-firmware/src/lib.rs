@@ -43,6 +43,7 @@ pub mod vault_store;
 pub mod vendor_exec;
 pub mod wallet_exec;
 pub mod nvs_backend;
+pub mod piv_store;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
 pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};

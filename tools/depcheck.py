@@ -1,18 +1,18 @@
-import os
+import json
+import subprocess
 
-base = (r"C:\t\xtensa-esp32s3-espidf\release\build\esp-idf-sys-7047177beeb65407"
-        r"\out")
-# acha build.ninja raiz e procura a regra do aegis_usb.c.obj
-for dp, dn, fn in os.walk(base):
-    if "build.ninja" in fn:
-        p = os.path.join(dp, "build.ninja")
-        with open(p, errors="replace") as fh:
-            for line in fh:
-                if "aegis_usb.c" in line and ("COMPILE" in line or ".c.obj" in line or "$" in line[:4]):
-                    print(line.strip()[:300])
+DB = (r"C:\t\xtensa-esp32s3-espidf\release\build\esp-idf-sys-7047177beeb65407"
+      r"\out\build\compile_commands.json")
+cc = json.load(open(DB))
+for e in cc:
+    if e["file"].replace("\\", "/").endswith("aegis_usb/aegis_usb.c"):
+        cmd = e["command"]
         break
-print("---flags---")
-for dp, dn, fn in os.walk(base):
-    if "flags.make" in fn and "aegis_usb" in dp:
-        print(os.path.join(dp, "flags.make"))
-        break
+# troca o output para um .o de teste
+import re
+cmd = re.sub(r"-o \S+", "-o C:/t/ninja_test.o", cmd)
+print("CMD:", cmd[:200], "...")
+r = subprocess.run(cmd, shell=True, cwd=e["directory"],
+                   capture_output=True, text=True)
+print("RC=", r.returncode)
+print((r.stdout + r.stderr)[-1500:])

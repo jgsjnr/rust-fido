@@ -37,22 +37,30 @@ avança), slot 5 + CODE lidos pós-EN. App: VaultScreen envia challenge
 **Aceite**: setPIN → EN → token funciona; retries sobrevivem.
 **Risco**: baixo (NVS já provado). Pré-req: nenhum (independente de F1).
 
-### F4. CCID/PIV no USB [G]
+### F4. CCID/PIV no USB [G] — EM ANDAMENTO 20/10
 **Problema**: OpenSC não vê cartão (USB vivo = só HID; CCID/PIV só
 existem como crates desligados).
-**Escopo**: driver CCID no TinyUSB (C, bulk IN/OUT + interrupt),
-dispatch APDU→`PivApplet`, expor interface no config descriptor,
-`opensc-tool`/`pkcs11-tool` fim-a-fim (slots 9A/9C/9D/9E, PIN/PUK).
+**Feito (Rust, host verde)**: `PublicKey::to_sec1_uncompressed` + teste;
+`piv_store.rs` (NVS store + backend KeyManager 24-27, DER↔raw, RSA=BadAlg)
++ testes (gen/auth/verify local).
+**Falta**: driver CCID em C (sem `ccid_device` no toolchain — escrever
+`ccid_device.c` mínimo:bulk OUT/IN + notify), descritor composite
+(HID intacto em 1º), dispatch APDU→`PivApplet`, enrollment PIN/PUK
+(nova op vendor, gate UP), `opensc-tool` fim-a-fim.
 **Aceite**: `opensc-tool -l` lista AegisKey; VERIFY + SIGN funcionam.
 **Risco**: médio (C + spec PIV; sem impacto no HID existente).
 
-### F5. OTA staging + COMMIT [M, NUNCA sem confirmação]
+### F5. OTA staging + COMMIT [M] — CÓDIGO PRONTO, LAB TRAVADO
 **Problema**: OTA só existe na seção USB; staging grande no NVS e swap
 de partição são follow-up; COMMIT jamais automático.
-**Escopo**: chunk staging limitado ao blob NVS + validação de manifesto
-Ed25519 + COMMIT atrás de UP (e de confirmação explícita no script).
-**Aceite**: BEGIN→CHUNKs→FINISH validados; COMMIT só com `--confirm-commit`.
-**Risco**: alto (brick); testar com rollback + release intocado de backup.
+**Feito**: staging chunked 8 KiB (partição `storage` 896 KB) + serial OTA
++ chave lab + e2e D08 (bad-sig nega, BEGIN+CHUNKs+FINISH verify,
+COMMIT∓UP/COMMIT+UP marker, ABORT); host 242 verdes.
+**Trava**: BEGIN válido reboota a placa (só ele; GEN/NVS ok; idle 5 min
+estável). Suspeitas: NVS-cheio/corrompido ou energia. Próximo passo:
+diagnosticar com build limpo + partição zerada.
+**Nota de swap**: partição única (sem ota_*) → COMMIT grava só marker;
+swap real = fábrica (reparticionar).
 
 ### F6. Processo: merge + UX hold [P]
 - PR `fd/finalizacao-linux` → `main` após F1–F3 verdes no hardware.

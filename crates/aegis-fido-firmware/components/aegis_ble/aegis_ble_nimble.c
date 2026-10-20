@@ -423,19 +423,12 @@ static int ensure_init(void)
     ble_store_config_init();
 
     /* Serviços padrão GAP (0x1800) + GATT (0x1801, Service Changed): sem
-     * eles o banco ATT anuncia zero serviços e o Windows enumera vazio. */
-    int rc = ble_svc_gap_init();
-    if (rc != 0) {
-        ESP_LOGE(TAG, "svc_gap_init rc=%d", rc);
-        return -6;
-    }
-    rc = ble_svc_gatt_init();
-    if (rc != 0) {
-        ESP_LOGE(TAG, "svc_gatt_init rc=%d", rc);
-        return -7;
-    }
+     * eles o banco ATT anuncia zero serviços e o Windows enumera vazio.
+     * (NimBLE deste IDF: retorno void; falha aparece no count/add.) */
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
 
-    rc = ble_gatts_count_cfg(s_svcs);
+    int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_count rc=%d", rc);
         return -3;
