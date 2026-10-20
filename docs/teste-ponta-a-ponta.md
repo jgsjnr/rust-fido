@@ -74,7 +74,7 @@ em `--only` isolado pode pegar janela residual (ver bugs).
 | D06c | Re-claim pós-release | 0x28 | 0x00 | PASS |
 | D05b | Recovery UNLOCK 1234 (= wipe binding) | 0x2D + UP | 0x00 | PASS |
 | D05c | Challenge pós-unlock nega | 0x29 | 0x05 (prova do wipe) | PASS |
-| D08 | OTA-BEGIN com janela (stage, SEM commit) | 0x30 | anotar; COMMIT JAMAIS | PASS |
+| D08a-f | OTA lab: bad-sig nega, BEGIN+CHUNKs+FINISH verify, COMMIT∓UP, COMMIT+UP marker, ABORT | 0x30-0x34 | ciclo real | TODO |
 
 NUNCA no script: killswitch real (jig+HSM), factory_reset físico,
 OTA-COMMIT, eFuse.
@@ -551,3 +551,13 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 16:04 — phase=base only=T09
 - [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+
+### 20/10 16:20 — phase=base only=D08
+- [PASS] D08a FINISH bad-sig nega e limpa — status=0x04
+- [DIVERGENTE] D08b BEGIN+5 CHUNKs 20KiB — recebidos=16384/20480
+
+### 20/10 16:27 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 16:27 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
