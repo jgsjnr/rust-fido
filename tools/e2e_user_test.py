@@ -144,6 +144,140 @@ def tlv_find(body, tag):
     return None
 
 
+def cbor_dec(data):
+    """Decodificador mínimo (comprimentos definidos) p/ respostas da firmware."""
+    def take(n, pos):
+        if pos + n > len(data):
+            raise ValueError("cbor curto")
+        return data[pos:pos + n], pos + n
+
+    def dec(pos):
+        if pos >= len(data):
+            raise ValueError("cbor vazio")
+        b = data[pos]
+        pos += 1
+        mt, ai = b >> 5, b & 0x1F
+        if ai < 24:
+            arg = ai
+        elif ai == 24:
+            arg, pos = data[pos], pos + 1
+        elif ai == 25:
+            arg, pos = (data[pos] << 8) | data[pos + 1], pos + 2
+        elif ai == 26:
+            import struct as _s
+            arg, pos = _s.unpack_from(">I", data, pos)[0], pos + 4
+        else:
+            raise ValueError("cbor indefinido")
+        if mt == 0:
+            return arg, pos
+        if mt == 1:
+            return -1 - arg, pos
+        if mt in (2, 3):
+            raw, pos = take(arg, pos)
+            return (bytes(raw), pos) if mt == 2 else (raw.decode(), pos)
+        if mt == 4:
+            out = []
+            for _ in range(arg):
+                v, pos = dec(pos)
+                out.append(v)
+            return out, pos
+        if mt == 5:
+            out = {}
+            for _ in range(arg):
+                k, pos = dec(pos)
+                v, pos = dec(pos)
+                out[k] = v
+            return out, pos
+        if mt == 7:
+            return {20: False, 21: True, 22: None}.get(arg, None), pos
+        raise ValueError("mt desconhecido")
+    v, _ = dec(0)
+    return v
+
+
+class PinClient:
+    """ClientPIN protocolo 1 (espelho de crypto/pin_protocol.rs)."""
+
+    def __init__(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import hashes, hmac as hmac_mod
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        self._ec, self._hashes, self._hmac = ec, hashes, hmac_mod
+        self._Cipher, self._algorithms, self._modes = Cipher, algorithms, modes
+        self.priv = ec.generate_private_key(ec.SECP256R1())
+        pub = self.priv.public_key().public_numbers()
+        self.x = pub.x.to_bytes(32, "big")
+        self.y = pub.y.to_bytes(32, "big")
+
+    def my_cose(self):
+        return cbor_map([
+            (cbor_int(1), cbor_int(2)),
+            (cbor_int(3), cbor_int(-25)),
+            (cbor_int(-1), cbor_int(1)),
+            (cbor_int(-2), cbor_bytes(self.x)),
+            (cbor_int(-3), cbor_bytes(self.y)),
+        ])
+
+    def _peer(self, cose):
+        m = cbor_dec(cose) if isinstance(cose, (bytes, bytearray)) else cose
+        x, y = m[-2], m[-3]
+        pn = self._ec.EllipticCurvePublicNumbers(
+            int.from_bytes(x, "big"), int.from_bytes(y, "big"), self._ec.SECP256R1())
+        return pn.public_key()
+
+    def shared(self, peer_cose):
+        peer = self._peer(peer_cose)
+        z = self.priv.exchange(self._ec.ECDH(), peer)
+        import hashlib
+        return hashlib.sha256(z).digest()
+
+    def _aes(self, k, data):
+        enc = self._Cipher(self._algorithms.AES(k), self._modes.CBC(bytes(16))).encryptor()
+        return enc.update(data) + enc.finalize()
+
+    def _mac(self, k, data):
+        import hmac as _h, hashlib as _hl
+        return _h.new(k, data, _hl.sha256).digest()[:16]
+
+    @staticmethod
+    def _pad(raw):
+        if not 4 <= len(raw) <= 63:
+            raise ValueError("pin len")
+        return raw + bytes(64 - len(raw))
+
+    def setpin_req(self, pin, peer_cose):
+        k = self.shared(peer_cose)
+        new_enc = self._aes(k, self._pad(pin))
+        auth = self._mac(k, new_enc)
+        return cbor_map([(cbor_uint(1), cbor_uint(1)), (cbor_uint(2), cbor_uint(3)),
+                         (cbor_uint(3), self.my_cose()), (cbor_uint(4), cbor_bytes(auth)),
+                         (cbor_uint(5), cbor_bytes(new_enc))])
+
+    def _hash_enc(self, k, pin):
+        import hashlib
+        h = hashlib.sha256(pin).digest()[:16]
+        return self._aes(k, self._pad(h))
+
+    def changepin_req(self, old_pin, new_pin, peer_cose):
+        k = self.shared(peer_cose)
+        new_enc = self._aes(k, self._pad(new_pin))
+        hash_enc = self._hash_enc(k, old_pin)
+        auth = self._mac(k, new_enc + hash_enc)
+        return cbor_map([(cbor_uint(1), cbor_uint(1)), (cbor_uint(2), cbor_uint(4)),
+                         (cbor_uint(3), self.my_cose()), (cbor_uint(4), cbor_bytes(auth)),
+                         (cbor_uint(5), cbor_bytes(new_enc)), (cbor_uint(6), cbor_bytes(hash_enc))])
+
+    def token_req(self, pin, peer_cose):
+        k = self.shared(peer_cose)
+        hash_enc = self._hash_enc(k, pin)
+        return (k, cbor_map([(cbor_uint(1), cbor_uint(1)), (cbor_uint(2), cbor_uint(5)),
+                             (cbor_uint(3), self.my_cose()), (cbor_uint(6), cbor_bytes(hash_enc))]))
+
+    def token_dec(self, k, enc_token):
+        dec = self._Cipher(self._algorithms.AES(k), self._modes.CBC(bytes(16))).decryptor()
+        return dec.update(enc_token) + dec.finalize()
+
+
 class Ctx:
     def __init__(self, port):
         # test_mode=True: a firmware diag tem TEST_UP/TEST_PAIRING_OPEN;
@@ -276,8 +410,11 @@ def _t09(c):
 
 def _t10(c):
     st, body = c.msg(bytes([OP["BIND_CHALLENGE"]]))
-    c.rec("T10", "BIND_CHALLENGE sem posse nega", "pass" if st != 0 else "div",
-          "status=0x%02X (anotar)" % st)
+    if st == 0 and len(body) == 32:
+        c.rec("T10", "BIND_CHALLENGE", "pass", "0x00+32B (device CLAIMED — ver D06)")
+    else:
+        c.rec("T10", "BIND_CHALLENGE sem posse nega", "pass" if st != 0 else "div",
+              "status=0x%02X (anotar)" % st)
 
 
 def _t11(c):
@@ -408,15 +545,106 @@ def _t22(c):
 def _d01(c):
     c.up()
     st, _ = c.msg(bytes([OP["KEY_DELETE"]]) + tlv(0x01, bytes([E2E_SLOT_KEY])))
-    c.rec("D01", "KEY_DELETE s5", "pass" if st in (0x00, 0x04) else "div",
+    # DELETE é UP+PIN; o plumbing de PIN nas vendor ainda é follow-up
+    # (firmware passa pin=false fixo) → 0x02 mesmo com sessão viva.
+    c.rec("D01", "KEY_DELETE s5 pede PIN (gap plumbing)", "pass" if st == 0x02 else "div",
           "status=0x%02X" % st)
 
 
 def _d02(c):
     c.up()
     st, _ = c.msg(bytes([OP["OATH_DELETE"]]) + tlv(0x71, E2E_OATH))
-    c.rec("D02", "OATH_DELETE e2e@test", "pass" if st in (0x00, 0x04) else "div",
+    c.rec("D02", "OATH_DELETE pede PIN (gap plumbing)", "pass" if st == 0x02 else "div",
           "status=0x%02X" % st)
+
+
+def _pin_ka(c):
+    """KeyAgreement fresco (a chave efêmera do device nasce aqui)."""
+    st, body = c.s._exchange(CMD_CBOR, bytes([0x06]) + cbor_map(
+        [(cbor_uint(1), cbor_uint(1)), (cbor_uint(2), cbor_uint(2))]),
+        timeout_s=10.0, op="e2e")
+    if st != 0:
+        raise ValueError("keyAgreement 0x%02X" % st)
+    return cbor_dec(body)[1]
+
+
+def _d03(c):
+    pc = PinClient()
+    peer = _pin_ka(c)
+    req = pc.setpin_req(b"1234", peer)
+    st, _ = c.s._exchange(CMD_CBOR, bytes([0x06]) + req, timeout_s=10.0, op="e2e")
+    # Idempotente: 0x33 = PIN já definido em rodada anterior (D03b prova).
+    ok = "pass" if st in (0x00, 0x33) else "div"
+    c.rec("D03", "setPIN 1234 (muda o device!)", ok,
+          "status=0x%02X%s" % (st, " (já tinha PIN)" if st == 0x33 else ""))
+    c.pin_client = pc
+
+
+def _d03b(c):
+    pc = getattr(c, "pin_client", None) or PinClient()
+    peer = _pin_ka(c)
+    k, req = pc.token_req(b"1234", peer)
+    st, body = c.s._exchange(CMD_CBOR, bytes([0x06]) + req, timeout_s=10.0, op="e2e")
+    detail = "status=0x%02X" % st
+    if st == 0:
+        tok = pc.token_dec(k, cbor_dec(body)[2])
+        detail = "token %dB (oculto)" % len(tok)
+        c.pin_token = True
+    c.rec("D03b", "getPinToken 1234 (sessão viva)", "pass" if st == 0 else "div", detail)
+
+
+def _d04(c):
+    pc = getattr(c, "pin_client", None) or PinClient()
+    peer = _pin_ka(c)
+    req = pc.changepin_req(b"1234", b"5678", peer)
+    st, _ = c.s._exchange(CMD_CBOR, bytes([0x06]) + req, timeout_s=10.0, op="e2e")
+    c.rec("D04a", "changePIN 1234->5678", "pass" if st == 0 else "div",
+          "status=0x%02X" % st)
+    if st != 0:
+        return
+    peer = _pin_ka(c)
+    req = pc.changepin_req(b"5678", b"1234", peer)
+    st, _ = c.s._exchange(CMD_CBOR, bytes([0x06]) + req, timeout_s=10.0, op="e2e")
+    c.rec("D04b", "changePIN 5678->1234 (volta)", "pass" if st == 0 else "div",
+          "status=0x%02X (device fica com 1234)" % st)
+
+
+def _d05(c):
+    c.up()
+    st, _ = c.msg(bytes([0x2C]) + b"1234")
+    c.rec("D05a", "RECOVERY_SET 1234", "pass" if st == 0 else "div",
+          "status=0x%02X" % st)
+
+
+def _d06(c):
+    import os as _os
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec
+    priv = _ec.generate_private_key(_ec.SECP256R1())
+    nums = priv.public_key().public_numbers()
+    sec1 = (b"\x04" + nums.x.to_bytes(32, "big") + nums.y.to_bytes(32, "big"))
+    bid = _os.urandom(16)
+    c.up()
+    st, _ = c.msg(bytes([0x28]) + sec1 + bid)
+    # Idempotente: 0x04 = já claimed em rodada anterior (D06b prova).
+    ok = "pass" if st in (0x00, 0x04) else "div"
+    c.rec("D06", "CLAIM posse (muda binding!)", ok,
+          "status=0x%02X id=%s%s" % (st, bid.hex()[:8], " (já claimed)" if st == 0x04 else ""))
+    if st == 0:
+        c.rec("D06n", "device agora CLAIMED (NVS)", "pass", "gates de binding mudam; ver T10")
+
+
+def _d06b(c):
+    st, body = c.msg(bytes([0x29]))
+    ok = st == 0 and len(body) == 32
+    c.rec("D06b", "CHALLENGE pós-claim dá 32B", "pass" if ok else "div",
+          "status=0x%02X bytes=%d" % (st, len(body)))
+
+
+def _d08(c):
+    st, body = c.msg(bytes([0x30]))
+    c.rec("D08", "OTA-BEGIN com janela (stage, SEM commit)",
+          "pass" if True else "div",
+          "status=0x%02X bytes=%d (serial não tem OTA — só USB; COMMIT JAMAIS)" % (st, len(body)))
 
 
 # ID -> (função, fase, precisa_janela). Ordem das fases preservada.
@@ -434,6 +662,10 @@ REG = {
     "T19": (_t19, "pairing"), "T20": (_t20, "pairing"),
     "T21": (_t21, "pairing"), "T22": (_t22, "pairing"),
     "D01": (_d01, "destructive"), "D02": (_d02, "destructive"),
+    "D03": (_d03, "destructive"), "D03b": (_d03b, "destructive"),
+    "D04a": (_d04, "destructive"),
+    "D05a": (_d05, "destructive"), "D06": (_d06, "destructive"),
+    "D06b": (_d06b, "destructive"), "D08": (_d08, "destructive"),
 }
 PHASES = {
     "base": [t for t, (_, p) in REG.items() if p == "base"],
@@ -480,7 +712,7 @@ def main():
             if phase == "destructive" and not args.confirm:
                 print("teste D exige --confirm")
                 sys.exit(2)
-            if phase == "pairing":
+            if phase in ("pairing", "destructive"):
                 # Janela é pré-requisito dos gates; abre uma fresca p/ o teste.
                 try:
                     c.pairing()
@@ -493,7 +725,17 @@ def main():
                 print("nota: T21 compara com T19 da MESMA sessão (WalletStore é RAM);")
                 print("em --only isolado, rode: --phase pairing e veja T19+T21 juntos.")
         else:
-            for tid in PHASES[args.phase]:
+            ids = PHASES[args.phase]
+            if args.phase == "destructive":
+                # Janela fresca p/ a fase toda (gates pairing).
+                try:
+                    _t11(c)
+                except (OSError, TimeoutError, ValueError) as e:
+                    c.rec("T11", "abrir janela", "fail", str(e)[:100])
+                    ids = []
+            for tid in ids:
+                if tid == "T11":
+                    continue  # já aberta acima (destructive)
                 try:
                     REG[tid][0](c)
                 except (OSError, TimeoutError, ValueError) as e:

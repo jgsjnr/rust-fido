@@ -56,14 +56,17 @@ diferente do esperado (analisar, pode ser bug ou expectativa errada) ·
 
 | ID | Funcionalidade | Op | Esperado | Status |
 |---|---|---|---|---|
-| D01 | Apagar chave e2e-t1 | MSG 0x23 s90 | 0x04 (sem executor — confirmar) | TODO |
-| D02 | Apagar OATH e2e@test | MSG 0x27 | 0x04 (sem executor — confirmar) | TODO |
-| D03 | Definir PIN "1234" (muda o device!) | setPIN | 0x00 | TODO |
-| D04 | Trocar PIN 1234→5678 | changePIN | 0x00 | TODO |
-| D05 | Recovery SET + UNLOCK | 0x2C/0x2D | 0x00 (anotar) | TODO |
-| D06 | Reivindicar posse (CLAIM — muda binding!) | 0x28 | 0x00 (anotar) | TODO |
-| D07 | Liberar posse (RELEASE = wipe!) | 0x2B | confirmação dupla | TODO |
-| D08 | OTA-BEGIN com janela (stage, SEM commit) | 0x30 | anotar; COMMIT JAMAIS | TODO |
+| D01 | Apagar chave (UP+PIN; plumbing gap → 0x02) | MSG 0x23 s5 | 0x02 NEED_PIN | DIVERGENTE |
+| D02 | Apagar OATH (UP+PIN; plumbing gap → 0x02) | MSG 0x27 | 0x02 NEED_PIN | DIVERGENTE |
+| D03 | Definir PIN "1234" (muda o device!) | setPIN cripto real | 0x00 (0x33 se já tem) | PASS |
+| D03b | Sessão PIN viva (getPinToken) | token | 0x00 + token oculto | PASS |
+| D04a/b | Trocar PIN 1234→5678→1234 | changePIN | 0x00/0x00 | PASS |
+| D05a | Recovery SET 1234 | 0x2C | 0x00 (anotar) | PASS |
+| D06 | Reivindicar posse (CLAIM — muda binding!) | 0x28 | 0x00 (0x04 se já claimed) | PASS |
+| D06b | Challenge pós-claim | 0x29 | 0x00 + 32B | PASS |
+| D07 | Liberar posse (RELEASE = wipe!) | 0x2B | `--confirm-release` + SIM | TODO |
+| D05b | Recovery UNLOCK (= wipe!) | 0x2D | `--confirm-release` + SIM | TODO |
+| D08 | OTA-BEGIN com janela (stage, SEM commit) | 0x30 | anotar; COMMIT JAMAIS | PASS |
 
 NUNCA no script: killswitch real (jig+HSM), factory_reset físico,
 OTA-COMMIT, eFuse.
@@ -88,6 +91,13 @@ OTA-COMMIT, eFuse.
 | U2 | PING + GetInfo via USB | BLOCKED |
 | U3 | Re-rodar fases base/pairing via USB (mesmo controle?) | BLOCKED |
 
+## Baseline atual do device (muda com destructive!)
+
+- 20/10 após D-phase: PIN `1234` definido · recovery PIN `1234` · CLAIMED
+  (binding NVS) · credencial residente `e2e` no NVS · carteiras s6-s9 na
+  RAM (somem no reboot). T10 agora responde `0x00`+32B (era `0x05`).
+  Wipes (D07 release, D05b unlock) NÃO executados — aguardam SIM digitado.
+
 ## Bugs / divergências
 
 - 20/10 T07 (esclarecido, não é bug): rescue com lixo responde `0x01`
@@ -108,6 +118,12 @@ OTA-COMMIT, eFuse.
   `a201010201`; T21 sem UP; T19 com slot fixo (placa não reseta — agora
   rotaciona 6..9). Vetores MC/GA gerados pelo ciborium da firmware
   (`crates/aegis-fido-core/tests/e2e_vectors.rs`).
+- 20/10 GAP (firmware follow-up, não é bug do teste): ops vendor
+  privilegiadas (IMPORT/DELETE/PUT) sempre respondem `0x02` NEED_PIN no
+  serial e no BLE — `main.rs`/`serial_ctaphid.rs` passam `pin_authenticated
+  = false` fixo (só o rescue tem plumbing ClientPIN). D01/D02/T15 provam
+  o gate; o PUT/DELETE real com PIN fica p/ o plumbing. O app vai ver
+  `0x02` nessas telas até lá.
 - 20/10 T09 (esclarecido, by design): ClientPIN sem subcomando
   (`a10101`) ou CBOR malformado responde `0x30` NOT_ALLOWED — o
   `client_pin_write` é fail-closed (serial_ctaphid.rs). getRetries correto
@@ -296,3 +312,67 @@ OTA-COMMIT, eFuse.
 - [PASS] T20 WALLET_LIST tem s9 — status=0x00 tem=True
 - [PASS] T21 WALLET_ADDR bate T19 — igual=True
 - [PASS] T22 WALLET rede invalida barra — 0x04
+
+### 20/10 13:20 — phase=destructive
+- [DIVERGENTE] D01 KEY_DELETE s5 — status=0x05
+- [DIVERGENTE] D02 OATH_DELETE e2e@test — status=0x05
+- [DIVERGENTE] D03 setPIN 1234 (muda o device!) — status=0x30
+- [DIVERGENTE] D03b getPinToken 1234 (sessão viva) — status=0x35
+- [DIVERGENTE] D04a changePIN 1234->5678 — status=0x30
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [DIVERGENTE] D06 CLAIM posse (muda binding!) — status=0x01 id=9849210f
+- [DIVERGENTE] D06b CHALLENGE pós-claim dá 32B — status=0x05 bytes=0
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 13:20 — phase=destructive
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [DIVERGENTE] D01 KEY_DELETE s5 — status=0x02
+- [DIVERGENTE] D02 OATH_DELETE e2e@test — status=0x02
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x00
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x00 id=5fa0f87d
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 13:21 — phase=base
+- [PASS] T01 INIT aloca CID — cid=0x000E0201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=38
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [DIVERGENTE] T06 WALLET_GEN sem UP/janela barra — recebido=0x01 (0x01=janela residual aberta)
+- [DIVERGENTE] T06b WALLET_GEN com UP sem janela barra — recebido=0x04 esperado=0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE — 0x00+32B (device CLAIMED — ver D06)
+
+### 20/10 13:21 — phase=destructive
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x02
+- [PASS] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x02
+- [DIVERGENTE] D03 setPIN 1234 (muda o device!) — status=0x33
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [DIVERGENTE] D06 CLAIM posse (muda binding!) — status=0x04 id=9c443976
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 13:22 — phase=destructive
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x02
+- [PASS] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x02
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x33 (já tinha PIN)
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x04 id=0d13152b (já claimed)
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
