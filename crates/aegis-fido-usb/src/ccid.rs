@@ -32,6 +32,7 @@ pub const PC_TO_RDR_GET_PARAMETERS: u8 = 0x6C;
 pub const PC_TO_RDR_RESET_PARAMETERS: u8 = 0x6D;
 pub const PC_TO_RDR_SET_PARAMETERS: u8 = 0x61;
 pub const PC_TO_RDR_ESCAPE: u8 = 0x6B;
+pub const PC_TO_RDR_SET_DATA_RATE_AND_CLOCK: u8 = 0x73;
 
 // ============================================================================
 // CCID Response Message Types (Reader -> PC)
@@ -40,6 +41,7 @@ pub const RDR_TO_PC_DATA_BLOCK: u8 = 0x80;
 pub const RDR_TO_PC_SLOT_STATUS: u8 = 0x81;
 pub const RDR_TO_PC_PARAMETERS: u8 = 0x82;
 pub const RDR_TO_PC_ESCAPE: u8 = 0x83;
+pub const RDR_TO_PC_DATA_RATE_AND_CLOCK: u8 = 0x84;
 
 // ============================================================================
 // ISO 7816-4 Status Words (SW1 SW2)
@@ -381,10 +383,16 @@ impl CcidTransport {
             PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
 
             PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
-                // v1: sem negociação real (`dwFeatures=0`); ecoa os
-                // parâmetros T=1 default para o host não travar no caminho
-                // feliz (OpenSC/libccid mandam `0x61` explícito após PowerOn).
+                // v1: sem negociação real; ecoa os parâmetros T=1 default
+                // para o host não travar no caminho feliz (OpenSC/libccid
+                // mandam `0x61` explícito após PowerOn).
                 Ok(Self::parameters_response(slot, seq))
+            }
+
+            PC_TO_RDR_SET_DATA_RATE_AND_CLOCK => {
+                // Ecoa clock/rate (o UsbCcids manda de volta os valores do
+                // descritor; sem handler ele desistia com "invalid card").
+                Ok(Self::rate_clock_response(slot, seq, payload))
             }
 
             PC_TO_RDR_XFR_BLOCK => {
@@ -512,6 +520,12 @@ impl CcidTransport {
                 Ok(Self::parameters_response(slot, seq))
             }
 
+            PC_TO_RDR_SET_DATA_RATE_AND_CLOCK => {
+                // Ecoa clock/rate (o UsbCcids manda de volta os valores do
+                // descritor; sem handler ele desistia com "invalid card").
+                Ok(Self::rate_clock_response(slot, seq, payload))
+            }
+
             PC_TO_RDR_XFR_BLOCK => {
                 if !self.card_powered {
                     let mut resp = Self::build_data_block_response(slot, seq, &[]);
@@ -616,13 +630,36 @@ impl CcidTransport {
     }
 
     fn build_slot_status_response(slot: u8, seq: u8, status: u8) -> Vec<u8> {
-        let mut resp = vec![0u8; 10];        resp[0] = RDR_TO_PC_SLOT_STATUS;
+        let mut resp = vec![0u8; 10];
+        resp[0] = RDR_TO_PC_SLOT_STATUS;
         resp[1..5].copy_from_slice(&0u32.to_le_bytes());
         resp[5] = slot;
         resp[6] = seq;
         resp[7] = status;
         resp[8] = 0x00;
         resp[9] = 0x00;
+        resp
+    }
+
+    /// Bloco `RDR_to_PC_DataRateAndClockFrequency` (`0x84`): ecoa o
+    /// clock/rate pedidos (o UsbCcids manda de volta os valores do
+    /// descritor). Payload curto = erro de slot (nunca silencia).
+    fn rate_clock_response(slot: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
+        if payload.len() < 8 {
+            let mut resp = Self::build_slot_status_response(slot, seq, 0x01);
+            resp[8] = 0x01;
+            return resp;
+        }
+        let mut resp = vec![0u8; 18];
+        resp[0] = RDR_TO_PC_DATA_RATE_AND_CLOCK;
+        resp[1..5].copy_from_slice(&8u32.to_le_bytes()); // Length 8
+        resp[5] = slot;
+        resp[6] = seq;
+        resp[7] = 0; // bStatus: ok
+        resp[8] = 0; // bError
+        resp[9] = 0; // bRFU
+        resp[10..14].copy_from_slice(&payload[0..4]); // dwClockFrequency
+        resp[14..18].copy_from_slice(&payload[4..8]); // dwDataRate
         resp
     }
 
@@ -1145,6 +1182,26 @@ mod tests {
         assert!(s.process(&mut t, &clipped).is_err());
         let r = CcidTransport::error_response(&clipped).expect("erro rsp");
         assert_eq!((r[0], r[5], r[6]), (RDR_TO_PC_DATA_BLOCK, 0, 8));
+        assert_ne!(r[7], 0x00);
+    }
+
+    #[test]
+    fn set_data_rate_and_clock_ecoado() {
+        let mut t = CcidTransport::new();
+        let mut h = DefaultCcidHandler;
+        // clock=3600/rate=10752 LE (valores do descritor).
+        let mut m = vec![PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 8, 0, 0, 0, 0, 9, 0, 0, 0];
+        m.extend_from_slice(&3600u32.to_le_bytes());
+        m.extend_from_slice(&10752u32.to_le_bytes());
+        let r = t.process_ccid_message(&m, &mut h).unwrap();
+        assert_eq!(r[0], RDR_TO_PC_DATA_RATE_AND_CLOCK);
+        assert_eq!(r[6], 9);
+        assert_eq!(&r[10..14], &3600u32.to_le_bytes());
+        assert_eq!(&r[14..18], &10752u32.to_le_bytes());
+        // Curto: erro de slot, nunca silêncio.
+        let short = [PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 2, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2];
+        let r = t.process_ccid_message(&short, &mut h).unwrap();
+        assert_eq!(r[0], RDR_TO_PC_SLOT_STATUS);
         assert_ne!(r[7], 0x00);
     }
 
