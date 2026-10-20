@@ -29,6 +29,28 @@ impl CryptoNetwork {
             Self::Solana => CoseAlgorithm::EdDSA,
         }
     }
+
+    /// Stable NVS discriminant (`wallet_slot_*` routing codec).
+    ///
+    /// `0x00` is reserved/invalid so a zeroed flash page never decodes to
+    /// a real network (fail-closed on corrupt storage).
+    pub fn as_u8(self) -> u8 {
+        match self {
+            Self::Bitcoin => 0x01,
+            Self::EthereumEvm => 0x02,
+            Self::Solana => 0x03,
+        }
+    }
+
+    /// Inverse of [`CryptoNetwork::as_u8`]; unknown (incl. `0x00`) → `None`.
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0x01 => Some(Self::Bitcoin),
+            0x02 => Some(Self::EthereumEvm),
+            0x03 => Some(Self::Solana),
+            _ => None,
+        }
+    }
 }
 
 /// Metadata-only wallet record. Never carries private bytes (none stored).
@@ -54,6 +76,20 @@ mod tests {
         assert_eq!(CryptoNetwork::Bitcoin.cose_algorithm(), CoseAlgorithm::ES256K);
         assert_eq!(CryptoNetwork::EthereumEvm.cose_algorithm(), CoseAlgorithm::ES256K);
         assert_eq!(CryptoNetwork::Solana.cose_algorithm(), CoseAlgorithm::EdDSA);
+    }
+
+    #[test]
+    fn should_roundtrip_stable_nvs_discriminants() {
+        for net in [
+            CryptoNetwork::Bitcoin,
+            CryptoNetwork::EthereumEvm,
+            CryptoNetwork::Solana,
+        ] {
+            assert_eq!(CryptoNetwork::from_u8(net.as_u8()), Some(net));
+        }
+        assert_eq!(CryptoNetwork::from_u8(0x00), None);
+        assert_eq!(CryptoNetwork::from_u8(0x04), None);
+        assert_eq!(CryptoNetwork::from_u8(0xFF), None);
     }
 
     #[test]

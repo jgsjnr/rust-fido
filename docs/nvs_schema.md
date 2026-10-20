@@ -58,13 +58,19 @@ Envelope inalterado (AEGN v1, TRNG interno, zeroize). USB/CTAP nunca toca nestas
 | `rec_pin_salt` | salt 16B TRNG | `0x2C` com UP | gerado via TRNG injetavel; zeroize apos uso |
 | `rec_pin_retries` | restantes 1B (inicia 8) | `0x2D` decrementa | persistida contra queda; 0 => `Locked` (so reset fisico) |
 
-## Chaves Carteira Cripto (aditivo, DRAFT — reconciliar Step 4)
+## Chaves Carteira Cripto (codec Step 5 — implementado no core)
 
 Envelope inalterado (AEGN v1, TRNG interno, zeroize). Storage-only BTC/EVM/SOL
 sobre `KeyManager`; sem OTP, sem lock dedicado. Detalhe em `docs/carteira-cripto.md`.
+Roteamento slot→rede persiste como bytes; chaves canônicas no código
+(`wallet_slot_nvs_key`) — fonte única, sem drift com este doc.
 
 | Chave | Conteudo | Gate | Nota |
 | --- | --- | --- | --- |
-| `wallet_slot_btc` | envelope AEGN do segredo BTC | UP+PIN | storage-only; formato reconciliado no Step 4 |
-| `wallet_slot_evm` | envelope AEGN do segredo EVM | UP+PIN | storage-only; formato reconciliado no Step 4 |
-| `wallet_slot_sol` | envelope AEGN do segredo SOL | UP+PIN | storage-only; formato reconciliado no Step 4 |
+| `wallet_slot_btc` | envelope AEGN do segredo BTC | UP+PIN | storage-only |
+| `wallet_slot_evm` | envelope AEGN do segredo EVM | UP+PIN | storage-only |
+| `wallet_slot_sol` | envelope AEGN do segredo SOL | UP+PIN | storage-only |
+| `wallet_routing` (proposta) | pares `[slot_id, net]` (`net`: 0x01 btc, 0x02 evm, 0x03 sol; 0x00 inválido) | UP | `export_routing`/`import_routing` (`wallet/store.rs`); rejeita ímpar/desconhecido/slot≥32/dup; ordenado por slot |
+
+Wiring no firmware (instanciar `WalletStore` + ler/escrever NVS no boot):
+follow-up de design — fora deste passo.

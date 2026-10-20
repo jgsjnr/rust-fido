@@ -20,12 +20,24 @@ use rand_core::{CryptoRng, RngCore};
 use super::address::address_for_public_key;
 use super::types::{CryptoNetwork, WalletRecord};
 use super::WalletError;
-use crate::credential::{KeyManager, KEY_USE_SIGN};
+use crate::credential::{KeyManager, KEY_USE_SIGN, MAX_KEY_SLOTS};
 use crate::crypto::{CoseAlgorithm, PublicKey};
 use crate::vault::AegisVault;
 
 /// B1 audit marker enforced on every slot label the store creates.
 pub const WALLET_LABEL_PREFIX: &str = "wallet:";
+
+/// NVS key holding one network's secret envelope (`docs/nvs_schema.md`).
+///
+/// Single source of truth for the `wallet_slot_*` names so firmware NVS
+/// code and docs cannot drift apart.
+pub fn wallet_slot_nvs_key(network: CryptoNetwork) -> &'static str {
+    match network {
+        CryptoNetwork::Bitcoin => "wallet_slot_btc",
+        CryptoNetwork::EthereumEvm => "wallet_slot_evm",
+        CryptoNetwork::Solana => "wallet_slot_sol",
+    }
+}
 
 /// Crypto-wallet store. Holds no private material itself: secrets live in
 /// the owned [`KeyManager`](crate::credential::KeyManager), which zeroizes
@@ -53,6 +65,53 @@ impl WalletStore {
     /// Whether any wallet slot is occupied.
     pub fn is_empty(&self) -> bool {
         self.manager.is_empty()
+    }
+
+    /// Exports the slot-id → network routing table for NVS persistence.
+    ///
+    /// Format: `[slot_id, net_discriminant]` pairs (`net` from
+    /// [`CryptoNetwork::as_u8`]), sorted by slot for stable bytes. This is
+    /// routing metadata only — key material stays in the `KeyManager`
+    /// envelopes under `wallet_slot_*`. An empty store exports zero bytes.
+    pub fn export_routing(&self) -> Vec<u8> {
+        let mut pairs: Vec<(u8, CryptoNetwork)> = self.networks.clone();
+        pairs.sort_by_key(|(id, _)| *id);
+        let mut out = Vec::with_capacity(pairs.len() * 2);
+        for (id, network) in pairs {
+            out.push(id);
+            out.push(network.as_u8());
+        }
+        out
+    }
+
+    /// Restores a routing table previously produced by
+    /// [`WalletStore::export_routing`] (firmware NVS `wallet_slot_*` path).
+    ///
+    /// Rejects (as `BadEnvelope`, closed status set): odd length, unknown
+    /// network discriminant (incl. zeroed flash), slot id `>= 32`, or a
+    /// duplicated slot. Replaces the table atomically — a rejected import
+    /// leaves the previous routing untouched.
+    pub fn import_routing(&mut self, bytes: &[u8]) -> Result<(), WalletError> {
+        if !bytes.len().is_multiple_of(2) {
+            return Err(WalletError::BadEnvelope);
+        }
+        let mut pairs: Vec<(u8, CryptoNetwork)> = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            let slot_id = bytes[i];
+            let network =
+                CryptoNetwork::from_u8(bytes[i + 1]).ok_or(WalletError::BadEnvelope)?;
+            if (slot_id as usize) >= MAX_KEY_SLOTS {
+                return Err(WalletError::BadEnvelope);
+            }
+            if pairs.iter().any(|(id, _)| *id == slot_id) {
+                return Err(WalletError::BadEnvelope);
+            }
+            pairs.push((slot_id, network));
+            i += 2;
+        }
+        self.networks = pairs;
+        Ok(())
     }
 
     fn prefixed_label(label: &str) -> String {
@@ -477,6 +536,62 @@ mod tests {
                 .generate(CryptoNetwork::Bitcoin, 2, long, 0, true, &mut rng)
                 .unwrap_err(),
             WalletError::BadEnvelope
+        );
+    }
+
+    #[test]
+    fn should_export_import_routing_roundtrip_sorted() {
+        let mut rng = rand::rngs::OsRng;
+        let mut store = btc_store();
+        assert_eq!(store.export_routing(), alloc::vec::Vec::new());
+        store
+            .generate(CryptoNetwork::Solana, 7, "sol", 0, true, &mut rng)
+            .unwrap();
+        store
+            .generate(CryptoNetwork::Bitcoin, 3, "btc", 0, true, &mut rng)
+            .unwrap();
+        // Sorted by slot regardless of insertion order.
+        assert_eq!(store.export_routing(), alloc::vec![3, 0x01, 7, 0x03]);
+        let mut fresh = btc_store();
+        fresh.import_routing(&[3, 0x01, 7, 0x03]).unwrap();
+        assert_eq!(fresh.export_routing(), alloc::vec![3, 0x01, 7, 0x03]);
+    }
+
+    #[test]
+    fn should_reject_bad_routing_bytes_and_keep_old_table() {
+        let mut store = btc_store();
+        store.import_routing(&[1, 0x02]).unwrap();
+        let good = store.export_routing();
+        // Odd length, unknown/zeroed discriminant, slot >= 32, dup slot.
+        for bad in [
+            alloc::vec![1],
+            alloc::vec![1, 0x00],
+            alloc::vec![1, 0x04],
+            alloc::vec![32, 0x01],
+            alloc::vec![255, 0x03],
+            alloc::vec![1, 0x02, 1, 0x03],
+        ] {
+            assert_eq!(
+                store.import_routing(&bad),
+                Err(WalletError::BadEnvelope)
+            );
+            assert_eq!(store.export_routing(), good);
+        }
+    }
+
+    #[test]
+    fn should_name_nvs_keys_matching_schema_doc() {
+        assert_eq!(
+            wallet_slot_nvs_key(CryptoNetwork::Bitcoin),
+            "wallet_slot_btc"
+        );
+        assert_eq!(
+            wallet_slot_nvs_key(CryptoNetwork::EthereumEvm),
+            "wallet_slot_evm"
+        );
+        assert_eq!(
+            wallet_slot_nvs_key(CryptoNetwork::Solana),
+            "wallet_slot_sol"
         );
     }
 }
