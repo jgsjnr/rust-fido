@@ -37,18 +37,25 @@ avança), slot 5 + CODE lidos pós-EN. App: VaultScreen envia challenge
 **Aceite**: setPIN → EN → token funciona; retries sobrevivem.
 **Risco**: baixo (NVS já provado). Pré-req: nenhum (independente de F1).
 
-### F4. CCID/PIV no USB [G] — EM ANDAMENTO 20/10
+### F4. CCID/PIV no USB [G] — CÓDIGO PRONTO 20/10, PROVA HW PENDENTE
 **Problema**: OpenSC não vê cartão (USB vivo = só HID; CCID/PIV só
-existem como crates desligados).
-**Feito (Rust, host verde)**: `PublicKey::to_sec1_uncompressed` + teste;
-`piv_store.rs` (NVS store + backend KeyManager 24-27, DER↔raw, RSA=BadAlg)
-+ testes (gen/auth/verify local).
-**Falta**: driver CCID em C (sem `ccid_device` no toolchain — escrever
-`ccid_device.c` mínimo:bulk OUT/IN + notify), descritor composite
-(HID intacto em 1º), dispatch APDU→`PivApplet`, enrollment PIN/PUK
-(nova op vendor, gate UP), `opensc-tool` fim-a-fim.
+existiam como crates sem driver).
+**Feito (host verde: usb 72 + firmware 250, clippy zero, release clean)**:
+- C: `ccid_device.c` (class driver CCID via hook `usbd_app_driver_get_cb`,
+  bulk OUT/IN + notify, remontagem de frames) + descritor composto
+  (HID intacto em 1º, CCID classe 0x0B em 2º) + FFI
+  (`aegis_ccid_pop_frame/send/is_mounted`).
+- Rust: `CcidTransport::process_ccid_message_store` (applet persiste no
+  transporte entre frames; OATH/FIDO=CCID fora do v1 = `6D 00` honesto) +
+  `ccid_dispatch.rs` (NVS+KeyManager reais; GEN/AUTH P-256 reais fim-a-fim
+  em teste) + poll no loop USB + op enrollment `0x39` (binding→UP, sem PIN;
+  BLE+serial; `pin_len||pin(6-8)||puk(8)`).
+**Falta (HW)**: flashar, plugar o USB nativo e `opensc-tool -l` + VERIFY +
+GEN/AUTH reais. Control class-specific dá stall (v1: OpenSC só precisa do
+bulk + enumeração).
 **Aceite**: `opensc-tool -l` lista AegisKey; VERIFY + SIGN funcionam.
-**Risco**: médio (C + spec PIV; sem impacto no HID existente).
+**Risco**: médio (primeira enumeração composta; HID intacto por construção).
+**Follow-up app**: tela de enrollment 0x39 no Android.
 
 ### F5. OTA staging + COMMIT [M] — CÓDIGO PRONTO, LAB TRAVADO
 **Problema**: OTA só existe na seção USB; staging grande no NVS e swap

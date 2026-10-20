@@ -57,6 +57,23 @@ uint16_t aegis_usb_read_chunk(uint8_t *out_buf, uint16_t max_len);
  */
 void aegis_reboot_to_download(void);
 
+/**
+ * Pops one complete reassembled CCID frame (F4, `ccid_device.c`).
+ * Returns bytes read (0 when the queue is empty); truncates at `max_len`.
+ */
+uint16_t aegis_ccid_pop_frame(uint8_t *out_buf, uint16_t max_len);
+
+/**
+ * Sends one RPDU over CCID bulk-IN (auto-chunked) + slot-change notice.
+ * Best-effort: `false` when unconfigured or a transfer is in flight.
+ */
+bool aegis_ccid_send(const uint8_t *data, uint16_t len);
+
+/**
+ * `true` once the host selected the configuration (CCID interface open).
+ */
+bool aegis_ccid_is_mounted(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -33,10 +33,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
-    authorize_vendor_op, authorize_wallet_op, is_bind_mgmt_op, is_vendor_keys_oath_op,
-    is_wallet_op, BleGattError, OP_KEY_DELETE,
+    authorize_vendor_op, authorize_wallet_op, is_bind_mgmt_op, is_piv_enroll_op,
+    is_vendor_keys_oath_op, is_wallet_op, BleGattError, OP_KEY_DELETE,
     OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT,
-    VENDOR_STATUS_NEED_BINDING,
+    OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
 };
 
 /// UART line rate for the serial CTAPHID link (8N1, same as the monitor).
@@ -92,6 +92,7 @@ pub fn serial_requires_pairing(cmd: u8, payload: &[u8]) -> bool {
                 | OP_KEY_DELETE
                 | OP_OATH_PUT
                 | OP_OATH_DELETE
+                | OP_PIV_ENROLL
         ) || crate::ble_gatt::is_wallet_op(payload[0]);
     }
     false
@@ -123,7 +124,7 @@ pub fn serial_is_up_required(cmd: u8, payload: &[u8]) -> bool {
     }
     if cmd == CMD_MSG && !payload.is_empty() {
         let op = payload[0];
-        if is_vendor_keys_oath_op(op) || is_wallet_op(op) {
+        if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
             return true;
         }
         if is_bind_mgmt_op(op) {
@@ -224,7 +225,9 @@ impl Default for SerialRouter {
 pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
     if msg.cmd == CMD_MSG
         && !msg.payload.is_empty()
-        && (is_vendor_keys_oath_op(msg.payload[0]) || is_wallet_op(msg.payload[0]))
+        && (is_vendor_keys_oath_op(msg.payload[0])
+            || is_wallet_op(msg.payload[0])
+            || is_piv_enroll_op(msg.payload[0]))
     {
         return CtapHidFramer::frame_message(msg.cid, msg.cmd, &[VENDOR_STATUS_NEED_BINDING]);
     }

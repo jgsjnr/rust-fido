@@ -52,6 +52,10 @@ extern "C" {
     fn aegis_usb_is_mounted() -> bool;
     fn aegis_usb_send_report(packet: *const u8, len: u16) -> bool;
     fn aegis_usb_pop_packet(out_buf: *mut u8, max_len: u16) -> u16;
+    // F4: CCID bulk (driver C `ccid_device.c`; frames completos remontados).
+    // `pop` devolve 0 sem frame; `send` fragmenta em 64B no bulk-IN.
+    fn aegis_ccid_pop_frame(out_buf: *mut u8, max_len: u16) -> u16;
+    fn aegis_ccid_send(data: *const u8, len: u16) -> bool;
     // CI-GREP: TEST-HOOK (test-mode only; absent in release).
     // Reboot p/ download ROM via RTC_CNTL (sem BOOT/DTR/RTS).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
@@ -349,10 +353,11 @@ fn ble_dispatch_complete(
                 ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
             }
         },
-        o if g::is_vendor_keys_oath_op(o) => {
+        o if g::is_vendor_keys_oath_op(o) || g::is_piv_enroll_op(o) => {
             // F2: executor real on-device (GEN/LIST/DELETE + OATH
             // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
-            // (envelope AEGN + vault = F2b). Gates §9.4 intactos.
+            // (envelope AEGN + vault = F2b). F4: 0x39 enrollment PIV
+            // (binding -> UP, sem PIN). Gates §9.4 intactos.
             let pin_ok = ctap_engine.pin_state.has_valid_pin_uv_session();
             let mut rng = rand_core::OsRng;
             let (st, body) = aegis_fido_firmware::vendor_exec::exec_vendor_op(
@@ -698,6 +703,11 @@ fn run_authenticator() {
     // OTA staged verify-before-swap session (R-04/R-06; USB section C only).
     #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
     let mut ota_state = OtaState::new(FIRMWARE_VERSION);
+    // F4: transporte CCID (framing) com applet PIV persistente entre polls
+    // (seleção/PIN sobrevivem a frames; NVS+chaves emprestados por frame).
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    #[allow(unused_mut)]
+    let mut ccid_transport = aegis_fido_usb::ccid::CcidTransport::new();
 
     let mut press_start_tick: Option<u64> = None;
     let mut totp_display_until: u64 = 0;
@@ -1680,6 +1690,33 @@ fn run_authenticator() {
                     }
                 }
             }
+            // C2. Service CCID frames (F4 PIV; composite interface 2).
+            // O driver C remonta frames bulk completos; o applet Rust
+            // (em `ccid_transport`) sobrevive entre polls; NVS+chaves
+            // são emprestados por frame.
+            #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+            if usb_installed {
+                const CCID_FRAME_MAX: usize = 2048;
+                let mut frame = [0u8; CCID_FRAME_MAX];
+                let n = unsafe {
+                    aegis_ccid_pop_frame(frame.as_mut_ptr(), CCID_FRAME_MAX as u16)
+                };
+                if n >= 10 {
+                    if let Some(rpdu) =
+                        aegis_fido_firmware::ccid_dispatch::process_ccid_frame(
+                            &mut ccid_transport,
+                            &frame[..n as usize],
+                            &mut storage,
+                            &mut key_mgr,
+                            now_secs,
+                        )
+                    {
+                        if !unsafe { aegis_ccid_send(rpdu.as_ptr(), rpdu.len() as u16) } {
+                            kprintln!("[CCID] bulk-IN send falhou ({} B).", rpdu.len());
+                        }
+                    }
+                }
+            }
         }
 
         // D. Service serial CTAPHID (UART 115200, framing identical to USB).
@@ -1694,7 +1731,7 @@ fn run_authenticator() {
         // helpers (same binding -> UP -> PIN gates), status-first answer.
         #[cfg(target_os = "espidf")]
         if serial_installed {
-            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op, is_wallet_op,
+            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
                 OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use aegis_fido_firmware::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt,
@@ -1932,11 +1969,12 @@ fn run_authenticator() {
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
                                     && (is_vendor_keys_oath_op(msg.payload[0])
-                                        || is_wallet_op(msg.payload[0]))
+                                        || is_wallet_op(msg.payload[0])
+                                        || is_piv_enroll_op(msg.payload[0]))
                                 {
-                                    // Vendor keys/OATH + carteira: app-driven UP
-                                    // (latch, like BLE); denial carries the BLE
-                                    // wire status.
+                                    // Vendor keys/OATH + carteira + PIV enroll:
+                                    // app-driven UP (latch, like BLE); denial
+                                    // carries the BLE wire status.
                                     let op = msg.payload[0];
                                     match authorize_serial(
                                         msg.cmd,

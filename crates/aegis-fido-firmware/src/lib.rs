@@ -11,6 +11,7 @@
 pub mod ble_gatt;
 pub mod ble_nimble;
 pub mod binding;
+pub mod ccid_dispatch;
 pub mod recovery;
 pub mod button;
 pub mod config;

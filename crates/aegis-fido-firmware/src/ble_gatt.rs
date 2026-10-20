@@ -73,6 +73,16 @@ pub const OP_OATH_DELETE: u8 = 0x27;
 pub const VENDOR_OP_MIN: u8 = OP_KEY_GEN_ONDEVICE;
 pub const VENDOR_OP_MAX: u8 = OP_OATH_DELETE;
 
+/// Enrollment PIV (PIN/PUK iniciais, F4): fora da faixa 0x20-0x27 de
+/// propósito (gate próprio binding -> UP em `exec_vendor_op`; sem PIN
+/// porque o PIN ainda não existe). Req: `pin_len(1) || pin(6-8) || puk(8)`.
+pub const OP_PIV_ENROLL: u8 = 0x39;
+
+/// `true` para o enrollment PIV 0x39.
+pub fn is_piv_enroll_op(op: u8) -> bool {
+    op == OP_PIV_ENROLL
+}
+
 /// Binding + recovery sobre GATT (apendice §11, aditivo, sem quebra §1-§10).
 /// Framing §3 reutilizado: `[op:1, len_hi:1, len_lo:1, payload...]`.
 /// GATT inalterado, revisao permanece `0x01`; USB/CTAP zero mudanca.

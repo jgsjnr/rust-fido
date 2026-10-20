@@ -18,10 +18,11 @@ use aegis_fido_core::oath::tlv::{find_tlv, parse_tlv_records, write_tlv};
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
-    authorize_vendor_op, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_LIST,
-    OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT,
+    authorize_vendor_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_LIST,
+    OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
 };
 use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::piv_store::PivNvsStore;
 
 /// Chaves NVS (≤15 chars) dos blobs de estado F2.
 pub const NVS_KEYS_SLOTS: &str = "key_slots_v1";
@@ -153,6 +154,18 @@ where
     B: FlashStorageBackend,
     R: rand_core::RngCore + rand_core::CryptoRng,
 {
+    // PIV ENROLL (0x39, F4): fora da faixa 0x20-0x27 de propósito —
+    // `authorize_vendor_op` rejeitaria como InvalidOpcode. Gate próprio
+    // classe CONFIG (binding -> UP), sem PIN (ainda não existe).
+    if op == OP_PIV_ENROLL {
+        if !crate::binding::binding_bypass_enabled() && !binding_ok {
+            return (BleGattError::NeedBinding.to_vendor_status(), Vec::new());
+        }
+        if !up {
+            return (BleGattError::PresenceRequired.to_vendor_status(), Vec::new());
+        }
+        return exec_piv_enroll(storage, payload);
+    }
     if let Err(e) = authorize_vendor_op(op, binding_ok, pin_ok, up) {
         return (e.to_vendor_status(), Vec::new());
     }
@@ -317,6 +330,29 @@ fn parse_slot(payload: &[u8]) -> Option<u8> {
     }
 }
 
+/// Enrollment PIV (0x39, F4): grava PIN+PUK iniciais via `provision_pin`
+/// (verify-after-write interno). Req: `pin_len(1) || pin(6-8B) || puk(8B)`.
+/// `0x00` ok; qualquer falha = `0x04` fail-closed (sem oráculo).
+fn exec_piv_enroll<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    payload: &[u8],
+) -> (u8, Vec<u8>) {
+    let pin_len = match payload.first() {
+        Some(&n) if (6..=8).contains(&n) => n as usize,
+        _ => return (0x04, Vec::new()),
+    };
+    if payload.len() != 1 + pin_len + 8 {
+        return (0x04, Vec::new());
+    }
+    let pin = &payload[1..1 + pin_len];
+    let puk = &payload[1 + pin_len..];
+    let mut store = PivNvsStore::new(storage);
+    match aegis_fido_usb::piv::provision_pin(&mut store, pin, puk) {
+        Ok(()) => (0x00, Vec::new()),
+        Err(_) => (0x04, Vec::new()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,8 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_state_roundtrip_e_ausente_e_padrao() {
-        let mut st = test_storage();
+    fn pin_state_roundtrip_e_ausente_e_padrao() {        let mut st = test_storage();
         let mut pin = ClientPinState::default();
         // Ausente: padrão (sem PIN, 8 retries), ok=true.
         assert!(load_pin_state(&st, &mut pin));
@@ -347,5 +382,63 @@ mod tests {
         let mut pin3 = ClientPinState { pin_hash: Some([0u8; 16]), ..Default::default() };
         assert!(load_pin_state(&st, &mut pin3));
         assert_eq!(pin3.pin_hash, None);
+    }
+
+    fn enroll_req(pin: &[u8], puk: &[u8]) -> Vec<u8> {
+        let mut v = Vec::with_capacity(1 + pin.len() + puk.len());
+        v.push(pin.len() as u8);
+        v.extend_from_slice(pin);
+        v.extend_from_slice(puk);
+        v
+    }
+
+    fn exec_enroll(
+        storage: &mut SecureStorage<MockFlashBackend>,
+        payload: &[u8],
+        binding_ok: bool,
+        up: bool,
+    ) -> (u8, Vec<u8>) {
+        let mut keys = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut rng = rand_core::OsRng;
+        exec_vendor_op(
+            &mut keys,
+            &mut oath,
+            storage,
+            OP_PIV_ENROLL,
+            payload,
+            binding_ok,
+            false,
+            up,
+            0,
+            &mut rng,
+        )
+    }
+
+    #[test]
+    fn piv_enroll_ok_e_segunda_tentativa_nega() {
+        let mut st = test_storage();
+        let req = enroll_req(b"123456", b"12345678");
+        assert_eq!(exec_enroll(&mut st, &req, true, true).0, 0x00);
+        // Já provisionado: fail-closed sem oráculo.
+        assert_eq!(exec_enroll(&mut st, &req, true, true).0, 0x04);
+    }
+
+    #[test]
+    fn piv_enroll_exige_up_e_binding() {
+        let mut st = test_storage();
+        let req = enroll_req(b"123456", b"12345678");
+        assert_eq!(exec_enroll(&mut st, &req, true, false).0, 0x01);
+        assert_eq!(exec_enroll(&mut st, &req, false, true).0, 0x05);
+    }
+
+    #[test]
+    fn piv_enroll_rejeita_geometria_invalida() {
+        let mut st = test_storage();
+        // pin_len mente / puk curto / vazio.
+        assert_eq!(exec_enroll(&mut st, &[8, 1, 2, 3], true, true).0, 0x04);
+        assert_eq!(exec_enroll(&mut st, &enroll_req(b"123", b"12345678"), true, true).0, 0x04);
+        assert_eq!(exec_enroll(&mut st, &enroll_req(b"123456", b"1234"), true, true).0, 0x04);
+        assert_eq!(exec_enroll(&mut st, &[], true, true).0, 0x04);
     }
 }

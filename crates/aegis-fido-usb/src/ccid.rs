@@ -10,7 +10,7 @@
 // TODO(Wave 2 E-B2/S-C1): zeroizar CommandApdu.data/ResponseApdu
 // (dados sensiveis em memoria; usar `zeroize` com `Zeroizing`/`Drop`).
 
-use crate::piv::PivApplet;
+use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
 pub const AEGIS_ATR: &[u8] = &[
@@ -460,6 +460,149 @@ impl CcidTransport {
         }
     }
 
+    /// Processes one CCID message with PIV served by the transport-owned
+    /// applet against real `store` + `crypto` — caminho do firmware (NVS +
+    /// `KeyManager`). O estado do applet (seleção/PIN) persiste no
+    /// `CcidTransport` entre frames; OATH/FIDO seguem no `handler`.
+    /// Framing e CCID idênticos a [`Self::process_ccid_message`].
+    pub fn process_ccid_message_store<H, S, B>(
+        &mut self,
+        packet: &[u8],
+        handler: &mut H,
+        store: &mut S,
+        crypto: &mut B,
+    ) -> Result<Vec<u8>, &'static str>
+    where
+        H: CcidApduHandler,
+        S: PivRecordStore,
+        B: PivKeyBackend,
+    {
+        if packet.len() < 10 {
+            return Err("CCID packet too short (< 10 bytes)");
+        }
+
+        let msg_type = packet[0];
+        let length = u32::from_le_bytes([packet[1], packet[2], packet[3], packet[4]]) as usize;
+        let slot = packet[5];
+        let seq = packet[6];
+
+        if packet.len() < 10 + length {
+            return Err("CCID payload length mismatch");
+        }
+
+        let payload = &packet[10..10 + length];
+
+        match msg_type {
+            PC_TO_RDR_ICC_POWER_ON => {
+                self.card_powered = true;
+                Ok(Self::build_data_block_response(slot, seq, AEGIS_ATR))
+            }
+
+            PC_TO_RDR_ICC_POWER_OFF => {
+                self.card_powered = false;
+                self.selected_applet = SelectedApplet::None;
+                self.piv = PivApplet::new();
+                Ok(Self::build_slot_status_response(slot, seq, 0x02))
+            }
+
+            PC_TO_RDR_GET_SLOT_STATUS => {
+                let status = if self.card_powered { 0x00 } else { 0x01 };
+                Ok(Self::build_slot_status_response(slot, seq, status))
+            }
+
+            PC_TO_RDR_GET_PARAMETERS => {
+                let mut resp = vec![0u8; 17];
+                resp[0] = RDR_TO_PC_PARAMETERS;
+                resp[1..5].copy_from_slice(&7u32.to_le_bytes());
+                resp[5] = slot;
+                resp[6] = seq;
+                resp[7] = 0;
+                resp[8] = 0;
+                resp[9] = 1;
+                resp[10] = 0x11;
+                resp[11] = 0x10;
+                resp[12] = 0x00;
+                resp[13] = 0x4D;
+                resp[14] = 0x00;
+                resp[15] = 0x20;
+                resp[16] = 0x00;
+                Ok(resp)
+            }
+
+            PC_TO_RDR_XFR_BLOCK => {
+                if !self.card_powered {
+                    let mut resp = Self::build_data_block_response(slot, seq, &[]);
+                    resp[7] = 0x01;
+                    return Ok(resp);
+                }
+
+                let apdu = CommandApdu::parse(payload)?;
+                let resp_apdu = self.handle_apdu_store(&apdu, handler, store, crypto);
+                // Espelha a seleção do applet interno mesmo quando o
+                // handler externo serviu o PIV (SELECT AID_PIV com store).
+                if apdu.ins == 0xA4 && apdu.p1 == 0x04 {
+                    if apdu.data == AID_PIV {
+                        self.selected_applet = SelectedApplet::Piv;
+                    } else if apdu.data == AID_YKOATH {
+                        self.selected_applet = SelectedApplet::Oath;
+                        self.piv = PivApplet::new();
+                    } else if apdu.data == AID_FIDO_U2F {
+                        self.selected_applet = SelectedApplet::FidoU2f;
+                        self.piv = PivApplet::new();
+                    } else {
+                        self.selected_applet = SelectedApplet::None;
+                        self.piv = PivApplet::new();
+                    }
+                }
+                Ok(Self::build_data_block_response(slot, seq, &resp_apdu.to_bytes()))
+            }
+
+            _ => {
+                let mut resp = Self::build_slot_status_response(slot, seq, 0x01);
+                resp[8] = 0x01;
+                Ok(resp)
+            }
+        }
+    }
+
+    /// APDU router com PIV no applet do transporte (estado persiste entre
+    /// frames) contra store/crypto reais do firmware.
+    fn handle_apdu_store<H, S, B>(
+        &mut self,
+        apdu: &CommandApdu,
+        handler: &mut H,
+        store: &mut S,
+        crypto: &mut B,
+    ) -> ResponseApdu
+    where
+        H: CcidApduHandler,
+        S: PivRecordStore,
+        B: PivKeyBackend,
+    {
+        if apdu.ins == 0xA4 && apdu.p1 == 0x04 {
+            if apdu.data == AID_YKOATH {
+                return handler.handle_oath_apdu(apdu);
+            } else if apdu.data == AID_FIDO_U2F {
+                return handler.handle_fido_apdu(apdu);
+            } else if apdu.data == AID_PIV {
+                let resp = self.piv.handle_store(apdu, store, crypto);
+                if !self.piv.is_selected() {
+                    self.selected_applet = SelectedApplet::None;
+                }
+                return resp;
+            } else {
+                return ResponseApdu::status(SW_NOT_FOUND);
+            }
+        }
+
+        match self.selected_applet {
+            SelectedApplet::Oath => handler.handle_oath_apdu(apdu),
+            SelectedApplet::FidoU2f => handler.handle_fido_apdu(apdu),
+            SelectedApplet::Piv => self.piv.handle_store(apdu, store, crypto),
+            _ => ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED),
+        }
+    }
+
     fn build_data_block_response(slot: u8, seq: u8, data: &[u8]) -> Vec<u8> {
         let mut resp = Vec::with_capacity(10 + data.len());
         resp.push(RDR_TO_PC_DATA_BLOCK);
@@ -489,6 +632,229 @@ impl CcidTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::piv::{
+        provision_pin, PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError,
+    };
+    use std::collections::HashMap;
+
+    /// Store em RAM para os testes do caminho firmware (espelha `MemStore`
+    /// de `piv::tests`; duplicado aqui porque aquele é privado).
+    #[derive(Default)]
+    struct TMemStore {
+        map: HashMap<String, Vec<u8>>,
+    }
+
+    impl PivRecordStore for TMemStore {
+        fn load_record(&self, key: &str) -> Result<Vec<u8>, PivStoreError> {
+            self.map.get(key).cloned().ok_or(PivStoreError::NotFound)
+        }
+
+        fn store_record(&mut self, key: &str, value: &[u8]) -> Result<(), PivStoreError> {
+            self.map.insert(key.to_string(), value.to_vec());
+            Ok(())
+        }
+
+        fn delete_record(&mut self, key: &str) -> Result<(), PivStoreError> {
+            self.map.remove(key);
+            Ok(())
+        }
+    }
+
+    /// Backend cripto stub (firma devolve bytes enlatados).
+    struct TStubCrypto {
+        pubkey: Vec<u8>,
+        response: Vec<u8>,
+    }
+
+    impl PivKeyBackend for TStubCrypto {
+        fn generate(&mut self, _slot: PivSlot, _alg: u8) -> Result<Vec<u8>, PivCryptoError> {
+            Ok(self.pubkey.clone())
+        }
+
+        fn authenticate(
+            &mut self,
+            _slot: PivSlot,
+            _alg: u8,
+            _challenge: &[u8],
+        ) -> Result<Vec<u8>, PivCryptoError> {
+            Ok(self.response.clone())
+        }
+    }
+
+    /// Backend que recusa tudo como algoritmo não suportado (RSA no device).
+    struct TBadAlgCrypto;
+
+    impl PivKeyBackend for TBadAlgCrypto {
+        fn generate(&mut self, _slot: PivSlot, _alg: u8) -> Result<Vec<u8>, PivCryptoError> {
+            Err(PivCryptoError::BadAlg)
+        }
+
+        fn authenticate(
+            &mut self,
+            _slot: PivSlot,
+            _alg: u8,
+            _challenge: &[u8],
+        ) -> Result<Vec<u8>, PivCryptoError> {
+            Err(PivCryptoError::BadAlg)
+        }
+    }
+
+    /// Handler mínimo: OATH/FIDO fora do escopo (PIV é servido pelo
+    /// applet do transporte com store real).
+    struct TOnlyPiv;
+
+    impl CcidApduHandler for TOnlyPiv {
+        fn handle_oath_apdu(&mut self, _apdu: &CommandApdu) -> ResponseApdu {
+            ResponseApdu::status(SW_INS_NOT_SUPPORTED)
+        }
+
+        fn handle_fido_apdu(&mut self, _apdu: &CommandApdu) -> ResponseApdu {
+            ResponseApdu::status(SW_INS_NOT_SUPPORTED)
+        }
+    }
+
+    struct TStore {
+        store: TMemStore,
+        crypto: TStubCrypto,
+    }
+
+    impl TStore {
+        fn enrolled() -> Self {
+            let mut store = TMemStore::default();
+            provision_pin(&mut store, b"123456", b"12345678").expect("enroll");
+            Self {
+                store,
+                crypto: TStubCrypto {
+                    pubkey: vec![0x04, 0x11, 0x22, 0x33],
+                    response: vec![0xAA, 0xBB],
+                },
+            }
+        }
+
+        fn process(
+            &mut self,
+            t: &mut CcidTransport,
+            frame: &[u8],
+        ) -> Result<Vec<u8>, &'static str> {
+            let mut h = TOnlyPiv;
+            t.process_ccid_message_store(frame, &mut h, &mut self.store, &mut self.crypto)
+        }
+    }
+
+    fn xfr(seq: u8, apdu: &[u8]) -> Vec<u8> {
+        let mut m = vec![PC_TO_RDR_XFR_BLOCK];
+        m.extend_from_slice(&(apdu.len() as u32).to_le_bytes());
+        m.push(0);
+        m.push(seq);
+        m.extend_from_slice(&[0, 0, 0]);
+        m.extend_from_slice(apdu);
+        m
+    }
+
+    fn select_piv() -> Vec<u8> {
+        let mut a = vec![0x00, 0xA4, 0x04, 0x00, AID_PIV.len() as u8];
+        a.extend_from_slice(AID_PIV);
+        a
+    }
+
+    fn power_on(seq: u8) -> Vec<u8> {
+        vec![PC_TO_RDR_ICC_POWER_ON, 0, 0, 0, 0, 0, seq, 0, 0, 0]
+    }
+
+    /// Últimos 2 bytes do DataBlock = SW1 SW2.
+    fn sw(resp: &[u8]) -> (u8, u8) {
+        let n = resp.len();
+        assert!(resp[0] == RDR_TO_PC_DATA_BLOCK && n >= 12);
+        (resp[n - 2], resp[n - 1])
+    }
+
+    #[test]
+    fn store_select_verify_generate_ok() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        let r = s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        assert_eq!(sw(&r), SW_OK);
+        assert_eq!(t.selected_applet, SelectedApplet::Piv);
+        // VERIFY 00 20 00 80 06 "123456".
+        let mut v = vec![0x00, 0x20, 0x00, 0x80, 0x06];
+        v.extend_from_slice(b"123456");
+        let r = s.process(&mut t, &xfr(3, &v)).unwrap();
+        assert_eq!(sw(&r), SW_OK);
+        assert!(t.piv.is_verified());
+        // GENERATE 9A: 00 47 00 9A + AC0301800111.
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = s.process(&mut t, &xfr(4, &g)).unwrap();
+        assert_eq!(sw(&r), SW_OK);
+        // Corpo = 7F 49 <len> <pubkey enlatada>.
+        let body = &r[10..r.len() - 2];
+        assert_eq!(&body[..2], &[0x7F, 0x49]);
+        assert_eq!(body[2] as usize, body.len() - 3);
+        assert_eq!(&body[3..], &[0x04, 0x11, 0x22, 0x33]);
+    }
+
+    #[test]
+    fn store_generate_sem_verify_nega() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = s.process(&mut t, &xfr(3, &g)).unwrap();
+        assert_eq!(sw(&r), SW_SECURITY_STATUS_NOT_SATISFIED);
+    }
+
+    #[test]
+    fn store_verify_pin_errado_devolve_63cx() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        let mut v = vec![0x00, 0x20, 0x00, 0x80, 0x06];
+        v.extend_from_slice(b"000000");
+        let r = s.process(&mut t, &xfr(3, &v)).unwrap();
+        let (sw1, _sw2) = sw(&r);
+        assert_eq!(sw1, SW_RETRY_BASE);
+        assert!(!t.piv.is_verified());
+    }
+
+    #[test]
+    fn store_rsa_recusado_como_badalg() {
+        let mut t = CcidTransport::new();
+        let mut store = TMemStore::default();
+        provision_pin(&mut store, b"123456", b"12345678").expect("enroll");
+        let mut crypto = TBadAlgCrypto;
+        let mut h = TOnlyPiv;
+        let mut run = |t: &mut CcidTransport, f: &[u8]| {
+            t.process_ccid_message_store(f, &mut h, &mut store, &mut crypto)
+        };
+        run(&mut t, &power_on(1)).unwrap();
+        run(&mut t, &xfr(2, &select_piv())).unwrap();
+        let mut v = vec![0x00, 0x20, 0x00, 0x80, 0x06];
+        v.extend_from_slice(b"123456");
+        assert_eq!(sw(&run(&mut t, &xfr(3, &v)).unwrap()), SW_OK);
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = run(&mut t, &xfr(4, &g)).unwrap();
+        assert_eq!(sw(&r), SW_WRONG_DATA);
+    }
+
+    #[test]
+    fn store_power_off_reseta_selecao() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        assert_eq!(t.selected_applet, SelectedApplet::Piv);
+        let off = [PC_TO_RDR_ICC_POWER_OFF, 0, 0, 0, 0, 0, 3, 0, 0, 0];
+        s.process(&mut t, &off).unwrap();
+        assert_eq!(t.selected_applet, SelectedApplet::None);
+        assert!(!t.piv.is_verified());
+        // Sem power: XFR devolve erro de slot, sem tocar no applet.
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = s.process(&mut t, &xfr(4, &g)).unwrap();
+        assert_eq!(r[7], 0x01);
+    }
+
 
     #[test]
     fn test_power_on_atr() {

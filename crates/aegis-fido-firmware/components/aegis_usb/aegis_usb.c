@@ -63,14 +63,53 @@ static const uint8_t desc_hid_report[] = {
 
 #define EPNUM_HID_OUT 0x01
 #define EPNUM_HID_IN  0x81
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
+// F4: CCID (PIV) endpoints — bulk OUT/IN + interrupt notify.
+#define EPNUM_CCID_OUT 0x02
+#define EPNUM_CCID_IN 0x82
+#define EPNUM_CCID_NOTIFY 0x83
+
+// Interface CCID (9) + funcional CCID (54) + 3 endpoints (3x7).
+#define CCID_DESC_LEN (9 + 54 + 3 * 7)
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_INOUT_DESC_LEN + CCID_DESC_LEN)
 
 static const uint8_t desc_configuration[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 1, 0, CONFIG_TOTAL_LEN, 0x80, 250),
+    TUD_CONFIG_DESCRIPTOR(1, 2, 0, CONFIG_TOTAL_LEN, 0x80, 250),
 
+    // Interface 0: HID FIDO2 (intacto, em 1o lugar).
     // Interface number, string index, protocol, report descriptor len, EP Out & In address, size & polling interval
-    TUD_HID_INOUT_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, 64, 5)
+    TUD_HID_INOUT_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, 64, 5),
+
+    // Interface 1: CCID smartcard (F4 PIV; driver `ccid_device.c`).
+    9, TUSB_DESC_INTERFACE, 1, 0, 3, 0x0B, 0x00, 0x00, 0,
+    // CCID functional descriptor (54 B, tipo 0x21).
+    54, 0x21,
+    0x10, 0x01,             // bcdCCID 1.10
+    0x00,                   // bMaxSlotIndex (1 slot)
+    0x07,                   // bVoltageSupport (5V/3V/1.8V)
+    0x02, 0x00, 0x00, 0x00, // dwProtocols (T=1)
+    0x10, 0x0E, 0x00, 0x00, // dwDefaultClock (3600)
+    0x10, 0x0E, 0x00, 0x00, // dwMaximumClock
+    0x00,                   // bNumClockSupported
+    0xB0, 0x28, 0x00, 0x00, // dwDataRate (10752)
+    0xB0, 0x28, 0x00, 0x00, // dwMaxDataRate
+    0x00,                   // bNumDataRatesSupported
+    0xFE, 0x00, 0x00, 0x00, // dwMaxIFSD (254)
+    0x00, 0x00, 0x00, 0x00, // dwSynchProtocols
+    0x00, 0x00, 0x00, 0x00, // dwMechanical
+    0x00, 0x00, 0x00, 0x00, // dwFeatures
+    0x00, 0x08, 0x00, 0x00, // dwMaxCCIDMessageLength (2048)
+    0x00,                   // bClassGetResponse
+    0x00,                   // bClassEnvelope
+    0x00, 0x00,             // wLcdLayout
+    0x00,                   // bPINSupport
+    0x01,                   // bMaxCCIDBusySlots
+    // EP bulk OUT
+    7, TUSB_DESC_ENDPOINT, EPNUM_CCID_OUT, TUSB_XFER_BULK, 64, 0, 0,
+    // EP bulk IN
+    7, TUSB_DESC_ENDPOINT, EPNUM_CCID_IN, TUSB_XFER_BULK, 64, 0, 0,
+    // EP interrupt IN (slot-change notice)
+    7, TUSB_DESC_ENDPOINT, EPNUM_CCID_NOTIFY, TUSB_XFER_INTERRUPT, 8, 0, 32,
 };
 
 static const char *string_desc_arr[] = {
