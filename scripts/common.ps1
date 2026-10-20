@@ -266,6 +266,8 @@ function Invoke-FirmwareFlash {
     }
 
     Write-Success "Gravacao concluida com sucesso na $targetPort!"
+    Write-Host "ATENCAO: esta DevKit nao tem circuito de auto-reset (RTS nao reinicia)." -ForegroundColor Yellow
+    Write-Host "Aperte EN na placa para bootar a firmware gravada. Para gravar: segure BOOT, aperte+solte EN, continue segurando e use --before no-reset." -ForegroundColor Yellow
     return $targetPort
 }
 

@@ -18,15 +18,16 @@ e2e T15/D01/D02 reais com PIN.
 **Prova viva**: D01b/D02b `0x04` com sessão (era `0x02`); D01/D02 sem
 sessão seguem `0x02`. PUT segue `0x04` (executor é F2).
 
-### F2. Executor vendor keys/OATH on-device [G]
+### F2. Executor vendor keys/OATH on-device [G] — FEITO 20/10, no ar
 **Problema**: `0x20–0x27` validam gates e respondem `0x04` — nada é
 salvo; `oath_applet` criado e nunca usado; app mostra listas vazias.
 **Escopo**: ligar `KeyManager`/`OathApplet` (+ NVS, já persistente) no
 dispatch BLE+serial com os mesmos gates; LIST retorna real; GEN/DELETE
 persistem; CODE calcula no device. Requer F1 pronto (PUT/DELETE são PIN).
-**Aceite**: ciclo GEN→LIST→CODE→DELETE real nos testes T13–T16/D01–D02
-+ host tests roundtrip + fumaça de NVS pós-EN.
-**Risco**: médio-alto (coração do estado; migração AEGN intacta).
+**Aceite**: ciclo GEN→LIST→CODE→DELETE real + NVS pós-EN + roundtrips host.
+**Prova viva 20/10**: wipe 23/23 (TOTP `154903` bate conta local, HOTP
+avança), slot 5 + CODE lidos pós-EN. App: VaultScreen envia challenge
+0x74 (APK rebuildado). IMPORT fica `0x04` (envelope+vault = F2b).
 
 ### F3. Persistir `pin_hash` + retries no NVS [P]
 **Problema**: `pin_state` só RAM → reboot pede setPIN de novo (`0x35`).

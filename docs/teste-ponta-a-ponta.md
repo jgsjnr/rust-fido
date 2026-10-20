@@ -470,3 +470,77 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 15:14 — phase=base only=D02b
 - [PASS] D02b OATH_DELETE com sessão PIN passa — status=0x04
+
+### 20/10 15:28 — phase=base only=T13
+- [DIVERGENTE] T13 KEY_GEN e2e-t1 real — status=0x04 slot=None
+
+### 20/10 15:46 — phase=all-safe
+- [PASS] T01 INIT aloca CID — cid=0x00020201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=4
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [DIVERGENTE] T06 WALLET_GEN sem UP/janela barra — recebido=0x01 (0x01=janela residual aberta)
+- [DIVERGENTE] T06b WALLET_GEN com UP sem janela barra — recebido=0x04 esperado=0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE — 0x00+32B (device CLAIMED — ver D06)
+- [PASS] T12 trigger 0x2F abre janela — 0x00
+- [PASS] T07b RESCUE lixo com UP dá INVALID_MAGIC — status=0x01
+- [PASS] T07c killswitch sem UP/PIN nega 0x04 (sem wipe) — status=0x04
+- [PASS] T13 KEY_GEN e2e-t1 real — status=0x00 slot=5
+- [PASS] T14 KEY_LIST real — status=0x00 bytes=11 tem=True
+- [PASS] T15 OATH_PUT sem PIN pede PIN — status=0x02
+- [PASS] T16 OATH_CODE sem conta dá NoSlot — 0x03 (lista vazia)
+- [PASS] T17 MakeCredential rp e2e — status=0x00 bytes=742
+- [PASS] T17n MC gravou residente (persiste no NVS!) — credencial e2e criada
+- [PASS] T18 GetAssertion rp e2e — status=0x00 bytes=170
+- [PASS] T19 WALLET_GEN BTC — status=0x00 slot=6 addr=bc1qqv2wazq5m7pt922tc4ufcl8rcfzx282f4q3m3d
+- [PASS] T20 WALLET_LIST tem s6 — status=0x00 tem=True
+- [PASS] T21 WALLET_ADDR bate T19 — igual=True
+- [PASS] T22 WALLET rede invalida barra — 0x04
+
+### 20/10 15:46 — phase=base
+- [PASS] T01 INIT aloca CID — cid=0x00030201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=6
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [DIVERGENTE] T06 WALLET_GEN sem UP/janela barra — recebido=0x01 (0x01=janela residual aberta)
+- [DIVERGENTE] T06b WALLET_GEN com UP sem janela barra — recebido=0x04 esperado=0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE — 0x00+32B (device CLAIMED — ver D06)
+
+### 20/10 15:47 — phase=wipe
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x02
+- [PASS] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x02
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x00
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] T15b OATH_PUT HOTP real — status=0x00
+- [PASS] T15c OATH_CODE TOTP bate conta local — status=0x00 got=154903 want=154903
+- [PASS] T16b HOTP avança e é válido — codes=['858575', '524447'] (segredo nunca sai do device)
+- [PASS] D01b KEY_DELETE com sessão PIN executa — status=0x00 slot=5
+- [PASS] D02b OATH_DELETE com sessão PIN executa — status=0x00
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x04 id=9d338ca5 (já claimed)
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D07 RELEASE (wipe binding, test-mode) — status=0x00
+- [PASS] D07b CHALLENGE pós-release nega (unclaimed) — status=0x05 (prova do wipe)
+- [PASS] D06c CLAIM posse (muda binding!) — status=0x00 id=94adc243
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D05b RECOVERY_UNLOCK 1234 (wipe binding) — status=0x00
+- [PASS] D05c CHALLENGE pós-unlock nega (unclaimed) — status=0x05 (prova do wipe)
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 15:47 — phase=base only=T15b
+- [PASS] T15b OATH_PUT HOTP real — status=0x00
+
+### 20/10 15:47 — phase=base only=T13
+- [PASS] T13 KEY_GEN e2e-t1 real — status=0x00 slot=5

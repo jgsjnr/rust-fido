@@ -190,8 +190,8 @@ fn serial_read_chunk(out: &mut [u8], max_len: u16) -> u16 {
 /// PING ecoa; CANCEL confirma vazio; MSG delega ao `CtapEngine` (mesmo
 /// `[cmd, CBOR...]` do `CMD_CBOR` USB); bind-mgmt `0x28-0x2D` usa os helpers
 /// de `ble_gatt` (gates binding -> UP -> PIN preservados); vendor `0x20-0x27`
-/// valida os gates e responde `0x04` (executor on-device = follow-up,
-/// `docs/ble-nimble.md`). USB/CTAP intactos.
+/// executa de verdade via `vendor_exec` (GEN/LIST/DELETE + OATH, NVS;
+/// IMPORT segue 0x04 = F2b). USB/CTAP intactos.
 #[allow(clippy::too_many_arguments)]
 fn ble_dispatch_complete(
     msg: aegis_fido_firmware::ble_gatt::BleCompleteMessage,
@@ -206,6 +206,8 @@ fn ble_dispatch_complete(
     bonded: bool,
     now_ms: u64,
     fwlog: &mut aegis_fido_firmware::fw_log::FwLog,
+    key_mgr: &mut aegis_fido_core::credential::key_manager::KeyManager,
+    oath_applet: &mut OathApplet,
 ) {
     use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use aegis_fido_firmware::ble_gatt as g;
@@ -335,20 +337,27 @@ fn ble_dispatch_complete(
             }
         },
         o if g::is_vendor_keys_oath_op(o) => {
-            // Gates §9.4 preservados (app ve NEED_UP/NEED_BINDING/NEED_PIN
-            // corretos); PIN via plumbing ClientPIN (sessão viva = verificado,
-            // como no rescue); executor TLV on-device = follow-up.
+            // F2: executor real on-device (GEN/LIST/DELETE + OATH
+            // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
+            // (envelope AEGN + vault = F2b). Gates §9.4 intactos.
             let pin_ok = ctap_engine.pin_state.has_valid_pin_uv_session();
-            match g::authorize_vendor_op(o, binding_mgr.is_claimed(), pin_ok, up) {
-                Ok(()) => {
-                    kprintln!(
-                        "[BLE] op vendor 0x{:02X} com gate ok (executor = follow-up)",
-                        o
-                    );
-                    ble::notify_frame(o, 0x04, &[])
-                }
-                Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
+            let mut rng = rand_core::OsRng;
+            let (st, body) = aegis_fido_firmware::vendor_exec::exec_vendor_op(
+                key_mgr,
+                oath_applet,
+                storage,
+                o,
+                p,
+                binding_mgr.is_claimed(),
+                pin_ok,
+                up,
+                now_secs,
+                &mut rng,
+            );
+            if st == 0x00 {
+                kprintln!("[BLE] op vendor 0x{:02X} executada.", o);
             }
+            ble::notify_frame(o, st, &body)
         }
         o if g::is_wallet_op(o) => {
             // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
@@ -603,6 +612,12 @@ fn run_authenticator() {
     let mut ctap_engine = CtapEngine::new(master_key, 0);
     // WAVE8: OATH real no device (contas do NVS via PUT; display calcula CALCULATE no long-press).
     let mut oath_applet = OathApplet::new();
+    // F2: chaves vendor on-device (NVS persistente).
+    let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+    if !aegis_fido_firmware::vendor_exec::load_states(&storage, &mut key_mgr, &mut oath_applet)
+    {
+        kprintln!("[WARN] vendor NVS inconsistente; começando vazio.");
+    }
     #[cfg(not(target_os = "espidf"))]
     let _ = (&ctaphid_mgr, &ctap_engine);
     // Classic serves CTAPHID through the serial section D (ctaphid_mgr stays
@@ -1031,6 +1046,8 @@ fn run_authenticator() {
                             bonded,
                             now_ms,
                             &mut fw_log,
+                            &mut key_mgr,
+                            &mut oath_applet,
                         );
                     }
                     Ok(None) => {
@@ -1618,7 +1635,7 @@ fn run_authenticator() {
                 OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use aegis_fido_firmware::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt,
-                dispatch_serial_rescue, dispatch_serial_vendor, dispatch_serial_wallet,
+                dispatch_serial_rescue, dispatch_serial_wallet,
                 is_rescue_msg, serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed, SerialGate,
             };
             #[cfg(feature = "test-mode")]
@@ -1902,16 +1919,25 @@ fn run_authenticator() {
                                                     _ => (0x04, Vec::new()),
                                                 }
                                             } else {
-                                                // F1: PIN via plumbing ClientPIN
-                                                // (sessão viva = verificado).
-                                                dispatch_serial_vendor(
+                                                // F2: executor real on-device
+                                                // (gate pairing+UP já passou;
+                                                // PIN via plumbing ClientPIN).
+                                                let mut rng = rand_core::OsRng;
+                                                let (st, body) = aegis_fido_firmware::vendor_exec::exec_vendor_op(
+                                                    &mut key_mgr,
+                                                    &mut oath_applet,
+                                                    &mut storage,
                                                     op,
+                                                    &msg.payload[1..],
                                                     binding_mgr.is_claimed(),
                                                     ctap_engine
                                                         .pin_state
                                                         .has_valid_pin_uv_session(),
                                                     true,
-                                                )
+                                                    now_secs,
+                                                    &mut rng,
+                                                );
+                                                (st, body)
                                             };
                                             let mut resp = Vec::with_capacity(1 + body.len());
                                             resp.push(st);

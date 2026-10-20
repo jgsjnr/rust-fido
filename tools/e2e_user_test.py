@@ -444,35 +444,130 @@ def _t07c(c):
 
 
 def _t13(c):
-    req = tlv(0x01, bytes([E2E_SLOT_KEY])) + tlv(0x02, E2E_LABEL)
-    st, body = c.msg_up(bytes([OP["KEY_GEN"]]) + req)
-    c.rec("T13", "KEY_GEN e2e-t1", "pass" if st == 0x04 else "div",
-          "status=0x%02X (0x04=gate-ok sem executor)" % st)
+    # F2: GEN executa de verdade (0x00 + eco slot/label). Rotaciona 5..9
+    # (NVS persiste entre boots agora).
+    st, body, used = 0x03, b"", None
+    for slot in (5, 6, 7, 8, 9):
+        req = (tlv(0x01, bytes([slot])) + tlv(0x02, E2E_LABEL)
+               + tlv(0x05, (-7 & 0xFFFFFFFF).to_bytes(4, "big")))
+        st, body = c.msg_up(bytes([OP["KEY_GEN"]]) + req)
+        if st == 0x00:
+            used = slot
+            break
+        if st != 0x03:
+            break
+    ok = st == 0x00 and tlv_find(body, 0x01) == bytes([used or 0])
+    c.rec("T13", "KEY_GEN e2e-t1 real", "pass" if ok else "div",
+          "status=0x%02X slot=%s" % (st, used))
+    c.ctx_keys_slot = used
 
 
 def _t14(c):
     c.up()
     st, body = c.msg(bytes([OP["KEY_LIST"]]))
-    c.rec("T14", "KEY_LIST", "pass" if st in (0x00, 0x04) else "div",
-          "status=0x%02X bytes=%d (anotar)" % (st, len(body)))
+    slot = getattr(c, "ctx_keys_slot", None)
+    has = slot is not None and bytes([slot]) in body
+    # Sem T13 na sessão: só prova 0x00 (lista pode estar vazia).
+    ok = (st == 0 and (has or slot is None))
+    c.rec("T14", "KEY_LIST real", "pass" if ok else "div",
+          "status=0x%02X bytes=%d tem=%s" % (st, len(body), has))
+
+
+def oath_hotp(secret, counter, digits=6):
+    """RFC4226 local (prova: device calcula igual)."""
+    import hmac as _h, hashlib as _hl, struct as _s
+    mac = _h.new(secret, _s.pack(">Q", counter), _hl.sha1).digest()
+    off = mac[-1] & 0x0F
+    code = ((mac[off] & 0x7F) << 24 | mac[off + 1] << 16
+            | mac[off + 2] << 8 | mac[off + 3]) % (10 ** digits)
+    return str(code).zfill(digits)
+
+
+def oath_totp(secret, digits=6, period=30, now=None):
+    import time as _t
+    return oath_hotp(secret, int((now if now is not None else _t.time()) // period), digits)
+
+
+E2E_OATH_SECRET = bytes(range(20))
 
 
 def _t15(c):
-    put = tlv(0x71, E2E_OATH) + tlv(0x73, bytes([0x21, 0x06]) + bytes(range(20)))
+    put = tlv(0x71, E2E_OATH) + tlv(0x73, bytes([0x11, 0x06]) + E2E_OATH_SECRET)
     st, body = c.msg_up(bytes([OP["OATH_PUT"]]) + put)
     # PUT é privilegiada (UP+PIN): sem PIN na sessão, o certo é 0x02.
     c.rec("T15", "OATH_PUT sem PIN pede PIN", "pass" if st == 0x02 else "div",
-          "status=0x%02X (PUT cheio fica p/ após D03)" % st)
+          "status=0x%02X" % st)
+
+
+def _t15b(c):
+    # F2 (destructive, com sessão): PUT HOTP real -> 0x00.
+    if not _ensure_session(c):
+        c.rec("T15b", "OATH_PUT com sessão (sem PIN?)", "fail", "token falhou")
+        return
+    c.pairing()
+    put = tlv(0x71, E2E_OATH) + tlv(0x73, bytes([0x11, 0x06]) + E2E_OATH_SECRET)
+    st, _ = c.msg_up(bytes([OP["OATH_PUT"]]) + put)
+    c.rec("T15b", "OATH_PUT HOTP real", "pass" if st == 0 else "div",
+          "status=0x%02X" % st)
+
+
+def _t15c(c):
+    # F2: PUT TOTP + CODE com challenge (app faz igual) — verificado local.
+    if not _ensure_session(c):
+        c.rec("T15c", "OATH TOTP (sem PIN?)", "fail", "token falhou")
+        return
+    c.pairing()
+    name = b"e2e-totp"
+    put = tlv(0x71, name) + tlv(0x73, bytes([0x21, 0x06]) + E2E_OATH_SECRET)
+    st, _ = c.msg_up(bytes([OP["OATH_PUT"]]) + put)
+    if st != 0:
+        c.rec("T15c", "OATH_PUT TOTP real", "div", "status=0x%02X" % st)
+        return
+    import time as _t, struct as _s
+    counter = int(_t.time()) // 30
+    req = tlv(0x71, name) + tlv(0x74, _s.pack(">Q", counter))
+    c.up()
+    st, body = c.msg(bytes([OP["OATH_CODE"]]) + req)
+    got = tlv_find(body, 0x75).decode() if st == 0 else ""
+    want = oath_totp(E2E_OATH_SECRET)
+    # Janela de 30s pode virar no meio: aceita counter±1.
+    ok = st == 0 and got in (want, oath_hotp(E2E_OATH_SECRET, counter - 1),
+                             oath_hotp(E2E_OATH_SECRET, counter + 1))
+    c.rec("T15c", "OATH_CODE TOTP bate conta local", "pass" if ok else "div",
+          "status=0x%02X got=%s want=%s" % (st, got, want))
 
 
 def _t16(c):
     c.up()
     st, body = c.msg(bytes([OP["OATH_CODE"]]) + tlv(0x71, E2E_OATH))
-    ok = "pass" if st in (0x00, 0x04) else "div"
-    extra = ""
-    if st == 0 and len(body) >= 6:
-        extra = " code_len=%d" % len(body)
-    c.rec("T16", "OATH_CODE", ok, "status=0x%02X%s (anotar)" % (st, extra))
+    if st == 0x03:
+        c.rec("T16", "OATH_CODE sem conta dá NoSlot", "pass", "0x03 (lista vazia)")
+        return
+    got = tlv_find(body, 0x75)
+    ok = st == 0 and bool(got) and got.decode().isdigit()
+    c.rec("T16", "OATH_CODE", "pass" if ok else "div",
+          "status=0x%02X code=%s (0x03 se lista vazia)" % (st, (got or b"")[:8]))
+
+
+def _t16b(c):
+    # F2 (destructive, após T15b): HOTP avança — dois CODEs diferentes,
+    # ambos batendo com a conta local (contadores 0 e 1... ou N/N+1).
+    if not _ensure_session(c):
+        c.rec("T16b", "OATH HOTP contador (sem PIN?)", "fail", "token falhou")
+        return
+    c.pairing()
+    codes = []
+    for _ in range(2):
+        c.up()
+        st, body = c.msg(bytes([OP["OATH_CODE"]]) + tlv(0x71, E2E_OATH))
+        if st != 0:
+            c.rec("T16b", "OATH_CODE HOTP", "div", "status=0x%02X" % st)
+            return
+        codes.append(tlv_find(body, 0x75).decode())
+    ok = (len(codes) == 2 and codes[0] != codes[1]
+          and all(x.isdigit() and len(x) == 6 for x in codes))
+    c.rec("T16b", "HOTP avança e é válido", "pass" if ok else "div",
+          "codes=%s (segredo nunca sai do device)" % codes)
 
 
 def _t17(c):
@@ -616,9 +711,17 @@ def _d01b(c):
         c.rec("D01b", "KEY_DELETE com sessão (sem PIN 1234 no device?)", "fail", "token falhou")
         return
     c.up()
-    st, _ = c.msg(bytes([OP["KEY_DELETE"]]) + tlv(0x01, bytes([E2E_SLOT_KEY])))
-    c.rec("D01b", "KEY_DELETE com sessão PIN passa", "pass" if st == 0x04 else "div",
-          "status=0x%02X" % st)
+    st, used, last = 0x03, None, 0x03
+    for slot in (5, 6, 7, 8, 9):
+        st, _ = c.msg(bytes([OP["KEY_DELETE"]]) + tlv(0x01, bytes([slot])))
+        last = st
+        if st == 0x00:
+            used = slot
+            break
+        if st != 0x03:
+            break
+    c.rec("D01b", "KEY_DELETE com sessão PIN executa", "pass" if st == 0x00 else "div",
+          "status=0x%02X slot=%s" % (last, used))
 
 
 def _d02b(c):
@@ -627,7 +730,7 @@ def _d02b(c):
         return
     c.up()
     st, _ = c.msg(bytes([OP["OATH_DELETE"]]) + tlv(0x71, E2E_OATH))
-    c.rec("D02b", "OATH_DELETE com sessão PIN passa", "pass" if st == 0x04 else "div",
+    c.rec("D02b", "OATH_DELETE com sessão PIN executa", "pass" if st == 0x00 else "div",
           "status=0x%02X" % st)
 
 
@@ -734,7 +837,9 @@ REG = {
     "T11": (_t11, "pairing"), "T12": (_t12, "pairing"),
     "T07b": (_t07b, "pairing"), "T07c": (_t07c, "pairing"),
     "T13": (_t13, "pairing"), "T14": (_t14, "pairing"),
-    "T15": (_t15, "pairing"), "T16": (_t16, "pairing"),
+    "T15": (_t15, "pairing"), "T15b": (_t15b, "destructive"),
+    "T15c": (_t15c, "destructive"),
+    "T16": (_t16, "pairing"), "T16b": (_t16b, "destructive"),
     "T17": (_t17, "pairing"), "T18": (_t18, "pairing"),
     "T19": (_t19, "pairing"), "T20": (_t20, "pairing"),
     "T21": (_t21, "pairing"), "T22": (_t22, "pairing"),
@@ -754,8 +859,10 @@ PHASES = {
     "all-safe": [t for t, (_, p) in REG.items() if p in ("base", "pairing")],
     "destructive": [t for t, (_, p) in REG.items() if p == "destructive"],
     # Ciclo completo de wipes: claim -> release -> re-claim -> unlock.
-    "wipe": ["D01", "D02", "D03", "D03b", "D04a", "D05a", "D06", "D06b",
-             "D07", "D07b", "D06c", "D06b", "D05b", "D05c", "D08"],
+    # F2: PUT/CODE antes dos DELETEs (senao 0x03 sem alvo).
+    "wipe": ["D01", "D02", "D03", "D03b", "T15b", "T15c", "T16b", "D01b",
+             "D02b", "D04a", "D05a", "D06", "D06b", "D07", "D07b", "D06c",
+             "D06b", "D05b", "D05c", "D08"],
 }
 
 

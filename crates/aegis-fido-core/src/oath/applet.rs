@@ -741,8 +741,7 @@ impl OathApplet {
 
     /// Exporta contadores HOTP (shape sign_count: magic+seq+n+entries+sum).
     /// So HOTP; entries = sha256(label) 32B + counter 8B BE. Monotonico.
-    pub fn export_hotp_counts(&self) -> Vec<u8> {
-        let mut entries: Vec<([u8; 32], u64)> = Vec::new();
+    pub fn export_hotp_counts(&self) -> Vec<u8> {        let mut entries: Vec<([u8; 32], u64)> = Vec::new();
         for c in &self.credentials {
             if c.oath_type == OathType::Hotp {
                 entries.push((sha256(c.name.as_bytes()), c.counter));
@@ -829,6 +828,93 @@ impl OathApplet {
         }
         Ok(())
     }
+
+    /// Exporta credenciais p/ NVS: `[ver=1][n u16BE][cred...]`, cred =
+    /// `[nlen][name][type][algo][digits][touch][counter u64BE][slen u16BE][secret]`.
+    /// Segredos vão cifrados no `SecureStorage` (nunca em claro em flash).
+    pub fn export_state(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(0x01);
+        out.extend_from_slice(&(self.credentials.len() as u16).to_be_bytes());
+        for c in &self.credentials {
+            out.push(c.name.len() as u8);
+            out.extend_from_slice(c.name.as_bytes());
+            out.push(c.oath_type as u8);
+            out.push(c.algorithm as u8);
+            out.push(c.digits);
+            out.push(c.touch_required as u8);
+            out.extend_from_slice(&c.counter.to_be_bytes());
+            out.extend_from_slice(&(c.secret.len() as u16).to_be_bytes());
+            out.extend_from_slice(&c.secret);
+        }
+        out
+    }
+
+    /// Importa credenciais (substituição atômica: erro não toca nas atuais).
+    pub fn import_state(&mut self, blob: &[u8]) -> Result<(), OathDeviceError> {
+        let mut creds = Vec::new();
+        let mut p = blob;
+        if take_oath(&mut p, 1)?[0] != 0x01 {
+            return Err(OathDeviceError::BadEnvelope);
+        }
+        let n = u16::from_be_bytes(take_oath(&mut p, 2)?.try_into().unwrap()) as usize;
+        if n > MAX_CREDENTIALS {
+            return Err(OathDeviceError::BadEnvelope);
+        }
+        for _ in 0..n {
+            let nlen = take_oath(&mut p, 1)?[0] as usize;
+            if nlen == 0 || nlen > MAX_OATH_LABEL_BYTES {
+                return Err(OathDeviceError::BadEnvelope);
+            }
+            let name = core::str::from_utf8(take_oath(&mut p, nlen)?)
+                .map_err(|_| OathDeviceError::BadEnvelope)?;
+            let tipo = OathType::from_u8(take_oath(&mut p, 1)?[0])
+                .ok_or(OathDeviceError::BadEnvelope)?;
+            let algo = OathAlgorithm::from_u8(take_oath(&mut p, 1)?[0])
+                .ok_or(OathDeviceError::BadEnvelope)?;
+            let digits = take_oath(&mut p, 1)?[0];
+            if !(MIN_OATH_DIGITS..=MAX_OATH_DIGITS).contains(&digits) {
+                return Err(OathDeviceError::BadEnvelope);
+            }
+            let touch = take_oath(&mut p, 1)?[0] != 0;
+            let mut cb = [0u8; 8];
+            cb.copy_from_slice(take_oath(&mut p, 8)?);
+            let counter = u64::from_be_bytes(cb);
+            let slen =
+                u16::from_be_bytes(take_oath(&mut p, 2)?.try_into().unwrap()) as usize;
+            if slen == 0 || slen > 128 {
+                return Err(OathDeviceError::BadEnvelope);
+            }
+            let secret = take_oath(&mut p, slen)?.to_vec();
+            if creds.iter().any(|c: &OathCredential| c.name == name) {
+                return Err(OathDeviceError::BadEnvelope);
+            }
+            creds.push(OathCredential::new(
+                name.into(),
+                secret,
+                algo,
+                digits,
+                tipo,
+                counter,
+                touch,
+            ));
+        }
+        if !p.is_empty() {
+            return Err(OathDeviceError::BadEnvelope);
+        }
+        self.credentials = creds;
+        Ok(())
+    }
+}
+
+/// Fatia `n` bytes do cursor (codec NVS F2).
+fn take_oath<'a>(p: &mut &'a [u8], n: usize) -> Result<&'a [u8], OathDeviceError> {
+    if p.len() < n {
+        return Err(OathDeviceError::BadEnvelope);
+    }
+    let (h, t) = p.split_at(n);
+    *p = t;
+    Ok(h)
 }
 #[cfg(test)]
 mod fase6_tests {
@@ -837,6 +923,39 @@ mod fase6_tests {
     use alloc::vec;
 
     fn lbl(s: &str) -> String { String::from(s) }
+
+    #[test]
+    fn oath_state_roundtrip_e_rejeita_lixo() {
+        let mut ap = OathApplet::new();
+        // PUT HOTP via TLV (0x71 nome + 0x73 [tipo, digitos, segredo]).
+        let mut req = Vec::new();
+        write_tlv_for_test(&mut req, 0x71, b"e2e@test");
+        let mut key = vec![0x10 | 0x01, 0x06];
+        key.extend_from_slice(&[0x11u8; 20]);
+        write_tlv_for_test(&mut req, 0x73, &key);
+        ap.device_put(&req, true, true).expect("put");
+        let blob = ap.export_state();
+        let mut ap2 = OathApplet::new();
+        ap2.import_state(&blob).expect("import");
+        let list = ap2.device_list(false, true).expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].label, "e2e@test");
+        // HOTP avança igual nos dois (segredo sobreviveu).
+        let mut code_req = Vec::new();
+        write_tlv_for_test(&mut code_req, 0x71, b"e2e@test");
+        let c1 = ap.device_code(&code_req, false, true).expect("code1");
+        let c2 = ap2.device_code(&code_req, false, true).expect("code2");
+        assert_eq!(c1.code, c2.code);
+        assert_eq!(c1.code.len(), 6);
+        // Lixo não toca no atual.
+        assert!(ap2.import_state(b"\x02laden").is_err());
+        assert_eq!(ap2.device_list(false, true).expect("list2").len(), 1);
+    }
+
+    /// TLV mínimo p/ teste (mesmo codec oath/tlv).
+    fn write_tlv_for_test(out: &mut Vec<u8>, tag: u8, val: &[u8]) {
+        crate::oath::tlv::write_tlv(out, tag, val);
+    }
 
     #[test]
     fn oathslot_bounds_fase6() {
