@@ -271,17 +271,18 @@ bool aegis_ccid_send(const uint8_t *data, uint16_t len) {
         ESP_LOGW(TAG, "tx busy, dropping %u B", len);
         return false;
     }
-    ESP_LOGI(TAG, "tx rpdu len=%u", (unsigned)len);
+    ESP_LOGI(TAG, "tx rpdu len=%u type=0x%02X status=0x%02X", (unsigned)len,
+             data[0], len > 7 ? data[7] : 0xFF);
     memcpy(s_tx_buf, data, len);
     s_tx_busy = true;
     if (!usbd_edpt_xfer(0, s_ep_in, s_tx_buf, len)) {
         s_tx_busy = false;
         return false;
     }
-    // Slot-change notice (best effort; host also just reads bulk-IN).
-    s_notify_buf[0] = CCID_NOTIFY_SLOT_CHANGE;
-    s_notify_buf[1] = 0x00;
-    usbd_edpt_xfer(0, s_ep_notify, s_notify_buf, sizeof(s_notify_buf));
+    // Notify DESLIGADO (v1): o interrupt de 2 bytes travava a máquina de
+    // estados do UsbCcids (hang após a 1ª resposta). O host lê o bulk-IN
+    // por polling; sem notify não há regressão funcional.
+    (void)s_notify_buf;
     return true;
 }
 
