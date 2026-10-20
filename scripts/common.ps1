@@ -263,33 +263,84 @@ function Invoke-FirmwareFlash {
 
     Test-FirmwareArtifact -BinPath $BinPath | Out-Null
     $targetPort = Select-TargetPort $Port
-    Write-Info "Gravando firmware na placa via $targetPort ($Chip a $Baud bps)..."
 
-    $flashArgs = @(
-        "--chip", $Chip,
-        "--port", $targetPort,
-        "--baud", "$Baud",
-        "write_flash",
-        $Offset,
-        $BinPath
-    )
+    # Caminho sem botoes (padrao): TEST_DOWNLOAD via software (RTC_CNTL).
+    # O firmware diag (test-mode) reboota direto p/ ROM download; o esptool
+    # entra com --before no-reset. So cai no fallback manual se o app nao
+    # responder (release sem test-mode, porta ocupada ou placa travada).
+    $softOk = $false
+    try {
+        Write-Info "Tentando download-mode por software (TEST_DOWNLOAD, sem botoes)..."
+        $softProbe = @"
+import sys, time
+sys.path.insert(0, 'tools')
+from app_simulator import SerialLink
+l = SerialLink('$targetPort', 115200)
+l.open()
+l.write(b'TEST_DOWNLOAD\n')
+t0 = time.time(); ok = False
+while time.time() - t0 < 8:
+    try:
+        raw = l.read_exact(64, deadline_s=1.0)
+    except Exception:
+        continue
+    if 'download_mode' in bytes(raw).decode('ascii', 'replace'):
+        ok = True
+        break
+l.close()
+sys.exit(0 if ok else 2)
+"@
+        $probeFile = Join-Path ([IO.Path]::GetTempPath()) "aegis_softdl_probe.py"
+        $softProbe | Set-Content -LiteralPath $probeFile -Encoding ASCII
+        Push-Location $global:RepoRoot
+        try { & python $probeFile 2>$null | Out-Null } catch {}
+        $softOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+    } catch {}
 
-    # Saida do esptool vai para o console via Write-Host para nao poluir o
-    # valor de retorno da funcao (PowerShell retorna toda saida nao capturada).
-    $flashOut = if ($global:EsptoolExe -match "python -m esptool") {
-        & python -m esptool @flashArgs | Out-String
+    if ($softOk) {
+        Write-Success "Placa em ROM download por software (sem botoes)."
     } else {
-        & $global:EsptoolExe @flashArgs | Out-String
+        Write-Warn "Sem resposta a TEST_DOWNLOAD (firmware sem test-mode, porta ocupada ou app travado)."
+        Write-Host "Fallback manual: segure BOOT, aperte+solte EN, continue segurando BOOT e tecle ENTER." -ForegroundColor Yellow
+        Read-Host "Pressione ENTER quando estiver segurando BOOT" | Out-Null
     }
-    Write-Host $flashOut
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "A gravacao na porta $targetPort falhou com codigo $LASTEXITCODE."
+    Write-Info "Gravando firmware na placa via $targetPort ($Chip, --before no-reset)..."
+    $bauds = @($Baud)
+    if ($Baud -ne 115200) { $bauds += 115200 }
+    $flashed = $false
+    foreach ($b in $bauds) {
+        $flashArgs = @(
+            "--chip", $Chip,
+            "--port", $targetPort,
+            "--baud", "$b",
+            "--before", "no-reset",
+            "--after", "hard-reset",
+            "write_flash",
+            $Offset,
+            $BinPath
+        )
+
+        # Saida do esptool vai para o console via Write-Host para nao poluir o
+        # valor de retorno da funcao (PowerShell retorna toda saida nao capturada).
+        $flashOut = if ($global:EsptoolExe -match "python -m esptool") {
+            & python -m esptool @flashArgs | Out-String
+        } else {
+            & $global:EsptoolExe @flashArgs | Out-String
+        }
+        Write-Host $flashOut
+
+        if ($LASTEXITCODE -eq 0) { $flashed = $true; break }
+        Write-Warn "Gravacao a $b bps falhou; tentando fallback..."
+    }
+
+    if (-not $flashed) {
+        throw "A gravacao na porta $targetPort falhou."
     }
 
     Write-Success "Gravacao concluida com sucesso na $targetPort!"
-    Write-Host "ATENCAO: esta DevKit nao tem circuito de auto-reset (RTS nao reinicia)." -ForegroundColor Yellow
-    Write-Host "Aperte EN na placa para bootar a firmware gravada. Para gravar: segure BOOT, aperte+solte EN, continue segurando e use --before no-reset." -ForegroundColor Yellow
+    Write-Host "Se a placa nao bootar sozinha, aperte EN. (RTS faz o reset; BOOT+EN manual so e preciso se o TEST_DOWNLOAD falhar.)" -ForegroundColor Yellow
     return $targetPort
 }
 
