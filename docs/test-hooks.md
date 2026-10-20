@@ -31,6 +31,7 @@ release quebra `scripts/check-release-clean.py`.
 |---|---|---|---|
 | binding_bypass | `binding_bypass_enabled()` = `cfg!(test-mode)` | vendor CONFIG sem claim (UP+PIN seguem) | sempre `false` |
 | release_bypass | `dispatch_bind_release` + `cfg!(test-mode)` | RELEASE com só UP (wipe direto) | exige assinatura |
+| devkey_persist | `load_or_create_dev_keys` + `cfg!(test-mode)` | chave-dev em flash NVS (sem burn, persiste reboot) | efêmera por boot |
 
 ## Auditoria (como conferir)
 

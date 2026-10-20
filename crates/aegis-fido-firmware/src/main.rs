@@ -24,7 +24,7 @@ use aegis_fido_firmware::{
     display::{DisplayManager, UiScreen},
     efuse::{EfuseManager, RamEfuseStorage},
     led::{EspWs2812Output, Ws2812Controller},
-    persistence::{RamFlashBackend, SecureStorage},
+    persistence::{PlatformFlashBackend, SecureStorage},
     provision::load_device_keys,
     totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_SHOW_TICKS},
     usb_descriptors,
@@ -200,7 +200,7 @@ fn ble_dispatch_complete(
     now_secs: u64,
     ctap_engine: &mut CtapEngine,
     binding_mgr: &mut aegis_fido_firmware::binding::BindingManager,
-    storage: &mut SecureStorage<RamFlashBackend>,
+    storage: &mut SecureStorage<PlatformFlashBackend>,
     rescue: &mut RescueEngine,
     wallet: &mut WalletStore,
     bonded: bool,
@@ -527,6 +527,18 @@ fn run_authenticator() {
             let mut salt = [0u8; 32];
             rng.fill_bytes(&mut master_key);
             rng.fill_bytes(&mut salt);
+            // CI-GREP: TEST-HOOK (test-mode only; absent in release).
+            // Sem burn de eFuse, com persistencia p/ teste: a chave-dev mora
+            // em flash NVS (namespace "aegisdev"), reutilizada entre boots.
+            // Release sem test-mode NEM COMPILA este ramo (efemero puro).
+            #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+            if let Ok((m, s)) =
+                aegis_fido_firmware::nvs_backend::load_or_create_dev_keys()
+            {
+                kprintln!("[TEST] dev-key flash persistente ativa (test-mode only).");
+                master_key = m;
+                salt = s;
+            }
             aegis_fido_firmware::provision::DeviceKeys {
                 master_key,
                 device_salt: salt,
@@ -538,7 +550,12 @@ fn run_authenticator() {
 
     // 3. Initialize Encrypted Flash / NVS Persistence
     kprintln!("[INIT] Initializing AES-256-GCM Encrypted Storage...");
-    let flash_backend = RamFlashBackend::new();
+    let flash_backend = PlatformFlashBackend::new();
+    if flash_backend.is_persistent() {
+        kprintln!("[INIT] Flash NVS backend online (persiste entre reboots).");
+    } else {
+        kprintln!("[WARN] Flash NVS indisponivel; RAM volatil (sem persistencia).");
+    }
     let mut storage = SecureStorage::new(flash_backend, &master_key, &salt);
     // AUDIT-PREP: wiring na Wave4
 

@@ -96,12 +96,10 @@ OTA-COMMIT, eFuse.
 
 ## Baseline atual do device (muda com destructive!)
 
-- 20/10 pós wipe-run + reboot: UNCLAIMED (wipes D07/D05b provados por
-  challenge `0x05`) · PIN ilegível (amnésia; set novo exige reset ou
-  eFuse) · recovery `1234` deste boot · credencial `e2e` ilegível
-  (GA `0x2E`) · carteiras RAM limpas no reboot.
-  Wipes executados: D07 release + D05b unlock (só binding; PIN/credencial
-  o wipe não toca — a amnésia é do reboot, não do wipe).
+- 20/10 pós NVS + 2x EN: CLAIMED persistente (challenge 32B) · PIN unset
+  (RAM; D03 refaz em qualquer boot) · recovery `1234` persistente ·
+  credencial `e2e` ilegível (era de boot efêmero; refazer T17) ·
+  dev-key `aegisdev` gravada (primeira boot NVS).
 
 ## Bugs / divergências
 
@@ -113,13 +111,15 @@ OTA-COMMIT, eFuse.
   aberta (a placa não reseta ao abrir a serial — RAM persiste). Confirmar
   no fw-log (`EV=4` sem `EV=5` depois). Em `all-safe` a base roda antes do
   pairing, então a janela está fechada e o teste é determinístico.
-- 20/10 AMNÉSIA DE REBOOT (by design, device não-provisionado): sem
-  eFuse, o NVS usa chaves efêmeras TRNG por boot (main.rs:523). Reboot =
-  tudo ilegível: PIN vira `0x31`+`0x33` (registro existe, não abre),
-  credencial `e2e` some (GA `0x2E`), claim some (challenge `0x05`).
-  Prova: D03b/D04a `0x31` + retries 8→4 no mesmo boot; T18 `0x2E` e T10
-  `0x05` pós-reboot. Consequência: fases e2e valem por boot; persistência
-  real exige `factory_provision.py --confirm` (burn eFuse, one-way).
+- 20/10 NVS REAL (firmware): `PlatformFlashBackend` NVS-device/RAM-host
+  + dev-key test-mode em flash (`aegisdev`, sem burn). Provado no hardware:
+  CLAIM sobrevive a 2x EN; challenge 32B pós-reboot. Gap separado: PIN
+  (`pin_state`) é só RAM no `CtapEngine` — token pós-reboot dá `0x35`
+  (follow-up: persistir pin_hash+retries).
+- 20/10 AMNÉSIA DE REBOOT (resolvida p/ NVS pelo item acima; vale p/ RAM):
+  sem eFuse + sem dev-key, o NVS usa chaves efêmeras TRNG por boot
+  (main.rs:523). Wallet (RAM) e sessão PIN sempre somem no reboot.
+- 20/10 USB (ambiente, não firmware): PnP OK + Problem 0 + WebAuthn
   funcional, mas hidapi/pywinusb não enxergam a coleção (19 outros HIDs
   listados). PING/GetInfo raw via USB ficam p/ depuração futura do host;
   prova funcional via browser vale como U2.
@@ -426,3 +426,22 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 14:40 — phase=base only=T10
 - [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+
+### 20/10 14:49 — phase=base only=D06
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x00 id=814710cb
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+
+### 20/10 14:49 — phase=base only=D06b
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+
+### 20/10 14:51 — phase=base only=D06b
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+
+### 20/10 14:51 — phase=base only=D03
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x00
+
+### 20/10 14:52 — phase=base only=D03b
+- [DIVERGENTE] D03b getPinToken 1234 (sessão viva) — status=0x35
+
+### 20/10 14:52 — phase=base only=D06b
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32

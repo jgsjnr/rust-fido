@@ -38,7 +38,7 @@ hex = { workspace = true }
 
 [target.'cfg(target_os = "espidf")'.dependencies]
 esp-idf-sys = { version = "0.36", default-features = false, features = ["binstart"] }
-esp-idf-svc = { version = "0.50", default-features = false, features = ["binstart"] }
+esp-idf-svc = { version = "0.50", default-features = false, features = ["binstart", "alloc"] }
 esp-idf-hal = { version = "0.45", default-features = false }
 
 [build-dependencies]

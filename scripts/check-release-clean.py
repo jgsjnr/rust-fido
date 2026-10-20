@@ -25,6 +25,9 @@ FORBIDDEN = [
     b"led_state screen=",    # TEST_LED_STATE
     b"lt_dump v=1",          # TEST_LIFETIME_DUMP
     b"binding-bypass",       # ltrace de bypass
+    b"dev_master_key",       # chave-dev test-mode (nunca em release)
+    b"dev_salt",             # sal dev test-mode (nunca em release)
+    b"aegisdev",             # namespace dev test-mode (nunca em release)
 ]
 
 # Arquivos-fonte autorizados a conter literais TEST_ (consts gated,

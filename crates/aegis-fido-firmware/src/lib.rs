@@ -41,12 +41,13 @@ pub mod wifi_station;
 pub mod usb_descriptors;
 pub mod vault_store;
 pub mod wallet_exec;
+pub mod nvs_backend;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
 pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
 pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage, RamEfuseStorage};
 pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
-pub use persistence::{FlashStorageBackend, MockFlashBackend, RamFlashBackend, SecureStorage, StorageError};
+pub use persistence::{FlashStorageBackend, MockFlashBackend, PlatformFlashBackend, SecureStorage, StorageError};
 pub use watchdog::{StaticBuf, Watchdog};
 pub use usb_descriptors::*;
 

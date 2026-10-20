@@ -445,15 +445,16 @@ pub fn keys_unchanged<B: FlashStorageBackend>(
             .all(|(k, v)| backend.read_raw(k).ok() == *v)
 }
 
-/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses RamFlashBackend.
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses PlatformFlashBackend.
 /// In-memory storage backend for unit testing and simulation.
 #[derive(Debug, Clone, Default)]
 pub struct MockFlashBackend {
     store: std::collections::HashMap<String, Vec<u8>>,
 }
 
-/// Prod RAM flash backend (no fixture secrets; use provision loader).
-pub type RamFlashBackend = MockFlashBackend;
+/// Backend de plataforma: NVS real no device, RAM no host.
+/// (Nome antigo `RamFlashBackend` removido: mentia no device.)
+pub type PlatformFlashBackend = crate::nvs_backend::PlatformFlashBackend;
 
 impl MockFlashBackend {
     pub fn new() -> Self {

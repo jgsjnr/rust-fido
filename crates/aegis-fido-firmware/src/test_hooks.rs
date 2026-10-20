@@ -34,6 +34,7 @@ pub const TEST_COMMANDS: &[&str] = &[
 pub const TEST_BYPASSES: &[&str] = &[
     "binding_bypass",
     "release_bypass",
+    "devkey_persist",
 ];
 
 #[cfg(test)]
