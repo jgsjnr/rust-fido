@@ -72,14 +72,10 @@ COMMIT∓UP/COMMIT+UP marker, ABORT); host 242 verdes.
 **Trava**: BEGIN válido reboota a placa (só ele; GEN/NVS ok; idle 5 min
 estável). Suspeitas: NVS-cheio/corrompido ou energia. Próximo passo:
 diagnosticar com build limpo + partição zerada.
-**20/10 noite (causa raiz REAL)**: NÃO era energia — captura do boot mostra
-`hci inits failed` → retry a cada poll reinicializava o NimBLE por cima →
-`Malloc failed` → `BLE assert emi.c:164` → panic Interrupt WDT. Fix: gate
-`BleStartGate` (backoff 5s, 3 por borda, igual ao WiFi) + `aegis_ble_preinit`
-no boot (heap fresco) + heap livre no log de falha. Fonte nova fez bem de
-qualquer forma (margem p/ spikes de rádio/flash).
-**Firmware inocentado no ciclo bad-sig manual (BEGIN 0x00 → CHUNK ack →
-FINISH 0x04).**
+**20/10 noite (F5 DESTRAVADO — D08 6/6 PASS)**: bad-sig nega 0x04, 20 KiB
+em 5 CHUNKs, FINISH verify real 0x00, COMMIT sem UP nega 0x01, COMMIT com UP
+grava marker (versão 2, sem swap), ABORT limpa. Causa raiz do travamento
+anterior era o panic BLE (gate + preinit resolveram), não energia.
 **Nota de swap**: partição única (sem ota_*) → COMMIT grava só marker;
 swap real = fábrica (reparticionar).
 
