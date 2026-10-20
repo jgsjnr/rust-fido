@@ -13,12 +13,12 @@
 use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
-/// SOMENTE T=1 (TD1=0x01, sem oferta de T=0): o UsbCcids ativava T=0
-/// (primeiro oferecido) e abortava com SCARD_E_PROTO_MISMATCH, pois só
-/// falamos T=1. TCK = XOR de T0..histórico (TCK zerado = cartão "mudo").
+/// ATR PIV real (ID-One Cosmo, T=1 sem T=0): reconhecido na tabela do
+/// OpenSC (`card-piv.c piv_atrs`), que carrega o driver PIV e manda SELECT.
+/// TCK = XOR de T0..historico.
 pub const AEGIS_ATR: &[u8] = &[
-    0x3B, 0x8D, 0x01, 0x80, 0x4F, 0x0C, 0xA0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 0x10,
-    0x00, 0x01, 0xF5,
+    0x3B, 0xD6, 0x96, 0x00, 0x81, 0xB1, 0xFE, 0x45, 0x1F, 0x87, 0x80, 0x31, 0xC1,
+    0x52, 0x41, 0x1A, 0x2A,
 ];
 
 // ============================================================================
