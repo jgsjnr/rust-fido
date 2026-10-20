@@ -207,6 +207,8 @@ static bool ccidd_control_xfer_cb(uint8_t rhport, uint8_t stage,
 
 static bool ccidd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
                           uint32_t xferred_bytes) {
+    ESP_LOGI(TAG, "xfer ep=0x%02X result=%d len=%lu", ep_addr, (int)result,
+             (unsigned long)xferred_bytes);
     if (result != XFER_RESULT_SUCCESS) {
         if (ep_addr == s_ep_out) {
             ccid_arm_out(rhport);
