@@ -455,6 +455,19 @@ class SerialLink:
             total += n
         return total
 
+    def flush_input(self):
+        """Descarta bytes velhos (heartbeat/boot) antes de um comando
+        de diagnóstico — elimina a corrida do leitor UART."""
+        try:
+            if os.name == "nt":
+                if self.handle:
+                    self._k32.PurgeComm(self.handle, 0x0004 | 0x0008)
+            elif self.fd is not None:
+                import termios
+                termios.tcflush(self.fd, termios.TCIFLUSH)
+        except Exception:
+            pass
+
     def read_exact(self, n, deadline_s=5.0):
         buf = bytearray()
         end = time.monotonic() + deadline_s
@@ -688,10 +701,12 @@ class Session:
     def send_text_line(self, line, timeout_s=5.0, until=None):
         if not self.link:
             raise OSError("not connected (menu 1)")
+        self.link.flush_input()
         self.link.write((line + "\n").encode("ascii"))
         log_event("DIAG_SENT", "cmd_bytes=%d" % len(line))
         buf = bytearray()
         end = time.monotonic() + timeout_s
+        grace = None  # após o match, drena o resto da linha (ex.: ack splitado)
         while time.monotonic() < end:
             try:
                 chunk = self.link.read_exact(1, deadline_s=1.0)
@@ -699,8 +714,12 @@ class Session:
                 break
             buf.extend(chunk)
             if until is not None and bytes(until) in buf:
-                break
-            if until is None and b"lt_end\n" in buf:
+                if grace is None:
+                    grace = time.monotonic() + 0.4
+                tail = bytes(buf).split(bytes(until), 1)[1]
+                if b"\n" in tail or time.monotonic() >= grace:
+                    break
+            elif until is None and b"lt_end\n" in buf:
                 break
             if len(buf) > 4096:
                 break

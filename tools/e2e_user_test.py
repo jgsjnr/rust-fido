@@ -822,7 +822,13 @@ def _d05c(c):
 
 def _d08(c):
     # F5: ciclo OTA real com chave lab (privada fora do repo).
-    import hashlib as _hl, os as _os, struct as _st
+    import hashlib as _hl, os as _os, struct as _st, time as _t
+    # O pareamento (BLE-adv + logs) polui o fio; assenta antes do ciclo.
+    _t.sleep(1.5)
+    try:
+        c.s.link.flush_input()
+    except Exception:
+        pass
     try:
         priv = open(r"C:\t\ota_test_key.bin", "rb").read()
         assert len(priv) == 32
@@ -945,6 +951,14 @@ def _bench(c):
     timed("B02", "GetInfo", lambda: (
         (lambda r: (r[0] == 0, "%dB" % len(r[1])))(
             s._exchange(CMD_CBOR, bytes([0x04]), timeout_s=10.0, op="e2e"))))
+    # MC/GA exigem pareamento serial: abre a janela antes (BLE-adv liga o
+    # rádio; se a placa rebootar aqui, é energia — vide F5).
+    try:
+        c.pairing()
+        c.rec("B02b", "janela pareamento", "pass", "aberta")
+    except Exception as e:
+        c.rec("B02b", "janela pareamento", "div", str(e)[:60])
+        return
     timed("B03", "MC", lambda: (
         (lambda r: (r[0] == 0, "%dB" % len(r[1])))(
             c.ctap_up(CTAP_CMD_MAKE_CREDENTIAL, mc_cbor()))))
