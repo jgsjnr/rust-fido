@@ -12,6 +12,7 @@ use aegis_fido_core::credential::key_manager::{KeyManager, KeyManagerError};
 use aegis_fido_core::credential::KEY_USE_AUTH;
 use aegis_fido_core::credential::KEY_USE_SIGN;
 use aegis_fido_core::crypto::curves::CoseAlgorithm;
+use aegis_fido_core::ctap::client_pin::ClientPinState;
 use aegis_fido_core::oath::applet::{OathApplet, OathDeviceError};
 use aegis_fido_core::oath::tlv::{find_tlv, parse_tlv_records, write_tlv};
 use alloc::vec::Vec;
@@ -25,6 +26,9 @@ use crate::persistence::{FlashStorageBackend, SecureStorage};
 /// Chaves NVS (≤15 chars) dos blobs de estado F2.
 pub const NVS_KEYS_SLOTS: &str = "key_slots_v1";
 pub const NVS_KEYS_OATH: &str = "oath_creds_v1";
+/// Chaves NVS (F3) do PIN: hash 16B (ausente = sem PIN) + retries 1B.
+pub const NVS_PIN_HASH: &str = "pin_hash";
+pub const NVS_PIN_RETRIES: &str = "pin_retries";
 
 /// Tags do pedido GEN (espelho `VendorOps` do app).
 const TAG_SLOT: u8 = 0x01;
@@ -56,6 +60,49 @@ fn save_oath<B: FlashStorageBackend>(
     oath: &OathApplet,
 ) -> bool {
     storage.store(NVS_KEYS_OATH, &oath.export_state(), &[0u8; 12]).is_ok()
+}
+
+/// Persiste o estado PIN (F3): hash + retries. Sessão pinUvAuth é RAM
+/// por desenho (morre no reboot). `false` = save falhou (chamador loga).
+pub fn save_pin_state<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    pin: &ClientPinState,
+) -> bool {
+    let hash_ok = match pin.pin_hash {
+        Some(h) => storage.store(NVS_PIN_HASH, &h, &[0u8; 12]).is_ok(),
+        None => storage.delete(NVS_PIN_HASH).is_ok(),
+    };
+    hash_ok && storage.store(NVS_PIN_RETRIES, &[pin.pin_retries], &[0u8; 12]).is_ok()
+}
+
+/// Carrega o PIN no boot (ausente = padrão; corrompido = padrão + `false`).
+pub fn load_pin_state<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    pin: &mut ClientPinState,
+) -> bool {
+    use crate::persistence::StorageError;
+    match storage.load(NVS_PIN_HASH) {
+        Ok(v) if v.len() == 16 => {
+            let mut h = [0u8; 16];
+            h.copy_from_slice(&v);
+            pin.pin_hash = Some(h);
+        }
+        Err(StorageError::KeyNotFound) => pin.pin_hash = None,
+        _ => {
+            pin.pin_hash = None;
+            pin.pin_retries = 8;
+            return false;
+        }
+    }
+    match storage.load(NVS_PIN_RETRIES) {
+        Ok(v) if v.len() == 1 => pin.pin_retries = v[0].min(8),
+        Err(StorageError::KeyNotFound) => pin.pin_retries = 8,
+        _ => {
+            pin.pin_retries = 8;
+            return false;
+        }
+    }
+    true
 }
 
 /// Carrega estados do NVS no boot (ausente = vazio; corrompido = vazio +
@@ -267,5 +314,38 @@ fn parse_slot(payload: &[u8]) -> Option<u8> {
     match find_tlv(&records, TAG_SLOT) {
         Some(v) if v.len() == 1 => Some(v[0]),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::MockFlashBackend;
+
+    fn test_storage() -> SecureStorage<MockFlashBackend> {
+        SecureStorage::new(MockFlashBackend::new(), &[0x11u8; 32], &[0x22u8; 32])
+    }
+
+    #[test]
+    fn pin_state_roundtrip_e_ausente_e_padrao() {
+        let mut st = test_storage();
+        let mut pin = ClientPinState::default();
+        // Ausente: padrão (sem PIN, 8 retries), ok=true.
+        assert!(load_pin_state(&st, &mut pin));
+        assert_eq!(pin.pin_hash, None);
+        assert_eq!(pin.pin_retries, 8);
+        // Salva hash+retries e recarrega.
+        let pin_set = ClientPinState { pin_hash: Some([0xABu8; 16]), pin_retries: 5, ..Default::default() };
+        assert!(save_pin_state(&mut st, &pin_set));
+        let mut pin2 = ClientPinState::default();
+        assert!(load_pin_state(&st, &mut pin2));
+        assert_eq!(pin2.pin_hash, Some([0xABu8; 16]));
+        assert_eq!(pin2.pin_retries, 5);
+        // Limpa hash (reset): volta a None.
+        let pin_clear = ClientPinState { pin_hash: None, ..Default::default() };
+        assert!(save_pin_state(&mut st, &pin_clear));
+        let mut pin3 = ClientPinState { pin_hash: Some([0u8; 16]), ..Default::default() };
+        assert!(load_pin_state(&st, &mut pin3));
+        assert_eq!(pin3.pin_hash, None);
     }
 }

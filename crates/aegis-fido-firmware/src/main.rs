@@ -247,6 +247,15 @@ fn ble_dispatch_complete(
                 ctap_engine.set_user_presence(up);
                 let mut rng = rand_core::OsRng;
                 let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
+                // F3: ClientPIN (0x06) mudou estado? Persiste hash+retries.
+                if p.first() == Some(&0x06)
+                    && !aegis_fido_firmware::vendor_exec::save_pin_state(
+                        storage,
+                        &ctap_engine.pin_state,
+                    )
+                {
+                    kprintln!("[WARN] NVS pin save falhou (BLE).");
+                }
                 ble::notify_frame(op, 0x00, &resp)
             }
         }
@@ -617,6 +626,11 @@ fn run_authenticator() {
     if !aegis_fido_firmware::vendor_exec::load_states(&storage, &mut key_mgr, &mut oath_applet)
     {
         kprintln!("[WARN] vendor NVS inconsistente; começando vazio.");
+    }
+    // F3: PIN persistente (hash+retries; sessão pinUvAuth morre no reboot).
+    if !aegis_fido_firmware::vendor_exec::load_pin_state(&storage, &mut ctap_engine.pin_state)
+    {
+        kprintln!("[WARN] PIN NVS inconsistente; sem PIN.");
     }
     #[cfg(not(target_os = "espidf"))]
     let _ = (&ctaphid_mgr, &ctap_engine);
@@ -1556,6 +1570,16 @@ fn run_authenticator() {
                                 let ctap_res =
                                     ctap_engine.process_packet(&msg.payload, now_secs, &mut rng);
 
+                                // F3: ClientPIN (0x06) mudou estado? Persiste.
+                                if msg.payload.first() == Some(&0x06)
+                                    && !aegis_fido_firmware::vendor_exec::save_pin_state(
+                                        &mut storage,
+                                        &ctap_engine.pin_state,
+                                    )
+                                {
+                                    kprintln!("[WARN] NVS pin save falhou (USB).");
+                                }
+
                                 kprintln!(
                                     "[CTAP2] Response status: 0x{:02X}, length: {} bytes",
                                     ctap_res.get(0).unwrap_or(&0xFF),
@@ -2078,6 +2102,15 @@ fn run_authenticator() {
                                         now_secs,
                                         &mut rng,
                                     );
+                                    // F3: ClientPIN (0x06) mudou estado? Persiste.
+                                    if msg.payload.first() == Some(&0x06)
+                                        && !aegis_fido_firmware::vendor_exec::save_pin_state(
+                                            &mut storage,
+                                            &ctap_engine.pin_state,
+                                        )
+                                    {
+                                        kprintln!("[WARN] NVS pin save falhou (serial).");
+                                    }
                                     kprintln!(
                                         "[SERIAL][CTAP2] status 0x{:02X}, {} bytes",
                                         res.first().copied().unwrap_or(0xFF),

@@ -29,10 +29,11 @@ persistem; CODE calcula no device. Requer F1 pronto (PUT/DELETE são PIN).
 avança), slot 5 + CODE lidos pós-EN. App: VaultScreen envia challenge
 0x74 (APK rebuildado). IMPORT fica `0x04` (envelope+vault = F2b).
 
-### F3. Persistir `pin_hash` + retries no NVS [P]
+### F3. Persistir `pin_hash` + retries no NVS [P] — FEITO 20/10, no ar
 **Problema**: `pin_state` só RAM → reboot pede setPIN de novo (`0x35`).
 **Escopo**: salvar `pin_hash`, `pin_retries`, `power_cycle_state` no NVS
 (backend pronto) nos pontos onde mudam; carregar no boot.
+**Prova viva 20/10**: setPIN → EN → token `0x00` (era `0x35`); retries 8.
 **Aceite**: setPIN → EN → token funciona; retries sobrevivem.
 **Risco**: baixo (NVS já provado). Pré-req: nenhum (independente de F1).
 

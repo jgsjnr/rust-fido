@@ -101,10 +101,8 @@ OTA-COMMIT, eFuse.
 
 ## Baseline atual do device (muda com destructive!)
 
-- 20/10 pós NVS + 2x EN: CLAIMED persistente (challenge 32B) · PIN unset
-  (RAM; D03 refaz em qualquer boot) · recovery `1234` persistente ·
-  credencial `e2e` ilegível (era de boot efêmero; refazer T17) ·
-  dev-key `aegisdev` gravada (primeira boot NVS).
+- 20/10 pós F3: CLAIMED persistente · PIN `1234` persistente (token pós-EN
+  OK) · recovery `1234` · dev-key `aegisdev` · vendor keys/OATH no NVS.
 
 ## Bugs / divergências
 
@@ -544,3 +542,12 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 15:47 — phase=base only=T13
 - [PASS] T13 KEY_GEN e2e-t1 real — status=0x00 slot=5
+
+### 20/10 16:04 — phase=base only=D03
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x00
+
+### 20/10 16:04 — phase=base only=D03b
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+
+### 20/10 16:04 — phase=base only=T09
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
