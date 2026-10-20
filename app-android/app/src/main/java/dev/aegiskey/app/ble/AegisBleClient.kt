@@ -451,9 +451,25 @@ class AegisBleClient(private val context: Context) {
         return response
     }
 
+    /**
+     * Log real da firmware (0x38, ASCII sem PII). Firmware antiga sem a op
+     * cai em timeout/erro — tratado como falha amigável, nunca crash.
+     */
+    suspend fun fetchFwLog(maxChars: Int = 4000): Result<String> {
+        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 0x38 fw-log")
+        val raw = sendVendor(BleContract.OP_FW_LOG, ByteArray(0))
+            ?: return Result.failure(Exception("sem resposta — firmware antiga? atualize o device"))
+        val resp = VendorOps.parseResponse(raw)
+            ?: return Result.failure(Exception("resposta ilegível"))
+        return when (resp.status) {
+            VendorOps.STATUS_OK -> Result.success(VendorOps.parseFwLog(resp.tlv, maxChars))
+            VendorOps.STATUS_NEED_BINDING -> Result.failure(Exception("vincule o dispositivo primeiro"))
+            else -> Result.failure(Exception(VendorOps.statusLabel(resp.status) + " (0x" + String.format("%02X", resp.status) + ")"))
+        }
+    }
+
     /** Single-byte CANCEL (0xBE): aborts the active transaction. */
-    suspend fun cancel(): Boolean {
-        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_CANCEL(0xBE)")
+    suspend fun cancel(): Boolean {        DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_CANCEL(0xBE)")
         val control = char(BleContract.CHAR_CONTROL) ?: return false
         return writeBytes(control, byteArrayOf(BleContract.OP_CANCEL.toByte()))
     }

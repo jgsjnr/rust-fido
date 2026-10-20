@@ -156,7 +156,7 @@ fun AegisApp(client: AegisBleClient) {
                 composable("usb") { UsbScreen(onUseBle = { nav.navigate("scan") }) }
                 composable("wifi") { WifiScreen() }
                 composable("connect") { ConnectHub(nav, client) }
-                composable("log") { LogScreen() }
+                composable("log") { LogScreen(client) }
                 composable("settings") { SettingsScreen(onOpenLog = { nav.navigate("log") }, client = client) }
                 composable("binding") { BindingWizardScreen(client, onDone = { nav.navigate("connect") }, onForeignDevice = { nav.navigate("foreign") }) }
                 composable("foreign") { ForeignDeviceScreen(onUseUsb = { nav.navigate("usb") }, onBack = { nav.navigate("connect") }) }

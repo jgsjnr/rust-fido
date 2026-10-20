@@ -203,14 +203,23 @@ fn ble_dispatch_complete(
     storage: &mut SecureStorage<RamFlashBackend>,
     rescue: &mut RescueEngine,
     wallet: &mut WalletStore,
+    bonded: bool,
+    now_ms: u64,
+    fwlog: &mut aegis_fido_firmware::fw_log::FwLog,
 ) {
     use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use aegis_fido_firmware::ble_gatt as g;
     use aegis_fido_firmware::ble_nimble as ble;
+    use aegis_fido_firmware::fw_log as fl;
     use aegis_fido_firmware::wallet_exec as w;
 
     let op = msg.opcode;
     let p = &msg.payload;
+    // Log real do device: toda op recebida + UP quando presente.
+    fwlog.record(fl::EV_OP_RX, op, now_ms);
+    if up {
+        fwlog.record(fl::EV_UP_OK, op, now_ms);
+    }
     let frame: Vec<u8> = match op {
         g::OP_PING => ble::notify_frame(op, 0x00, &g::BleGattServer::dispatch_ping(p)),
         g::OP_CANCEL => ble::notify_frame(op, 0x00, &[]),
@@ -359,8 +368,24 @@ fn ble_dispatch_complete(
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
             }
         }
+        o if fl::is_fw_log_op(o) => {
+            // Log da firmware (0x38): leitura sem segredos; BLE exige
+            // vínculo (0x05 sem ele), nunca UP/PIN.
+            match g::authorize_fw_log_op(o, bonded) {
+                Ok(()) => {
+                    let body = fwlog.render_ascii(fl::FW_LOG_MAX_BYTES);
+                    kprintln!("[BLE] fw-log 0x38 ({} B).", body.len());
+                    ble::notify_frame(o, 0x00, &body)
+                }
+                Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
+            }
+        }
         _ => ble::notify_frame(op, 0x04, &[]),
     };
+    // Status respondido entra no log (frame = [op, status, ...]).
+    if frame.len() >= 2 {
+        fwlog.record(fl::EV_OP_RESP, frame[1], now_ms);
+    }
     let _ = ble::esp_ble_notify(&frame);
 }
 
@@ -569,6 +594,9 @@ fn run_authenticator() {
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
     // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
     let mut wallet_store = WalletStore::new();
+    // Log real do device p/ o app (op 0x38; RAM, sem PII/segredos).
+    let mut fw_log = aegis_fido_firmware::fw_log::FwLog::new();
+    fw_log.record(aegis_fido_firmware::fw_log::EV_BOOT, 0, 0);
 
     kprintln!("============================================================");
     kprintln!("   AegisKey S3 Authenticator ONLINE & ACTIVE!");
@@ -594,6 +622,8 @@ fn run_authenticator() {
     let mut ble_adv_active = false;
     let mut ble_bond_pending = false;
     let mut ble_rx = [0u8; aegis_fido_firmware::ble_nimble::BLE_RX_FRAGMENT_MAX];
+    // Borda da janela de pareamento p/ o fw-log (0x38).
+    let mut pairing_open_prev = false;
     // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
     let mut wifi_ap_mgr = aegis_fido_firmware::wifi_ap::WifiApManager::new();
     let mut mdns_mgr = aegis_fido_firmware::mdns::MdnsManager::new();
@@ -680,6 +710,16 @@ fn run_authenticator() {
         pairing_mgr.on_button_level(is_boot_pressed, now_ms);
         pairing_mgr.tick(now_ms);
         let pairing_open_now = pairing_mgr.is_pairing_window_open(now_ms);
+        // Borda da janela -> fw-log (0x38) do app.
+        {
+            use aegis_fido_firmware::fw_log as fl;
+            if pairing_open_now && !pairing_open_prev {
+                fw_log.record(fl::EV_PAIR_OPEN, 0, now_ms);
+            } else if !pairing_open_now && pairing_open_prev {
+                fw_log.record(fl::EV_PAIR_CLOSE, 0, now_ms);
+            }
+            pairing_open_prev = pairing_open_now;
+        }
         // Exclusao mutua de radio (OOM BT+WiFi): BLE anuncia SOMENTE em
         // PairingBle; WiFi (AP/station/mDNS) fica desligado nesse estado.
         let ble_pairing_now =
@@ -862,6 +902,7 @@ fn run_authenticator() {
                 );
                 if rc == 0 {
                     ble_adv_active = true;
+                    fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_START, 0, now_ms);
                 } else {
                     kprintln!("[BLE] adv start rc={} (nova tentativa no proximo poll)", rc);
                 }
@@ -869,6 +910,7 @@ fn run_authenticator() {
                 let _ = aegis_fido_firmware::ble_nimble::esp_ble_stop();
                 ble_adv_active = false;
                 ble_bond_pending = false;
+                fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
             }
         }
         // Etapa B: bomba BLE (eventos GAP + fragmentos FFF1). USB intacto.
@@ -896,6 +938,7 @@ fn run_authenticator() {
                             kprintln!(
                                 "[BLE] bonding ok: advertising parado, pareamento encerrado."
                             );
+                            fw_log.record(aegis_fido_firmware::fw_log::EV_BOND_OK, 0, now_ms);
                         }
                         ble::BondOutcome::DeniedNoPresence => {
                             ble_bond_pending = true;
@@ -942,6 +985,7 @@ fn run_authenticator() {
                         led.set_effect(LedEffect::Solid(aegis_fido_firmware::led::Color::GREEN));
                     }
                     kprintln!("[BLE] bonding ok (apos UP): advertising parado.");
+                    fw_log.record(aegis_fido_firmware::fw_log::EV_BOND_OK, 0, now_ms);
                 }
             }
             // Fragmentos FFF1 -> reassemble -> dispatch -> notify FFF2.
@@ -953,6 +997,8 @@ fn run_authenticator() {
                     Ok(Some(msg)) => {
                         touch_latched = false;
                         ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
+                        let bonded =
+                            pairing_mgr.is_bonded() || binding_mgr.is_claimed();
                         ble_dispatch_complete(
                             msg,
                             up,
@@ -963,6 +1009,9 @@ fn run_authenticator() {
                             &mut storage,
                             &mut rescue_engine,
                             &mut wallet_store,
+                            bonded,
+                            now_ms,
+                            &mut fw_log,
                         );
                     }
                     Ok(None) => {
@@ -1747,6 +1796,25 @@ fn run_authenticator() {
                                     }
                                     let mut resp = Vec::with_capacity(1 + body.len());
                                     resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &resp,
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && msg.payload[0]
+                                        == aegis_fido_firmware::fw_log::OP_FW_LOG
+                                {
+                                    // Log da firmware over serial: posse física
+                                    // = livre (sem pairing, sem UP, sem latch).
+                                    use aegis_fido_firmware::fw_log as fl;
+                                    fw_log.record(fl::EV_OP_RX, fl::OP_FW_LOG, now_ms);
+                                    let body = fw_log.render_ascii(1024);
+                                    fw_log.record(fl::EV_OP_RESP, 0x00, now_ms);
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(0x00);
                                     resp.extend_from_slice(&body);
                                     for p in CtapHidFramer::frame_message(
                                         msg.cid, msg.cmd, &resp,

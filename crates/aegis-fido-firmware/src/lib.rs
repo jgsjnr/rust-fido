@@ -16,6 +16,7 @@ pub mod button;
 pub mod config;
 pub mod display;
 pub mod efuse;
+pub mod fw_log;
 pub mod identity;
 pub mod led;
 pub mod lifetime_trace;

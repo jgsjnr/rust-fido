@@ -116,12 +116,13 @@ pub fn is_vendor_keys_oath_op(op: u8) -> bool {
     (VENDOR_OP_MIN..=VENDOR_OP_MAX).contains(&op)
 }
 
-/// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37.
+/// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.
 ///
 /// Mapa da vizinhança (primeiro byte de CMD_MSG): 0x20-0x27 vendor
 /// keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue, 0x2F reservado,
 /// 0x30-0x34 OTA. `0x35` GEN (gera sob a curva da rede), `0x36` LIST
-/// (só metadados `wallet:`), `0x37` ADDR (endereço do slot).
+/// (só metadados `wallet:`), `0x37` ADDR (endereço do slot), `0x38`
+/// FW-LOG (log da firmware em ASCII, sem PII — ver `fw_log`).
 /// GATT/revisão/framing intactos; executor on-device = follow-up
 /// (como vendor §9.4: gate ok responde `0x04`).
 pub const OP_WALLET_GEN: u8 = 0x35;
@@ -536,6 +537,21 @@ pub fn authorize_wallet_op(
     Ok(())
 }
 
+/// Gate do log da firmware (`0x38`, ver `fw_log`).
+///
+/// Leitura diagnóstica sem segredos: exige vínculo no BLE (ordem
+/// canônica, app alheio vê `NeedBinding` 0x05), mas nunca UP nem PIN.
+/// Serial/USB físico nem passa por aqui (posse do cabo = livre).
+pub fn authorize_fw_log_op(op: u8, bonded: bool) -> Result<(), BleGattError> {
+    if !crate::fw_log::is_fw_log_op(op) {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    if !bonded {
+        return Err(BleGattError::NeedBinding);
+    }
+    Ok(())
+}
+
 /// Gate normativo proximidade-BLE: ordem binding -> UP -> coex.
 ///
 /// - `!bonded` => `NeedBinding` (0x05, so BLE, nunca USB).
@@ -799,6 +815,25 @@ mod tests {
         assert!(authorize_wallet_op(OP_WALLET_ADDR, true, true).is_ok());
         assert_eq!(
             authorize_wallet_op(0x20, true, true),
+            Err(BleGattError::InvalidOpcode)
+        );
+    }
+
+    #[test]
+    fn fw_log_gate_bonded_sem_up_nem_pin() {
+        // Sem vínculo: NEED_BINDING (0x05) — app alheio não lê o log.
+        assert_eq!(
+            authorize_fw_log_op(crate::fw_log::OP_FW_LOG, false),
+            Err(BleGattError::NeedBinding)
+        );
+        assert_eq!(
+            BleGattError::NeedBinding.to_vendor_status(),
+            VENDOR_STATUS_NEED_BINDING
+        );
+        // Com vínculo: ok direto, sem UP/PIN (diagnóstico sem segredos).
+        assert!(authorize_fw_log_op(crate::fw_log::OP_FW_LOG, true).is_ok());
+        assert_eq!(
+            authorize_fw_log_op(0x37, true),
             Err(BleGattError::InvalidOpcode)
         );
     }
