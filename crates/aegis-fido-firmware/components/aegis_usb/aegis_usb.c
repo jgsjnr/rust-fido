@@ -81,8 +81,9 @@ static const uint8_t desc_configuration[] = {
     TUD_HID_INOUT_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, 64, 5),
 
     // Interface 1: CCID smartcard (F4 PIV; driver `ccid_device.c`).
+    // 9 (iface) + 54 (funcional, contar!) + 3x7 (EPs) = 84 = CCID_DESC_LEN.
     9, TUSB_DESC_INTERFACE, 1, 0, 3, 0x0B, 0x00, 0x00, 0,
-    // CCID functional descriptor (54 B, tipo 0x21).
+    // CCID functional descriptor (54 B exatos, tipo 0x21, ordem da spec).
     54, 0x21,
     0x10, 0x01,             // bcdCCID 1.10
     0x00,                   // bMaxSlotIndex (1 slot)
@@ -91,22 +92,20 @@ static const uint8_t desc_configuration[] = {
     0x10, 0x0E, 0x00, 0x00, // dwDefaultClock (3600)
     0x10, 0x0E, 0x00, 0x00, // dwMaximumClock
     0x00,                   // bNumClockSupported
-    0xB0, 0x28, 0x00, 0x00, // dwDataRate (10752)
-    0xB0, 0x28, 0x00, 0x00, // dwMaxDataRate
+    0x80, 0x25, 0x00, 0x00, // dwDataRate (9600; coerente com TA1=0x11 do ATR)
+    0x80, 0x25, 0x00, 0x00, // dwMaxDataRate (9600)
     0x00,                   // bNumDataRatesSupported
     0xFE, 0x00, 0x00, 0x00, // dwMaxIFSD (254)
     0x00, 0x00, 0x00, 0x00, // dwSynchProtocols
     0x00, 0x00, 0x00, 0x00, // dwMechanical
     0x00, 0x00, 0x0C, 0x00, // dwFeatures: SHORT_APDU|SHORT_AND_EXTENDED
-    // (APDU-level: o host manda APDUs no XFR e o device faz o T=1 sozinho.
-    // Com 0 o host falava TPDU cru — PPS/I-blocks como "APDU".)
     0x00, 0x08, 0x00, 0x00, // dwMaxCCIDMessageLength (2048)
     0x00,                   // bClassGetResponse
     0x00,                   // bClassEnvelope
     0x00, 0x00,             // wLcdLayout
     0x00,                   // bPINSupport
     0x01,                   // bMaxCCIDBusySlots
-    // EP bulk OUT
+// EP bulk OUT
     7, TUSB_DESC_ENDPOINT, EPNUM_CCID_OUT, TUSB_XFER_BULK, 64, 0, 0,
     // EP bulk IN
     7, TUSB_DESC_ENDPOINT, EPNUM_CCID_IN, TUSB_XFER_BULK, 64, 0, 0,
