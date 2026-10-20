@@ -53,6 +53,7 @@ import dev.aegiskey.app.ui.TransferOwnershipScreen
 import dev.aegiskey.app.ui.UnbindGuideScreen
 import dev.aegiskey.app.ui.UsbScreen
 import dev.aegiskey.app.ui.VaultScreen
+import dev.aegiskey.app.ui.WalletScreen
 import dev.aegiskey.app.ui.WifiScreen
 
 class MainActivity : ComponentActivity() {
@@ -133,11 +134,13 @@ fun AegisApp(client: AegisBleClient) {
                         onOpenKeys = { nav.navigate("accounts") },
                         onOpenAuth = { nav.navigate("auth") },
                         onOpenVault = { nav.navigate("vault") },
+                        onOpenWallet = { nav.navigate("wallet") },
                         onOpenLog = { nav.navigate("log") },
                         onBack = { nav.popBackStack() },
                     )
                 }
                 composable("accounts") { AccountsScreen(client) }
+                composable("wallet") { WalletScreen(client) }
                 composable("auth") { AuthScreen(client) }
                 composable("vault") { VaultScreen(client) }
                 composable("usb") { UsbScreen(onUseBle = { nav.navigate("scan") }) }

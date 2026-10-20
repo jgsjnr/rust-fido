@@ -45,6 +45,7 @@ fun DeviceControlScreen(
     onOpenKeys: () -> Unit = {},
     onOpenAuth: () -> Unit = {},
     onOpenVault: () -> Unit = {},
+    onOpenWallet: () -> Unit = {},
     onOpenLog: () -> Unit = {},
     onBack: () -> Unit = {},
 ) {
@@ -174,6 +175,9 @@ fun DeviceControlScreen(
             }
             Button(onClick = onOpenVault, modifier = Modifier.fillMaxWidth()) {
                 Text("Cofre: ver códigos", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Button(onClick = onOpenWallet, modifier = Modifier.fillMaxWidth()) {
+                Text("Carteira: Bitcoin e redes", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             OutlinedButton(onClick = onOpenLog, modifier = Modifier.fillMaxWidth()) {
                 Text("Ver log do dispositivo", maxLines = 1, overflow = TextOverflow.Ellipsis)
