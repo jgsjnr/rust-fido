@@ -32,6 +32,7 @@ pub mod provision;
 #[cfg(feature = "proximity")]
 pub mod proximity;
 pub mod serial_ctaphid;
+pub mod test_hooks;
 pub mod totp_view;
 pub mod ui_journey;
 pub mod watchdog;

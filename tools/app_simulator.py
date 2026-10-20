@@ -495,6 +495,63 @@ class SerialLink:
             self.fd = None
 
 
+class HidLink:
+    """Transporte USB-HID nativo (CTAPHID puro, sem texto entrelaçado).
+
+    FIDO HID: reports de 64B; o primeiro byte é o Report ID (0). Leitura
+    bloqueante com timeout via hidapi. Sem SerialStreamReader: no USB não
+    há heartbeat/texto no mesmo endpoint.
+    """
+
+    USB_VID = 0x303A
+    USB_PID = 0xAE61
+
+    def __init__(self, vid=USB_VID, pid=USB_PID):
+        self.vid = vid
+        self.pid = pid
+        self.dev = None
+
+    def open(self):
+        import hid
+        found = [d for d in hid.enumerate(self.vid, self.pid)
+                 if d.get("usage_page") == 0xF1D0 or True]
+        if not found:
+            raise OSError("USB HID %04X:%04X não enumerado (cabo dados? driver?)" % (self.vid, self.pid))
+        self.dev = hid.device()
+        self.dev.open_path(found[0]["path"])
+        self.dev.set_nonblocking(0)
+
+    def write(self, data):
+        assert len(data) == 64, len(data)
+        # Report ID 0 prefixado (hidapi inclui no buffer de escrita).
+        n = self.dev.write(b"\x00" + data)
+        if n < 0:
+            raise OSError("usb hid write failed")
+        return n
+
+    def read_exact(self, n, deadline_s=5.0):
+        import time as _t
+        buf = bytearray()
+        end = _t.monotonic() + deadline_s
+        while len(buf) < n and _t.monotonic() < end:
+            chunk = bytes(self.dev.read(64, timeout_ms=100))
+            if chunk:
+                # hidapi devolve [report_id, 64B]; tolera com/sem prefixo.
+                if len(chunk) == 65:
+                    chunk = chunk[1:]
+                buf.extend(chunk[:n - len(buf)])
+        if len(buf) < n:
+            raise TimeoutError("usb hid read timeout (%d/%d bytes)" % (len(buf), n))
+        return bytes(buf)
+
+    def close(self):
+        try:
+            if self.dev:
+                self.dev.close()
+        finally:
+            self.dev = None
+
+
 # ---------------------------------------------------------------------------
 # Device session: pairing gate + CTAP exchange + HTTP AP + dump.
 # ---------------------------------------------------------------------------
@@ -505,6 +562,7 @@ class Session:
         self.test_mode = test_mode
         self.clock = clock
         self.link = None
+        self.usb = False
         self.cid = 0x11223344
         self.pairing_until = 0.0
 
@@ -529,13 +587,53 @@ class Session:
             counts, _ = parse_dump(dump)
             log_event("TEST_MODE_OK", "counters=%d" % len(counts))
 
+    def connect_usb(self, vid=HidLink.USB_VID, pid=HidLink.USB_PID):
+        self.link = HidLink(vid, pid)
+        self.link.open()
+        self.usb = True
+        log_event("USB_CONNECTED", "vid=%04X pid=%04X" % (vid, pid))
+
     def close(self):
         if self.link:
             self.link.close()
             self.link = None
             log_event("DEVICE_DISCONNECTED")
 
+    def _exchange_usb(self, cmd, payload, timeout_s=30.0, op="op"):
+        """Troca CTAPHID pura via USB-HID (sem texto entrelaçado, sem gates
+        de texto). Keepalive UP imprime aviso como no serial."""
+        if not self.link:
+            raise OSError("not connected (connect_usb primeiro)")
+        self.require_pairing(op)
+        packets = frame_message(self.cid, cmd, payload)
+        log_event("CTAP_SENT", "cmd=%02x bytes=%d pkts=%d" % (cmd, len(payload), len(packets)))
+        for pkt in packets:
+            self.link.write(pkt)
+        asm = Reassembler()
+        end = time.monotonic() + timeout_s
+        up_announced = False
+        while time.monotonic() < end:
+            raw = self.link.read_exact(PACKET_SIZE, deadline_s=2.0)
+            kind, data = asm.feed(raw)
+            if kind == "keepalive":
+                if data == STATUS_KEEPALIVE_UP_NEEDED and not up_announced:
+                    up_announced = True
+                    print("** UP necessario: pressione BOOT no device (ate 25s) **")
+                    log_event("UP_NEEDED")
+                continue
+            if kind == "more":
+                continue
+            if kind == "message":
+                rcid, rcmd, body = data
+                status, cbor = parse_ctap_response(body)
+                log_event("CTAP_RESPONSE", "status=%02x bytes=%d" % (status, len(body)))
+                return status, cbor
+        raise TimeoutError("no CTAP response (UP? timeout?)")
+
     def _exchange(self, cmd, payload, timeout_s=30.0, op="op"):
+        # USB-HID não tem texto entrelaçado: troca binária direta.
+        if getattr(self, "usb", False):
+            return self._exchange_usb(cmd, payload, timeout_s, op)
         if not self.link:
             raise OSError("not connected (menu 1)")
         self.require_pairing(op)

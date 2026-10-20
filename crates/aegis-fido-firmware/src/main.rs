@@ -1608,6 +1608,7 @@ fn run_authenticator() {
             };
 
             // D1. Diagnostic text lines (test-mode only; idle use only).
+            // CI-GREP: TEST-HOOK (test-mode only; absent in release).
             // TEST_PAIRING_OPEN abre a mesma janela 60s do hold (software);
             // TEST_LIFETIME_DUMP responde o dump. Release: linhas desconhecidas.
             // D1b. LED ground-truth + primarias (test-mode only).
