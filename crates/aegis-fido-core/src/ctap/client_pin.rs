@@ -73,6 +73,16 @@ impl ClientPinState {
     pub fn is_pin_set(&self) -> bool {
         self.pin_hash.is_some()
     }
+    /// `true` quando existe uma sessão pinUvAuth viva (token obtido via
+    /// `getPinToken`/`getPinUvAuthToken*` após PIN verificado).
+    ///
+    /// Plumbing do killswitch remoto (`RescueEngine::set_pin_uv_authenticated`):
+    /// a sessão só nasce em `verify_token_permission == Ok`, então sua
+    /// presença prova PIN verificado nesta power-cycle. Fail-closed: sem
+    /// sessão, o gatilho remoto nega.
+    pub fn has_valid_pin_uv_session(&self) -> bool {
+        self.active_session.is_some()
+    }
     pub fn is_pin_blocked(&self) -> bool {
         self.pin_retries == 0
     }
@@ -599,5 +609,30 @@ impl ClientPinHandler {
     fn unpad_pin(padded: &[u8]) -> Result<&[u8], CtapError> {
         let first_zero = padded.iter().position(|&b| b == 0).unwrap_or(padded.len());
         Ok(&padded[..first_zero])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_session_by_default_fail_closed() {
+        let state = ClientPinState::default();
+        assert!(!state.has_valid_pin_uv_session());
+    }
+
+    #[test]
+    fn live_session_counts_as_pin_verified() {
+        let state = ClientPinState {
+            active_session: Some(PinUvTokenSession {
+                token: [0xA5u8; 32],
+                protocol: 2,
+                permissions: PIN_UV_PERM_MC | PIN_UV_PERM_GA,
+                rp_id: None,
+            }),
+            ..Default::default()
+        };
+        assert!(state.has_valid_pin_uv_session());
     }
 }

@@ -1,8 +1,9 @@
 // AegisKey UniFFI contract - mirrors docs/ble-protocol.md (frozen).
 // Rust implements these in src/lib.rs; Kotlin bindings are generated with:
 //   cargo run -p uniffi-bindgen -- generate src/aegis_bridge.udl --language kotlin
-// Secrets never cross this interface: only envelopes (AEGN), TOTP codes and
-// account labels. Keys are caller-provided transient buffers, zeroized in Rust.
+// Secrets never cross this interface: only envelopes (AEGN), TOTP codes,
+// account labels and wallet addresses (public-key encodings). Keys are
+// caller-provided transient buffers, zeroized in Rust.
 
 namespace aegis_bridge {
     BleInfo ble_constants();
@@ -17,6 +18,7 @@ namespace aegis_bridge {
     boolean wifi_password_valid(string password);
     string? oath_account_from_path(string path);
     [Throws=BridgeError] sequence<u8> app_lock_derive(sequence<u8> password, sequence<u8> salt);
+    [Throws=BridgeError] string wallet_address(string network, string pubkey_hex);
 };
 
 dictionary BleInfo {
@@ -48,4 +50,5 @@ enum BridgeError {
     "InvalidCose",
     "InvalidOath",
     "CryptoError",
+    "InvalidAddress",
 };

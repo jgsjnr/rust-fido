@@ -36,15 +36,33 @@ Método geral de estimativa: S = dezenas–poucas centenas B flash e/ou <512B RA
 - Classic: priorizar MOVER `address.rs` + formatação display primeiro (maior alívio opt-z); S3 usa a mesma lista para abrir folga OTA.
 - Sem mudança de layout NVS/journal nem CBOR IDs nesta wave.
 
-## Delta Wave2 Step3 (2026-10-20, não commitado)
+## Delta Wave2 Step4c + plumbing (2026-10-20, branch fd/finalizacao-linux)
+
+- **Bridge move executado**: `wallet_address(network, pubkey_hex)` no
+  `uniffi-bridge` (UDL + `InvalidAddress`) — BTC/ETH/SOL por vetores
+  conhecidos (G BIP-173/EIP-55, zero-seed Solana), rejeita rede/hex/tamanho
+  ruins. App calcula endereço local de pubkey pública; device nunca é
+  perguntado. Testes bridge 13→15 verdes. Kotlin regenera no build do app
+  (SDK ausente aqui).
+- **SIZE medido**: release S3 2.646.512 → **2.646.400 B (−112 B)**. Ganho
+  não vem do move (firmware nunca linkou os encodings — morto no link),
+  e sim da fiação; código test-mode (`TEST_LED_*`, D1b) soma **0 bytes**
+  na release (cfg fora). Classic: bin 1.987.072 B pronto, sem COM8 p/ flash.
+- **Plumbing ClientPIN→killswitch**: `ClientPinState::has_valid_pin_uv_session`
+  + fiação nos 3 transportes (`main.rs` BLE/USB/serial). Prova viva na
+  serial: killswitch remoto sem UP/PIN → `status=0x04`
+  (`tools/killswitch_deny_probe.py` DENY_OK); teste core
+  `killswitch_plumbing_clientpin_session_gates_remote`.
+
+## Delta Wave2 Step3 (2026-10-20, commitado em fd/finalizacao-linux)
 
 Roteamento rescue `0x2E` ligado nos 3 transportes sem mudar framing:
 `main.rs` USB-C + serial-D (`CMD_MSG [0x2E, frame...]` via
 `serial_ctaphid::{is_rescue_msg, dispatch_serial_rescue}`) e BLE
 (`OP_MSG` com primeiro byte `0x2E`, reassembler intacto). UP vem do latch
-BOOT (uso único); PIN fica `false` até o plumbing ClientPIN→
-`set_pin_uv_authenticated` existir — o gatilho remoto nega fail-closed até
-lá (`RESCUE_STATUS_CONFIRMATION_FAILED`). Hold físico→
+BOOT (uso único); PIN via plumbing ClientPIN→`set_pin_uv_authenticated`
+  (sessão viva = PIN verificado; sem ela o remoto nega fail-closed,
+  `RESCUE_STATUS_CONFIRMATION_FAILED`, provado vivo na serial). Hold físico→
 `request_physical_killswitch` pendente: o hold 5s é compartilhado com o
 pareamento, então o gesto de armar exige decisão de UX antes de fiar.
 Fronteira intacta: `GATT_REVISION 0x01`, NVS/CBOR sem mudança.

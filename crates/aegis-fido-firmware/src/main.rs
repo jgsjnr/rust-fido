@@ -214,10 +214,14 @@ fn ble_dispatch_complete(
         g::OP_MSG => {
             // Rescue Wave2 Step3: OP_MSG com primeiro byte 0x2E carrega
             // um frame rescue (reassemble/framing intactos). UP do
-            // latch, PIN falso ate o plumbing ClientPIN (o gatilho
-            // remoto nega fail-closed ate la).
+            // latch + PIN via plumbing ClientPIN (fail-closed sem sessão).
             if p.first() == Some(&RESCUE_TRANSPORT_OP) {
                 rescue.set_user_presence(up);
+                // Plumbing ClientPIN: sessão pinUvAuth viva prova PIN
+                // verificado (fail-closed sem ela).
+                rescue.set_pin_uv_authenticated(
+                    ctap_engine.pin_state.has_valid_pin_uv_session(),
+                );
                 let (st, body) =
                     aegis_fido_firmware::serial_ctaphid::dispatch_serial_rescue(
                         rescue,
@@ -1180,9 +1184,13 @@ fn run_authenticator() {
                                     )
                                 {
                                     // Rescue Wave2 Step3 (0x2E): UP do latch (uso unico),
-                                    // PIN falso ate o plumbing ClientPIN (o gatilho remoto
-                                    // nega fail-closed ate la). Resposta status-first.
+                                    // PIN via plumbing ClientPIN (sessão viva = PIN
+                                    // verificado; sem ela o remoto nega fail-closed).
+                                    // Resposta status-first.
                                     rescue_engine.set_user_presence(touch_latched);
+                                    rescue_engine.set_pin_uv_authenticated(
+                                        ctap_engine.pin_state.has_valid_pin_uv_session(),
+                                    );
                                     touch_latched = false;
                                     let (st, body) =
                                         aegis_fido_firmware::serial_ctaphid::dispatch_serial_rescue(
@@ -1692,8 +1700,11 @@ fn run_authenticator() {
                                     && is_rescue_msg(msg.cmd, &msg.payload)
                                 {
                                     // Rescue Wave2 Step3 (0x2E) over serial: mesmo gate do
-                                    // USB (UP do latch, PIN falso ate o plumbing ClientPIN).
+                                    // USB (UP do latch + plumbing ClientPIN).
                                     rescue_engine.set_user_presence(touch_latched);
+                                    rescue_engine.set_pin_uv_authenticated(
+                                        ctap_engine.pin_state.has_valid_pin_uv_session(),
+                                    );
                                     touch_latched = false;
                                     let (st, body) = dispatch_serial_rescue(
                                         &mut rescue_engine,

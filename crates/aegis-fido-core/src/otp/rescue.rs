@@ -304,6 +304,7 @@ impl RescueEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ctap::client_pin::{ClientPinState, PinUvTokenSession};
 
     fn build_pkt(cmd: u8, payload: &[u8]) -> Vec<u8> {
         let mut pkt = Vec::new();
@@ -469,6 +470,35 @@ mod tests {
         assert_eq!(engine.wipe_count, wipes_before.saturating_add(1));
         assert!(!engine.user_presence_confirmed);
         assert!(!engine.pin_uv_authenticated);
+    }
+
+    #[test]
+    fn killswitch_plumbing_clientpin_session_gates_remote() {
+        // Fiação que o firmware repete nos 3 transportes: a sessão
+        // pinUvAuth viva vira set_pin_uv_authenticated(true).
+        let pin = ClientPinState::default();
+        let mut engine = RescueEngine::new();
+        engine.set_user_presence(true);
+        engine.set_pin_uv_authenticated(pin.has_valid_pin_uv_session());
+        let pkt = build_packet(RESCUE_CMD_KILLSWITCH, KILLSWITCH_CONFIRM_TOKEN);
+        assert_eq!(
+            engine.handle_packet(&pkt).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
+        // Com sessão viva (PIN verificado): passa do gate UP+PIN.
+        let pin = ClientPinState {
+            active_session: Some(PinUvTokenSession {
+                token: [0xA5u8; 32],
+                protocol: 2,
+                permissions: 0,
+                rp_id: None,
+            }),
+            ..Default::default()
+        };
+        engine.set_user_presence(true);
+        engine.set_pin_uv_authenticated(pin.has_valid_pin_uv_session());
+        let (s, _) = engine.handle_packet(&pkt);
+        assert_eq!(s, RESCUE_STATUS_OK);
     }
 
     #[test]
