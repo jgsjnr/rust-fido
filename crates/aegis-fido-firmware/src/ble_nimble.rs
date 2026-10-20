@@ -162,6 +162,75 @@ pub fn adv_intervals(wifi_active: bool) -> (u16, u16) {
     }
 }
 
+/// Backoff entre tentativas de `esp_ble_start` (igual ao do WiFi AP).
+pub const BLE_START_BACKOFF_MS: u64 = 5000;
+/// Desiste após N falhas até a próxima borda de `want` (janela reaberta).
+pub const BLE_START_MAX_TRIES: u32 = 3;
+
+/// Gate de tentativas do `esp_ble_start` (F5/D08).
+///
+/// Sem isso, uma falha de `nimble_port_init` (ex.: heap curto no primeiro
+/// pareamento) repetia o start a CADA poll: cada tentativa realocava o
+/// controlador por cima, vazava heap até `Malloc failed` e o `emi.c`
+/// derrubava o device em panic (Interrupt WDT). Com o gate: 1 tentativa a
+/// cada 5s, no máximo 3 por borda de janela.
+#[derive(Debug, Clone, Copy)]
+pub struct BleStartGate {
+    fails: u32,
+    last_try_ms: u64,
+    want_prev: bool,
+}
+
+impl BleStartGate {
+    /// Gate fechado (nenhuma tentativa ainda).
+    pub fn new() -> Self {
+        Self {
+            fails: 0,
+            last_try_ms: 0,
+            want_prev: false,
+        }
+    }
+
+    /// `true` quando deve chamar `esp_ble_start` neste poll.
+    pub fn allow(&mut self, want_adv: bool, now_ms: u64) -> bool {
+        if !want_adv {
+            self.want_prev = false;
+            self.fails = 0;
+            return false;
+        }
+        if !self.want_prev {
+            // Borda de subida: janela (re)abriu, zera as falhas.
+            self.want_prev = true;
+            self.fails = 0;
+        }
+        if self.fails >= BLE_START_MAX_TRIES {
+            return false;
+        }
+        if self.last_try_ms != 0
+            && now_ms.saturating_sub(self.last_try_ms) < BLE_START_BACKOFF_MS
+        {
+            return false;
+        }
+        self.last_try_ms = now_ms;
+        true
+    }
+
+    /// Registra o resultado da tentativa (`true` = adv ligou).
+    pub fn on_result(&mut self, ok: bool) {
+        if ok {
+            self.fails = 0;
+        } else {
+            self.fails = self.fails.saturating_add(1);
+        }
+    }
+}
+
+impl Default for BleStartGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Moldura de resposta FFF2 notify: `[opcode, status, payload...]`.
 ///
 /// `status`: `0x00` OK ou `BleGattError::to_vendor_status`. Carga limitada
@@ -245,6 +314,7 @@ pub fn on_link_secured(
 #[cfg(target_os = "espidf")]
 extern "C" {
     fn aegis_ble_start(pairing_flag: i32, coex_slow: i32) -> i32;
+    fn aegis_ble_preinit() -> i32;
     fn aegis_ble_stop() -> i32;
     fn aegis_ble_poll_event() -> i32;
     fn aegis_ble_fetch_rx(out_buf: *mut u8, max_len: i32) -> i32;
@@ -261,6 +331,18 @@ extern "C" {
 pub fn esp_ble_start(pairing_open: bool, wifi_active: bool) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "ble-adv");
     unsafe { aegis_ble_start(i32::from(pairing_open), i32::from(wifi_active)) }
+}
+
+/// Pré-inicializa o NimBLE no boot (heap fresco), sem anunciar.
+///
+/// O primeiro pareamento não paga o `nimble_port_init` sob heap
+/// fragmentado (causa raiz dos `hci inits failed` intermitentes que, com
+/// retry a cada poll, vazavam o controlador até o panic). Falha aqui não
+/// trava o boot: o [`BleStartGate`] do loop tenta de novo com backoff.
+/// Retorna `0` ok, negativo = código do backend C.
+#[cfg(target_os = "espidf")]
+pub fn esp_ble_preinit() -> i32 {
+    unsafe { aegis_ble_preinit() }
 }
 
 /// Para o advertising (chamar ao parear, no timeout e ao trocar p/ AP).
@@ -336,6 +418,35 @@ pub fn esp_ble_conn_active() -> bool {
 mod tests {
     use super::*;
     use crate::ble_gatt::{OP_CANCEL, OP_MSG, OP_PING};
+
+    #[test]
+    fn ble_start_gate_borda_tenta_backoff_desiste_e_rearma() {
+        let mut g = BleStartGate::new();
+        // Mudo: nunca tenta e zera.
+        assert!(!g.allow(false, 1000));
+        // Borda de subida: tenta de imediato.
+        assert!(g.allow(true, 1000));
+        g.on_result(false);
+        // Backoff: 1s depois, não tenta.
+        assert!(!g.allow(true, 2000));
+        // Após 5s: tenta (2ª).
+        assert!(g.allow(true, 6000));
+        g.on_result(false);
+        // 3ª após backoff; 4ª nega (desistiu até nova borda).
+        assert!(g.allow(true, 11000));
+        g.on_result(false);
+        assert!(!g.allow(true, 16000));
+        assert!(!g.allow(true, 60000));
+        // Janela fechou e reabriu: zera e tenta de novo.
+        assert!(!g.allow(false, 61000));
+        assert!(g.allow(true, 62000));
+        // Sucesso zera a contagem: a próxima falha recomeça do zero.
+        g.on_result(true);
+        assert!(g.allow(true, 67000));
+        g.on_result(false);
+        assert!(!g.allow(true, 67500)); // backoff, contando de 1
+        assert!(g.allow(true, 72000));
+    }
 
     #[test]
     fn adv_payload_carrega_uuid_e_cabe_em_31b() {

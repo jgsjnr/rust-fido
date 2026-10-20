@@ -27,6 +27,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 
 #include "nimble/nimble_port.h"
@@ -403,7 +404,8 @@ static int ensure_init(void)
      * ESP_FAIL (-1) em loop. NAO reintroduzir. */
     err = nimble_port_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nimble_port_init: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "nimble_port_init: %s (heap livre %lu)",
+                 esp_err_to_name(err), (unsigned long)esp_get_free_heap_size());
         return -2;
     }
 
@@ -458,6 +460,13 @@ static int ensure_init(void)
 }
 
 /* --- API p/ o Rust -------------------------------------------------------- */
+
+/* Pré-init no boot (heap fresco), sem anunciar. Idempotente via s_inited;
+ * falha retorna o código sem retry aqui (o gate Rust faz backoff). */
+int aegis_ble_preinit(void)
+{
+    return ensure_init();
+}
 
 int aegis_ble_start(int pairing_flag, int coex_slow)
 {

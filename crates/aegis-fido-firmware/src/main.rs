@@ -695,6 +695,17 @@ fn run_authenticator() {
     kprintln!("   FIDO2 / WebAuthn ready on native USB (HID Usage Page 0xF1D0)");
     kprintln!("   Dual-Board Ready: DevKitC-1 (WS2812) / LilyGO T-Display-S3");
     kprintln!("============================================================");
+    // F5: pré-init BLE no boot (heap fresco). Sem anunciar; o adv liga só
+    // na janela (gate com backoff no loop).
+    #[cfg(target_os = "espidf")]
+    {
+        let rc = aegis_fido_firmware::ble_nimble::esp_ble_preinit();
+        if rc != 0 {
+            kprintln!("[BLE] preinit rc={} (retry com backoff na janela).", rc);
+        } else {
+            kprintln!("[BLE] nimble preinit ok.");
+        }
+    }
 
     // Main Event Loop
     let mut tick: u64 = 0;
@@ -718,6 +729,10 @@ fn run_authenticator() {
     let mut ble_server = aegis_fido_firmware::ble_gatt::BleGattServer::new();
     let mut ble_adv_active = false;
     let mut ble_bond_pending = false;
+    // F5: gate de tentativas do BLE start (backoff 5s, 3 por borda).
+    // Sem isso, um `nimble_port_init` falho repetia a CADA poll, vazava
+    // heap do controlador até `Malloc failed` e panic (Interrupt WDT).
+    let mut ble_start_gate = aegis_fido_firmware::ble_nimble::BleStartGate::new();
     let mut ble_rx = [0u8; aegis_fido_firmware::ble_nimble::BLE_RX_FRAGMENT_MAX];
     // Borda da janela de pareamento p/ o fw-log (0x38).
     let mut pairing_open_prev = false;
@@ -993,20 +1008,32 @@ fn run_authenticator() {
         if ble_want_adv != ble_adv_active {
             if ble_want_adv {
                 let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
-                let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(
-                    pairing_open_now,
-                    wifi_active,
-                );
-                if rc == 0 {
-                    ble_adv_active = true;
-                    fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_START, 0, now_ms);
-                } else {
-                    kprintln!("[BLE] adv start rc={} (nova tentativa no proximo poll)", rc);
+                // Gate: borda tenta já; falha entra em backoff 5s e desiste
+                // após 3 (nunca martela `nimble_port_init` — vaza heap e
+                // derruba o controlador em panic).
+                if aegis_fido_firmware::ble_nimble::BleStartGate::allow(
+                    &mut ble_start_gate,
+                    true,
+                    now_ms,
+                ) {
+                    let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(
+                        pairing_open_now,
+                        wifi_active,
+                    );
+                    ble_start_gate.on_result(rc == 0);
+                    if rc == 0 {
+                        ble_adv_active = true;
+                        fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_START, 0, now_ms);
+                    } else {
+                        kprintln!("[BLE] adv start rc={} (backoff 5s, desiste apos 3).", rc);
+                    }
                 }
             } else {
                 let _ = aegis_fido_firmware::ble_nimble::esp_ble_stop();
                 ble_adv_active = false;
                 ble_bond_pending = false;
+                // Janela fechou: o gate zera na próxima borda.
+                ble_start_gate.allow(false, now_ms);
                 fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
             }
         }
