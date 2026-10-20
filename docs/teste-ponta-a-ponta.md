@@ -87,7 +87,7 @@ OTA-COMMIT, eFuse.
 | H4 | Scan BLE na janela | `AegisKey` aparece; fora da janela some | TODO |
 | H5 | Bond pelo app no celular + wallet fim-a-fim | GEN/LIST/ADDR + menus controle | TODO |
 | H6 | Walk-away (fob) | desconecta longe | TODO |
-| H7 | PIV via USB nativo | CCID enumera | TODO |
+| H7 | PIV via USB nativo | FALTA IMPLEMENTAÇÃO (só HID no ar; CCID/PIV existem só como crates) | TODO |
 
 ### USB nativo (quando plugado) — `phase=usb`
 
