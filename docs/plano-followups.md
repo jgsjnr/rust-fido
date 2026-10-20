@@ -50,9 +50,13 @@ existiam como crates sem driver).
   `ccid_dispatch.rs` (NVS+KeyManager reais; GEN/AUTH P-256 reais fim-a-fim
   em teste) + poll no loop USB + op enrollment `0x39` (binding→UP, sem PIN;
   BLE+serial; `pin_len||pin(6-8)||puk(8)`).
-**Falta (HW)**: flashar, plugar o USB nativo e `opensc-tool -l` + VERIFY +
-GEN/AUTH reais. Control class-specific dá stall (v1: OpenSC só precisa do
-bulk + enumeração).
+**Correções de bind (20/10 noite)**: (1) SlotStatus sempre `0x00`
+(presente) — `0x01/0x02` fazia o UsbCcids concluir "sem cartão"; (2) TCK
+do ATR corrigido; (3) ATR só T=1 (SCARD_E_PROTO_MISMATCH com T=0+T=1);
+(4) `dwFeatures=0x000C0000` (APDU-level!) — com `0` o host falava TPDU cru
+(PPS `FF1111FF`, I-blocks com LRC válido) em vez de APDUs.
+**Falta (HW)**: reflanar com `dwFeatures` e repetir `opensc-tool -l` +
+VERIFY + GEN/AUTH reais. Control class-specific dá stall (v1: OpenSC só precisa do bulk + enumeração).
 **Auditoria CCID/OpenSC (explorer, 20/10)**: descritor byte-a-byte OK vs
 CCID 1.1 (única divergência formal: só T=1, aceitável p/ PIV); gap crítico
 achado e CORRIGIDO: `SetParameters(0x61)`/`ResetParameters(0x6D)` agora
