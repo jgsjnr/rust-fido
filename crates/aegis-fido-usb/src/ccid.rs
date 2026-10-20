@@ -13,12 +13,12 @@
 use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
-/// ATR PIV real (PIVKey Feitian E0, T=1 sem T=0): consta na tabela do
-/// OpenSC (`card-piv.c piv_atrs`), que carrega o driver PIV e manda SELECT.
+/// ATR PIV real (uTrust, T=1 sem T=0, TA1 padrão): consta na tabela do
+/// OpenSC, conecta no UsbCcids e casa o driver PIV. (Feitian E0 tem Di=8
+/// reservado e o UsbCcids aborta o connect com PROTO_MISMATCH.)
 /// TCK = XOR de T0..historico.
 pub const AEGIS_ATR: &[u8] = &[
-    0x3B, 0xFC, 0x18, 0x00, 0x00, 0x81, 0x31, 0x80, 0x45, 0x90, 0x67, 0x46, 0x4A,
-    0x00, 0x64, 0x16, 0x06, 0xF2, 0x72, 0x7E, 0x00, 0xE0,
+    0x3B, 0x96, 0x11, 0x81, 0x21, 0x75, 0x75, 0x54, 0x72, 0x75, 0x73, 0x74, 0x73,
 ];
 
 // ============================================================================
