@@ -38,10 +38,32 @@ fn map_esp_err(e: esp_idf_sys::EspError) -> StorageError {
     }
 }
 
+/// Partição `storage` (896 KiB) compartilhada: NVS default (24 KiB) não
+/// aguenta staging OTA. Take único por boot + clones (take duplo falha).
+#[cfg(target_os = "espidf")]
+static STORAGE_PART: std::sync::OnceLock<
+    esp_idf_svc::nvs::EspNvsPartition<esp_idf_svc::nvs::NvsCustom>,
+> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "espidf")]
+fn storage_partition() -> Result<
+    esp_idf_svc::nvs::EspNvsPartition<esp_idf_svc::nvs::NvsCustom>,
+    StorageError,
+> {
+    use esp_idf_svc::nvs::{EspNvsPartition, NvsCustom};
+    if let Some(p) = STORAGE_PART.get() {
+        return Ok(p.clone());
+    }
+    let p =
+        EspNvsPartition::<NvsCustom>::take("storage").map_err(|_| StorageError::FlashWriteError)?;
+    let _ = STORAGE_PART.set(p.clone());
+    Ok(p)
+}
+
 /// Backend de plataforma: NVS real no device, RAM no host/fallback.
 pub enum PlatformFlashBackend {
     #[cfg(target_os = "espidf")]
-    Nvs(esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsDefault>),
+    Nvs(esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsCustom>),
     Ram(MockFlashBackend),
 }
 
@@ -77,10 +99,9 @@ impl PlatformFlashBackend {
 
     #[cfg(target_os = "espidf")]
     fn open_nvs(
-    ) -> Result<esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsDefault>, StorageError> {
-        use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs};
-        let part =
-            EspDefaultNvsPartition::take().map_err(|_| StorageError::FlashWriteError)?;
+    ) -> Result<esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsCustom>, StorageError> {
+        use esp_idf_svc::nvs::EspNvs;
+        let part = storage_partition()?;
         EspNvs::new(part, "aegis", true).map_err(|_| StorageError::FlashWriteError)
     }
 }
@@ -145,18 +166,17 @@ impl FlashStorageBackend for PlatformFlashBackend {
 /// Release não compila este símbolo (`#[cfg]` + release-clean check).
 #[cfg(all(target_os = "espidf", feature = "test-mode"))]
 pub fn load_or_create_dev_keys() -> Result<([u8; 32], [u8; 32]), StorageError> {
-    use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs};
+    use esp_idf_svc::nvs::EspNvs;
     use rand_core::RngCore;
 
     const NS: &str = "aegisdev";
     const K_MASTER: &str = "dev_master_key";
     const K_SALT: &str = "dev_salt";
 
-    let part =
-        EspDefaultNvsPartition::take().map_err(|_| StorageError::FlashWriteError)?;
+    let part = storage_partition()?;
     let mut nvs = EspNvs::new(part, NS, true).map_err(|_| StorageError::FlashWriteError)?;
 
-    let read_one = |nvs: &esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsDefault>,
+    let read_one = |nvs: &esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsCustom>,
                     key: &str|
      -> Option<[u8; 32]> {
         let mut buf = [0u8; 32];

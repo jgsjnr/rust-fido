@@ -252,6 +252,21 @@ impl KeyManager {
         &self,
         slot_id: u8,
         presence_confirmed: bool,
+    ) -> Result<Vec<u8>, KeyManagerError> {        UpOnly.check_up(false, presence_confirmed)?;
+        let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
+        let alg = CoseAlgorithm::from_i32(self.secrets[spos].alg)
+            .ok_or(KeyManagerError::BadEnvelope)?;
+        let kp = KeyPair::from_private_key_bytes(alg, &self.secrets[spos].private_key)
+            .map_err(|_| KeyManagerError::BadEnvelope)?;
+        Ok(kp.to_cose_cbor())
+    }
+
+    /// Ponto SEC1 uncompressed da pública (F4: template PIV `7F 49`).
+    /// Mesmo gate UP de `public_cose`; nunca a privada.
+    pub fn public_sec1(
+        &self,
+        slot_id: u8,
+        presence_confirmed: bool,
     ) -> Result<Vec<u8>, KeyManagerError> {
         UpOnly.check_up(false, presence_confirmed)?;
         let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
@@ -259,7 +274,7 @@ impl KeyManager {
             .ok_or(KeyManagerError::BadEnvelope)?;
         let kp = KeyPair::from_private_key_bytes(alg, &self.secrets[spos].private_key)
             .map_err(|_| KeyManagerError::BadEnvelope)?;
-        Ok(kp.to_cose_cbor())
+        Ok(kp.public_key().to_sec1_uncompressed())
     }
 
     /// Exporta estado p/ NVS: `[ver=1][n u16BE][slot...]`, slot =

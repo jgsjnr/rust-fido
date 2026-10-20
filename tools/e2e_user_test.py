@@ -954,7 +954,6 @@ def _bench(c):
 
 
 REG["B99"] = (_bench, "bench")
-PHASES["bench"] = ["B99"]
 PHASES = {
     "base": [t for t, (_, p) in REG.items() if p == "base"],
     "pairing": [t for t, (_, p) in REG.items() if p == "pairing"],
@@ -965,6 +964,7 @@ PHASES = {
     "wipe": ["D01", "D02", "D03", "D03b", "T15b", "T15c", "T16b", "D01b",
              "D02b", "D04a", "D05a", "D06", "D06b", "D07", "D07b", "D06c",
              "D06b", "D05b", "D05c", "D08"],
+    "bench": ["B99"],
 }
 
 
