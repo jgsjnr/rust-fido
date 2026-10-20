@@ -47,6 +47,9 @@ object BleContract {
     const val OP_WALLET_ADDR = 0x37
     const val OP_FW_LOG = 0x38
 
+    // Enrollment PIV / smartcard (0x39, F4).
+    const val OP_PIV_ENROLL = 0x39
+
     // Vendor status set (fechado, S9.5).
     const val VENDOR_OK = 0x00
     const val VENDOR_NEED_UP = 0x01
@@ -72,7 +75,7 @@ object BleContract {
     }
 
     fun isVendorOp(op: Int): Boolean =
-        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_FW_LOG
+        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_PIV_ENROLL
 
     fun vendorOpName(op: Int): String = when (op) {
         OP_KEY_GEN_ONDEVICE -> "0x20 key-gen-ondevice"
@@ -87,6 +90,7 @@ object BleContract {
         OP_WALLET_LIST -> "0x36 wallet-list"
         OP_WALLET_ADDR -> "0x37 wallet-addr"
         OP_FW_LOG -> "0x38 fw-log"
+        OP_PIV_ENROLL -> "0x39 piv-enroll"
         else -> "0x" + String.format("%02X", op)
     }
 }

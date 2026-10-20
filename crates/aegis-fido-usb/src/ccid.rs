@@ -372,24 +372,13 @@ impl CcidTransport {
                 Ok(Self::build_slot_status_response(slot, seq, status))
             }
 
-            PC_TO_RDR_GET_PARAMETERS => {
-                // Return default T=1 protocol parameters
-                let mut resp = vec![0u8; 17];
-                resp[0] = RDR_TO_PC_PARAMETERS;
-                resp[1..5].copy_from_slice(&7u32.to_le_bytes()); // Length 7
-                resp[5] = slot;
-                resp[6] = seq;
-                resp[7] = 0; // bStatus
-                resp[8] = 0; // bError
-                resp[9] = 1; // Protocol: T=1
-                resp[10] = 0x11; // Fi/Di
-                resp[11] = 0x10; // TCCKS
-                resp[12] = 0x00; // GuardTime
-                resp[13] = 0x4D; // BWI / CWI
-                resp[14] = 0x00; // ClockStop
-                resp[15] = 0x20; // IFSC (32 bytes)
-                resp[16] = 0x00; // NAD
-                Ok(resp)
+            PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
+
+            PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
+                // v1: sem negociação real (`dwFeatures=0`); ecoa os
+                // parâmetros T=1 default para o host não travar no caminho
+                // feliz (OpenSC/libccid mandam `0x61` explícito após PowerOn).
+                Ok(Self::parameters_response(slot, seq))
             }
 
             PC_TO_RDR_XFR_BLOCK => {
@@ -510,23 +499,10 @@ impl CcidTransport {
                 Ok(Self::build_slot_status_response(slot, seq, status))
             }
 
-            PC_TO_RDR_GET_PARAMETERS => {
-                let mut resp = vec![0u8; 17];
-                resp[0] = RDR_TO_PC_PARAMETERS;
-                resp[1..5].copy_from_slice(&7u32.to_le_bytes());
-                resp[5] = slot;
-                resp[6] = seq;
-                resp[7] = 0;
-                resp[8] = 0;
-                resp[9] = 1;
-                resp[10] = 0x11;
-                resp[11] = 0x10;
-                resp[12] = 0x00;
-                resp[13] = 0x4D;
-                resp[14] = 0x00;
-                resp[15] = 0x20;
-                resp[16] = 0x00;
-                Ok(resp)
+            PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
+
+            PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
+                Ok(Self::parameters_response(slot, seq))
             }
 
             PC_TO_RDR_XFR_BLOCK => {
@@ -625,6 +601,27 @@ impl CcidTransport {
         resp[7] = status;
         resp[8] = 0x00;
         resp[9] = 0x00;
+        resp
+    }
+
+    /// Bloco `RDR_to_PC_Parameters` (T=1 default), servido no GET e ecoado
+    /// no SET/RESET (sem negociação real no v1).
+    fn parameters_response(slot: u8, seq: u8) -> Vec<u8> {
+        let mut resp = vec![0u8; 17];
+        resp[0] = RDR_TO_PC_PARAMETERS;
+        resp[1..5].copy_from_slice(&7u32.to_le_bytes()); // Length 7
+        resp[5] = slot;
+        resp[6] = seq;
+        resp[7] = 0; // bStatus
+        resp[8] = 0; // bError
+        resp[9] = 1; // Protocol: T=1
+        resp[10] = 0x11; // Fi/Di
+        resp[11] = 0x10; // TCCKS
+        resp[12] = 0x00; // GuardTime
+        resp[13] = 0x4D; // BWI / CWI
+        resp[14] = 0x00; // ClockStop
+        resp[15] = 0x20; // IFSC (32 bytes)
+        resp[16] = 0x00; // NAD
         resp
     }
 }
@@ -839,8 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn store_power_off_reseta_selecao() {
-        let mut t = CcidTransport::new();
+    fn store_power_off_reseta_selecao() {        let mut t = CcidTransport::new();
         let mut s = TStore::enrolled();
         s.process(&mut t, &power_on(1)).unwrap();
         s.process(&mut t, &xfr(2, &select_piv())).unwrap();
@@ -1054,5 +1050,39 @@ mod tests {
         assert_eq!(PIV_TAG_X509_CERT, [0x5F, 0xC1, 0x05]);
         assert_eq!(sw_retries_left(3), (0x63, 0xC3));
         assert_eq!(sw_retries_left(0), (0x63, 0xC0));
+    }
+
+    fn param_msg(msg_type: u8, seq: u8) -> Vec<u8> {
+        vec![msg_type, 7, 0, 0, 0, 0, seq, 0, 0, 0, 1, 0x11, 0x10, 0, 0x4D, 0, 0]
+    }
+
+    #[test]
+    fn set_reset_parameters_ecoam_t1() {
+        // Caminho legado (transporte puro).
+        let mut t = CcidTransport::new();
+        let mut h = DefaultCcidHandler;
+        for (ty, seq) in [
+            (PC_TO_RDR_GET_PARAMETERS, 1),
+            (PC_TO_RDR_SET_PARAMETERS, 2),
+            (PC_TO_RDR_RESET_PARAMETERS, 3),
+        ] {
+            let r = t
+                .process_ccid_message(&param_msg(ty, seq), &mut h)
+                .unwrap();
+            assert_eq!(r[0], RDR_TO_PC_PARAMETERS);
+            assert_eq!(r[6], seq);
+            assert_eq!(r[9], 1); // T=1
+        }
+        // Caminho firmware (store real): mesmo eco.
+        let mut s = TStore::enrolled();
+        for (ty, seq) in [
+            (PC_TO_RDR_SET_PARAMETERS, 4),
+            (PC_TO_RDR_RESET_PARAMETERS, 5),
+        ] {
+            let r = s.process(&mut t, &param_msg(ty, seq)).unwrap();
+            assert_eq!(r[0], RDR_TO_PC_PARAMETERS);
+            assert_eq!(r[6], seq);
+            assert_eq!(r[9], 1);
+        }
     }
 }

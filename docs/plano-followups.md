@@ -53,6 +53,12 @@ existiam como crates sem driver).
 **Falta (HW)**: flashar, plugar o USB nativo e `opensc-tool -l` + VERIFY +
 GEN/AUTH reais. Control class-specific dá stall (v1: OpenSC só precisa do
 bulk + enumeração).
+**Auditoria CCID/OpenSC (explorer, 20/10)**: descritor byte-a-byte OK vs
+CCID 1.1 (única divergência formal: só T=1, aceitável p/ PIV); gap crítico
+achado e CORRIGIDO: `SetParameters(0x61)`/`ResetParameters(0x6D)` agora
+ecoam os parâmetros T=1 (com `dwFeatures=0` o host manda `0x61` explícito no
+caminho feliz). Stall em Abort só afeta cancel/timeout. ATR estático pode
+cair em minidriver genérico no Windows (não impede bind).
 **Aceite**: `opensc-tool -l` lista AegisKey; VERIFY + SIGN funcionam.
 **Risco**: médio (primeira enumeração composta; HID intacto por construção).
 **Follow-up app**: tela de enrollment 0x39 no Android.

@@ -46,6 +46,7 @@ import dev.aegiskey.app.ui.FriendlyText
 import dev.aegiskey.app.ui.ForeignDeviceScreen
 import dev.aegiskey.app.ui.LogScreen
 import dev.aegiskey.app.ui.OnboardingScreen
+import dev.aegiskey.app.ui.PivScreen
 import dev.aegiskey.app.ui.RecoveryUnlockScreen
 import dev.aegiskey.app.ui.ScanPairScreen
 import dev.aegiskey.app.ui.TestModeBanner
@@ -112,7 +113,7 @@ fun AegisApp(client: AegisBleClient) {
                     val entry by nav.currentBackStackEntryAsState()
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
-                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "wallet" -> "connect"
+                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "wallet", "piv" -> "connect"
                         else -> current
                     }
                     for (dest in BOTTOM_DESTINATIONS) {
@@ -145,12 +146,14 @@ fun AegisApp(client: AegisBleClient) {
                         onOpenAuth = { nav.navigate("auth") },
                         onOpenVault = { nav.navigate("vault") },
                         onOpenWallet = { nav.navigate("wallet") },
+                        onOpenPiv = { nav.navigate("piv") },
                         onOpenLog = { nav.navigate("log") },
                         onBack = { nav.popBackStack() },
                     )
                 }
                 composable("accounts") { AccountsScreen(client) }
                 composable("wallet") { WalletScreen(client) }
+                composable("piv") { PivScreen(client, onOpenPairing = { nav.navigate("scan") }) }
                 composable("auth") { AuthScreen(client) }
                 composable("vault") { VaultScreen(client) }
                 composable("usb") { UsbScreen(onUseBle = { nav.navigate("scan") }) }

@@ -36,6 +36,9 @@ object VendorOps {
     /** Log da firmware (0x38): resposta `0x00 + ASCII`, sem PII/segredos. */
     const val OP_FW_LOG: Int = 0x38
 
+    /** Enrollment PIV / smartcard (0x39): request `[pin_len:1, pin, puk:8]`. */
+    const val OP_PIV_ENROLL: Int = 0x39
+
     const val STATUS_OK: Int = 0x00
     const val STATUS_NEED_UP: Int = 0x01
     const val STATUS_NEED_PIN: Int = 0x02
@@ -241,6 +244,17 @@ object VendorOps {
                 OathEntry(name)
             }
             .take(64)
+    }
+
+    /**
+     * Request enrollment PIV (0x39): `[pin_len:1, pin, puk:8]` com dígitos
+     * ASCII (PIN 6-8, PUK 8). O chamador deve zerar os buffers com wipe
+     * após sendVendor (PIN/PUK nunca persistem nem entram no Log).
+     */
+    fun pivEnrollRequest(pin: ByteArray, puk: ByteArray): ByteArray {
+        require(pin.size in 6..8 && pin.all { it in 0x30..0x39 }) { "PIN 6..8 dígitos" }
+        require(puk.size == 8 && puk.all { it in 0x30..0x39 }) { "PUK 8 dígitos" }
+        return byteArrayOf(pin.size.toByte()) + pin + puk
     }
 
     /** Resposta vendor: [op, status, TLV...]. */

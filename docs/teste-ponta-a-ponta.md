@@ -561,3 +561,35 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 16:27 — phase=base only=D08
 - [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 18:28 — phase=bench
+- [PASS] B01 PING [21ms] — eco
+- [PASS] B02 GetInfo [72ms] — 480B
+- [DIVERGENTE] B03 MC [63ms] — 0B
+- [DIVERGENTE] B04 GA [61ms] — 0B
+
+### 20/10 18:28 — phase=bench
+- [PASS] B01 PING [21ms] — eco
+- [PASS] B02 GetInfo [67ms] — 480B
+- [PASS] B02b janela pareamento — aberta
+- [PASS] B03 MC [1250ms] — 744B
+- [PASS] B04 GA [1359ms] — 170B
+
+### 20/10 18:29 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 18:29 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 18:32 — phase=base only=D08
+- [PASS] D08a FINISH bad-sig nega e limpa — status=0x03
+- [DIVERGENTE] D08b BEGIN lab — status=0x0B
+
+### 20/10 18:33 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 18:36 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 18:38 — phase=base only=D08
+- [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
