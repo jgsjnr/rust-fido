@@ -74,6 +74,7 @@ STATUS_KEEPALIVE_UP_NEEDED = 0x02
 PAIRING_WINDOW_SECS = 60
 TEST_DUMP_CMD = "TEST_LIFETIME_DUMP"
 TEST_PAIRING_OPEN_CMD = "TEST_PAIRING_OPEN"
+TEST_UP_CMD = "TEST_UP"
 
 # Fase6 vendor ops (BLE appendix 9, frozen range 0x20-0x27).
 OP_KEY_GEN = 0x20
@@ -584,7 +585,7 @@ class Session:
         cbor = parse_hex_even(cbor_hex) if cbor_hex.strip() else b""
         return self._exchange(CMD_CBOR, bytes([ctap_cmd]) + cbor, op=op)
 
-    def send_text_line(self, line, timeout_s=5.0):
+    def send_text_line(self, line, timeout_s=5.0, until=None):
         if not self.link:
             raise OSError("not connected (menu 1)")
         self.link.write((line + "\n").encode("ascii"))
@@ -597,7 +598,9 @@ class Session:
             except TimeoutError:
                 break
             buf.extend(chunk)
-            if b"lt_end\n" in buf:
+            if until is not None and bytes(until) in buf:
+                break
+            if until is None and b"lt_end\n" in buf:
                 break
             if len(buf) > 4096:
                 break
@@ -619,11 +622,22 @@ class Session:
         host-side gate while the window lasts."""
         if not self.test_mode:
             raise PermissionError("pairing-open needs --test-mode (firmware must have test-mode)")
-        text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s)
+        text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s, until=b"pairing_open")
         if "pairing_open" not in text or "source=software" not in text:
             raise ValueError("device did not open pairing (test-mode firmware?)")
         self.confirm_pairing()
         log_event("TEST_PAIRING_OPEN", "window_s=%d" % PAIRING_WINDOW_SECS)
+        return text
+
+    def test_up(self, timeout_s=5.0):
+        """TEST_UP (test-mode fw only): injects ONE BOOT tap in software
+        (same 1.5s latch semantics as the physical tap; single-shot)."""
+        if not self.test_mode:
+            raise PermissionError("test-up needs --test-mode (firmware must have test-mode)")
+        text = self.send_text_line(TEST_UP_CMD, timeout_s=timeout_s, until=b"up_latched")
+        if "up_latched" not in text or "source=software" not in text:
+            raise ValueError("device did not latch UP (test-mode firmware?)")
+        log_event("TEST_UP", "latch=1x")
         return text
 
     # -- HTTP AP ----------------------------------------------------------

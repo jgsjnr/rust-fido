@@ -618,6 +618,9 @@ fn run_authenticator() {
     // Latch de cor solida p/ diagnostico LED (TEST_LED_*, test-mode only).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     let mut led_test_hold: Option<aegis_fido_firmware::led::LedEffect> = None;
+    // UP por software (TEST_UP, test-mode only): injeta UM toque BOOT.
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    let mut test_up_latch = false;
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
 
@@ -657,7 +660,14 @@ fn run_authenticator() {
         // A. Check physical buttons
         // Button 1: BOOT (GPIO 0) - Confirm / UP / Long press (2s)
         // Button 2: KEY (GPIO 14 on LilyGO T-Display) - Cycle accounts / Cancel
-        let is_boot_pressed = button_mgr.is_boot_pressed(std::thread::sleep);
+        // TEST_UP (test-mode): UM toque via software, mesma semantica do tap
+        // fisico (latch 1.5s, pairing/UP/rescue); consumo unico por comando.
+        #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+        let test_up_once = core::mem::replace(&mut test_up_latch, false);
+        #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+        let test_up_once = false;
+        let is_boot_pressed =
+            button_mgr.is_boot_pressed(std::thread::sleep) || test_up_once;
         let is_key_pressed = button_mgr.is_key_pressed(std::thread::sleep);
 
         // Phase8 UX-conex: alimenta PairingManager todo poll (corrige orfao).
@@ -1522,7 +1532,14 @@ fn run_authenticator() {
                     if *b == b'\n' {
                         if let Ok(line) = core::str::from_utf8(&serial_line) {
                             let t = line.trim();
-                            if t == "TEST_LED_STATE" {
+                            if t == "TEST_UP" {
+                                // UM toque BOOT via software (vale no proximo
+                                // poll, mesma semantica do tap fisico).
+                                test_up_latch = true;
+                                kprintln!("[TEST] UP via software (latch 1x).");
+                                let resp = "up_latched source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_LED_STATE" {
                                 let screen = match &display_mgr.current_screen {
                                     UiScreen::BootSplash { .. } => "BootSplash",
                                     UiScreen::IdleStandby { .. } => "IdleStandby",
