@@ -141,7 +141,7 @@ impl LifetimeCounters {
     }
 
     fn inc(&self, slot: &AtomicU32) {
-        let _ = slot.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+        let _ = slot.try_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
             Some(v.saturating_add(1))
         });
     }

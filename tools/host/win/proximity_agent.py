@@ -11,15 +11,18 @@ Usage:
     python tools/host/win/proximity_agent.py --fob-id AA:BB:CC:DD:EE:FF --threshold-db -75 --lock-secs 10 --poll-secs 2
     python tools/host/win/proximity_agent.py --self-test   # offline, no hardware, no Windows needed
 
- real BLE backend: TODO Wave 2 (requires `bleak`; offline envs run with an
-injectable RssiSource -- see make_polling_source / SimulatedSource).
+ BLE backend is scanner-injectable (Wave 2, lock-only): production passes a
+ bleak-backed scanner filtered by the bonded fob_id; offline envs and tests
+ pass a lambda or use SimulatedSource. Without a scanner the default raises
+ OSError (fail-closed stub) -- see make_polling_source.
 """
 
 import argparse
+import asyncio
 import ctypes
 import sys
 import time
-from typing import Callable, Optional
+from typing import Callable, Dict, List, Optional
 
 DEFAULT_THRESHOLD_DBM = -75
 DEFAULT_HYSTERESIS_DB = 5
@@ -119,21 +122,71 @@ class SimulatedSource:
         return value
 
 
-def make_polling_source(fob_id: str) -> RssiFn:
-    """Real BLE polling backend (TODO Wave 2 -- fail-closed stub).
+def _normalize_ble_address(address: str) -> str:
+    """Normaliza endereco BLE para comparacao bonded (lower + trim)."""
+    if not address:
+        return ""
+    return address.strip().lower()
 
-    TODO Wave 2:
-      - Implement with `bleak` (BleakScanner / BleakClient): scan filtrado
-        pelo fob_id bonded, ler RSSI a cada poll.
-      - H-2: validar identidade bonded (MAC/IRK + pairing) antes de aceitar
-        RSSI; documentar anti-replay (nonce/desafio) -- sem canal autenticado
-        o agente NAO deve destravar nada (lock-only ja respeita isso).
-    Fail-closed: enquanto o backend real nao existe, levanta OSError para
-    que o loop conte como AWAY e trave apos lock_secs em vez de fail-open.
+
+def _match_bonded_device(devices: List, fob_id: str):
+    """Retorna device cujo address casa com fob_id bonded, ou None."""
+    target = _normalize_ble_address(fob_id)
+    if not target:
+        return None
+    for dev in devices:
+        if _normalize_ble_address(getattr(dev, "address", "") or "") == target:
+            return dev
+    return None
+
+
+def _device_rssi(device, advertisement: Optional[Dict] = None) -> Optional[int]:
+    """Extrai RSSI: campo device -> advertisement -> metadata, ou None."""
+    rssi = getattr(device, "rssi", None)
+    if rssi is not None:
+        return rssi
+    if isinstance(advertisement, dict):
+        adv = advertisement.get("rssi")
+        if adv is not None:
+            return adv
+    metadata = getattr(device, "metadata", None)
+    if isinstance(metadata, dict):
+        meta = metadata.get("rssi")
+        if meta is not None:
+            return meta
+    return None
+
+
+def make_polling_source(fob_id: str, scanner: Optional[Callable[[], List]] = None) -> RssiFn:
+    """BLE polling backend com scanner injetavel (Wave 2, lock-only).
+
+    - `fob_id` vazio => OSError (fail-closed, nunca opera sem identidade bonded).
+    - `scanner` injeta a fonte de scan (producao: bleak filtrado pelo fob
+      bonded; testes: lambda). Sem scanner, levanta OSError (stub fail-closed).
+    - Retorna RssiFn: RSSI do fob bonded (match case-insensitive), None
+      quando ausente (AWAY), propaga OSError de transporte para o loop
+      contar como AWAY e travar apos lock_secs (fail-closed).
+    - H-2: validar identidade bonded (MAC/IRK + pairing) antes de aceitar
+      RSSI; sem canal autenticado o agente NAO destrava nada (lock-only).
     """
-    raise OSError(
-        "real BLE backend not implemented (TODO Wave 2, needs bleak + bonded %s)" % fob_id
-    )
+    if not _normalize_ble_address(fob_id):
+        raise OSError("make_polling_source requires a bonded fob_id")
+
+    def _default_scanner() -> List:
+        raise OSError(
+            "real BLE backend not implemented (TODO Wave 2, needs bleak + bonded %s)" % fob_id
+        )
+
+    scan = scanner if scanner is not None else _default_scanner
+
+    def _poll() -> Optional[int]:
+        devices = scan()  # propaga OSError de transporte (fail-closed)
+        bonded = _match_bonded_device(devices or [], fob_id)
+        if bonded is None:
+            return None
+        return _device_rssi(bonded)
+
+    return _poll
 
 
 def run_loop(

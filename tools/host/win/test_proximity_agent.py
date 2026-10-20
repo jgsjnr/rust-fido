@@ -7,6 +7,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from proximity_agent import ProximityDecider, run_loop
+from proximity_agent import (
+    _device_rssi,
+    _match_bonded_device,
+    _normalize_ble_address,
+    make_polling_source,
+)
 
 
 class TestProximityDecider(unittest.TestCase):
@@ -81,6 +87,96 @@ class TestProximityDecider(unittest.TestCase):
         calls = []
         outcome = run_loop(
             lambda: next(script, -90),
+            d,
+            lock_fn=lambda: calls.append(1) or True,
+            poll_secs=2.0,
+            max_ticks=20,
+            sleep_fn=lambda s: None,
+            log_fn=lambda m: None,
+        )
+        self.assertEqual(outcome, "locked")
+        self.assertEqual(len(calls), 1)
+
+
+class FakeDevice:
+    def __init__(self, address="", rssi=None, metadata=None):
+        self.address = address
+        self.rssi = rssi
+        self.metadata = metadata or {}
+
+
+class TestBondedBackend(unittest.TestCase):
+    def test_normalize_address_case_and_space(self):
+        self.assertEqual(_normalize_ble_address(" AA:BB:CC:DD:EE:FF "), "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(_normalize_ble_address("aa:bb:cc:dd:ee:ff"), "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(_normalize_ble_address(""), "")
+
+    def test_match_bonded_device_exact_address(self):
+        devices = [FakeDevice("AA:BB:CC:DD:EE:00"), FakeDevice("AA:BB:CC:DD:EE:FF")]
+        hit = _match_bonded_device(devices, "aa:bb:cc:dd:ee:ff")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.address, "AA:BB:CC:DD:EE:FF")
+
+    def test_match_bonded_device_no_match_returns_none(self):
+        devices = [FakeDevice("AA:BB:CC:DD:EE:00")]
+        self.assertIsNone(_match_bonded_device(devices, "AA:BB:CC:DD:EE:FF"))
+        self.assertIsNone(_match_bonded_device([], "AA:BB:CC:DD:EE:FF"))
+
+    def test_device_rssi_prefers_device_field(self):
+        d = FakeDevice("AA:BB:CC:DD:EE:FF", rssi=-70, metadata={"rssi": -99})
+        self.assertEqual(_device_rssi(d, None), -70)
+
+    def test_device_rssi_falls_back_to_advertisement(self):
+        d = FakeDevice("AA:BB:CC:DD:EE:FF")
+        self.assertEqual(_device_rssi(d, {"rssi": -80}), -80)
+        d2 = FakeDevice("AA:BB:CC:DD:EE:FF", metadata={"rssi": -81})
+        self.assertEqual(_device_rssi(d2, None), -81)
+
+    def test_device_rssi_none_when_hidden(self):
+        d = FakeDevice("AA:BB:CC:DD:EE:FF")
+        self.assertIsNone(_device_rssi(d, None))
+
+    def test_make_polling_source_rejects_empty_fob_id_fail_closed(self):
+        with self.assertRaises(OSError):
+            make_polling_source("")
+
+    def test_make_polling_source_accepts_valid_fob_id(self):
+        src = make_polling_source("AA:BB:CC:DD:EE:FF", scanner=lambda: [])
+        self.assertTrue(callable(src))
+
+    def test_make_polling_source_returns_rssi_for_bonded_device(self):
+        bonded = FakeDevice("AA:BB:CC:DD:EE:FF", rssi=-70)
+        stranger = FakeDevice("AA:BB:CC:DD:EE:00", rssi=-40)
+        src = make_polling_source(
+            "aa:bb:cc:dd:ee:ff", scanner=lambda: [stranger, bonded]
+        )
+        self.assertEqual(src(), -70)
+
+    def test_make_polling_source_returns_none_when_bonded_missing_fail_closed(self):
+        src = make_polling_source(
+            "AA:BB:CC:DD:EE:FF",
+            scanner=lambda: [FakeDevice("AA:BB:CC:DD:EE:00", rssi=-40)],
+        )
+        self.assertIsNone(src())
+
+    def test_make_polling_source_propagates_transport_error_fail_closed(self):
+        def boom():
+            raise OSError("BLE down")
+
+        src = make_polling_source("AA:BB:CC:DD:EE:FF", scanner=boom)
+        with self.assertRaises(OSError):
+            src()
+
+    def test_bonded_source_drives_lock_only_on_away(self):
+        # Fonte bonded sem o fob => None (AWAY) a cada poll => trava.
+        src = make_polling_source(
+            "AA:BB:CC:DD:EE:FF",
+            scanner=lambda: [FakeDevice("AA:BB:CC:DD:EE:00", rssi=-40)],
+        )
+        d = ProximityDecider(threshold_dbm=-75, lock_secs=6.0)
+        calls = []
+        outcome = run_loop(
+            src,
             d,
             lock_fn=lambda: calls.append(1) or True,
             poll_secs=2.0,

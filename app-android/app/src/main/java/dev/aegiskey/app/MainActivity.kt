@@ -39,6 +39,7 @@ import dev.aegiskey.app.ui.AegisScreenColumn
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.AuthScreen
 import dev.aegiskey.app.ui.BindingWizardScreen
+import dev.aegiskey.app.ui.DeviceControlScreen
 import dev.aegiskey.app.ui.FriendlyText
 import dev.aegiskey.app.ui.ForeignDeviceScreen
 import dev.aegiskey.app.ui.LogScreen
@@ -100,7 +101,7 @@ fun AegisApp(client: AegisBleClient) {
                     val entry by nav.currentBackStackEntryAsState()
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
-                        "scan", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery" -> "connect"
+                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery" -> "connect"
                         else -> current
                     }
                     for (dest in BOTTOM_DESTINATIONS) {
@@ -125,7 +126,17 @@ fun AegisApp(client: AegisBleClient) {
         ) { inner ->
             NavHost(nav, startDestination = "onboarding", Modifier.padding(inner)) {
                 composable("onboarding") { OnboardingScreen(onStart = { nav.navigate("scan") }, onOpenKeys = { nav.navigate("accounts") }, onOpenVault = { nav.navigate("vault") }, onOpenLog = { nav.navigate("log") }, client = client) }
-                composable("scan") { ScanPairScreen(client) }
+                composable("scan") { ScanPairScreen(client, onOpenControl = { nav.navigate("control") }) }
+                composable("control") {
+                    DeviceControlScreen(
+                        client = client,
+                        onOpenKeys = { nav.navigate("accounts") },
+                        onOpenAuth = { nav.navigate("auth") },
+                        onOpenVault = { nav.navigate("vault") },
+                        onOpenLog = { nav.navigate("log") },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
                 composable("accounts") { AccountsScreen(client) }
                 composable("auth") { AuthScreen(client) }
                 composable("vault") { VaultScreen(client) }
@@ -162,6 +173,10 @@ private fun ConnectHub(nav: NavController, client: AegisBleClient) {
                 onClick = { nav.navigate("scan") },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("BLE: procurar e parear", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Button(
+                onClick = { nav.navigate("control") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Controle: usar após parear", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             OutlinedButton(
                 onClick = { nav.navigate("usb") },
                 modifier = Modifier.fillMaxWidth(),

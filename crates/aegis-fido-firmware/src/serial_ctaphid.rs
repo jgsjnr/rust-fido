@@ -239,6 +239,34 @@ pub fn dispatch_serial_vendor(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8
     }
 }
 
+/// `true` when a reassembled `CMD_MSG` carries a rescue frame.
+///
+/// Wire convention (Wave2 Step3): first payload byte is
+/// `RESCUE_TRANSPORT_OP` (`0x2E`, first free opcode after bind-mgmt
+/// `0x28-0x2D`, outside vendor `0x20-0x27`), followed by the rescue frame
+/// `[MAGIC|VER|CMD|LEN_BE|PAYLOAD]`. Framing byte-identical; the predicate
+/// never touches reassembly.
+pub fn is_rescue_msg(cmd: u8, payload: &[u8]) -> bool {
+    use aegis_fido_core::otp::rescue::is_rescue_transport_op;
+    cmd == CMD_MSG
+        && payload.first().is_some_and(|op| is_rescue_transport_op(*op))
+}
+
+/// Dispatches one rescue frame (`0x2E` already stripped by the caller).
+///
+/// Pure `RescueEngine::handle_packet` pass-through: UP/PIN latches must be
+/// set by the caller beforehand (`set_user_presence` from the BOOT latch;
+/// PIN stays `false` until ClientPIN-token plumbing lands — remote
+/// killswitch denies fail-closed until then). Returns `(wire_status, body)`
+/// for the caller to frame status-first (`[status, body...]`), same shape
+/// as the bind-mgmt branch.
+pub fn dispatch_serial_rescue(
+    engine: &mut aegis_fido_core::otp::rescue::RescueEngine,
+    frame: &[u8],
+) -> (u8, Vec<u8>) {
+    engine.handle_packet(frame)
+}
+
 /// `true` when a serial bind-mgmt op consumes the UP latch on success.
 ///
 /// CLAIM/RELEASE/RECOVERY_SET/RECOVERY_UNLOCK require UP (same gates as BLE);
@@ -777,6 +805,49 @@ mod tests {
             dispatch_serial_bind_mgmt(g::OP_RECOVERY_SET, &[0xFF], true, true, &mut b, &mut s, &mut rng).0,
             0x04
         );
+    }
+
+    #[test]
+    fn rescue_msg_detects_transport_op_only() {
+        use aegis_fido_core::otp::rescue::RESCUE_TRANSPORT_OP;
+        // CMD_MSG + 0x2E com frame: rescue; resto nao.
+        let frame = [0x52u8, 0x45, 0x53, 0x43, 0x01, 0x01, 0x00, 0x00];
+        let mut payload = alloc::vec::Vec::new();
+        payload.push(RESCUE_TRANSPORT_OP);
+        payload.extend_from_slice(&frame);
+        assert!(is_rescue_msg(CMD_MSG, &payload));
+        assert!(!is_rescue_msg(CMD_CBOR, &payload));
+        assert!(!is_rescue_msg(CMD_MSG, &[]));
+        assert!(!is_rescue_msg(CMD_MSG, &[0x20]));
+        assert!(!is_rescue_msg(CMD_MSG, &[0x28]));
+        // 0x2E nao e bind-mgmt: segue para rescue, nunca para bind.
+        assert!(!crate::ble_gatt::is_bind_mgmt_op(RESCUE_TRANSPORT_OP));
+    }
+
+    #[test]
+    fn rescue_dispatch_ping_needs_up_and_answers() {
+        use aegis_fido_core::otp::rescue::{
+            build_packet, RescueEngine, RESCUE_CMD_PING, RESCUE_STATUS_CONFIRMATION_FAILED,
+            RESCUE_STATUS_OK, RESCUE_VERSION,
+        };
+        // Sem UP: nega fail-closed com erro existente.
+        let mut engine = RescueEngine::new();
+        let ping = build_packet(RESCUE_CMD_PING, &[]);
+        let (st, _) = dispatch_serial_rescue(&mut engine, &ping);
+        assert_eq!(st, RESCUE_STATUS_CONFIRMATION_FAILED);
+        // Com UP do latch: PING responde [VER|panic|wipe|recovery].
+        engine.set_user_presence(true);
+        let (st2, body) = dispatch_serial_rescue(&mut engine, &ping);
+        assert_eq!(st2, RESCUE_STATUS_OK);
+        assert_eq!(body[0], RESCUE_VERSION);
+        // Killswitch remoto sem PIN: nega (PIN=false ate o plumbing ClientPIN).
+        let kill = build_packet(
+            aegis_fido_core::otp::rescue::RESCUE_CMD_KILLSWITCH,
+            aegis_fido_core::otp::rescue::KILLSWITCH_CONFIRM_TOKEN,
+        );
+        engine.set_user_presence(true);
+        let (st3, _) = dispatch_serial_rescue(&mut engine, &kill);
+        assert_eq!(st3, RESCUE_STATUS_CONFIRMATION_FAILED);
     }
 
     #[test]

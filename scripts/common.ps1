@@ -32,6 +32,16 @@ function Initialize-EspEnvironment {
     # neste env; aponta os defaults BT/BLE-only do workspace root.
     $env:ESP_IDF_SDKCONFIG_DEFAULTS = Join-Path $global:RepoRoot "sdkconfig.defaults.esp32s3"
 
+    # Toolchain ESP (espup): clang/gcc no PATH; sem isso o cmake do
+    # esp-idf-sys cai no IDF errado ou nao acha o compilador (falha ABI).
+    $exportEsp = Join-Path ([Environment]::GetFolderPath("UserProfile")) "export-esp.ps1"
+    if (Test-Path $exportEsp) {
+        . $exportEsp
+        Write-Success "export-esp.ps1 aplicado."
+    } else {
+        Write-Warn "export-esp.ps1 ausente; rode 'espup install' e revalide com scripts/env-check.ps1."
+    }
+
     $global:EsptoolExe = $null
     $candidates = @(
         "C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts\esptool.exe",
@@ -242,11 +252,14 @@ function Invoke-FirmwareFlash {
         $BinPath
     )
 
-    if ($global:EsptoolExe -match "python -m esptool") {
-        & python -m esptool @flashArgs
+    # Saida do esptool vai para o console via Write-Host para nao poluir o
+    # valor de retorno da funcao (PowerShell retorna toda saida nao capturada).
+    $flashOut = if ($global:EsptoolExe -match "python -m esptool") {
+        & python -m esptool @flashArgs | Out-String
     } else {
-        & $global:EsptoolExe @flashArgs
+        & $global:EsptoolExe @flashArgs | Out-String
     }
+    Write-Host $flashOut
 
     if ($LASTEXITCODE -ne 0) {
         throw "A gravacao na porta $targetPort falhou com codigo $LASTEXITCODE."
@@ -286,7 +299,12 @@ function Test-FirmwareArtifact {
     param([Parameter(Mandatory=$true)] [string]$BinPath)
     if (-not (Test-Path -LiteralPath $BinPath)) { throw "Binario nao encontrado: $BinPath" }
     $f = Get-Item -LiteralPath $BinPath
-    $sha = (Get-FileHash -LiteralPath $BinPath -Algorithm SHA256).Hash
+    $sha = $null
+    try { $sha = (Get-FileHash -LiteralPath $BinPath -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $sha = $null }
+    if (-not $sha) {
+        $sha = (& python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" $BinPath | Select-Object -First 1).Trim()
+    }
+    if (-not $sha) { throw "Nao foi possivel calcular o SHA256 de $BinPath." }
     $max = Get-FactoryMaxSize
     Write-Host ("  SHA256: {0}" -f $sha) -ForegroundColor Gray
     Write-Host ("  SIZE:   {0} bytes (max factory: {1})" -f $f.Length, $max) -ForegroundColor Gray

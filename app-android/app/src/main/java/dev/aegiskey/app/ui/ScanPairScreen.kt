@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
+import dev.aegiskey.app.security.SanitizedLog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Scan/Pair (contract sections 1, 2, 4): 0xFFFD filter, bonding,
@@ -125,9 +129,10 @@ private fun DeviceRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScanPairScreen(client: AegisBleClient) {
+fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val scope = rememberCoroutineScope()
     val state by client.state.collectAsState()
     var showRationale by remember { mutableStateOf(false) }
     var permanentlyDenied by remember { mutableStateOf(false) }
@@ -169,9 +174,28 @@ fun ScanPairScreen(client: AegisBleClient) {
             Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Link: ${state.connection} · FFF2: ${BleContract.statusLabel(state.status)}", maxLines = 2, overflow = TextOverflow.Ellipsis)
-            state.revision?.let { Text("GATT revision: 0x%02X (expected 0x01)".format(it)) }
+            Text("Link: ${connectionLabel(state.connection)} · FFF2: ${BleContract.statusLabel(state.status)}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+            state.revision?.let { Text("Revisão: 0x%02X (esperado 0x01)".format(it)) }
             if (state.connection == AegisBleClient.Connection.SCANNING) CircularProgressIndicator()
+            if (state.status == BleContract.STATUS_UP_NEEDED) {
+                PressDeviceSheet(
+                    statusLabel = BleContract.statusLabel(state.status),
+                    onCancel = {
+                        scope.launch(Dispatchers.IO) {
+                            client.cancel()
+                            SanitizedLog.record(SanitizedLog.Event.DEVICE_PRESS_CANCELLED)
+                        }
+                    },
+                )
+            }
+            if (state.connection == AegisBleClient.Connection.READY) {
+                Button(onClick = onOpenControl) { Text("Abrir controle") }
+                OutlinedButton(onClick = { client.resubscribe() }) { Text("Re-assinar avisos") }
+            }
+            if (state.connection == AegisBleClient.Connection.ERROR) {
+                OutlinedButton(onClick = { client.resubscribe() }) { Text("Tentar de novo (re-assinar)") }
+                OutlinedButton(onClick = onOpenControl) { Text("Abrir controle") }
+            }
             if (!granted) {
                 Text(
                     "Para teste IRL: permita Scan + Conexão quando solicitado. " +
@@ -204,12 +228,21 @@ fun ScanPairScreen(client: AegisBleClient) {
                     onNeedPermissions = { requestScanPermissions() },
                 )
             }
-            if (state.bonded) Text("Bonded (JustWorks+bonding+UP)")
-            state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            if (state.bonded) Text("Pareado (botão + código confirmados)")
+            state.error?.let { Text("Erro: $it", color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             Text(
-                "UP comes from the device button (hold 5s). The app only surfaces up-needed.",
+                "O toque vem do botão do aparelho (segure 5s). O app só mostra quando precisa tocar.",
                 style = MaterialTheme.typography.bodySmall
             )
+            OutlinedButton(onClick = onOpenControl) { Text("Voltar ao controle") }
         }
     }
+}
+
+private fun connectionLabel(connection: AegisBleClient.Connection): String = when (connection) {
+    AegisBleClient.Connection.IDLE -> "desligado"
+    AegisBleClient.Connection.SCANNING -> "procurando"
+    AegisBleClient.Connection.CONNECTING -> "ligando"
+    AegisBleClient.Connection.READY -> "ligado"
+    AegisBleClient.Connection.ERROR -> "erro"
 }

@@ -59,10 +59,10 @@ object BleContract {
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
     fun statusLabel(status: Int): String = when (status) {
-        STATUS_IDLE -> "idle"
-        STATUS_PROCESSING -> "processing"
-        STATUS_UP_NEEDED -> "up-needed (press device button)"
-        else -> "unknown"
+        STATUS_IDLE -> "livre"
+        STATUS_PROCESSING -> "processando"
+        STATUS_UP_NEEDED -> "toque no botão do dispositivo"
+        else -> "desconhecido"
     }
 
     fun isVendorOp(op: Int): Boolean = op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE

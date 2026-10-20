@@ -73,6 +73,51 @@ class AegisBleClient(private val context: Context) {
     private var pendingSubscribe: CompletableDeferred<Boolean>? = null
     private val notifyBuffer = mutableListOf<Byte>()
 
+    companion object {
+        const val GATT_IO_TIMEOUT_MS = 4000L
+        const val SUBSCRIBE_TIMEOUT_MS = 4000L
+        const val RESPONSE_POLL_INTERVAL_MS = 50L
+        const val NEED_UP_POLL_INTERVAL_MS = 250L
+        const val DEFAULT_MSG_TIMEOUT_MS = 15000L
+        const val DEFAULT_VENDOR_TIMEOUT_MS = 25000L
+    }
+
+    /** Pronto para operar (pos-pareamento com FFF2 assinado). */
+    fun isReady(): Boolean = _state.value.connection == Connection.READY
+
+    /** Dispositivo pede toque no botao (FFF2 UP_NEEDED). */
+    fun needsUp(): Boolean = _state.value.status == BleContract.STATUS_UP_NEEDED
+
+    /** Re-assina FFF2 sem reconectar (pos-pareamento / reconexao / erro). */
+    fun resubscribe() {
+        scope.launch {
+            ensureSubscribed()
+        }
+    }
+
+    /** Re-assinatura suspensa com timeout; atualiza estado e loga sem PII. */
+    suspend fun ensureSubscribed(): Boolean {
+        val g = gatt ?: return false
+        if (!subscribeStatus(g)) {
+            _state.update { it.copy(connection = Connection.ERROR, error = "falha ao assinar — toque em tentar de novo") }
+            DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 retry failed")
+            return false
+        }
+        _state.update { it.copy(connection = Connection.READY, error = null) }
+        DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 re-ok")
+        return true
+    }
+
+    /**
+     * Polling leve pos-pareamento: le FFF3 uma vez para manter o link
+     * vivo enquanto aguarda UP (o FFF2 so notifica; nao precisa ler).
+     * Retorna tamanho pendente ou -1 sem conexao. Nunca trava sem timeout.
+     */
+    suspend fun pollPendingOnce(): Int {
+        if (gatt == null || _state.value.connection != Connection.READY) return -1
+        return pendingLen()
+    }
+
     private fun adapter() =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
 
@@ -148,7 +193,14 @@ class AegisBleClient(private val context: Context) {
         runCatching { gatt?.disconnect() }
         runCatching { gatt?.close() }
         gatt = null
-        _state.update { it.copy(connection = Connection.IDLE, revision = null) }
+        synchronized(notifyBuffer) { notifyBuffer.clear() }
+        pendingRead?.cancel()
+        pendingRead = null
+        pendingWrite?.cancel()
+        pendingWrite = null
+        pendingSubscribe?.cancel()
+        pendingSubscribe = null
+        _state.update { it.copy(connection = Connection.IDLE, revision = null, status = BleContract.STATUS_IDLE) }
         DeviceLog.append(DeviceLog.Category.BLE, "GATT disconnected (app)")
     }
 
@@ -161,7 +213,8 @@ class AegisBleClient(private val context: Context) {
                 g.discoverServices()
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                 DeviceLog.append(DeviceLog.Category.BLE, "GATT disconnected")
-                _state.update { it.copy(connection = Connection.IDLE, revision = null) }
+                synchronized(notifyBuffer) { notifyBuffer.clear() }
+                _state.update { it.copy(connection = Connection.IDLE, revision = null, status = BleContract.STATUS_IDLE) }
             }
         }
 
@@ -204,7 +257,7 @@ class AegisBleClient(private val context: Context) {
     private suspend fun afterServices(g: BluetoothGatt) {
         val revision = readBytes(char(BleContract.CHAR_REVISION))?.firstOrNull()?.toInt()?.and(0xFF)
         if (revision != BleContract.GATT_REVISION) {
-            _state.update { it.copy(connection = Connection.ERROR, error = "revision mismatch") }
+            _state.update { it.copy(connection = Connection.ERROR, error = "versão incompatível — volte e tente de novo") }
             SanitizedLog.record(SanitizedLog.Event.REVISION_MISMATCH)
             disconnect()
             return
@@ -216,7 +269,7 @@ class AegisBleClient(private val context: Context) {
             DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 ok")
             SanitizedLog.record(SanitizedLog.Event.DEVICE_CONNECTED)
         } else {
-            _state.update { it.copy(connection = Connection.ERROR, error = "subscribe failed") }
+            _state.update { it.copy(connection = Connection.ERROR, error = "falha ao assinar — toque em tentar de novo") }
             DeviceLog.append(DeviceLog.Category.BLE, "SUB FFF2 failed")
         }
     }
@@ -236,7 +289,7 @@ class AegisBleClient(private val context: Context) {
                 pendingRead = null
                 return null
             }
-            withTimeoutOrNull(4000) { gate.await() }
+            withTimeoutOrNull(GATT_IO_TIMEOUT_MS) { gate.await() }
         }
     }
 
@@ -251,7 +304,7 @@ class AegisBleClient(private val context: Context) {
                 pendingWrite = null
                 return false
             }
-            withTimeoutOrNull(4000) { gate.await() } ?: false
+            withTimeoutOrNull(GATT_IO_TIMEOUT_MS) { gate.await() } ?: false
         }
     }
 
@@ -267,7 +320,30 @@ class AegisBleClient(private val context: Context) {
                 pendingSubscribe = null
                 return false
             }
-            withTimeoutOrNull(4000) { gate.await() } ?: false
+            withTimeoutOrNull(SUBSCRIBE_TIMEOUT_MS) { gate.await() } ?: false
+        }
+    }
+
+    /**
+     * Aguarda resposta FFF1 com polling NEED_UP consciente:
+     * - PROCESSING / UP_NEEDED apenas mantem a espera (polling lento p/ UP).
+     * - Timeout total sempre aplicado: nunca trava sem saida.
+     * - Retorna bytes ou null (timeout). Sem PII no log (chamador loga).
+     */
+    private suspend fun awaitNotify(timeoutMs: Long): ByteArray? {
+        return withTimeoutOrNull(timeoutMs) {
+            while (notifySize() == 0) {
+                if (_state.value.status == BleContract.STATUS_UP_NEEDED) {
+                    delay(NEED_UP_POLL_INTERVAL_MS)
+                } else {
+                    delay(RESPONSE_POLL_INTERVAL_MS)
+                }
+            }
+            // Aguarda IDLE apos dados chegarem (device terminou o envio).
+            while (_state.value.status != BleContract.STATUS_IDLE && notifySize() > 0) {
+                delay(RESPONSE_POLL_INTERVAL_MS)
+            }
+            drainNotify()
         }
     }
 
@@ -280,29 +356,31 @@ class AegisBleClient(private val context: Context) {
         return (raw[0].toInt() and 0xFF) or ((raw[1].toInt() and 0xFF) shl 8)
     }
 
-    /** Sends OP_MSG [payload] (`[cmd, CBOR...]`) and awaits the CTAP response. */
-    suspend fun sendMsg(payload: ByteArray, timeoutMs: Long = 5000): ByteArray? {
+    /** Envia OP_MSG [payload] (`[cmd, CBOR...]`) e aguarda resposta CTAP. */
+    suspend fun sendMsg(payload: ByteArray, timeoutMs: Long = DEFAULT_MSG_TIMEOUT_MS): ByteArray? {
         val frags = AegisBridge.splitFragments(BleContract.OP_MSG, payload).getOrNull()
             ?: run {
-                _state.update { it.copy(error = "fragment failed") }
+                _state.update { it.copy(error = "falha ao preparar — tente de novo") }
                 DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_MSG(0x83) fragment failed")
                 return null
             }
         val cmdName = ctapName(payload.firstOrNull()?.toInt()?.and(0xFF))
         DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_MSG(0x83) cmd=" + cmdName + " frags=" + frags.size + " bytes=" + payload.size)
         synchronized(notifyBuffer) { notifyBuffer.clear() }
-        val control = char(BleContract.CHAR_CONTROL) ?: return null
+        val control = char(BleContract.CHAR_CONTROL) ?: run {
+            _state.update { it.copy(error = "sem conexão — volte e reconecte") }
+            return null
+        }
         for (frag in frags) {
             if (!writeBytes(control, frag)) {
+                _state.update { it.copy(error = "falha ao enviar — toque em tentar de novo") }
                 DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 OP_MSG(0x83) write failed")
                 return null
             }
         }
         SanitizedLog.record(SanitizedLog.Event.CTAP_SENT)
-        val response = withTimeoutOrNull(timeoutMs) {
-            while (_state.value.status != BleContract.STATUS_IDLE || notifySize() == 0) delay(50)
-            drainNotify()
-        } ?: run {
+        val response = awaitNotify(timeoutMs) ?: run {
+            _state.update { it.copy(error = "sem resposta — toque no botão e tente de novo") }
             DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 no response (timeout/UP?)")
             return null
         }
@@ -317,31 +395,33 @@ class AegisBleClient(private val context: Context) {
      * framing S3) e aguarda [op, status, TLV...]. Retorna null em timeout.
      * Loga so opcode/status/tamanho (nunca TLV sensivel).
      */
-    suspend fun sendVendor(opcode: Int, tlv: ByteArray, timeoutMs: Long = 8000): ByteArray? {
+    suspend fun sendVendor(opcode: Int, tlv: ByteArray, timeoutMs: Long = DEFAULT_VENDOR_TIMEOUT_MS): ByteArray? {
         require(BleContract.isVendorOp(opcode) || BindingOps.isBindingOp(opcode)) {
-            "not a vendor op"
+            "operação inválida"
         }
         val frags = AegisBridge.splitFragments(opcode, tlv).getOrNull()
             ?: run {
-                _state.update { it.copy(error = "fragment failed") }
+                _state.update { it.copy(error = "falha ao preparar — tente de novo") }
                 DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 vendor fragment failed")
                 return null
             }
         val opName = if (BindingOps.isBindingOp(opcode)) BindingOps.opName(opcode) else BleContract.vendorOpName(opcode)
         DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 " + opName + " frags=" + frags.size + " bytes=" + tlv.size)
         synchronized(notifyBuffer) { notifyBuffer.clear() }
-        val control = char(BleContract.CHAR_CONTROL) ?: return null
+        val control = char(BleContract.CHAR_CONTROL) ?: run {
+            _state.update { it.copy(error = "sem conexão — volte e reconecte") }
+            return null
+        }
         for (frag in frags) {
             if (!writeBytes(control, frag)) {
+                _state.update { it.copy(error = "falha ao enviar — toque em tentar de novo") }
                 DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 " + opName + " write failed")
                 return null
             }
         }
         SanitizedLog.record(SanitizedLog.Event.CTAP_SENT)
-        val response = withTimeoutOrNull(timeoutMs) {
-            while (_state.value.status != BleContract.STATUS_IDLE || notifySize() == 0) delay(50)
-            drainNotify()
-        } ?: run {
+        val response = awaitNotify(timeoutMs) ?: run {
+            _state.update { it.copy(error = "sem resposta — toque no botão e tente de novo") }
             DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 no response (timeout/UP?)")
             return null
         }
@@ -368,10 +448,7 @@ class AegisBleClient(private val context: Context) {
         for (frag in frags) {
             if (!writeBytes(control, frag)) return null
         }
-        val echoed = withTimeoutOrNull(4000) {
-            while (notifySize() == 0) delay(50)
-            drainNotify()
-        }
+        val echoed = awaitNotify(GATT_IO_TIMEOUT_MS)
         if (echoed != null) DeviceLog.append(DeviceLog.Category.BLE, "RX FFF1 PING bytes=" + echoed.size)
         return echoed
     }

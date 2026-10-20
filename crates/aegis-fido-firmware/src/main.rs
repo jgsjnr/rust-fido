@@ -13,7 +13,7 @@
 use aegis_fido_core::ctap::CTAP_CMD_RESET;
 use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
 use aegis_fido_core::oath::OathApplet;
-use aegis_fido_core::otp::rescue::RescueEngine;
+use aegis_fido_core::otp::rescue::{RescueEngine, RESCUE_TRANSPORT_OP};
 #[cfg(target_os = "espidf")]
 use aegis_fido_firmware::led::LedEffect;
 #[cfg(all(feature = "debug-terminal", target_os = "espidf"))]
@@ -200,6 +200,7 @@ fn ble_dispatch_complete(
     ctap_engine: &mut CtapEngine,
     binding_mgr: &mut aegis_fido_firmware::binding::BindingManager,
     storage: &mut SecureStorage<RamFlashBackend>,
+    rescue: &mut RescueEngine,
 ) {
     use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use aegis_fido_firmware::ble_gatt as g;
@@ -211,10 +212,25 @@ fn ble_dispatch_complete(
         g::OP_PING => ble::notify_frame(op, 0x00, &g::BleGattServer::dispatch_ping(p)),
         g::OP_CANCEL => ble::notify_frame(op, 0x00, &[]),
         g::OP_MSG => {
-            ctap_engine.set_user_presence(up);
-            let mut rng = rand_core::OsRng;
-            let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
-            ble::notify_frame(op, 0x00, &resp)
+            // Rescue Wave2 Step3: OP_MSG com primeiro byte 0x2E carrega
+            // um frame rescue (reassemble/framing intactos). UP do
+            // latch, PIN falso ate o plumbing ClientPIN (o gatilho
+            // remoto nega fail-closed ate la).
+            if p.first() == Some(&RESCUE_TRANSPORT_OP) {
+                rescue.set_user_presence(up);
+                let (st, body) =
+                    aegis_fido_firmware::serial_ctaphid::dispatch_serial_rescue(
+                        rescue,
+                        &p[1..],
+                    );
+                kprintln!("[BLE] rescue 0x2E (status 0x{:02X}).", st);
+                ble::notify_frame(op, st, &body)
+            } else {
+                ctap_engine.set_user_presence(up);
+                let mut rng = rand_core::OsRng;
+                let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
+                ble::notify_frame(op, 0x00, &resp)
+            }
         }
         g::OP_BIND_CLAIM => {
             if p.len() != BIND_PUB_LEN + BIND_ID_LEN {
@@ -570,6 +586,9 @@ fn run_authenticator() {
     // Diagnostic text-line buffer (TEST_LIFETIME_DUMP with test-mode).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     let mut serial_line: Vec<u8> = Vec::new();
+    // Latch de cor solida p/ diagnostico LED (TEST_LED_*, test-mode only).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    let mut led_test_hold: Option<aegis_fido_firmware::led::LedEffect> = None;
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
 
@@ -631,8 +650,16 @@ fn run_authenticator() {
         // os dois juntos); PairingBle desliga todo WiFi, PairingAp desliga BLE.
         wifi_ap_mgr.update(pairing_open_now, false, now_ms);
         let ap_want = wifi_ap_mgr.is_active(now_ms);
-        if ap_want != wifi_ap_active {
-            if ap_want && !ble_pairing_now {
+        // Decisao edge-triggered (wifi_ap::ap_poll_action): cada acao
+        // executa no maximo uma vez por transicao. O `else` anterior
+        // chamava esp_ap_stop() a CADA poll com BLE pareando (spam de
+        // close/wifi-ap no log e churn no radio durante o bonding).
+        match aegis_fido_firmware::wifi_ap::ap_poll_action(
+            ap_want,
+            ble_pairing_now,
+            wifi_ap_active,
+        ) {
+            aegis_fido_firmware::wifi_ap::ApPollAction::Start => {
                 let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
                     usb_descriptors::SERIAL_NUMBER_STRING,
                 );
@@ -657,11 +684,13 @@ fn run_authenticator() {
                         rc
                     );
                 }
-            } else {
+            }
+            aegis_fido_firmware::wifi_ap::ApPollAction::Stop => {
                 let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
                 wifi_ap_active = false;
                 kprintln!("[WIFI] AP off.");
             }
+            aegis_fido_firmware::wifi_ap::ApPollAction::None => {}
         }
         // Station: so fora de pareamento, com credenciais e backoff 60s.
         let has_creds = aegis_fido_firmware::wifi_station::has_station_credentials(&storage);
@@ -862,6 +891,7 @@ fn run_authenticator() {
                             &mut ctap_engine,
                             &mut binding_mgr,
                             &mut storage,
+                            &mut rescue_engine,
                         );
                     }
                     Ok(None) => {
@@ -1143,6 +1173,31 @@ fn run_authenticator() {
                                         "[CTAPHID] Sent OTA response ({} bytes)",
                                         ota_resp.len()
                                     );
+                                } else if msg.cmd == CMD_MSG
+                                    && aegis_fido_firmware::serial_ctaphid::is_rescue_msg(
+                                        msg.cmd,
+                                        &msg.payload,
+                                    )
+                                {
+                                    // Rescue Wave2 Step3 (0x2E): UP do latch (uso unico),
+                                    // PIN falso ate o plumbing ClientPIN (o gatilho remoto
+                                    // nega fail-closed ate la). Resposta status-first.
+                                    rescue_engine.set_user_presence(touch_latched);
+                                    touch_latched = false;
+                                    let (st, body) =
+                                        aegis_fido_firmware::serial_ctaphid::dispatch_serial_rescue(
+                                            &mut rescue_engine,
+                                            &msg.payload[1..],
+                                        );
+                                    kprintln!("[RESCUE] op 0x2E via USB (status 0x{:02X}).", st);
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        unsafe {
+                                            aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
                                 } else {
                                 // 1. Determine if this command requires User Presence (UP)
                                 let ctap_subcmd = if !msg.payload.is_empty() {
@@ -1387,8 +1442,8 @@ fn run_authenticator() {
             use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op};
             use aegis_fido_firmware::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt,
-                dispatch_serial_vendor, serial_bind_mgmt_consumes_up, serial_is_up_required,
-                SerialFeed, SerialGate,
+                dispatch_serial_rescue, dispatch_serial_vendor, is_rescue_msg,
+                serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed, SerialGate,
             };
             #[cfg(feature = "test-mode")]
             use aegis_fido_firmware::serial_ctaphid::{
@@ -1398,6 +1453,11 @@ fn run_authenticator() {
             // D1. Diagnostic text lines (test-mode only; idle use only).
             // TEST_PAIRING_OPEN abre a mesma janela 60s do hold (software);
             // TEST_LIFETIME_DUMP responde o dump. Release: linhas desconhecidas.
+            // D1b. LED ground-truth + primarias (test-mode only).
+            // TEST_LED_STATE devolve tela + pairing + efeito ativo (diz o que o
+            // firmware MANDA mostrar). TEST_LED_{RED,GREEN,BLUE,OFF} trava uma
+            // cor solida (latch reaplicado todo poll, vence o override da
+            // jornada); TEST_LED_RELEASE devolve o controle a jornada.
             #[cfg(feature = "test-mode")]
             {
                 let mut chunk = [0u8; 32];
@@ -1405,7 +1465,64 @@ fn run_authenticator() {
                 for b in chunk.iter().take(n as usize) {
                     if *b == b'\n' {
                         if let Ok(line) = core::str::from_utf8(&serial_line) {
-                            if let Some(resp) =
+                            let t = line.trim();
+                            if t == "TEST_LED_STATE" {
+                                let screen = match &display_mgr.current_screen {
+                                    UiScreen::BootSplash { .. } => "BootSplash",
+                                    UiScreen::IdleStandby { .. } => "IdleStandby",
+                                    UiScreen::UserPresencePrompt { .. } => {
+                                        "UP-Prompt"
+                                    }
+                                    UiScreen::Success { .. } => "Success",
+                                    UiScreen::Error { .. } => "Error",
+                                    UiScreen::TotpCode { .. } => "TotpCode",
+                                };
+                                let bonded = pairing_mgr.is_bonded()
+                                    || binding_mgr.is_claimed();
+                                let effect = display_mgr
+                                    .led_controller
+                                    .as_ref()
+                                    .map(|l| format!("{:?}", l.current_effect()));
+                                let resp = format!(
+                                    "led_state screen={} pairing={:?} bonded={} claimed={} effect={} tick_ms={}\n",
+                                    screen,
+                                    pairing_mgr.state(),
+                                    bonded as u8,
+                                    binding_mgr.is_claimed() as u8,
+                                    effect.as_deref().unwrap_or("no-led"),
+                                    now_ms
+                                );
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_LED_RELEASE" {
+                                led_test_hold = None;
+                                let resp = "led_set released\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if let Some(held) = match t {
+                                "TEST_LED_RED" => Some(
+                                    LedEffect::Solid(
+                                        aegis_fido_firmware::led::Color::RED,
+                                    ),
+                                ),
+                                "TEST_LED_GREEN" => Some(
+                                    LedEffect::Solid(
+                                        aegis_fido_firmware::led::Color::GREEN,
+                                    ),
+                                ),
+                                "TEST_LED_BLUE" => Some(
+                                    LedEffect::Solid(
+                                        aegis_fido_firmware::led::Color::BLUE,
+                                    ),
+                                ),
+                                "TEST_LED_OFF" => Some(LedEffect::Off),
+                                _ => None,
+                            } {
+                                led_test_hold = Some(held);
+                                if let Some(ref mut led) = display_mgr.led_controller {
+                                    led.set_effect(held);
+                                }
+                                let resp = format!("led_set {}\n", t);
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if let Some(resp) =
                                 dispatch_serial_pairing_line(line, &mut pairing_mgr, now_ms)
                             {
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
@@ -1425,6 +1542,13 @@ fn run_authenticator() {
                         serial_line.push(*b);
                     } else {
                         serial_line.clear();
+                    }
+                }
+                // Reaplica o latch de cor solida todo poll: vence o override
+                // da jornada (B-block) sem altera-lo.
+                if let Some(held) = led_test_hold {
+                    if let Some(ref mut led) = display_mgr.led_controller {
+                        led.set_effect(held);
                     }
                 }
             }
@@ -1563,6 +1687,26 @@ fn run_authenticator() {
                                                 serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                             }
                                         }
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && is_rescue_msg(msg.cmd, &msg.payload)
+                                {
+                                    // Rescue Wave2 Step3 (0x2E) over serial: mesmo gate do
+                                    // USB (UP do latch, PIN falso ate o plumbing ClientPIN).
+                                    rescue_engine.set_user_presence(touch_latched);
+                                    touch_latched = false;
+                                    let (st, body) = dispatch_serial_rescue(
+                                        &mut rescue_engine,
+                                        &msg.payload[1..],
+                                    );
+                                    kprintln!("[SERIAL][RESCUE] op 0x2E (status 0x{:02X}).", st);
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &resp,
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                     }
                                 } else if authorize_serial(
                                     msg.cmd,

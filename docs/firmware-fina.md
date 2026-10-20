@@ -35,3 +35,16 @@ Método geral de estimativa: S = dezenas–poucas centenas B flash e/ou <512B RA
 - GATT: manter `GATT_REVISION 0x01`, framing §3 `[op,len_hi,len_lo]`, sem NACK que quebre §9.6 (`BAD_ENVELOPE 0x04` sem retry).
 - Classic: priorizar MOVER `address.rs` + formatação display primeiro (maior alívio opt-z); S3 usa a mesma lista para abrir folga OTA.
 - Sem mudança de layout NVS/journal nem CBOR IDs nesta wave.
+
+## Delta Wave2 Step3 (2026-10-20, não commitado)
+
+Roteamento rescue `0x2E` ligado nos 3 transportes sem mudar framing:
+`main.rs` USB-C + serial-D (`CMD_MSG [0x2E, frame...]` via
+`serial_ctaphid::{is_rescue_msg, dispatch_serial_rescue}`) e BLE
+(`OP_MSG` com primeiro byte `0x2E`, reassembler intacto). UP vem do latch
+BOOT (uso único); PIN fica `false` até o plumbing ClientPIN→
+`set_pin_uv_authenticated` existir — o gatilho remoto nega fail-closed até
+lá (`RESCUE_STATUS_CONFIRMATION_FAILED`). Hold físico→
+`request_physical_killswitch` pendente: o hold 5s é compartilhado com o
+pareamento, então o gesto de armar exige decisão de UX antes de fiar.
+Fronteira intacta: `GATT_REVISION 0x01`, NVS/CBOR sem mudança.

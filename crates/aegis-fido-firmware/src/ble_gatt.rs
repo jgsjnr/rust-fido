@@ -26,6 +26,31 @@ pub const CHAR_LEN_UUID: u16 = 0xFFF3;
 /// Caracteristica revisao (read/write).
 pub const CHAR_REVISION_UUID: u16 = 0xFFF4;
 
+/// Servico GATT de proximidade, separado do FIDO `0xFFFD`.
+///
+/// `0xFFFD` segue congelado para CTAP2-BLE + app Android (§1).
+/// Proximidade anuncia/isola neste UUID para nunca conflitar com
+/// FIDO nem com `FFF1-FFF4`. Revisao `GATT_REVISION` intacta.
+pub const PROXIMITY_SERVICE_UUID: u16 = 0xFFFE;
+
+/// `true` para o servico FIDO congelado (`0xFFFD`).
+pub fn is_fido_service_uuid(uuid: u16) -> bool {
+    uuid == BLE_SERVICE_UUID
+}
+
+/// `true` para o servico de proximidade (`0xFFFE`, separado do FIDO).
+pub fn is_proximity_service_uuid(uuid: u16) -> bool {
+    uuid == PROXIMITY_SERVICE_UUID
+}
+
+/// Coexistencia mutuamente exclusiva: BLE-proximidade vs USB/CTAP.
+///
+/// USB ativo => proximidade BLE deve parar (advertise/RX negados).
+/// Retorna `false` com USB ativo; `true` com USB idle.
+pub fn proximity_coex_allow(usb_active: bool) -> bool {
+    !usb_active
+}
+
 /// CTAP2-BLE PING (echo, sem CtapEngine).
 pub const OP_PING: u8 = 0x81;
 /// CTAP2-BLE MSG (CBOR encapsulado, delega a `CtapEngine::process_packet`).
@@ -117,6 +142,8 @@ pub enum BleGattError {
     PinRequired,
     /// Binding ausente/invalido (NEED_BINDING 0x05, so BLE/WiFi, nunca USB).
     NeedBinding,
+    /// USB ativo: BLE-proximidade mutuamente exclusivo (falha generica 0x04).
+    CoexBlocked,
 }
 
 impl core::fmt::Display for BleGattError {
@@ -130,6 +157,7 @@ impl core::fmt::Display for BleGattError {
             Self::PresenceRequired => write!(f, "presence required"),
             Self::PinRequired => write!(f, "pin required"),
             Self::NeedBinding => write!(f, "binding required (NEED_BINDING 0x05)"),
+            Self::CoexBlocked => write!(f, "coex blocked (USB active)"),
         }
     }
 }
@@ -464,6 +492,31 @@ pub fn authorize_vendor_op(
     Ok(())
 }
 
+/// Gate normativo proximidade-BLE: ordem binding -> UP -> coex.
+///
+/// - `!bonded` => `NeedBinding` (0x05, so BLE, nunca USB).
+/// - `!presence_confirmed` => `PresenceRequired` (0x01).
+/// - `usb_active` => `CoexBlocked` (0x04 generico, sem retry §9.6).
+///
+/// Chamar no transporte quando `is_proximity_service_uuid`, antes de
+/// `control_write`. `0xFFFD`/`control_write` intactos.
+pub fn authorize_proximity_ble(
+    bonded: bool,
+    presence_confirmed: bool,
+    usb_active: bool,
+) -> Result<(), BleGattError> {
+    if !bonded {
+        return Err(BleGattError::NeedBinding);
+    }
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    if usb_active {
+        return Err(BleGattError::CoexBlocked);
+    }
+    Ok(())
+}
+
 /// Mapeia `BindingError` para `BleGattError` (fiação GATT §11).
 pub fn binding_err_to_gatt(e: crate::binding::BindingError) -> BleGattError {
     use crate::binding::BindingError as B;
@@ -597,7 +650,8 @@ impl BleGattError {
             Self::PresenceRequired => 0x01,
             Self::PinRequired => 0x02,
             Self::NeedBinding => VENDOR_STATUS_NEED_BINDING,
-            Self::InvalidOpcode
+            Self::CoexBlocked
+            | Self::InvalidOpcode
             | Self::TransactionBusy
             | Self::NoTransaction
             | Self::Overflow
@@ -731,6 +785,24 @@ mod tests {
     }
 
     #[test]
+    fn rescue_transport_op_nunca_desvia_para_vendor_ou_fragmento() {
+        // Pre-condicao dos ramos rescue (USB-C, serial-D, BLE OP_MSG):
+        // 0x2E (RESCUE_TRANSPORT_OP, crates/aegis-fido-core/src/otp/rescue.rs)
+        // nao e vendor, nao e bind-mgmt e nao e opcode de fragmento, entao
+        // um payload [0x2E, frame...] sempre alcanca o dispatch rescue.
+        assert!(!is_vendor_keys_oath_op(0x2E));
+        assert!(!is_bind_mgmt_op(0x2E));
+        // 0x2E nao abre transacao no reassembler: rescue viaja como
+        // payload de OP_MSG, nunca como opcode de fragmento.
+        assert_eq!(
+            BleReassembler::new().start_new(0x2E, 1),
+            Err(BleGattError::InvalidOpcode)
+        );
+        assert!(!is_usage_op(0x2E));
+        assert!(!is_config_op(0x2E));
+    }
+
+    #[test]
     fn split_uso_config_no_transporte() {
         // USO nunca exige vinculo; CONFIG exige em release, bypass em teste.
         assert!(is_usage_op(OP_KEY_LIST));
@@ -840,6 +912,71 @@ mod tests {
         assert!(m.is_claimed());
         dispatch_recovery_unlock(&mut st, &mut m, "4242", true).expect("unlock ok");
         assert!(!m.is_claimed());
+    }
+
+    #[test]
+    fn proximity_service_uuid_separate_from_fffd() {
+        // Arrange: FIDO 0xFFFD congelado (§1); proximidade isolada.
+        // Act/Assert: UUIDs distintos, nunca colidem com FFF1-FFF4.
+        assert_ne!(PROXIMITY_SERVICE_UUID, BLE_SERVICE_UUID);
+        assert_eq!(BLE_SERVICE_UUID, 0xFFFD);
+        assert!(is_fido_service_uuid(0xFFFD));
+        assert!(!is_fido_service_uuid(PROXIMITY_SERVICE_UUID));
+        assert!(is_proximity_service_uuid(PROXIMITY_SERVICE_UUID));
+        assert!(!is_proximity_service_uuid(0xFFFD));
+        for ch in [CHAR_CONTROL_UUID, CHAR_STATUS_UUID, CHAR_LEN_UUID, CHAR_REVISION_UUID] {
+            assert_ne!(PROXIMITY_SERVICE_UUID, ch);
+        }
+        assert_eq!(GATT_REVISION, 0x01);
+    }
+
+    #[test]
+    fn coex_mutually_exclusive_usb_blocks_proximity() {
+        // Arrange: BLE-proximidade vs USB/CTAP nunca simultaneo.
+        // Act/Assert
+        assert!(!proximity_coex_allow(true));
+        assert!(proximity_coex_allow(false));
+    }
+
+    #[test]
+    fn authorize_proximity_ble_order_binding_up_coex() {
+        // Arrange: ordem canonica binding -> UP -> coex.
+        // Act/Assert: sem bond nega primeiro, mesmo sem UP/coex.
+        assert_eq!(
+            authorize_proximity_ble(false, false, false),
+            Err(BleGattError::NeedBinding)
+        );
+        assert_eq!(
+            authorize_proximity_ble(false, true, true),
+            Err(BleGattError::NeedBinding)
+        );
+        // Act/Assert: bonded sem UP nega presenca.
+        assert_eq!(
+            authorize_proximity_ble(true, false, false),
+            Err(BleGattError::PresenceRequired)
+        );
+        // Act/Assert: bonded + UP + USB ativo nega coex.
+        assert_eq!(
+            authorize_proximity_ble(true, true, true),
+            Err(BleGattError::CoexBlocked)
+        );
+        // Act/Assert: tudo ok libera.
+        assert_eq!(authorize_proximity_ble(true, true, false), Ok(()));
+    }
+
+    #[test]
+    fn coex_blocked_maps_to_generic_status() {
+        // Arrange: CoexBlocked e falha generica sem retry (§9.6), nunca 0x05.
+        // Act/Assert
+        assert_eq!(BleGattError::CoexBlocked.to_vendor_status(), 0x04);
+        assert_ne!(
+            BleGattError::CoexBlocked.to_vendor_status(),
+            VENDOR_STATUS_NEED_BINDING
+        );
+        assert_eq!(
+            format!("{}", BleGattError::CoexBlocked),
+            "coex blocked (USB active)"
+        );
     }
 }
 

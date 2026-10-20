@@ -141,6 +141,44 @@ impl ProximityMonitor {
     }
 }
 
+/// RSSI de trava canonico (< -75 dBm).
+///
+/// Igual a `ProximityConfig::default` e aos agents host (`--threshold-db -75`).
+/// RSSI nunca autentica: apenas sinaliza ausencia para o chamador travar.
+pub const PROXIMITY_LOCK_RSSI_DBM: i16 = -75;
+/// Segundos de AWAY ate `Away` (10 s).
+///
+/// Igual ao default e aos agents (`--lock-secs 10`).
+pub const PROXIMITY_LOCK_SECS: u32 = 10;
+/// Histerese canonica (5 dB, retorno acima de -70 dBm).
+///
+/// Igual ao default e aos agents host.
+pub const PROXIMITY_HYSTERESIS_DB: u8 = 5;
+
+/// Coexistencia mutuamente exclusiva: BLE-proximidade vs USB/CTAP.
+///
+/// USB ativo => proximidade BLE NAO pode consumir RSSI nem destravar
+/// (o chamador mantem `Locked`/`Away` e para o scan). USB tem controlador
+/// dedicado e prioridade total. Retorna `false` com USB ativo.
+pub fn coex_proximity_allowed(usb_active: bool) -> bool {
+    !usb_active
+}
+
+/// Bonding sempre obrigatorio para proximidade (JustWorks+bonding+UP).
+///
+/// RSSI so vale de fob bonded; sem bond a amostra e descartada.
+pub fn bonding_required() -> bool {
+    true
+}
+
+/// Gate antes de aceitar uma amostra RSSI: exige fob bonded E USB idle.
+///
+/// Ordem: bonding -> coex. `false` = descartar a amostra (o chamador
+/// alimenta `None`/fraco no `update`: fail-closed, tende a travar).
+pub fn authorize_proximity_sample(bonded: bool, usb_active: bool) -> bool {
+    bonded && !usb_active
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +298,48 @@ mod tests {
         let st = m.update(Some(-65), 1);
         // Assert
         assert_eq!(st, ProximityState::Near);
+    }
+
+    #[test]
+    fn should_match_canonical_lock_policy_consts() {
+        // Arrange: decisao congelada (lock < -75 dBm por 10 s, histerese 5 dB).
+        // Act/Assert: consts canonicas + default em sync.
+        assert_eq!(PROXIMITY_LOCK_RSSI_DBM, -75);
+        assert_eq!(PROXIMITY_LOCK_SECS, 10);
+        assert_eq!(PROXIMITY_HYSTERESIS_DB, 5);
+        let d = ProximityConfig::default();
+        assert_eq!(d.lock_rssi_dbm, PROXIMITY_LOCK_RSSI_DBM);
+        assert_eq!(d.lock_secs, PROXIMITY_LOCK_SECS);
+        assert_eq!(d.hysteresis_db, PROXIMITY_HYSTERESIS_DB);
+    }
+
+    #[test]
+    fn should_block_proximity_when_usb_active_mutual_exclusion() {
+        // Arrange: coexistencia mutuamente exclusiva (USB tem prioridade total).
+        // Act/Assert
+        assert!(!coex_proximity_allowed(true));
+        assert!(coex_proximity_allowed(false));
+    }
+
+    #[test]
+    fn should_require_bonding_for_proximity_sample() {
+        // Arrange: bonding obrigatorio (JustWorks+bonding+UP).
+        // Act/Assert
+        assert!(bonding_required());
+        assert!(authorize_proximity_sample(true, false));
+        assert!(!authorize_proximity_sample(false, false));
+        assert!(!authorize_proximity_sample(true, true));
+        assert!(!authorize_proximity_sample(false, true));
+    }
+
+    #[test]
+    fn should_treat_denied_sample_as_weak_fail_closed() {
+        // Arrange: gate nega amostra sem bond.
+        let mut m = monitor();
+        // Act: chamador alimenta None (fraco) quando o gate nega.
+        assert!(!authorize_proximity_sample(false, false));
+        let st = m.update(None, 10);
+        // Assert: fail-closed, trava para Away.
+        assert_eq!(st, ProximityState::Away);
     }
 }

@@ -12,19 +12,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Wave7 device-press sheet (behind FeatureFlags.ENABLE_DEVICE_PRESS).
- * Shown while the device reports up-needed: the user confirms on the
- * authenticator BOOT button (up to 25s, like the firmware UP wait);
- * Cancel sends CANCEL (0xBE) through [onCancel].
+ * Sheet de toque no dispositivo (NEED_UP via FFF2):
+ * mostra quando o aparelho pede confirmacao no botao fisico (ate 25s,
+ * como a espera UP do firmware); Cancelar envia CANCEL (0xBE) via [onCancel].
+ * Textos PT simples; sempre tem saida (Cancelar/Fechar via [onDismiss]).
  */
 @Composable
-fun PressDeviceSheet(statusLabel: String, onCancel: () -> Unit) {
+fun PressDeviceSheet(statusLabel: String, onCancel: () -> Unit, onDismiss: (() -> Unit)? = null) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Press the device button", style = MaterialTheme.typography.titleMedium)
-            Text("Device status: $statusLabel")
-            Text("Confirm on the authenticator (BOOT, up to 25s), or cancel below.")
-            Button(onClick = onCancel) { Text("Cancel (0xBE)") }
+            Text("Toque no botão do dispositivo", style = MaterialTheme.typography.titleMedium)
+            Text("Situação: $statusLabel")
+            Text("Confirme no botão do aparelho (até 25s) ou cancele abaixo.")
+            Button(onClick = onCancel) { Text("Cancelar (0xBE)") }
+            if (onDismiss != null) {
+                androidx.compose.material3.OutlinedButton(onClick = onDismiss) { Text("Fechar") }
+            }
         }
     }
 }
