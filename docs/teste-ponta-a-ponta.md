@@ -64,8 +64,11 @@ diferente do esperado (analisar, pode ser bug ou expectativa errada) ·
 | D05a | Recovery SET 1234 | 0x2C | 0x00 (anotar) | PASS |
 | D06 | Reivindicar posse (CLAIM — muda binding!) | 0x28 | 0x00 (0x04 se já claimed) | PASS |
 | D06b | Challenge pós-claim | 0x29 | 0x00 + 32B | PASS |
-| D07 | Liberar posse (RELEASE = wipe!) | 0x2B | `--confirm-release` + SIM | TODO |
-| D05b | Recovery UNLOCK (= wipe!) | 0x2D | `--confirm-release` + SIM | TODO |
+| D07 | Liberar posse (RELEASE = wipe binding) | 0x2B + UP | 0x00 | PASS |
+| D07b | Challenge pós-release nega | 0x29 | 0x05 (prova do wipe) | PASS |
+| D06c | Re-claim pós-release | 0x28 | 0x00 | PASS |
+| D05b | Recovery UNLOCK 1234 (= wipe binding) | 0x2D + UP | 0x00 | PASS |
+| D05c | Challenge pós-unlock nega | 0x29 | 0x05 (prova do wipe) | PASS |
 | D08 | OTA-BEGIN com janela (stage, SEM commit) | 0x30 | anotar; COMMIT JAMAIS | PASS |
 
 NUNCA no script: killswitch real (jig+HSM), factory_reset físico,
@@ -93,10 +96,12 @@ OTA-COMMIT, eFuse.
 
 ## Baseline atual do device (muda com destructive!)
 
-- 20/10 após D-phase: PIN `1234` definido · recovery PIN `1234` · CLAIMED
-  (binding NVS) · credencial residente `e2e` no NVS · carteiras s6-s9 na
-  RAM (somem no reboot). T10 agora responde `0x00`+32B (era `0x05`).
-  Wipes (D07 release, D05b unlock) NÃO executados — aguardam SIM digitado.
+- 20/10 pós wipe-run + reboot: UNCLAIMED (wipes D07/D05b provados por
+  challenge `0x05`) · PIN ilegível (amnésia; set novo exige reset ou
+  eFuse) · recovery `1234` deste boot · credencial `e2e` ilegível
+  (GA `0x2E`) · carteiras RAM limpas no reboot.
+  Wipes executados: D07 release + D05b unlock (só binding; PIN/credencial
+  o wipe não toca — a amnésia é do reboot, não do wipe).
 
 ## Bugs / divergências
 
@@ -108,7 +113,13 @@ OTA-COMMIT, eFuse.
   aberta (a placa não reseta ao abrir a serial — RAM persiste). Confirmar
   no fw-log (`EV=4` sem `EV=5` depois). Em `all-safe` a base roda antes do
   pairing, então a janela está fechada e o teste é determinístico.
-- 20/10 USB (ambiente, não firmware): PnP OK + Problem 0 + WebAuthn
+- 20/10 AMNÉSIA DE REBOOT (by design, device não-provisionado): sem
+  eFuse, o NVS usa chaves efêmeras TRNG por boot (main.rs:523). Reboot =
+  tudo ilegível: PIN vira `0x31`+`0x33` (registro existe, não abre),
+  credencial `e2e` some (GA `0x2E`), claim some (challenge `0x05`).
+  Prova: D03b/D04a `0x31` + retries 8→4 no mesmo boot; T18 `0x2E` e T10
+  `0x05` pós-reboot. Consequência: fases e2e valem por boot; persistência
+  real exige `factory_provision.py --confirm` (burn eFuse, one-way).
   funcional, mas hidapi/pywinusb não enxergam a coleção (19 outros HIDs
   listados). PING/GetInfo raw via USB ficam p/ depuração futura do host;
   prova funcional via browser vale como U2.
@@ -390,3 +401,28 @@ OTA-COMMIT, eFuse.
 - [PASS] D06 CLAIM posse (muda binding!) — status=0x04 id=0d13152b (já claimed)
 - [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
 - [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 14:39 — phase=wipe
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x02
+- [PASS] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x02
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x33 (já tinha PIN)
+- [DIVERGENTE] D03b getPinToken 1234 (sessão viva) — status=0x31
+- [DIVERGENTE] D04a changePIN 1234->5678 — status=0x31
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x00 id=53c759a5
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D07 RELEASE (wipe binding, test-mode) — status=0x00
+- [PASS] D07b CHALLENGE pós-release nega (unclaimed) — status=0x05 (prova do wipe)
+- [PASS] D06c CLAIM posse (muda binding!) — status=0x00 id=f2db1ef1
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D05b RECOVERY_UNLOCK 1234 (wipe binding) — status=0x00
+- [PASS] D05c CHALLENGE pós-unlock nega (unclaimed) — status=0x05 (prova do wipe)
+- [PASS] D08 OTA-BEGIN com janela (stage, SEM commit) — status=0x01 bytes=0 (serial não tem OTA — só USB; COMMIT JAMAIS)
+
+### 20/10 14:40 — phase=base only=T18
+- [DIVERGENTE] T18 GetAssertion rp e2e — status=0x2E bytes=0
+
+### 20/10 14:40 — phase=base only=T10
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)

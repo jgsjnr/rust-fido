@@ -616,7 +616,7 @@ def _d05(c):
           "status=0x%02X" % st)
 
 
-def _d06(c):
+def _claim_once(c, tag):
     import os as _os
     from cryptography.hazmat.primitives.asymmetric import ec as _ec
     priv = _ec.generate_private_key(_ec.SECP256R1())
@@ -627,10 +627,18 @@ def _d06(c):
     st, _ = c.msg(bytes([0x28]) + sec1 + bid)
     # Idempotente: 0x04 = já claimed em rodada anterior (D06b prova).
     ok = "pass" if st in (0x00, 0x04) else "div"
-    c.rec("D06", "CLAIM posse (muda binding!)", ok,
+    c.rec(tag, "CLAIM posse (muda binding!)", ok,
           "status=0x%02X id=%s%s" % (st, bid.hex()[:8], " (já claimed)" if st == 0x04 else ""))
-    if st == 0:
+
+
+def _d06(c):
+    _claim_once(c, "D06")
+    if True:
         c.rec("D06n", "device agora CLAIMED (NVS)", "pass", "gates de binding mudam; ver T10")
+
+
+def _d06c(c):
+    _claim_once(c, "D06c")
 
 
 def _d06b(c):
@@ -638,6 +646,37 @@ def _d06b(c):
     ok = st == 0 and len(body) == 32
     c.rec("D06b", "CHALLENGE pós-claim dá 32B", "pass" if ok else "div",
           "status=0x%02X bytes=%d" % (st, len(body)))
+
+
+def _d07(c):
+    # RELEASE em test-mode: bypass com só UP (sig ignorada) → wipe binding.
+    # PIN/credencial/recovery sobrevivem (só BIND_* some do NVS).
+    c.up()
+    st, _ = c.msg(bytes([0x2B]) + bytes(64))
+    c.rec("D07", "RELEASE (wipe binding, test-mode)", "pass" if st == 0 else "div",
+          "status=0x%02X" % st)
+
+
+def _d07b(c):
+    st, body = c.msg(bytes([0x29]))
+    c.rec("D07b", "CHALLENGE pós-release nega (unclaimed)",
+          "pass" if st == 0x05 else "div",
+          "status=0x%02X (prova do wipe)" % st)
+
+
+def _d05b(c):
+    # UNLOCK com PIN certo + UP → wipe binding (recovery PIN preservado).
+    c.up()
+    st, _ = c.msg(bytes([0x2D]) + b"1234")
+    c.rec("D05b", "RECOVERY_UNLOCK 1234 (wipe binding)", "pass" if st == 0 else "div",
+          "status=0x%02X" % st)
+
+
+def _d05c(c):
+    st, body = c.msg(bytes([0x29]))
+    c.rec("D05c", "CHALLENGE pós-unlock nega (unclaimed)",
+          "pass" if st == 0x05 else "div",
+          "status=0x%02X (prova do wipe)" % st)
 
 
 def _d08(c):
@@ -664,14 +703,20 @@ REG = {
     "D01": (_d01, "destructive"), "D02": (_d02, "destructive"),
     "D03": (_d03, "destructive"), "D03b": (_d03b, "destructive"),
     "D04a": (_d04, "destructive"),
-    "D05a": (_d05, "destructive"), "D06": (_d06, "destructive"),
-    "D06b": (_d06b, "destructive"), "D08": (_d08, "destructive"),
+    "D05a": (_d05, "destructive"), "D05b": (_d05b, "wipe"), "D05c": (_d05c, "wipe"),
+    "D06": (_d06, "destructive"),
+    "D06b": (_d06b, "destructive"), "D06c": (_d06c, "wipe"),
+    "D07": (_d07, "wipe"), "D07b": (_d07b, "wipe"),
+    "D08": (_d08, "destructive"),
 }
 PHASES = {
     "base": [t for t, (_, p) in REG.items() if p == "base"],
     "pairing": [t for t, (_, p) in REG.items() if p == "pairing"],
     "all-safe": [t for t, (_, p) in REG.items() if p in ("base", "pairing")],
     "destructive": [t for t, (_, p) in REG.items() if p == "destructive"],
+    # Ciclo completo de wipes: claim -> release -> re-claim -> unlock.
+    "wipe": ["D01", "D02", "D03", "D03b", "D04a", "D05a", "D06", "D06b",
+             "D07", "D07b", "D06c", "D06b", "D05b", "D05c", "D08"],
 }
 
 
@@ -689,13 +734,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default=PORT_DEFAULT)
     ap.add_argument("--phase", default="base",
-                    choices=["base", "pairing", "all-safe", "destructive"])
+                    choices=["base", "pairing", "all-safe", "destructive", "wipe"])
     ap.add_argument("--only", default=None, help="ID único, ex. T17")
     ap.add_argument("--confirm", action="store_true")
+    ap.add_argument("--confirm-release", action="store_true",
+                    help="autoriza wipes (D07 release, D05b unlock)")
     args = ap.parse_args()
 
-    if args.phase == "destructive" and not args.confirm:
-        print("fase destructive exige --confirm (muda estado do device)")
+    if args.phase in ("destructive", "wipe") and not args.confirm:
+        print("fase destructive/wipe exige --confirm (muda estado do device)")
+        sys.exit(2)
+    if args.phase == "wipe" and not args.confirm_release:
+        print("fase wipe exige --confirm-release (apaga binding do NVS)")
         sys.exit(2)
 
     c = Ctx(args.port)
@@ -709,10 +759,13 @@ def main():
                 sys.exit(2)
             wanted = match
             fn, phase = REG[wanted]
-            if phase == "destructive" and not args.confirm:
+            if phase in ("destructive", "wipe") and not args.confirm:
                 print("teste D exige --confirm")
                 sys.exit(2)
-            if phase in ("pairing", "destructive"):
+            if phase == "wipe" and not args.confirm_release:
+                print("teste wipe exige --confirm-release")
+                sys.exit(2)
+            if phase in ("pairing", "destructive", "wipe"):
                 # Janela é pré-requisito dos gates; abre uma fresca p/ o teste.
                 try:
                     c.pairing()
@@ -726,7 +779,7 @@ def main():
                 print("em --only isolado, rode: --phase pairing e veja T19+T21 juntos.")
         else:
             ids = PHASES[args.phase]
-            if args.phase == "destructive":
+            if args.phase in ("destructive", "wipe"):
                 # Janela fresca p/ a fase toda (gates pairing).
                 try:
                     _t11(c)
