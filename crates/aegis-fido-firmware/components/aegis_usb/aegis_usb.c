@@ -280,3 +280,12 @@ void aegis_reboot_to_download(void) {
     for (;;) {
     }
 }
+
+bool aegis_usb_reconnect(void) {
+    ESP_LOGI(TAG, "TEST_USB_RECONNECT: drop + re-enumerate");
+    if (!tud_disconnect()) {
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(300));
+    return tud_connect();
+}

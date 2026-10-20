@@ -60,6 +60,10 @@ extern "C" {
     // Reboot p/ download ROM via RTC_CNTL (sem BOOT/DTR/RTS).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     fn aegis_reboot_to_download();
+    // CI-GREP: TEST-HOOK (test-mode only; absent in release).
+    // Drop + re-enumera o USB nativo (dispensa replug físico).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    fn aegis_usb_reconnect() -> bool;
     // Serial CTAPHID (UART 115200, framing identical to USB). Classic reuses
     // the UART-backed aegis_usb_* symbols; S3/S2 use aegis_serial_* (UART0
     // diagnostic channel alongside native USB-OTG).
@@ -1802,6 +1806,14 @@ fn run_authenticator() {
                                 let resp = "download_mode source=software\n";
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
                                 unsafe { aegis_reboot_to_download() };
+                            } else if t == "TEST_USB_RECONNECT" {
+                                // CI-GREP: TEST-HOOK (test-mode only).
+                                // Drop + re-enumera o USB nativo via software
+                                // (dispensa replug físico; Windows rebinda).
+                                kprintln!("[TEST] usb reconnect via software.");
+                                let resp = "usb_reconnect source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                                unsafe { aegis_usb_reconnect() };
                             } else if t == "TEST_LED_STATE" {
                                 let screen = match &display_mgr.current_screen {
                                     UiScreen::BootSplash { .. } => "BootSplash",

@@ -16,6 +16,7 @@ release quebra `scripts/check-release-clean.py`.
 |---|---|---|---|
 | TEST_UP | main.rs D1 (`#[cfg(feature = "test-mode")]`) | 1 toque BOOT via software (latch 1x/1.5s) | linha ignorada |
 | TEST_DOWNLOAD | main.rs D1 (gated) + `aegis_reboot_to_download` (RTC_CNTL) | reboot p/ download ROM sem botões (nunca retorna) | linha ignorada |
+| TEST_USB_RECONNECT | main.rs D1 (gated) + `aegis_usb_reconnect` (`tud_disconnect/connect`) | drop + re-enumera o USB nativo sem replug físico | linha ignorada |
 | TEST_PAIRING_OPEN | serial_ctaphid `dispatch_serial_pairing_line` (gated) | janela 60s software (UP/bond seguem) | `None` (ignorado) |
 | TEST_PAIRING_OPEN_300 | idem (variante 300s p/ teste) | janela 300s software | `None` |
 | TEST_LIFETIME_DUMP | lifetime_trace `dispatch_test_command` (gated) | dump ltrace (sem segredos) | `None` |

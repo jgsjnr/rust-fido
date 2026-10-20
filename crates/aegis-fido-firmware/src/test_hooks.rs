@@ -20,6 +20,7 @@ extern crate alloc;
 pub const TEST_COMMANDS: &[&str] = &[
     "TEST_UP",
     "TEST_DOWNLOAD",
+    "TEST_USB_RECONNECT",
     "TEST_PAIRING_OPEN",
     "TEST_PAIRING_OPEN_300",
     "TEST_LIFETIME_DUMP",

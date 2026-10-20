@@ -58,6 +58,13 @@ uint16_t aegis_usb_read_chunk(uint8_t *out_buf, uint16_t max_len);
 void aegis_reboot_to_download(void);
 
 /**
+ * Drops the USB pull-up and re-enumerates (software replug).
+ * TEST-HOOK: called only from test-mode serial `TEST_USB_RECONNECT`.
+ * Serial (UART) is unaffected; the host rebinds composite + CCID.
+ */
+bool aegis_usb_reconnect(void);
+
+/**
  * Pops one complete reassembled CCID frame (F4, `ccid_device.c`).
  * Returns bytes read (0 when the queue is empty); truncates at `max_len`.
  */
