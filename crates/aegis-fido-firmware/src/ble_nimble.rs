@@ -136,6 +136,19 @@ pub fn should_advertise(mgr: &PairingManager, now_ms: u64) -> bool {
     matches!(mgr.state(), PairingState::PairingBle { .. }) && mgr.is_pairing_window_open(now_ms)
 }
 
+/// Reconexão de confiável sem janela (UX, sem botão para reconectar).
+///
+/// `true` em `Idle` com relação de confiança (`bonded` da sessão ou
+/// `claimed` da NVS): o rádio anuncia com flag de pareamento APAGADA
+/// (só reconecta; parear de novo exige janela). Device novo/sem vínculo
+/// segue mudo. Gates intactos: UP por operação + bonding; completar um
+/// pareamento novo continua exigindo janela + UP.
+/// Bateria: anúncio contínuo enquanto ocioso+confiável (troca consciente
+/// por não exigir hold a cada sessão).
+pub fn should_advertise_reconnect(state: PairingState, trusted: bool) -> bool {
+    trusted && matches!(state, PairingState::Idle)
+}
+
 /// Intervalos de advertising (min, max) em unidades de 0,625ms.
 ///
 /// `wifi_active`: AP fallback ligado ou station conectada → intervalo lento
@@ -391,6 +404,26 @@ mod tests {
         m2.enter_ap_mode();
         assert!(m2.is_pairing_window_open(LONG_PRESS_MS + 10));
         assert!(!should_advertise(&m2, LONG_PRESS_MS + 10));
+    }
+
+    #[test]
+    fn reconnect_sem_janela_so_com_confianca() {
+        use crate::config::{LONG_PRESS_MS, PAIRING_WINDOW_MS};
+        // Novo/sem vínculo: mudo (privacidade preservada).
+        let m = PairingManager::new();
+        assert!(!should_advertise_reconnect(m.state(), false));
+        // Pareado na sessão: anuncia em Idle mesmo sem janela.
+        let mut b = PairingManager::new();
+        b.on_button_level(true, 0);
+        b.on_button_level(true, LONG_PRESS_MS);
+        assert!(b.complete_pairing(true, LONG_PRESS_MS + 10));
+        assert!(b.is_bonded());
+        assert_eq!(b.state(), PairingState::Idle);
+        assert!(!should_advertise(&b, LONG_PRESS_MS + 10 + PAIRING_WINDOW_MS));
+        assert!(should_advertise_reconnect(b.state(), true));
+        // Fora de Idle (ex.: Locked): sem anúncio de reconexão.
+        b.lock();
+        assert!(!should_advertise_reconnect(b.state(), true));
     }
 
     #[test]

@@ -842,14 +842,24 @@ fn run_authenticator() {
         } else if radio_in_use {
             wifi_radio_on = true;
         }
-        // Etapa B (BLE NimBLE real): advertising SOMENTE em PairingBle com
-        // janela aberta; fora disso o radio fica mudo (privacidade + bateria).
+        // Etapa B (BLE NimBLE real): advertising na janela de pareamento
+        // (flag ligada) + reconexão de confiável sem janela (flag
+        // apagada, sem botão); fora disso o radio fica mudo.
         // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.
-        let ble_want_adv = aegis_fido_firmware::ble_nimble::should_advertise(&pairing_mgr, now_ms);
+        let trusted =
+            pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+        let ble_want_adv = aegis_fido_firmware::ble_nimble::should_advertise(&pairing_mgr, now_ms)
+            || aegis_fido_firmware::ble_nimble::should_advertise_reconnect(
+                pairing_mgr.state(),
+                trusted,
+            );
         if ble_want_adv != ble_adv_active {
             if ble_want_adv {
                 let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
-                let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(true, wifi_active);
+                let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(
+                    pairing_open_now,
+                    wifi_active,
+                );
                 if rc == 0 {
                     ble_adv_active = true;
                 } else {

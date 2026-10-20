@@ -65,6 +65,12 @@ gates; tags `0x07/0x08`; testes host (roundtrip + fail-closed); sonda
 viva nega `0x05` sem pareamento. UP positivo (GEN/LIST/ADDR com UP) fica
 p/ usuário com device. NVS (codec pronto) = follow-up.
 
+### 14. Reconexão de bonded sem janela [A, feito 20/10]
+`should_advertise_reconnect` (Idle + bonded/claimed, flag apagada);
+device novo segue mudo (provado no ar: 30 vistos, 0 AegisKey).
+Gates intactos; bateria documentada. Prova viva com bond fica p/ app
+no celular (Windows não completa a cripto).
+
 ### 10. Firmware-fina resto [A]
 Decidir com medida (não por palpite): reassemble GATT (congelar —
 framing §9.6), formatação display (ficar — LCD físico), retry WiFi
