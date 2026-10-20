@@ -13,9 +13,11 @@
 use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
+/// T=0/T=1 com TCK válido (XOR de T0..histórico); o UsbCcids rejeita o
+/// PowerOn com TCK zerado (cartão "mudo").
 pub const AEGIS_ATR: &[u8] = &[
     0x3B, 0x8D, 0x80, 0x01, 0x80, 0x4F, 0x0C, 0xA0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 0x10,
-    0x00, 0x01, 0x00,
+    0x00, 0x01, 0x75,
 ];
 
 // ============================================================================
@@ -1058,6 +1060,53 @@ mod tests {
 
     fn param_msg(msg_type: u8, seq: u8) -> Vec<u8> {
         vec![msg_type, 7, 0, 0, 0, 0, seq, 0, 0, 0, 1, 0x11, 0x10, 0, 0x4D, 0, 0]
+    }
+
+    #[test]
+    fn atr_tck_valido() {
+        // Percorre a estrutura ISO 7816-3: TS, T0 (Y1|K), bytes de
+        // interface seguindo a cadeia de TD; TCK existe se algum TD
+        // anuncia protocolo != T=0; TCK = XOR de T0..último histórico.
+        let a = AEGIS_ATR;
+        assert_eq!(a[0], 0x3B);
+        let mut y = a[1] >> 4;
+        let k = (a[1] & 0x0F) as usize;
+        let mut pos = 2usize;
+        let mut tck_present = false;
+        loop {
+            let mut td = None;
+            for bit in 0..4u8 {
+                if y & (1 << bit) != 0 {
+                    assert!(pos < a.len(), "ATR truncado");
+                    let b = a[pos];
+                    pos += 1;
+                    if bit == 3 {
+                        td = Some(b);
+                    }
+                }
+            }
+            match td {
+                Some(v) => {
+                    if v & 0x0F != 0 {
+                        tck_present = true;
+                    }
+                    y = v >> 4;
+                }
+                None => break,
+            }
+            if y == 0 {
+                break;
+            }
+        }
+        assert!(tck_present, "ATR sem T=1 mas teste espera TCK");
+        let hist_end = pos + k;
+        assert!(hist_end < a.len(), "ATR sem TCK");
+        let mut tck = 0u8;
+        for b in &a[1..hist_end] {
+            tck ^= b;
+        }
+        assert_eq!(a[hist_end], tck, "TCK inválido no ATR");
+        assert_eq!(hist_end + 1, a.len(), "ATR com sobra após TCK");
     }
 
     #[test]
