@@ -121,6 +121,7 @@ static void ccid_on_bulk_out(const uint8_t *data, uint16_t n) {
         if (s_rx_len < total) {
             break; // wait for more chunks
         }
+        ESP_LOGI(TAG, "rx frame type=0x%02X len=%u", s_rx_asm[0], (unsigned)(uint16_t)total);
         ccid_push_frame(s_rx_asm, (uint16_t)total);
         uint16_t rest = s_rx_len - (uint16_t)total;
         if (rest > 0) {
@@ -153,6 +154,8 @@ static void ccidd_reset(uint8_t rhport) {
 
 static uint16_t ccidd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf,
                            uint16_t max_len) {
+    ESP_LOGI(TAG, "open itf=%u class=0x%02X neps=%u maxlen=%u", desc_itf->bInterfaceNumber,
+             desc_itf->bInterfaceClass, desc_itf->bNumEndpoints, max_len);
     TU_VERIFY(TUSB_CLASS_SMART_CARD == desc_itf->bInterfaceClass, 0);
     TU_ASSERT(desc_itf->bNumEndpoints == 3, 0);
 
@@ -268,6 +271,7 @@ bool aegis_ccid_send(const uint8_t *data, uint16_t len) {
         ESP_LOGW(TAG, "tx busy, dropping %u B", len);
         return false;
     }
+    ESP_LOGI(TAG, "tx rpdu len=%u", (unsigned)len);
     memcpy(s_tx_buf, data, len);
     s_tx_busy = true;
     if (!usbd_edpt_xfer(0, s_ep_in, s_tx_buf, len)) {
