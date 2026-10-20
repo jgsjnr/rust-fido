@@ -43,9 +43,12 @@ pub fn process_ccid_frame<B: FlashStorageBackend>(
     let mut store = PivNvsStore::new(storage);
     let mut crypto = PivFwBackend::new(keys, now_secs);
     let mut handler = NoExtraApplets;
-    transport
-        .process_ccid_message_store(frame, &mut handler, &mut store, &mut crypto)
-        .ok()
+    // Nunca silencia: frame malformado vira RPDU de erro (o host trava
+    // no bulk-IN se não houver resposta — hang do SCardConnect).
+    match transport.process_ccid_message_store(frame, &mut handler, &mut store, &mut crypto) {
+        Ok(rpdu) => Some(rpdu),
+        Err(_) => CcidTransport::error_response(frame),
+    }
 }
 
 #[cfg(test)]
@@ -129,5 +132,18 @@ mod tests {
         let mut keys = KeyManager::new();
         let mut t = CcidTransport::new();
         assert!(process_ccid_frame(&mut t, &[0x6F, 0x00], &mut storage, &mut keys, 0).is_none());
+    }
+
+    #[test]
+    fn ccid_frame_malformado_responde_erro() {
+        let mut storage = test_storage();
+        let mut keys = KeyManager::new();
+        let mut t = CcidTransport::new();
+        // XFR que promete 5B e entrega 2: erro com slot/seq, nunca None.
+        let clipped = [0x6Fu8, 5, 0, 0, 0, 0, 9, 0, 0, 0, 0xAA, 0xBB];
+        let r = process_ccid_frame(&mut t, &clipped, &mut storage, &mut keys, 0)
+            .expect("firmware silenciou");
+        assert_eq!((r[0], r[5], r[6]), (0x80, 0, 9));
+        assert_ne!(r[7], 0x00);
     }
 }

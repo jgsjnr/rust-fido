@@ -585,6 +585,22 @@ impl CcidTransport {
         }
     }
 
+    /// Builds a best-effort error RPDU for a malformed frame (header
+    /// presente, payload inválido): DataBlock vazio com bStatus de erro.
+    /// O host NUNCA pode ficar sem resposta no bulk-IN (trava o
+    /// SCardConnect). Retorna `None` só se nem o header existir (< 10B).
+    pub fn error_response(packet: &[u8]) -> Option<Vec<u8>> {
+        if packet.len() < 10 {
+            return None;
+        }
+        let slot = packet[5];
+        let seq = packet[6];
+        let mut resp = Self::build_data_block_response(slot, seq, &[]);
+        resp[7] = 0x01; // bStatus: erro (slot preservado p/ o host casar)
+        resp[8] = 0x01; // bError: comando desconhecido/falhou
+        Some(resp)
+    }
+
     fn build_data_block_response(slot: u8, seq: u8, data: &[u8]) -> Vec<u8> {
         let mut resp = Vec::with_capacity(10 + data.len());
         resp.push(RDR_TO_PC_DATA_BLOCK);
@@ -599,8 +615,7 @@ impl CcidTransport {
     }
 
     fn build_slot_status_response(slot: u8, seq: u8, status: u8) -> Vec<u8> {
-        let mut resp = vec![0u8; 10];
-        resp[0] = RDR_TO_PC_SLOT_STATUS;
+        let mut resp = vec![0u8; 10];        resp[0] = RDR_TO_PC_SLOT_STATUS;
         resp[1..5].copy_from_slice(&0u32.to_le_bytes());
         resp[5] = slot;
         resp[6] = seq;
@@ -1107,6 +1122,29 @@ mod tests {
         }
         assert_eq!(a[hist_end], tck, "TCK inválido no ATR");
         assert_eq!(hist_end + 1, a.len(), "ATR com sobra após TCK");
+    }
+
+    #[test]
+    fn frame_malformado_responde_erro_nunca_silencio() {
+        // XFR vazio (só header): erro com slot/seq preservados, nunca None.
+        let empty_xfr = [PC_TO_RDR_ICC_POWER_ON, 0, 0, 0, 0, 0, 7, 0, 0, 0];
+        let r = CcidTransport::error_response(&empty_xfr).expect("erro rsp");
+        assert_eq!(r[0], RDR_TO_PC_DATA_BLOCK);
+        assert_eq!(r[5], 0);
+        assert_eq!(r[6], 7);
+        assert_ne!(r[7], 0x00);
+        // Sem nem header: aí sim None (C nunca enfileira < 10B).
+        assert!(CcidTransport::error_response(&[0x6F, 0x00]).is_none());
+        // Comprimento inconsistente: process erra, fallback responde.
+        let clipped = [
+            PC_TO_RDR_XFR_BLOCK, 5, 0, 0, 0, 0, 8, 0, 0, 0, 0xAA, 0xBB,
+        ];
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        assert!(s.process(&mut t, &clipped).is_err());
+        let r = CcidTransport::error_response(&clipped).expect("erro rsp");
+        assert_eq!((r[0], r[5], r[6]), (RDR_TO_PC_DATA_BLOCK, 0, 8));
+        assert_ne!(r[7], 0x00);
     }
 
     #[test]
