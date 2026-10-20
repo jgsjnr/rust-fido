@@ -97,7 +97,9 @@ static const uint8_t desc_configuration[] = {
     0xFE, 0x00, 0x00, 0x00, // dwMaxIFSD (254)
     0x00, 0x00, 0x00, 0x00, // dwSynchProtocols
     0x00, 0x00, 0x00, 0x00, // dwMechanical
-    0x00, 0x00, 0x00, 0x00, // dwFeatures
+    0x00, 0x00, 0x0C, 0x00, // dwFeatures: SHORT_APDU|SHORT_AND_EXTENDED
+    // (APDU-level: o host manda APDUs no XFR e o device faz o T=1 sozinho.
+    // Com 0 o host falava TPDU cru — PPS/I-blocks como "APDU".)
     0x00, 0x08, 0x00, 0x00, // dwMaxCCIDMessageLength (2048)
     0x00,                   // bClassGetResponse
     0x00,                   // bClassEnvelope
