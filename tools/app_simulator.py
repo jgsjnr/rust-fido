@@ -191,8 +191,10 @@ class Reassembler:
         if raw == CMD_KEEPALIVE:
             return ("keepalive", pkt[7])
         if raw & 0x80:
-            if total > 512:
-                raise ValueError("overflow control-point")
+            # Teto CTAPHID (USB/serial permitem ate 7609 B; o 512 e so do
+            # control-point BLE). Attestation passa de 512 (ex. 743 B).
+            if total > 7609:
+                raise ValueError("overflow ctaphid")
             self.cid, self.cmd, self.total = cid, raw, total
             self.buf = bytearray(pkt[7:7 + min(total, INIT_PAYLOAD_MAX)])
             self.seq = 0
@@ -247,7 +249,7 @@ class SerialStreamReader:
                 del self.buf[:PACKET_SIZE]
                 return frame
             self.buf.extend(self.link.read_exact(1, deadline_s=deadline_s))
-            if len(self.buf) > 4096:
+            if len(self.buf) > 16384:
                 raise ValueError("serial stream desync (buffer overflow)")
 
 
