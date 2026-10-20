@@ -821,10 +821,75 @@ def _d05c(c):
 
 
 def _d08(c):
-    st, body = c.msg(bytes([0x30]))
-    c.rec("D08", "OTA-BEGIN com janela (stage, SEM commit)",
-          "pass" if True else "div",
-          "status=0x%02X bytes=%d (serial não tem OTA — só USB; COMMIT JAMAIS)" % (st, len(body)))
+    # F5: ciclo OTA real com chave lab (privada fora do repo).
+    import hashlib as _hl, os as _os, struct as _st
+    try:
+        priv = open(r"C:\t\ota_test_key.bin", "rb").read()
+        assert len(priv) == 32
+    except Exception:
+        c.rec("D08", "OTA lab (sem C:\\t\\ota_test_key.bin)", "fail", "chave de teste ausente")
+        return
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    sk = Ed25519PrivateKey.from_private_bytes(priv)
+
+    def manifest(version, image, key):
+        digest = _hl.sha256(image).digest()
+        signed = _st.pack(">II", version, len(image)) + digest
+        return signed + key.sign(signed)
+
+    def begin(m):
+        return c.msg(bytes([0x30]) + m)
+
+    image = _os.urandom(20 * 1024)
+    # 1. Negativo: assinatura errada -> FINISH nega e limpa.
+    bad = manifest(2, image, Ed25519PrivateKey.generate())
+    st, _ = begin(bad)
+    if st != 0x00:
+        c.rec("D08a", "BEGIN bad-sig (aceito p/ testar FINISH)", "div", "status=0x%02X" % st)
+        return
+    c.msg(bytes([0x31]) + _st.pack(">I", 0) + image[:4096])
+    st, _ = c.msg(bytes([0x32]))
+    if st == 0x00:
+        c.rec("D08a", "FINISH com bad-sig passou?!", "fail", "fail-closed quebrou")
+        return
+    c.rec("D08a", "FINISH bad-sig nega e limpa", "pass", "status=0x%02X" % st)
+    # 2. Positivo: BEGIN -> CHUNKs -> FINISH (verify Ed25519 real).
+    good = manifest(2, image, sk)
+    st, _ = begin(good)
+    if st != 0x00:
+        c.rec("D08b", "BEGIN lab", "div", "status=0x%02X" % st)
+        return
+    off, ok = 0, True
+    for i in range(0, len(image), 4096):
+        chunk = image[i:i + 4096]
+        st, body = c.msg(bytes([0x31]) + _st.pack(">I", off) + chunk)
+        off += len(chunk)
+        if st != 0x00 or body != _st.pack(">I", off):
+            ok = False
+            break
+    c.rec("D08b", "BEGIN+5 CHUNKs 20KiB", "pass" if ok else "div",
+          "recebidos=%d/20480" % off)
+    if not ok:
+        return
+    st, _ = c.msg(bytes([0x32]))
+    c.rec("D08c", "FINISH verify real", "pass" if st == 0 else "div",
+          "status=0x%02X" % st)
+    if st != 0:
+        return
+    # 3. COMMIT sem UP nega; com UP grava só marker (sem swap: partição única).
+    st, _ = c.msg(bytes([0x33]))
+    if st != 0x01:
+        c.rec("D08d", "COMMIT sem UP nega", "div", "status=0x%02X" % st)
+        return
+    c.rec("D08d", "COMMIT sem UP nega", "pass", "0x01 (sessão preservada)")
+    c.up()
+    st, body = c.msg(bytes([0x33]))
+    ok = st == 0x00 and body == _st.pack(">I", 2)
+    c.rec("D08e", "COMMIT com UP (só marker, sem swap)", "pass" if ok else "div",
+          "status=0x%02X body=%s" % (st, body.hex()))
+    st, _ = c.msg(bytes([0x34]))
+    c.rec("D08f", "ABORT limpa sessão", "pass" if st == 0x00 else "div",
+          "status=0x%02X" % st)
 
 
 # ID -> (função, fase, precisa_janela). Ordem das fases preservada.

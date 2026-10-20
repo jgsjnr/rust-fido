@@ -19,6 +19,7 @@ extern crate alloc;
 /// Todos os comandos de texto aceitos SÓ em firmware test-mode (D1/UART).
 pub const TEST_COMMANDS: &[&str] = &[
     "TEST_UP",
+    "TEST_DOWNLOAD",
     "TEST_PAIRING_OPEN",
     "TEST_PAIRING_OPEN_300",
     "TEST_LIFETIME_DUMP",
@@ -35,6 +36,7 @@ pub const TEST_BYPASSES: &[&str] = &[
     "binding_bypass",
     "release_bypass",
     "devkey_persist",
+    "ota_test_key",
 ];
 
 #[cfg(test)]

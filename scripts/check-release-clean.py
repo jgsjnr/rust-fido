@@ -20,6 +20,7 @@ CRATE = "aegis-fido-firmware"
 FORBIDDEN = [
     b"source=software",      # TEST_UP / TEST_PAIRING_OPEN ack
     b"up_latched",           # TEST_UP ack
+    b"download_mode",        # TEST_DOWNLOAD ack (nunca em release)
     b"pairing_open",         # TEST_PAIRING_OPEN ack
     b"led_set ",             # TEST_LED_* ack (+ espaço p/ não pegar led_setting*)
     b"led_state screen=",    # TEST_LED_STATE
@@ -28,6 +29,8 @@ FORBIDDEN = [
     b"dev_master_key",       # chave-dev test-mode (nunca em release)
     b"dev_salt",             # sal dev test-mode (nunca em release)
     b"aegisdev",             # namespace dev test-mode (nunca em release)
+    b"OTA_TEST_PUBKEY",      # chave OTA lab test-mode (nunca em release)
+    b"TEST-OTA-KEY",         # marcador chave OTA lab (nunca em release)
 ]
 
 # Arquivos-fonte autorizados a conter literais TEST_ (consts gated,

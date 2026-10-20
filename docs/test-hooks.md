@@ -15,6 +15,7 @@ release quebra `scripts/check-release-clean.py`.
 | Hook | Handler gated | O que faz | Release |
 |---|---|---|---|
 | TEST_UP | main.rs D1 (`#[cfg(feature = "test-mode")]`) | 1 toque BOOT via software (latch 1x/1.5s) | linha ignorada |
+| TEST_DOWNLOAD | main.rs D1 (gated) + `aegis_reboot_to_download` (RTC_CNTL) | reboot p/ download ROM sem botões (nunca retorna) | linha ignorada |
 | TEST_PAIRING_OPEN | serial_ctaphid `dispatch_serial_pairing_line` (gated) | janela 60s software (UP/bond seguem) | `None` (ignorado) |
 | TEST_PAIRING_OPEN_300 | idem (variante 300s p/ teste) | janela 300s software | `None` |
 | TEST_LIFETIME_DUMP | lifetime_trace `dispatch_test_command` (gated) | dump ltrace (sem segredos) | `None` |
@@ -32,6 +33,7 @@ release quebra `scripts/check-release-clean.py`.
 | binding_bypass | `binding_bypass_enabled()` = `cfg!(test-mode)` | vendor CONFIG sem claim (UP+PIN seguem) | sempre `false` |
 | release_bypass | `dispatch_bind_release` + `cfg!(test-mode)` | RELEASE com só UP (wipe direto) | exige assinatura |
 | devkey_persist | `load_or_create_dev_keys` + `cfg!(test-mode)` | chave-dev em flash NVS (sem burn, persiste reboot) | efêmera por boot |
+| ota_test_key | `OTA_TEST_PUBKEY` + `cfg!(test-mode)` + bypass provisioned | e2e OTA com chave lab (privada fora do repo) | zeros fail-closed |
 
 ## Auditoria (como conferir)
 

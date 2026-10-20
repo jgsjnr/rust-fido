@@ -146,6 +146,24 @@ function Invoke-FirmwareTest {
     }
 }
 
+# 3b. Sincroniza componentes C locais (repo) para dentro do IDF.
+# O build ESP compila $IDF_PATH/components/aegis_* (copias!), nao o repo.
+# Sem isso, alteracao em components/*.c nunca embarca (ex.: fix GATT,
+# reboot_to_download). Repo e fonte da verdade; copia e descartavel.
+function Sync-IdfLocalComponents {
+    $idfComps = Join-Path $env:IDF_PATH "components"
+    if (-not (Test-Path $idfComps)) { return }
+    $srcRoot = Join-Path $global:RepoRoot "crates\aegis-fido-firmware\components"
+    foreach ($comp in @("aegis_usb", "aegis_ble", "aegis_wifi")) {
+        $src = Join-Path $srcRoot $comp
+        $dst = Join-Path $idfComps $comp
+        if ((Test-Path $src) -and (Test-Path $dst)) {
+            Copy-Item (Join-Path $src "*") $dst -Recurse -Force
+            Write-Info "Componente C sincronizado: $comp"
+        }
+    }
+}
+
 # 4. Cargo ESP Build Runner
 function Invoke-FirmwareBuild {
     param(
@@ -162,6 +180,10 @@ function Invoke-FirmwareBuild {
             Write-Info "Limpando diretorio de compilacao..."
             & cargo clean -p aegis-fido-firmware
         }
+
+        # O build ESP compila as COPIAS em $IDF_PATH/components (nao o repo!):
+        # sincroniza repo -> IDF antes de compilar, senao C novo nunca embarca.
+        Sync-IdfLocalComponents
 
         Write-Info "Iniciando compilacao Cargo:"
         Write-Host "  Target:  $Target" -ForegroundColor Gray

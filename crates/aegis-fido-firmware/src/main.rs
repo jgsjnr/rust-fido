@@ -52,6 +52,10 @@ extern "C" {
     fn aegis_usb_is_mounted() -> bool;
     fn aegis_usb_send_report(packet: *const u8, len: u16) -> bool;
     fn aegis_usb_pop_packet(out_buf: *mut u8, max_len: u16) -> u16;
+    // CI-GREP: TEST-HOOK (test-mode only; absent in release).
+    // Reboot p/ download ROM via RTC_CNTL (sem BOOT/DTR/RTS).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    fn aegis_reboot_to_download();
     // Serial CTAPHID (UART 115200, framing identical to USB). Classic reuses
     // the UART-backed aegis_usb_* symbols; S3/S2 use aegis_serial_* (UART0
     // diagnostic channel alongside native USB-OTG).
@@ -441,6 +445,41 @@ const FIRMWARE_VERSION: u32 = 1;
 /// key: `VerifyingKey::from_bytes` rejects it and every FINISH fails.
 #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
 const OTA_RELEASE_PUBKEY: [u8; 32] = [0u8; 32];
+
+/// CI-GREP: TEST-HOOK (test-mode only; absent in release). TEST-OTA-KEY.
+/// Chave Ed25519 de LABORATÓRIO p/ e2e OTA (privada fora do repo,
+/// `C:\t\ota_test_key.bin`; release usa zeros fail-closed).
+/// `check-release-clean.py` prova a ausência no artefato.
+#[cfg(all(
+    target_os = "espidf",
+    not(feature = "board-ttgo-classic"),
+    feature = "test-mode"
+))]
+const OTA_TEST_PUBKEY: [u8; 32] = [
+    0x65, 0x6f, 0x07, 0x2a, 0x6f, 0xfa, 0xc5, 0x02, 0xdf, 0xee, 0x5a, 0x28,
+    0x40, 0x12, 0x4c, 0x9a, 0xde, 0x27, 0x80, 0xdc, 0x15, 0x2b, 0xad, 0xc8,
+    0x98, 0xdf, 0x7e, 0x6b, 0x03, 0xf6, 0x7d, 0x82,
+];
+
+/// Chave OTA efetiva: teste em test-mode, release (zeros fail-closed).
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+fn ota_active_pubkey() -> [u8; 32] {
+    #[cfg(feature = "test-mode")]
+    {
+        OTA_TEST_PUBKEY
+    }
+    #[cfg(not(feature = "test-mode"))]
+    {
+        OTA_RELEASE_PUBKEY
+    }
+}
+
+/// Provisionado p/ OTA: eFuse válido, ou lab em test-mode (CI-GREP: TEST-HOOK).
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+fn ota_provisioned(efuse_mgr: &aegis_fido_firmware::efuse::EfuseManager<aegis_fido_firmware::efuse::RamEfuseStorage>) -> bool {
+    aegis_fido_firmware::provision::load_device_keys(efuse_mgr).is_ok()
+        || cfg!(feature = "test-mode")
+}
 
 fn run_authenticator() {
     kprintln!("\r\n============================================================");
@@ -1299,9 +1338,9 @@ fn run_authenticator() {
                                 };
                                 if let Some(op) = ota_op {
                                     let ota_ctx = OtaRequestCtx {
-                                        provisioned: load_device_keys(&efuse_mgr).is_ok(),
+                                        provisioned: ota_provisioned(&efuse_mgr),
                                         up: touch_latched,
-                                        ota_pubkey: OTA_RELEASE_PUBKEY,
+                                        ota_pubkey: ota_active_pubkey(),
                                         current_version: FIRMWARE_VERSION,
                                     };
                                     let mut ota_sink =
@@ -1691,6 +1730,14 @@ fn run_authenticator() {
                                 kprintln!("[TEST] UP via software (latch 1x).");
                                 let resp = "up_latched source=software\n";
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_DOWNLOAD" {
+                                // CI-GREP: TEST-HOOK (test-mode only).
+                                // Reboot p/ download ROM via RTC_CNTL
+                                // (dispensa BOOT/DTR/RTS). Nunca retorna.
+                                kprintln!("[TEST] download via software (RTC_CNTL).");
+                                let resp = "download_mode source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                                unsafe { aegis_reboot_to_download() };
                             } else if t == "TEST_LED_STATE" {
                                 let screen = match &display_mgr.current_screen {
                                     UiScreen::BootSplash { .. } => "BootSplash",
@@ -1971,6 +2018,75 @@ fn run_authenticator() {
                                             ) {
                                                 serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                             }
+                                        }
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && aegis_fido_firmware::persistence::is_ota_op(msg.payload[0])
+                                {
+                                    // F5: OTA over serial (mesmos gates do USB:
+                                    // provisionado-lab + UP só no COMMIT).
+                                    // Sem swap real (partição única): COMMIT
+                                    // grava só o marker NVS (zero risco brick).
+                                    #[cfg(all(
+                                        target_os = "espidf",
+                                        not(feature = "board-ttgo-classic")
+                                    ))]
+                                    {
+                                        use aegis_fido_firmware::persistence::{
+                                            dispatch_ota_request, FlashOtaSink,
+                                            OtaRequestCtx, OTA_STATUS_OK,
+                                        };
+                                        use aegis_fido_firmware::ota::OP_OTA_COMMIT;
+                                        let ota_ctx = OtaRequestCtx {
+                                            provisioned: ota_provisioned(&efuse_mgr),
+                                            up: touch_latched,
+                                            ota_pubkey: ota_active_pubkey(),
+                                            current_version: FIRMWARE_VERSION,
+                                        };
+                                        let mut ota_sink = FlashOtaSink::new(
+                                            storage.backend_mut(),
+                                        );
+                                        let op = msg.payload[0];
+                                        let (st, body) = match dispatch_ota_request(
+                                            &mut ota_state,
+                                            &mut ota_sink,
+                                            op,
+                                            &msg.payload[1..],
+                                            &ota_ctx,
+                                        ) {
+                                            Some((st, body)) => {
+                                                kprintln!(
+                                                    "[SERIAL][OTA] op 0x{:02X} (status 0x{:02X}).",
+                                                    op, st
+                                                );
+                                                (st, body)
+                                            }
+                                            None => (0x04, Vec::new()),
+                                        };
+                                        if st == OTA_STATUS_OK && op == OP_OTA_COMMIT {
+                                            touch_latched = false;
+                                            rescue_engine.set_user_presence(true);
+                                        }
+                                        let mut resp = Vec::with_capacity(1 + body.len());
+                                        resp.push(st);
+                                        resp.extend_from_slice(&body);
+                                        for p in CtapHidFramer::frame_message(
+                                            msg.cid, msg.cmd, &resp,
+                                        ) {
+                                            serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                    // Classic (sem OTA): nega genérico, nunca silencia.
+                                    #[cfg(not(all(
+                                        target_os = "espidf",
+                                        not(feature = "board-ttgo-classic")
+                                    )))]
+                                    {
+                                        for p in CtapHidFramer::frame_message(
+                                            msg.cid, msg.cmd, &[0x04],
+                                        ) {
+                                            serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                         }
                                     }
                                 } else if msg.cmd == CMD_MSG
