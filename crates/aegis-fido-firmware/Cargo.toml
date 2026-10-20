@@ -44,6 +44,9 @@ esp-idf-hal = { version = "0.45", default-features = false }
 [build-dependencies]
 embuild = { version = "0.33", features = ["espidf"] }
 
+[dev-dependencies]
+rand = "0.8"
+
 [package.metadata.esp-idf-sys]
 esp_idf_component_manager = false
 extra_components = [

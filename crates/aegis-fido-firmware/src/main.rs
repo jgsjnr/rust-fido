@@ -14,6 +14,7 @@ use aegis_fido_core::ctap::CTAP_CMD_RESET;
 use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
 use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::otp::rescue::{RescueEngine, RESCUE_TRANSPORT_OP};
+use aegis_fido_core::wallet::WalletStore;
 #[cfg(target_os = "espidf")]
 use aegis_fido_firmware::led::LedEffect;
 #[cfg(all(feature = "debug-terminal", target_os = "espidf"))]
@@ -201,10 +202,12 @@ fn ble_dispatch_complete(
     binding_mgr: &mut aegis_fido_firmware::binding::BindingManager,
     storage: &mut SecureStorage<RamFlashBackend>,
     rescue: &mut RescueEngine,
+    wallet: &mut WalletStore,
 ) {
     use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use aegis_fido_firmware::ble_gatt as g;
     use aegis_fido_firmware::ble_nimble as ble;
+    use aegis_fido_firmware::wallet_exec as w;
 
     let op = msg.opcode;
     let p = &msg.payload;
@@ -337,15 +340,21 @@ fn ble_dispatch_complete(
             }
         }
         o if g::is_wallet_op(o) => {
-            // Carteira Fase7 (R-07): binding + UP, sem PIN; executor
-            // on-device (WalletStore + NVS) = follow-up, mesmo padrão §9.4.
+            // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
+            // verdade no WalletStore de sessão (chaves TRNG no device).
             match g::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
                 Ok(()) => {
-                    kprintln!(
-                        "[BLE] op wallet 0x{:02X} com gate ok (executor = follow-up)",
-                        o
-                    );
-                    ble::notify_frame(o, 0x04, &[])
+                    let mut rng = rand_core::OsRng;
+                    let (st, body) = match o {
+                        g::OP_WALLET_GEN => {
+                            w::wallet_gen(wallet, p, now_secs, true, &mut rng)
+                        }
+                        g::OP_WALLET_LIST => w::wallet_list(wallet, true),
+                        g::OP_WALLET_ADDR => w::wallet_addr(wallet, p, true),
+                        _ => (0x04, Vec::new()),
+                    };
+                    kprintln!("[BLE] op wallet 0x{:02X} executada (status 0x{:02X}).", o, st);
+                    ble::notify_frame(o, st, &body)
                 }
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
             }
@@ -558,6 +567,8 @@ fn run_authenticator() {
     let _ = &ctaphid_mgr;
     let mut rescue_engine = RescueEngine::new();
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
+    // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
+    let mut wallet_store = WalletStore::new();
 
     kprintln!("============================================================");
     kprintln!("   AegisKey S3 Authenticator ONLINE & ACTIVE!");
@@ -910,6 +921,7 @@ fn run_authenticator() {
                             &mut binding_mgr,
                             &mut storage,
                             &mut rescue_engine,
+                            &mut wallet_store,
                         );
                     }
                     Ok(None) => {
@@ -1461,7 +1473,8 @@ fn run_authenticator() {
         // helpers (same binding -> UP -> PIN gates), status-first answer.
         #[cfg(target_os = "espidf")]
         if serial_installed {
-            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op, is_wallet_op};
+            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op, is_wallet_op,
+                OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use aegis_fido_firmware::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt,
                 dispatch_serial_rescue, dispatch_serial_vendor, dispatch_serial_wallet,
@@ -1698,11 +1711,28 @@ fn run_authenticator() {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
                                             let (st, body) = if is_wallet_op(op) {
-                                                dispatch_serial_wallet(
-                                                    op,
-                                                    binding_mgr.is_claimed(),
-                                                    true,
-                                                )
+                                                // Carteira Fase7: executa de verdade
+                                                // (gate pairing+UP já passou acima).
+                                                let mut rng = rand_core::OsRng;
+                                                use aegis_fido_firmware::wallet_exec as w;
+                                                match op {
+                                                    OP_WALLET_GEN => w::wallet_gen(
+                                                        &mut wallet_store,
+                                                        &msg.payload[1..],
+                                                        now_secs,
+                                                        true,
+                                                        &mut rng,
+                                                    ),
+                                                    OP_WALLET_LIST => {
+                                                        w::wallet_list(&wallet_store, true)
+                                                    }
+                                                    OP_WALLET_ADDR => w::wallet_addr(
+                                                        &wallet_store,
+                                                        &msg.payload[1..],
+                                                        true,
+                                                    ),
+                                                    _ => (0x04, Vec::new()),
+                                                }
                                             } else {
                                                 dispatch_serial_vendor(
                                                     op,

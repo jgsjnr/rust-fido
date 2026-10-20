@@ -59,12 +59,11 @@ Fecha `validacao-usb-telas`.
 
 ## Fase 2 — código
 
-### 9. Transporte BLE da carteira [A, design primeiro]
-Firmware hoje não instancia `WalletStore` (só core). Proposta:
-instanciar + NVS (usar o codec `export/import_routing` já pronto) +
-ops GATT novas em faixa livre (0x28–0x2D e 0x30+ ocupados; propor
-0x34+), sem tocar AEGN/CBOR/GATT 0x01. Critério: GEN/LIST carteira via
-BLE + NVS sobrevive reboot + app lista endereço. Testes host + serial.
+### 9. Transporte BLE da carteira [A, feito 20/10]
+`wallet_exec.rs` + `WalletStore` de sessão + dispatch BLE/serial com
+gates; tags `0x07/0x08`; testes host (roundtrip + fail-closed); sonda
+viva nega `0x05` sem pareamento. UP positivo (GEN/LIST/ADDR com UP) fica
+p/ usuário com device. NVS (codec pronto) = follow-up.
 
 ### 10. Firmware-fina resto [A]
 Decidir com medida (não por palpite): reassemble GATT (congelar —

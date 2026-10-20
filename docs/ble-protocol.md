@@ -115,6 +115,12 @@ GATT/revisão/framing intactos; executor on-device (`WalletStore` + NVS)
 | `0x36` | `WALLET_LIST` | binding + UP |
 | `0x37` | `WALLET_ADDR` | binding + UP |
 
+Executor on-device (`wallet_exec.rs` + `WalletStore` de sessão):
+GEN `[slot,label,net0x08]` → `[slot,label,address0x07]`, LIST `[]` →
+repetição, ADDR `[slot]` → `[address0x07]`. Tags `0x07/0x08` ignorados
+por decoders antigos (§9.6). Sessão de boot (NVS = follow-up com o
+codec `export/import_routing`). Na serial exige pareamento + UP.
+
 Request wire: `[op:1, len_hi:1, len_lo:1, TLV...]` fragmentado per §3.
 Response wire: `[op:1, status:1, TLV...]` (status §9.5), fragmentado igual.
 

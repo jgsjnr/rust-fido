@@ -38,6 +38,7 @@ pub mod wifi_ap;
 pub mod wifi_station;
 pub mod usb_descriptors;
 pub mod vault_store;
+pub mod wallet_exec;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
 pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
