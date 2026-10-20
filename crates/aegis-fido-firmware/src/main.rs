@@ -1733,6 +1733,13 @@ fn run_authenticator() {
                     aegis_ccid_pop_frame(frame.as_mut_ptr(), CCID_FRAME_MAX as u16)
                 };
                 if n >= 10 {
+                    // DIAG TEMPORÁRIO (F4): despeja frame/RPDU p/ depurar o UsbCcids.
+                    kprintln!(
+                        "[CCID] rx tipo=0x{:02X} len={} apdu={:02X?}",
+                        frame[0],
+                        n,
+                        &frame[10..n as usize]
+                    );
                     if let Some(rpdu) =
                         aegis_fido_firmware::ccid_dispatch::process_ccid_frame(
                             &mut ccid_transport,
@@ -1742,6 +1749,14 @@ fn run_authenticator() {
                             now_secs,
                         )
                     {
+                        if rpdu.len() >= 12 {
+                            kprintln!(
+                                "[CCID] tx len={} sw={:02X}{:02X}",
+                                rpdu.len(),
+                                rpdu[rpdu.len() - 2],
+                                rpdu[rpdu.len() - 1]
+                            );
+                        }
                         if !unsafe { aegis_ccid_send(rpdu.as_ptr(), rpdu.len() as u16) } {
                             kprintln!("[CCID] bulk-IN send falhou ({} B).", rpdu.len());
                         }
