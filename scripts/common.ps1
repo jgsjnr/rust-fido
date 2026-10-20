@@ -162,6 +162,34 @@ function Sync-IdfLocalComponents {
             Write-Info "Componente C sincronizado: $comp"
         }
     }
+    Clear-StaleIdfSysBuild -SrcRoot $srcRoot
+}
+
+# 3c. Invalida build C obsoleto (licao F5/D08 20/10).
+# O cargo NAO re-executa o build-script do esp-idf-sys ao mudar .c: o ninja
+# para no tempo e o link usa .a velho (`undefined reference` fantasma SÓ no
+# símbolo novo). `cargo clean -p` não adianta (objetos C moram no pacote
+# esp-idf-sys, separado). Se algum fonte C é mais novo que os outputs,
+# apaga os build dirs do esp-idf-sys (fingerprint + out) p/ forçar
+# reconfigure total no próximo build.
+function Clear-StaleIdfSysBuild {
+    param([string]$SrcRoot)
+    $newestSrc = Get-ChildItem $SrcRoot -Recurse -File -Include @("*.c", "*.h", "*.txt") |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $newestSrc) { return }
+    $roots = @($global:TargetDir, (Join-Path $global:RepoRoot "target")) | Where-Object { Test-Path $_ }
+    foreach ($root in $roots) {
+        foreach ($triple in Get-ChildItem $root -Directory -Filter "xtensa-*-espidf" -ErrorAction SilentlyContinue) {
+            foreach ($sysdir in Get-ChildItem (Join-Path $triple.FullName "release\build") -Directory -Filter "esp-idf-sys-*" -ErrorAction SilentlyContinue) {
+                $newestOut = Get-ChildItem $sysdir.FullName -Recurse -File -Include @("*.a", "*.obj") -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                if ((-not $newestOut) -or ($newestSrc.LastWriteTime -gt $newestOut.LastWriteTime)) {
+                    Remove-Item -Recurse -Force $sysdir.FullName
+                    Write-Warn ("Build C invalidado (fonte {0} mais novo que output): {1}" -f $newestSrc.Name, $sysdir.Name)
+                }
+            }
+        }
+    }
 }
 
 # 4. Cargo ESP Build Runner
