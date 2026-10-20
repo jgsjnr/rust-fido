@@ -48,3 +48,16 @@ python tools/led_probe.py
 Comandos manuais: `TEST_LED_STATE`, `TEST_LED_{RED,GREEN,BLUE,OFF}`,
 `TEST_LED_RELEASE` (linhas ASCII via UART, test-mode only, sem
 persistência, sem wipe).
+
+## Achado 20/10 — driver endurecido (idle alternando azul/verde)
+
+Olhos do usuário: idle alterna azul/verde separados (não ciano fundido)
+= anomalia real de render. Causa raiz em duas camadas:
+1. Timings na borda inferior da spec (T0H~200ns/T1H~550ns): qualquer
+   jitter (ISR UART/systick, flash cache) virava bit → cor errada.
+   Fix: centro da spec (T0H 400ns / T1H 800ns / período 1400ns).
+2. Flicker correlacionado com tráfego UART confirma preempção por ISR
+   no trem de 30 µs. Tentativa de `xt_ints_off/on` **brickou o boot
+   (loop WDT, 7 resets/15s, morre no splash)** — revertida; sem trava
+   de IRQ nos bindings (só `vPortExitCritical` existe, par assimétrico).
+A validar: idle deve voltar a ciano fundido; `led_probe.py` nas primárias.

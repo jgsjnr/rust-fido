@@ -422,7 +422,20 @@ static int ensure_init(void)
 
     ble_store_config_init();
 
-    int rc = ble_gatts_count_cfg(s_svcs);
+    /* Serviços padrão GAP (0x1800) + GATT (0x1801, Service Changed): sem
+     * eles o banco ATT anuncia zero serviços e o Windows enumera vazio. */
+    int rc = ble_svc_gap_init();
+    if (rc != 0) {
+        ESP_LOGE(TAG, "svc_gap_init rc=%d", rc);
+        return -6;
+    }
+    rc = ble_svc_gatt_init();
+    if (rc != 0) {
+        ESP_LOGE(TAG, "svc_gatt_init rc=%d", rc);
+        return -7;
+    }
+
+    rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_count rc=%d", rc);
         return -3;
@@ -431,6 +444,12 @@ static int ensure_init(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_add rc=%d", rc);
         return -4;
+    }
+    /* Publica o banco ATT: sem start, centrals descobrem zero serviços. */
+    rc = ble_gatts_start();
+    if (rc != 0) {
+        ESP_LOGE(TAG, "gatts_start rc=%d", rc);
+        return -8;
     }
     rc = ble_svc_gap_device_name_set(AEGIS_BLE_NAME);
     if (rc != 0) {

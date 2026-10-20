@@ -257,7 +257,7 @@ impl LedOutput for EspWs2812Output {
         #[cfg(target_os = "espidf")]
         unsafe {
             let grb = color.to_grb_bytes();
-            
+
             // GPIO 48 register addresses on ESP32-S3 (bank 1, bit 16):
             const GPIO_OUT1_W1TS: *mut u32 = 0x6000_4014 as *mut u32;
             const GPIO_OUT1_W1TC: *mut u32 = 0x6000_4018 as *mut u32;
@@ -266,16 +266,20 @@ impl LedOutput for EspWs2812Output {
             let freq_mhz: u32 = esp_idf_sys::esp_rom_get_cpu_ticks_per_us();
             let freq_mhz: u32 = if freq_mhz > 0 { freq_mhz } else { 160 };
 
-            // Calibrated WS2812 cycle counts for ESP32-S3:
-            // Register writes over the APB bus to GPIO_OUT1_W1TS take ~25-28 CPU cycles.
-            // Bit 0: Target wire HIGH = ~350ns (56 cycles @ 160MHz).
-            //        Subtracting 28 cycles overhead -> delay = 28 cycles (~175ns).
-            // Bit 1: Target wire HIGH = ~700ns (112 cycles @ 160MHz).
-            //        Subtracting 28 cycles overhead -> delay = 84 cycles (~525ns).
-            let t0h_cycles: u32 = (175 * freq_mhz) / 1000;
-            let t0_tot_cycles: u32 = (1200 * freq_mhz) / 1000;
-            let t1h_cycles: u32 = (525 * freq_mhz) / 1000;
-            let t1_tot_cycles: u32 = (1250 * freq_mhz) / 1000;
+            // Calibrated WS2812 cycle counts for ESP32-S3, CENTERED in the
+            // datasheet window (T0H 200-500ns, T1H 550-850ns, period ~1250ns+):
+            // old code aimed at the bottom edge (T0H~200ns/T1H~550ns), so any
+            // jitter (ISR, flash cache) flipped bits and colors flickered.
+            // Register writes over the APB bus to GPIO_OUT1_W1TS take ~25-28
+            // CPU cycles, discounted from the HIGH phase.
+            // Bit 0: HIGH 400ns total. Bit 1: HIGH 800ns total. Period 1400ns.
+            const WRITE_OVERHEAD_CYCLES: u32 = 28;
+            let t0h_cycles: u32 =
+                (400 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
+            let t0_tot_cycles: u32 = 1400 * freq_mhz / 1000;
+            let t1h_cycles: u32 =
+                (800 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
+            let t1_tot_cycles: u32 = 1400 * freq_mhz / 1000;
 
             #[inline(always)]
             unsafe fn get_ccount() -> u32 {
@@ -290,7 +294,10 @@ impl LedOutput for EspWs2812Output {
                 }
             }
 
-            // Suspend FreeRTOS task switching during the 30us pulse train
+            // Suspend FreeRTOS task switching during the pulse train (~34us).
+            // NOTE: xt_ints_off/on bricked the boot (WDT loop) on this IDF
+            // revision, so no CPU-interrupt mask here: centered timings
+            // (T0H 400ns / T1H 800ns) give enough margin for short ISRs.
             esp_idf_sys::vTaskSuspendAll();
 
             for &byte in &grb {
