@@ -27,13 +27,16 @@ diferente do esperado (analisar, pode ser bug ou expectativa errada) ·
 | T04 | Ler log da firmware | MSG 0x38 | 0x00 + `EV=` | PASS |
 | T05 | Listar chaves SEM tocar (gate deve barrar) | MSG 0x22 | 0x01 NEED_UP | PASS |
 | T06 | Criar carteira SEM UP/janela (pairing barra) | MSG 0x35 | 0x05 NEED_BINDING | PASS |
-| T06b | Criar carteira COM UP sem janela (pairing barra) | MSG 0x35 | 0x05 NEED_BINDING | DIVERGENTE |
+| T06b | Criar carteira COM UP sem janela (pairing barra) | MSG 0x35 | 0x05 NEED_BINDING | PASS* |
 | T07 | Rescue lixo sem magic (INVALID_MAGIC) | MSG 0x2E | 0x01 | PASS |
-| T07b | Rescue lixo COM UP (mesmo 0x01, magic manda) | MSG 0x2E | 0x01 | DIVERGENTE |
+| T07b | Rescue lixo COM UP (mesmo 0x01, magic manda) | MSG 0x2E | 0x01 | PASS |
 | T07c | Killswitch frame válido sem UP/PIN (nega, sem wipe) | MSG 0x2E | 0x04 | PASS |
 | T08 | OTA-BEGIN sem janela (deve negar) | MSG 0x30 | ≠0x00 (anotar) | PASS |
 | T09 | Ver tentativas de PIN (leitura, CBOR `a201010201`) | PIN getRetries | 0x00 | PASS |
-| T10 | Pedir challenge sem posse (deve negar) | MSG 0x29 | ≠0x00 (anotar) | PASS |
+| T10 | Pedir challenge (nega sem posse; 32B se claimed) | MSG 0x29 | adaptativo (anotar) | PASS |
+
+\* T06b determinístico em `all-safe` (base roda com janela fechada);
+em `--only` isolado pode pegar janela residual (ver bugs).
 
 ### Com janela + UP (TEST_PAIRING_OPEN + TEST_UP) — `phase=pairing`
 
@@ -41,23 +44,23 @@ diferente do esperado (analisar, pode ser bug ou expectativa errada) ·
 |---|---|---|---|---|
 | T11 | Abrir janela por software (diag) | TEST_PAIRING_OPEN | `pairing_open` | PASS |
 | T12 | Abrir janela produto 0x2F (sem test-mode) | MSG 0x2F | 0x00 | PASS |
-| T13 | Criar chave chamada "e2e-t1" | MSG 0x20 s90 | 0x04 (gate-ok, executor=follow-up — confirmar) | PASS |
-| T14 | Listar chaves | MSG 0x22 | 0x04 vazio (sem executor — confirmar) | PASS |
-| T15 | Guardar segredo OATH "e2e@test" | MSG 0x24 | 0x04 (sem executor — confirmar) | DIVERGENTE |
-| T16 | Ver código OATH atual | MSG 0x26 | 0x04 (sem executor — confirmar) | PASS |
-| T17 | Criar credencial WebAuthn (rp "e2e") | MC 0x01 + UP | 0x00 + attestation | DIVERGENTE |
-| T18 | Entrar com a credencial (assertion) | GA 0x02 + UP | 0x00 + assertion | DIVERGENTE |
-| T19 | Criar carteira BTC (slot 6) | MSG 0x35 | 0x00 + endereço | DIVERGENTE |
-| T20 | Listar carteiras (tem a 6?) | MSG 0x36 | contém slot 6 | DIVERGENTE |
-| T21 | Ver endereço da 6 (bate com T19?) | MSG 0x37 s6 | igual T19 | DIVERGENTE |
+| T13 | Criar chave chamada "e2e-t1" | MSG 0x20 s5 | 0x04 (gate-ok, executor=follow-up) | PASS |
+| T14 | Listar chaves | MSG 0x22 | 0x04 vazio (sem executor) | PASS |
+| T15 | PUT sem PIN pede PIN (plumbing gap) | MSG 0x24 | 0x02 NEED_PIN | PASS |
+| T16 | Ver código OATH atual | MSG 0x26 | 0x04 (sem executor) | PASS |
+| T17 | Criar credencial WebAuthn (rp "e2e") | MC 0x01 + UP | 0x00 + attestation 742B | PASS |
+| T18 | Entrar com a credencial (assertion) | GA 0x02 + UP | 0x00 + assertion 170B | PASS |
+| T19 | Criar carteira BTC (slot rotativo) | MSG 0x35 | 0x00 + endereço `bc1q...` | PASS |
+| T20 | Listar carteiras (tem a criada?) | MSG 0x36 | contém slot | PASS |
+| T21 | Ver endereço (bate com T19?) | MSG 0x37 | igual T19 | PASS |
 | T22 | Criar carteira rede inexistente | MSG 0x35 rede 0x09 | 0x04 BadEnvelope | PASS |
 
 ### Destrutivos/mudam estado — só com `--confirm` (`phase=destructive`)
 
 | ID | Funcionalidade | Op | Esperado | Status |
 |---|---|---|---|---|
-| D01 | Apagar chave (UP+PIN; plumbing gap → 0x02) | MSG 0x23 s5 | 0x02 NEED_PIN | DIVERGENTE |
-| D02 | Apagar OATH (UP+PIN; plumbing gap → 0x02) | MSG 0x27 | 0x02 NEED_PIN | DIVERGENTE |
+| D01 | Apagar chave (UP+PIN; plumbing gap → 0x02) | MSG 0x23 s5 | 0x02 NEED_PIN | PASS |
+| D02 | Apagar OATH (UP+PIN; plumbing gap → 0x02) | MSG 0x27 | 0x02 NEED_PIN | PASS |
 | D03 | Definir PIN "1234" (muda o device!) | setPIN cripto real | 0x00 (0x33 se já tem) | PASS |
 | D03b | Sessão PIN viva (getPinToken) | token | 0x00 + token oculto | PASS |
 | D04a/b | Trocar PIN 1234→5678→1234 | changePIN | 0x00/0x00 | PASS |
