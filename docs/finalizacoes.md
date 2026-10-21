@@ -116,3 +116,44 @@ logs de debug CCID removidos; achada e corrigida a causa raiz do "serial 0001"
   serial 0002 (fio), fob MAC real (build), all-safe 25/25, gates host verdes.
 - Parado (depende de você): bond app -> scan aéreo -> lock real; WUDF Windows;
   F6; H1-H7/APK/hold.
+
+## ANEXO — Tudo que foi implantado (consolidado 21/10)
+
+### Firmware (crates/aegis-fido-firmware)
+- components/aegis_usb/ccid_device.c: driver CCID (bulk+notify, reassembly, stall
+  class-specific), NotifySlotChange em PowerOn/Off, logs debug removidos (só ESP_LOGW).
+- components/aegis_usb/aegis_usb.c: descritor composto HID+CCID (funcional 54B exato,
+  dwFeatures APDU 0xC0000, clock 3600/rate 10416), serial AEGIS-S3-0002, reconnect SW.
+- components/aegis_ble/aegis_ble_nimble.c: preinit, BleStartGate, aegis_ble_own_addr,
+  proximity_start fail-closed.
+- src/ccid_dispatch.rs: dono do transporte + fallback error_response (novo).
+- src/main.rs: transporte persistente, op 0x39, TEST_USB_RECONNECT, beacon tick,
+  sem [CCID] debug.
+- src/proximity.rs: ProximityMonitor/Beacon/Verifier, K_prox NVS prox_k, fob MAC real.
+- src/ble_nimble.rs: own_addr() FFI, adv 0xFFFE 30B.
+- src/vendor_exec.rs: braço 0x39 (enroll PIN/PUK). src/piv (usb): FF-padded verify/change.
+
+### App Android
+- PivScreen.kt (rota piv, enroll PIN/PUK), VendorOps 0x39, contrato BLE, botão na UI.
+
+### Ferramentas (tools/ + C:\t)
+- raw_transmit.py (SCardTransmit cru), need_hands.py, piv_enroll_live.py, e2e --phase bench,
+  flash_soft.py (download SW), ble_scan.py, ccid_xfr2.py (pyusb), pcap_scan/hdr/dev/align.py,
+  cap_all_hubs.ps1, usb_reconnect.py, plist_check/add.py. scripts: build-diag, flash-diag,
+  common.ps1 (sync C + Clear-StaleIdfSysBuild), elf2image sempre do ELF do dia.
+
+### Docs
+- sessao-20-10-f4-ccid-opensc.md, finalizacoes.md (este), plano-followups.md (F4),
+  teste-ponta-a-ponta.md (diário), ble-protocol.md §12 (0x38/0x39) + §13 (proximity),
+  piv-ble-proximity.md, proximity-worktree-handoff.md, READMEs dos agents.
+
+### Infra de prova
+- usbipd-win (bind --force) + Debian WSL2 + pcscd/libccid/opensc (VID:PID no plist).
+
+### Commits (fd/finalizacao-linux)
+c20bce4 loop (prox+FF+limpeza), a0dbeac bateria, 97cca8b fechamento; base: d5d597b,
+73076ea, 47b173b + série F4 (driver/ATR/descritor/notify) e D08 6/6.
+
+### Validações finais na placa
+bench 5/5, base 9/11 (flakes T06/T06b), all-safe 25/25, host 464 + clippy zero,
+proximity 3 OS ok, OpenSC E2E 9000 x4, VERIFY padded 9000 (retries 3), UART limpa.
