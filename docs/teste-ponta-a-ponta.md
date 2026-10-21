@@ -663,3 +663,48 @@ OTA-COMMIT, eFuse.
 - [TODO] Pendente: prova fim-a-fim `opensc-tool -l` + VERIFY + GEN/AUTH;
   remover logs de debug temporários do driver C e do poll (`[CCID] rx/tx`);
   merge p/ main (F6).
+
+### 20/10 23:00 — phase=bench
+- [PASS] B01 PING [21ms] — eco
+- [PASS] B02 GetInfo [67ms] — 480B
+- [PASS] B02b janela pareamento — aberta
+- [PASS] B03 MC [1052ms] — 743B
+- [PASS] B04 GA [1119ms] — 171B
+
+### 20/10 23:00 — phase=base
+- [PASS] T01 INIT aloca CID — cid=0x00010201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=3
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [DIVERGENTE] T06 WALLET_GEN sem UP/janela barra — recebido=0x01 (0x01=janela residual aberta)
+- [DIVERGENTE] T06b WALLET_GEN com UP sem janela barra — recebido=0x04 esperado=0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x04 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+
+### 21/10 — F4 USB-CCID: USBPcap prova Transmit morre no WUDF, device inocentado (ABERTO)
+- Captura USBPcap (admin, 3 hubs em paralelo, `C:\t\ccid-hub1.pcap` =
+  hub certo, 420 pacotes) durante `python tools/raw_transmit.py`
+  (falhou 0x45D/0x54F): ZERO pacotes contêm o APDU SELECT-PIV ou
+  header XFR 0x6F no hub inteiro — prova definitiva de que o Transmit
+  morre no WUDF sem emitir URB.
+- Decodificação dos 22 pacotes do device (bus 1, addr 23), handshake
+  100% textbook: PowerOff 0x63 → SlotStatus 0x81 status 0x00;
+  PowerOn 0x62 → DataBlock 0x80 len 13 com ATR uTrust
+  `3b:96:11:81:21:75:75:54:72:75:73:74:73`; SetParameters 0x61 T=1 →
+  Parameters 0x82 ecoando `11:10:00:75:00:20:00`;
+  SetDataRateAndClock 0x73 (clock 3600/rate 10416, valores dos defaults
+  do nosso descritor) → 0x84 eco com status 0x00. Seqs 6→9 conferem,
+  todos status 0x00. Depois do 0x84 o driver nunca envia o XFR 0x6F.
+- Tentativas host-side (admin) SEM efeito: removidos 4 phantoms AE61
+  `pnputil /remove-device`, `TEST_USB_RECONNECT` por software via COM7,
+  rebind do driver vivo (`/remove-device` no MI_01 + `/scan-devices`) —
+  Transmit segue 0x45D/0x54F.
+- Conclusão: lado device 100% inocentado no fio; recusa é software no
+  WUDF/UsbCcids acima do USB. Próximos discriminadores: outra porta USB
+  (USB2 vs USB3) ou 2º PC limpo.
+- Scripts de análise fora do repo em `C:\t\`: `pcap_scan.py`,
+  `pcap_hdr.py`, `pcap_dev.py`, `pcap_align.py`, `cap_all_hubs.ps1`,
+  `usb_reconnect.py`.
