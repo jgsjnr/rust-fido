@@ -21,7 +21,7 @@ pub const USB_BCD_USB: u16 = 0x0210; // USB 2.10 (BOS Descriptor support)
 
 pub const MANUFACTURER_STRING: &str = "Aegis Security";
 pub const PRODUCT_STRING: &str = "AegisKey S3 Authenticator";
-pub const SERIAL_NUMBER_STRING: &str = "AEGIS-S3-0001";
+pub const SERIAL_NUMBER_STRING: &str = "AEGIS-S3-0002"; // bump p/ re-enumeracao limpa (descritor CCID refeito)
 pub const CTAPHID_INTERFACE_STRING: &str = "AegisKey FIDO2 / CTAPHID";
 pub const CCID_INTERFACE_STRING: &str = "AegisKey CCID SmartCard";
 pub const KEYBOARD_INTERFACE_STRING: &str = "AegisKey OTP Keyboard";

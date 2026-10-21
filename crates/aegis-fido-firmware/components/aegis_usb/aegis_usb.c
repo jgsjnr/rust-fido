@@ -117,7 +117,7 @@ static const char *string_desc_arr[] = {
     (const char[]) { 0x09, 0x04 }, // 0: Supported language: English (0x0409)
     "Aegis Security",              // 1: Manufacturer
     "AegisKey S3 Authenticator",   // 2: Product
-    "AEGIS-S3-0001",               // 3: Serial
+    "AEGIS-S3-0002",               // 3: Serial
 };
 
 // ----------------------------------------------------------------------------
