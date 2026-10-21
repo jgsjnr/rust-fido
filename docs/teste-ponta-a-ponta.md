@@ -708,3 +708,16 @@ OTA-COMMIT, eFuse.
 - Scripts de análise fora do repo em `C:\t\`: `pcap_scan.py`,
   `pcap_hdr.py`, `pcap_dev.py`, `pcap_align.py`, `cap_all_hubs.ps1`,
   `usb_reconnect.py`.
+
+### 21/10 (noite) - F4 PROVADO fim-a-fim via Linux/WSL (device inocentado; WUDF local condenado)
+Debian WSL2 + usbipd (bind --force: filtro USBPcap incompatível; unbind no fim p/ devolver ao Windows).
+pcscd+libccid+opensc no Debian; VID:PID 303A:AE61 registrado em /etc/libccid_Info.plist (genérico não casa).
+Prova via stack OpenSC real: opensc-tool -l lista 'AegisKey S3 Authenticator' Card Yes; ATR uTrust
+3b:96:11:81:21:75:75:54:72:75:73:74:73; SELECT PIV 9000; VERIFY 9000; GENERATE 9A P-256 9000;
+GENERAL AUTHENTICATE sign 9000 (7C 42 82 40 + 64B sig). XFR direto via pyusb também 9000.
+Detalhes: VERIFY com PIN FF-padded (8B, padrão PIV) dá 63C2 - applet compara hash cru 6-8B; VERIFY certo é
+Lc=06 cru ('123456') e exige SELECT na mesma sessão (senão 6985). Resta 2 retries do PIN (1 tentativa errada
+consumida no teste); PUK intacto. Windows desta máquina segue recusando XFR (0x45D, zero URB no USBPcap).
+Achados p/ pré-F6: (a) serial no fio = AEGIS-S3-0001, Rust diz 0002 (lado C não bumpado?) - unificar;
+(b) frame curto (PowerOn 9B/XFR 17B) gera SlotStatus err + 'bogus dwLength, resetting' com self-heal ok;
+(c) PIN FF-padded do driver PIV real do OpenSC não casa - normalizar strip-FF no applet (follow-up).

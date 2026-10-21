@@ -74,7 +74,7 @@ captura UART com log de cada transferência USB, IN e OUT com completion).
 NotifySlotChange implementado (`50 03` PowerOn / `50 02` PowerOff) e
 testado: sem efeito. USB inocentado em todos os níveis; falha é dentro do
 WUDF/UsbCcids antes de emitir o URB. Falta: USBPcap (admin) ou 2º PC.
-**Estado 21/10 (NÃO resolvido; device 100% inocentado no fio)**:
+**Estado 21/10 (F4 PROVADO no Linux; WUDF desta máquina condenado)**:
 captura USBPcap (admin, 3 hubs em paralelo, `C:\t\ccid-hub1.pcap` =
 hub certo, 420 pacotes) durante `python tools/raw_transmit.py`
 (falhou 0x45D/0x54F): ZERO pacotes contêm o APDU SELECT-PIV ou
