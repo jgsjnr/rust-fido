@@ -383,10 +383,8 @@ impl CcidTransport {
             PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
 
             PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
-                // v1: sem negociação real; ecoa os parâmetros T=1 default
-                // para o host não travar no caminho feliz (OpenSC/libccid
-                // mandam `0x61` explícito após PowerOn).
-                Ok(Self::parameters_response(slot, seq))
+                // Ecoa os parâmetros pedidos (v1 aceita tudo).
+                Ok(Self::parameters_response_with(slot, seq, payload))
             }
 
             PC_TO_RDR_SET_DATA_RATE_AND_CLOCK => {
@@ -517,7 +515,8 @@ impl CcidTransport {
             PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
 
             PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
-                Ok(Self::parameters_response(slot, seq))
+                // Ecoa os parâmetros pedidos (v1 aceita tudo).
+                Ok(Self::parameters_response_with(slot, seq, payload))
             }
 
             PC_TO_RDR_SET_DATA_RATE_AND_CLOCK => {
@@ -675,6 +674,12 @@ impl CcidTransport {
     /// Bloco `RDR_to_PC_Parameters` (T=1 default), servido no GET e ecoado
     /// no SET/RESET (sem negociação real no v1).
     fn parameters_response(slot: u8, seq: u8) -> Vec<u8> {
+        Self::parameters_response_with(slot, seq, &[0x11, 0x10, 0x00, 0x4D, 0x00, 0x20, 0x00])
+    }
+
+    /// Variante que ecoa os 7 bytes de parâmetros do host (SET/RESET).
+    /// Eco fixo quebrava quando o host variava BWI/CWI (0x75 vs 0x4D).
+    fn parameters_response_with(slot: u8, seq: u8, params: &[u8]) -> Vec<u8> {
         let mut resp = vec![0u8; 17];
         resp[0] = RDR_TO_PC_PARAMETERS;
         resp[1..5].copy_from_slice(&7u32.to_le_bytes()); // Length 7
@@ -683,13 +688,8 @@ impl CcidTransport {
         resp[7] = 0; // bStatus
         resp[8] = 0; // bError
         resp[9] = 1; // Protocol: T=1
-        resp[10] = 0x11; // Fi/Di
-        resp[11] = 0x10; // TCCKS
-        resp[12] = 0x00; // GuardTime
-        resp[13] = 0x4D; // BWI / CWI
-        resp[14] = 0x00; // ClockStop
-        resp[15] = 0x20; // IFSC (32 bytes)
-        resp[16] = 0x00; // NAD
+        let take = params.len().min(7);
+        resp[10..10 + take].copy_from_slice(&params[..take]);
         resp
     }
 }
