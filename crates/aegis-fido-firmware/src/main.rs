@@ -334,7 +334,15 @@ fn ble_dispatch_complete(
                     &ph,
                     up,
                 ) {
-                    Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                    Ok(()) => {
+                        // Wave2 proximidade: release revoga o K_prox
+                        // (fail-closed; o loop limpa o cache RAM ao ver a NVS
+                        // vazia). Nunca auto-unlock.
+                        #[cfg(feature = "proximity")]
+                        let _ =
+                            aegis_fido_firmware::proximity::delete_proximity_key(storage);
+                        ble::notify_frame(op, 0x00, &[])
+                    }
                     Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
                 }
             }
@@ -350,7 +358,15 @@ fn ble_dispatch_complete(
         },
         g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(p) {
             Ok(pin) => match g::dispatch_recovery_unlock(storage, binding_mgr, pin, up) {
-                Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                Ok(()) => {
+                    // Wave2 proximidade: recovery revoga o K_prox
+                    // (fail-closed; o loop limpa o cache RAM ao ver a NVS
+                    // vazia). Nunca auto-unlock.
+                    #[cfg(feature = "proximity")]
+                    let _ =
+                        aegis_fido_firmware::proximity::delete_proximity_key(storage);
+                    ble::notify_frame(op, 0x00, &[])
+                }
                 Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
             },
             Err(_) => {
@@ -733,6 +749,26 @@ fn run_authenticator() {
     let mut ble_server = aegis_fido_firmware::ble_gatt::BleGattServer::new();
     let mut ble_adv_active = false;
     let mut ble_bond_pending = false;
+    // Wave2 proximidade (feature proximity): beacon rolling-code 0xFFFE.
+    // fob_id de 6 B derivado do serial USB (placeholder estavel p/ host e
+    // testes). Follow-up: ler o MAC BLE real via FFI (ble_hs_id_copy_addr /
+    // esp_read_mac) e usar os 6 B publicos como fob_short_id; nunca inventar
+    // MAC aqui. Cache RAM do K_prox + flag de presenca (fail-closed sem chave).
+    // Nunca auto-unlock: beacon/RSSI so sinalizam ausencia (ver proximity.rs).
+    // Vetor de interop (py == rs): K=0x42*16, fob=AA:BB:CC:DD:EE:FF, ctr=7,
+    // VER=0x01 => tag=660d4941 (ver proximity_tag; agents host espelham).
+    #[cfg(feature = "proximity")]
+    let mut prox_beacon = aegis_fido_firmware::proximity::ProximityBeacon::new();
+    #[cfg(feature = "proximity")]
+    let mut prox_last_ms: u64 = 0;
+    #[cfg(feature = "proximity")]
+    let mut prox_key: [u8; 16] = [0u8; 16];
+    #[cfg(feature = "proximity")]
+    let mut prox_key_present: bool = false;
+    // fob_short_id = MAC BLE publico real via own_addr(), resolvido a cada
+    // tick no loop (beacon_fob_id); None (stack down) => sem adv (fail-closed).
+    #[cfg(feature = "proximity")]
+    let mut prox_adv_active: bool = false;
     // F5: gate de tentativas do BLE start (backoff 5s, 3 por borda).
     // Sem isso, um `nimble_port_init` falho repetia a CADA poll, vazava
     // heap do controlador até `Malloc failed` e panic (Interrupt WDT).
@@ -775,6 +811,40 @@ fn run_authenticator() {
     let mut test_up_latch = false;
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
+    // Wave2 proximidade (feature proximity): carrega o K_prox da NVS cifrada.
+    // So gera+persiste via rekey se ja houver vinculo (bonded/trusted); sem
+    // vinculo deixa ausente fail-closed (sem adv ate o pareamento).
+    #[cfg(feature = "proximity")]
+    {
+        match aegis_fido_firmware::proximity::load_proximity_key(&storage) {
+            Ok(k) => {
+                prox_key = k;
+                prox_key_present = true;
+                kprintln!("[PROX] K_prox carregado da NVS.");
+            }
+            Err(_) => {
+                let bonded_now = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+                if bonded_now {
+                    let mut rng = rand_core::OsRng;
+                    match aegis_fido_firmware::proximity::rekey_proximity(&mut storage, &mut rng)
+                    {
+                        Ok(k) => {
+                            prox_key = k;
+                            prox_key_present = true;
+                            kprintln!("[PROX] K_prox gerado no boot (vinculo previo).");
+                        }
+                        Err(e) => {
+                            prox_key = [0u8; 16];
+                            prox_key_present = false;
+                            kprintln!("[PROX] rekey falhou no boot ({e:?}); sem adv.");
+                        }
+                    }
+                } else {
+                    kprintln!("[PROX] sem K_prox (fail-closed ate parear).");
+                }
+            }
+        }
+    }
 
     // Wave7 test-mode: serial diagnostic inbox (host stdio; on ESP-IDF wire UART RX to dispatch_test_command).
     #[cfg(all(feature = "test-mode", not(target_os = "espidf")))]
@@ -1041,6 +1111,104 @@ fn run_authenticator() {
                 fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
             }
         }
+        // Wave2 proximidade (feature proximity): adv 0xFFFE ~1 s quando Idle +
+        // bonded + trusted + USB inativo + K_prox presente. USB veta o adv;
+        // WiFi ativo so desacelera o intervalo (coex). Nunca auto-unlock:
+        // aceitar beacon nunca destrava (unlock exige presenca + PIN).
+        #[cfg(feature = "proximity")]
+        {
+            use aegis_fido_firmware::ble_nimble as prox_ble;
+            use aegis_fido_firmware::proximity as prox_mod;
+            let bonded = pairing_mgr.is_bonded();
+            let trusted = bonded || binding_mgr.is_claimed();
+            #[cfg(target_os = "espidf")]
+            let usb_active = unsafe { aegis_usb_is_mounted() };
+            #[cfg(not(target_os = "espidf"))]
+            let usb_active = false;
+            let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
+            // Revogado via release/recovery (dispatch apagou a NVS): limpa o
+            // cache RAM na borda (fail-closed ate o proximo rekey).
+            if prox_key_present && prox_mod::load_proximity_key(&storage).is_err() {
+                prox_key = [0u8; 16];
+                prox_key_present = false;
+                if prox_adv_active {
+                    let _ = prox_ble::esp_ble_stop();
+                    prox_adv_active = false;
+                }
+                kprintln!("[PROX] K_prox revogado; adv parado.");
+            }
+            // Rollover (ctr travou no MAX): rekey + ctr=0; sem rekey, mudo.
+            if prox_beacon.is_rollover() && prox_key_present {
+                let mut rng = rand_core::OsRng;
+                match prox_mod::rekey_proximity(&mut storage, &mut rng) {
+                    Ok(k) => {
+                        prox_key = k;
+                        prox_beacon = prox_mod::ProximityBeacon::new();
+                        prox_last_ms = now_ms;
+                        kprintln!("[PROX] rekey pos-rollover (ctr=0).");
+                    }
+                    Err(e) => {
+                        prox_key = [0u8; 16];
+                        prox_key_present = false;
+                        kprintln!("[PROX] rekey pos-rollover falhou ({e:?}).");
+                    }
+                }
+            }
+            // fob_short_id real (MAC BLE publico); None => sem adv (fail-closed).
+            let prox_fob = prox_mod::beacon_fob_id();
+            let want_prox = prox_ble::should_adv_proximity(
+                pairing_mgr.state(),
+                bonded,
+                trusted,
+                usb_active,
+                prox_key_present,
+            ) && prox_fob.is_some();
+            if want_prox {
+                // Radio unico: presenca 0xFFFE vence a reconexao 0xFFFD em Idle.
+                if ble_adv_active {
+                    let _ = prox_ble::esp_ble_stop();
+                    ble_adv_active = false;
+                    ble_start_gate.allow(false, now_ms);
+                    fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
+                }
+                // So (re)anuncia no tick de ~1 s (throttle natural + backoff de
+                // falha); o C e idempotente, entao para antes p/ reaplicar o
+                // svc_data novo (ctr++) e o intervalo atual.
+                if prox_beacon.tick_if_due(prox_last_ms, now_ms) {
+                    prox_last_ms = now_ms;
+                    if prox_adv_active {
+                        let _ = prox_ble::esp_ble_stop();
+                        prox_adv_active = false;
+                    }
+                    let ctr = prox_beacon.counter();
+                    // Gate want_prox garante Some; o default abaixo nunca e
+                    // transmitido (fail-closed sem MAC real).
+                    let fob = prox_fob.unwrap_or([0u8; 6]);
+                    let tag = prox_mod::proximity_tag(
+                        &prox_key,
+                        prox_mod::PROXIMITY_BEACON_VERSION,
+                        ctr,
+                        &fob,
+                    );
+                    let svc = prox_mod::encode_proximity_svc_data(ctr, &tag);
+                    let rc = prox_ble::esp_ble_proximity_start(&svc, wifi_active);
+                    if rc == 0 {
+                        prox_adv_active = true;
+                        fw_log.record(
+                            aegis_fido_firmware::fw_log::EV_ADV_START,
+                            0,
+                            now_ms,
+                        );
+                    } else {
+                        kprintln!("[PROX] adv start rc={} (retry ~1 s).", rc);
+                    }
+                }
+            } else if prox_adv_active {
+                let _ = prox_ble::esp_ble_stop();
+                prox_adv_active = false;
+                fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
+            }
+        }
         // Etapa B: bomba BLE (eventos GAP + fragmentos FFF1). USB intacto.
         {
             use aegis_fido_firmware::ble_nimble as ble;
@@ -1067,6 +1235,30 @@ fn run_authenticator() {
                                 "[BLE] bonding ok: advertising parado, pareamento encerrado."
                             );
                             fw_log.record(aegis_fido_firmware::fw_log::EV_BOND_OK, 0, now_ms);
+                            // Wave2 proximidade: rekey do K_prox no pareamento +
+                            // zera o contador do beacon (ctr=0 no proximo adv).
+                            #[cfg(feature = "proximity")]
+                            {
+                                let mut rng = rand_core::OsRng;
+                                match aegis_fido_firmware::proximity::rekey_proximity(
+                                    &mut storage,
+                                    &mut rng,
+                                ) {
+                                    Ok(k) => {
+                                        prox_key = k;
+                                        prox_key_present = true;
+                                        prox_beacon =
+                                            aegis_fido_firmware::proximity::ProximityBeacon::new();
+                                        prox_last_ms = now_ms;
+                                        kprintln!("[PROX] rekey pos-pareamento (ctr=0).");
+                                    }
+                                    Err(e) => {
+                                        prox_key = [0u8; 16];
+                                        prox_key_present = false;
+                                        kprintln!("[PROX] rekey falhou ({e:?}); sem adv.");
+                                    }
+                                }
+                            }
                         }
                         ble::BondOutcome::DeniedNoPresence => {
                             ble_bond_pending = true;
@@ -1114,6 +1306,30 @@ fn run_authenticator() {
                     }
                     kprintln!("[BLE] bonding ok (apos UP): advertising parado.");
                     fw_log.record(aegis_fido_firmware::fw_log::EV_BOND_OK, 0, now_ms);
+                    // Wave2 proximidade: rekey do K_prox no pareamento +
+                    // zera o contador do beacon (ctr=0 no proximo adv).
+                    #[cfg(feature = "proximity")]
+                    {
+                        let mut rng = rand_core::OsRng;
+                        match aegis_fido_firmware::proximity::rekey_proximity(
+                            &mut storage,
+                            &mut rng,
+                        ) {
+                            Ok(k) => {
+                                prox_key = k;
+                                prox_key_present = true;
+                                prox_beacon =
+                                    aegis_fido_firmware::proximity::ProximityBeacon::new();
+                                prox_last_ms = now_ms;
+                                kprintln!("[PROX] rekey pos-pareamento (ctr=0).");
+                            }
+                            Err(e) => {
+                                prox_key = [0u8; 16];
+                                prox_key_present = false;
+                                kprintln!("[PROX] rekey falhou ({e:?}); sem adv.");
+                            }
+                        }
+                    }
                 }
             }
             // Fragmentos FFF1 -> reassemble -> dispatch -> notify FFF2.
@@ -1127,6 +1343,8 @@ fn run_authenticator() {
                         ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
                         let bonded =
                             pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+                        #[cfg(feature = "proximity")]
+                        let prox_revoked_op = msg.opcode;
                         ble_dispatch_complete(
                             msg,
                             up,
@@ -1143,6 +1361,22 @@ fn run_authenticator() {
                             &mut key_mgr,
                             &mut oath_applet,
                         );
+                        // Wave2 proximidade: release/recovery apagou a NVS
+                        // no dispatch (so no Ok); espelha no cache RAM.
+                        #[cfg(feature = "proximity")]
+                        {
+                            let revoked = prox_revoked_op
+                                == aegis_fido_firmware::ble_gatt::OP_BIND_RELEASE
+                                || prox_revoked_op
+                                    == aegis_fido_firmware::ble_gatt::OP_RECOVERY_UNLOCK;
+                            if revoked
+                                && aegis_fido_firmware::proximity::load_proximity_key(&storage)
+                                    .is_err()
+                            {
+                                prox_key = [0u8; 16];
+                                prox_key_present = false;
+                            }
+                        }
                     }
                     Ok(None) => {
                         ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
@@ -1733,13 +1967,6 @@ fn run_authenticator() {
                     aegis_ccid_pop_frame(frame.as_mut_ptr(), CCID_FRAME_MAX as u16)
                 };
                 if n >= 10 {
-                    // DIAG TEMPORÁRIO (F4): despeja frame/RPDU p/ depurar o UsbCcids.
-                    kprintln!(
-                        "[CCID] rx tipo=0x{:02X} len={} apdu={:02X?}",
-                        frame[0],
-                        n,
-                        &frame[10..n as usize]
-                    );
                     if let Some(rpdu) =
                         aegis_fido_firmware::ccid_dispatch::process_ccid_frame(
                             &mut ccid_transport,
@@ -1749,14 +1976,6 @@ fn run_authenticator() {
                             now_secs,
                         )
                     {
-                        if rpdu.len() >= 12 {
-                            kprintln!(
-                                "[CCID] tx len={} sw={:02X}{:02X}",
-                                rpdu.len(),
-                                rpdu[rpdu.len() - 2],
-                                rpdu[rpdu.len() - 1]
-                            );
-                        }
                         if !unsafe { aegis_ccid_send(rpdu.as_ptr(), rpdu.len() as u16) } {
                             kprintln!("[CCID] bulk-IN send falhou ({} B).", rpdu.len());
                         }

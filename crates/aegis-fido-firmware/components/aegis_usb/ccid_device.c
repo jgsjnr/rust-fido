@@ -44,15 +44,6 @@ static const char *TAG = "AegisCCID";
 #define PC_TO_RDR_ICC_POWER_ON_MSG 0x62
 #define PC_TO_RDR_ICC_POWER_OFF_MSG 0x63
 
-static void ccid_arm_notify(uint8_t rhport) {
-    if (!s_configured || s_ep_notify == 0 || s_notify_busy || !s_notify_has_pending) {
-        return;
-    }
-    s_notify_busy = true;
-    s_notify_has_pending = false;
-    usbd_edpt_xfer(rhport, s_ep_notify, s_notify_buf, sizeof(s_notify_buf));
-}u
-
 typedef struct {
     uint16_t len;
     uint8_t data[CCID_FRAME_MAX];
@@ -92,6 +83,15 @@ static void ccid_reset_state(void) {
     s_notify_busy = false;
     s_notify_has_pending = false;
     s_rx_len = 0;
+}
+
+static void ccid_arm_notify(uint8_t rhport) {
+    if (!s_configured || s_ep_notify == 0 || s_notify_busy || !s_notify_has_pending) {
+        return;
+    }
+    s_notify_busy = true;
+    s_notify_has_pending = false;
+    usbd_edpt_xfer(rhport, s_ep_notify, s_notify_buf, sizeof(s_notify_buf));
 }
 
 static void ccid_arm_out(uint8_t rhport) {
@@ -140,7 +140,6 @@ static void ccid_on_bulk_out(const uint8_t *data, uint16_t n) {
         if (s_rx_len < total) {
             break; // wait for more chunks
         }
-        ESP_LOGI(TAG, "rx frame type=0x%02X len=%u", s_rx_asm[0], (unsigned)(uint16_t)total);
         if (s_rx_asm[0] == PC_TO_RDR_ICC_POWER_ON_MSG) {
         s_notify_buf[0] = CCID_NOTIFY_SLOT_CHANGE;
         s_notify_buf[1] = 0x03; /* slot 0: cartao presente e ativo */
@@ -170,7 +169,6 @@ static void ccidd_init(void) {
         s_ccid_queue = xQueueCreate(CCID_QUEUE_DEPTH, sizeof(ccid_frame_t));
     }
     ccid_reset_state();
-    ESP_LOGI(TAG, "CCID driver online (class 0x0B, PIV-only)");
 }
 
 static bool ccidd_deinit(void) {
@@ -184,8 +182,6 @@ static void ccidd_reset(uint8_t rhport) {
 
 static uint16_t ccidd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf,
                            uint16_t max_len) {
-    ESP_LOGI(TAG, "open itf=%u class=0x%02X neps=%u maxlen=%u", desc_itf->bInterfaceNumber,
-             desc_itf->bInterfaceClass, desc_itf->bNumEndpoints, max_len);
     TU_VERIFY(TUSB_CLASS_SMART_CARD == desc_itf->bInterfaceClass, 0);
     TU_ASSERT(desc_itf->bNumEndpoints == 3, 0);
 
@@ -220,8 +216,6 @@ static uint16_t ccidd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf
     s_ep_notify = ep_notify;
     s_configured = true;
     s_rhport = rhport;
-    ESP_LOGI(TAG, "CCID open itf=%u out=0x%02X in=0x%02X notify=0x%02X", s_itf_num, s_ep_out,
-             s_ep_in, s_ep_notify);
     ccid_arm_out(rhport);
     return drv_len;
 }
@@ -230,9 +224,6 @@ static uint16_t ccidd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf
 // Enumeration is unaffected (static config bytes served by the stack).
 static bool ccidd_control_xfer_cb(uint8_t rhport, uint8_t stage,
                                   tusb_control_request_t const *request) {
-    ESP_LOGI(TAG, "ctrl stage=%u type=0x%02X req=0x%02X val=0x%04X idx=0x%04X len=%u",
-             stage, request->bmRequestType_bit.type, request->bRequest, request->wValue,
-             request->wIndex, request->wLength);
     (void)rhport;
     (void)stage;
     (void)request;
@@ -241,9 +232,8 @@ static bool ccidd_control_xfer_cb(uint8_t rhport, uint8_t stage,
 
 static bool ccidd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
                           uint32_t xferred_bytes) {
-    ESP_LOGI(TAG, "xfer ep=0x%02X result=%d len=%lu", ep_addr, (int)result,
-             (unsigned long)xferred_bytes);
     if (result != XFER_RESULT_SUCCESS) {
+        ESP_LOGW(TAG, "xfer failed ep=0x%02X", ep_addr);
         if (ep_addr == s_ep_out) {
             ccid_arm_out(rhport);
         } else if (ep_addr == s_ep_in) {
@@ -309,11 +299,10 @@ bool aegis_ccid_send(const uint8_t *data, uint16_t len) {
         ESP_LOGW(TAG, "tx busy, dropping %u B", len);
         return false;
     }
-    ESP_LOGI(TAG, "tx rpdu len=%u type=0x%02X status=0x%02X", (unsigned)len,
-             data[0], len > 7 ? data[7] : 0xFF);
     memcpy(s_tx_buf, data, len);
     s_tx_busy = true;
     if (!usbd_edpt_xfer(0, s_ep_in, s_tx_buf, len)) {
+        ESP_LOGW(TAG, "tx xfer failed");
         s_tx_busy = false;
         return false;
     }

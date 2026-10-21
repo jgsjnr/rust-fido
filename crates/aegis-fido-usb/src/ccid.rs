@@ -1195,7 +1195,6 @@ mod tests {
     }
 
     #[test]
-        #[test]
     fn set_data_rate_zero_responde_defaults() {
         // Host mandou 0/0 ("use os defaults"): responde 3571 kHz /
         // 9600 bps, nunca zeros (pipe invalidado derruba o Transmit).

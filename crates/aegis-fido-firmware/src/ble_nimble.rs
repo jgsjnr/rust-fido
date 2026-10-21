@@ -321,6 +321,7 @@ extern "C" {
     fn aegis_ble_notify(data: *const u8, len: i32) -> i32;
     fn aegis_ble_set_pending_len(value: u16);
     fn aegis_ble_conn_active() -> i32;
+    fn aegis_ble_own_addr(out: *mut u8) -> i32;
 }
 
 /// Liga o advertising NimBLE (init uma vez; idempotente).
@@ -386,6 +387,17 @@ pub fn esp_ble_conn_active() -> bool {
     unsafe { aegis_ble_conn_active() == 1 }
 }
 
+/// MAC público do NimBLE (6 B) p/ o fob_short_id do beacon de presença.
+///
+/// `None` com stack down (init/sync pendente ou erro do C): o chamador NÃO
+/// anuncia (fail-closed, mesma semântica de `proximity_adv_allowed`).
+#[cfg(target_os = "espidf")]
+pub fn own_addr() -> Option<[u8; 6]> {
+    let mut out = [0u8; 6];
+    let rc = unsafe { aegis_ble_own_addr(out.as_mut_ptr()) };
+    if rc == 0 { Some(out) } else { None }
+}
+
 // Shims inertes no host (sem rádio; política testada por unidade).
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_start(_pairing_open: bool, _wifi_active: bool) -> i32 {
@@ -412,6 +424,119 @@ pub fn esp_ble_set_pending_len(_value: u16) {}
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_conn_active() -> bool {
     false
+}
+
+/// Shim host do MAC BLE (sem rádio): sempre `None` (fail-closed, sem adv).
+#[cfg(not(target_os = "espidf"))]
+pub fn own_addr() -> Option<[u8; 6]> {
+    None
+}
+
+
+// ---------------------------------------------------------------------------
+// Wave2: anuncio de presenca 0xFFFE (rolling-code), separado do GATT 0xFFFD.
+//
+// Layout legado (30 B, ver ble_nimble::AdvPayload):
+//   Flags(0x06) + CompleteList16[0xFFFE] + ServiceData16[FE FF VER CTR TAG]
+//   + Nome "AegisKey".
+// O service-data (11 B) e construido por proximity::encode_proximity_svc_data
+// (CTR++ ~1 s + TAG AES-CCM). O GATT 0xFFFD segue intacto: este adv usa UUID
+// 0xFFFE separado e nao altera o banco ATT (o backend C anuncia um ou outro,
+// nunca mistura: pareamento usa 0xFFFD com flag, presenca usa 0xFFFE com
+// rolling-code).
+//
+// Gates: should_adv_proximity exige bonded + Idle + trusted + USB inativo +
+// K_prox presente (proximity::proximity_adv_allowed). Coex USB > WiFi > BLE:
+// USB veta o adv; WiFi ativo so desacelera o intervalo
+// (proximity_adv_intervals); BLE nunca bloqueia o USB.
+// ---------------------------------------------------------------------------
+
+/// Comprimento total do adv de presenca em bytes (30 B <= 31 B legado).
+#[cfg(feature = "proximity")]
+pub const PROXIMITY_ADV_TOTAL_LEN: usize = 30;
+
+/// Monta o payload de presenca: Flags + CompleteList16[0xFFFE] +
+/// ServiceData16[0xFFFE + beacon de 9 B] + Nome.
+///
+/// Nunca excede 31 B (garantido por construcao; teste trava o layout).
+/// O UUID e sempre 0xFFFE (nunca 0xFFFD do GATT FIDO).
+#[cfg(feature = "proximity")]
+pub fn encode_proximity_adv_payload(
+    ctr: u32,
+    tag: &[u8; crate::proximity::PROXIMITY_BEACON_TAG_LEN],
+) -> AdvPayload {
+    use crate::ble_gatt::PROXIMITY_SERVICE_UUID;
+    use crate::proximity::encode_proximity_svc_data;
+    let svc = encode_proximity_svc_data(ctr, tag);
+    let mut bytes = [0u8; ADV_MAX_BYTES];
+    let mut n: usize = 0;
+    bytes[n..n + 3].copy_from_slice(&[0x02, 0x01, 0x06]);
+    n += 3;
+    let lo = (PROXIMITY_SERVICE_UUID & 0xFF) as u8;
+    let hi = ((PROXIMITY_SERVICE_UUID >> 8) & 0xFF) as u8;
+    bytes[n..n + 4].copy_from_slice(&[0x03, 0x03, lo, hi]);
+    n += 4;
+    bytes[n] = 0x0C;
+    bytes[n + 1] = 0x16;
+    bytes[n + 2..n + 13].copy_from_slice(&svc);
+    n += 13;
+    let name = BLE_DEVICE_NAME.as_bytes();
+    bytes[n] = (name.len() + 1) as u8;
+    bytes[n + 1] = 0x09;
+    bytes[n + 2..n + 2 + name.len()].copy_from_slice(name);
+    n += 2 + name.len();
+    debug_assert!(n <= ADV_MAX_BYTES);
+    AdvPayload {
+        bytes,
+        len: n as u8,
+    }
+}
+
+/// Verdade somente quando o radio pode anunciar presenca: fob bonded, estado
+/// Idle, relacao trusted, USB inativo e K_prox presente.
+///
+/// state Idle = sem pareamento em curso e sem trava confirmada; fora de Idle
+/// (PairingBle, Arming, Locked) o adv de presenca fica mudo.
+#[cfg(feature = "proximity")]
+pub fn should_adv_proximity(
+    state: PairingState,
+    bonded: bool,
+    trusted: bool,
+    usb_active: bool,
+    key_present: bool,
+) -> bool {
+    let idle = matches!(state, PairingState::Idle);
+    crate::proximity::proximity_adv_allowed(bonded, idle, trusted, usb_active, key_present)
+}
+
+/// Intervalos do adv de presenca (mesmos do pareamento: lento com WiFi).
+///
+/// Coex USB > WiFi > BLE: USB veta o adv no gate; WiFi ativo desacelera.
+#[cfg(feature = "proximity")]
+pub fn proximity_adv_intervals(wifi_active: bool) -> (u16, u16) {
+    adv_intervals(wifi_active)
+}
+
+#[cfg(all(target_os = "espidf", feature = "proximity"))]
+extern "C" {
+    fn aegis_ble_proximity_start(svc_data: *const u8, svc_len: i32, coex_slow: i32) -> i32;
+}
+
+/// Liga o anuncio de presenca 0xFFFE (init uma vez; idempotente).
+///
+/// svc_data sao os 11 B [FE FF VER CTR TAG] montados por
+/// proximity::encode_proximity_svc_data. wifi_active desacelera o intervalo
+/// (BLE cede airtime). Retorna 0 ok, negativo = codigo do backend C.
+#[cfg(all(target_os = "espidf", feature = "proximity"))]
+pub fn esp_ble_proximity_start(svc_data: &[u8], wifi_active: bool) -> i32 {
+    let len = svc_data.len().min(i32::MAX as usize) as i32;
+    unsafe { aegis_ble_proximity_start(svc_data.as_ptr(), len, i32::from(wifi_active)) }
+}
+
+/// Shim host do adv de presenca (sem radio; politica testada por unidade).
+#[cfg(all(not(target_os = "espidf"), feature = "proximity"))]
+pub fn esp_ble_proximity_start(_svc_data: &[u8], _wifi_active: bool) -> i32 {
+    0
 }
 
 #[cfg(test)]
@@ -652,5 +777,91 @@ mod tests {
         assert_eq!(esp_ble_notify(&[1, 2, 3]), 0);
         esp_ble_set_pending_len(7);
         assert!(!esp_ble_conn_active());
+    }
+}
+
+#[cfg(all(test, feature = "proximity"))]
+mod proximity_tests {
+    use super::*;
+    use crate::ble_gatt::PROXIMITY_SERVICE_UUID;
+    use crate::proximity::{
+        PROXIMITY_BEACON_SVC_UUID16, PROXIMITY_BEACON_TAG_LEN, PROXIMITY_BEACON_VERSION,
+        encode_proximity_svc_data, proximity_adv_allowed, proximity_tag,
+    };
+
+    fn tag_for(ctr: u32) -> [u8; PROXIMITY_BEACON_TAG_LEN] {
+        proximity_tag(
+            &[0x42u8; 16],
+            PROXIMITY_BEACON_VERSION,
+            ctr,
+            &[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+        )
+    }
+
+    #[test]
+    fn presence_uuid_is_fffe_separate_from_gatt_fffd() {
+        assert_eq!(PROXIMITY_SERVICE_UUID, 0xFFFE);
+        assert_eq!(PROXIMITY_BEACON_SVC_UUID16, 0xFFFE);
+        assert_eq!(BLE_SERVICE_UUID, 0xFFFD);
+        assert!(crate::ble_gatt::is_proximity_service_uuid(
+            PROXIMITY_BEACON_SVC_UUID16
+        ));
+        assert!(!crate::ble_gatt::is_proximity_service_uuid(0xFFFD));
+    }
+
+    #[test]
+    fn presence_adv_layout_is_30b_with_fffe_svc_data_and_name() {
+        let ctr = 0x01020304u32;
+        let tag = tag_for(ctr);
+        let p = encode_proximity_adv_payload(ctr, &tag);
+        assert_eq!(p.len as usize, PROXIMITY_ADV_TOTAL_LEN);
+        assert_eq!(p.len as usize, 30);
+        let b = p.as_bytes();
+        assert_eq!(&b[0..3], &[0x02, 0x01, 0x06]);
+        assert_eq!(&b[3..7], &[0x03, 0x03, 0xFE, 0xFF]);
+        assert_eq!(b[7], 0x0C);
+        assert_eq!(b[8], 0x16);
+        assert_eq!(&b[9..20], &encode_proximity_svc_data(ctr, &tag));
+        assert_eq!(&b[9..11], &[0xFE, 0xFF]);
+        assert_eq!(b[11], PROXIMITY_BEACON_VERSION);
+        assert_eq!(&b[12..16], &ctr.to_le_bytes());
+        assert_eq!(&b[16..20], &tag);
+        assert_eq!(b[20], (BLE_DEVICE_NAME.len() + 1) as u8);
+        assert_eq!(b[21], 0x09);
+        assert_eq!(
+            &b[22..22 + BLE_DEVICE_NAME.len()],
+            BLE_DEVICE_NAME.as_bytes()
+        );
+    }
+
+    #[test]
+    fn presence_adv_needs_bonded_idle_trusted_no_usb_and_key() {
+        use crate::pairing::PairingState;
+        assert!(should_adv_proximity(PairingState::Idle, true, true, false, true));
+        assert!(!should_adv_proximity(PairingState::Idle, false, true, false, true));
+        assert!(!should_adv_proximity(PairingState::Locked, true, true, false, true));
+        assert!(!should_adv_proximity(PairingState::Idle, true, false, false, true));
+        assert!(!should_adv_proximity(PairingState::Idle, true, true, true, true));
+        assert!(!should_adv_proximity(PairingState::Idle, true, true, false, false));
+        assert_eq!(
+            should_adv_proximity(PairingState::Idle, true, true, false, true),
+            proximity_adv_allowed(true, true, true, false, true)
+        );
+    }
+
+    #[test]
+    fn presence_intervals_follow_wifi_coex() {
+        assert_eq!(proximity_adv_intervals(false), adv_intervals(false));
+        assert_eq!(proximity_adv_intervals(true), adv_intervals(true));
+        assert_ne!(proximity_adv_intervals(false), proximity_adv_intervals(true));
+    }
+
+    #[test]
+    fn presence_shim_is_inert_on_host() {
+        let tag = tag_for(9);
+        let svc = encode_proximity_svc_data(9, &tag);
+        assert_eq!(svc.len(), 11);
+        assert_eq!(esp_ble_proximity_start(&svc, false), 0);
+        assert_eq!(esp_ble_proximity_start(&svc, true), 0);
     }
 }

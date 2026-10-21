@@ -309,3 +309,40 @@ hold-5s/janela-60s, prioridade `USB > BLE > WiFi`, `POST /ctap`, TOTP RFC6238 �
 todos per §1-§10. Este apendice so adiciona opcodes + split + recovery.
 USB/CTAP (`aegis-fido-usb`, `CtapEngine`) zero mudanca (golden em
 `usb_ctap_bytes_untouched_golden`).
+
+## 12. Apendice fw-log + PIV enroll (`0x38-0x39`, aditivo, congela o existente)
+
+Aditivo ao contrato Wave4 (§1-§11 intactos). GATT inalterado, revisao permanece
+`0x01`. Framing §3 reutilizado sem mudanca. Nenhum byte de fio muda aqui:
+este apendice so documenta o que o firmware e o app ja fazem
+(`ble_gatt.rs`, `vendor_exec.rs`, `serial_ctaphid.rs`, `main.rs`,
+`VendorOps.kt` + `BindingOps.kt`, `PivScreen.kt`, `LogScreen.kt`).
+
+| Op | Nome | Req | Resp OK | Gate normativo |
+|----|------|-----|---------|----------------|
+| `0x38` | `FW_LOG` | vazio (0B) | `0x00 + ASCII` (`SEQ EV=cc ARG=aa T=ms` por linha, sem PII) | BLE: vinculo (sem vinculo -> `0x05`); nunca UP nem PIN. Serial/USB fisico: livre (posse do cabo). |
+| `0x39` | `PIV_ENROLL` | `[pin_len:1, pin:6-8, puk:8]` digitos ASCII | vazio (0B) | binding + UP (ordem canonica §11.2); geometria fora (`pin_len` 6-8, total `1+pin_len+8`) -> `0x04`. PIN/PUK zerados apos o envio, nunca no Log. |
+
+`authorize_fw_log_op` (`ble_gatt.rs`): `!bonded -> NeedBinding (0x05)`;
+fora disso `Ok` (sem UP/PIN). `exec_piv_enroll` (`vendor_exec.rs`):
+`pin_len` fora de 6-8 ou tamanho != `1+pin_len+8` -> `0x04`;
+`provision_pin` erro -> `0x04`; ok -> `0x00`. Segunda tentativa
+pos-enroll nega (PIN ja provisionado). Erros seguem o conjunto fechado
+§9.5+`0x05` (§11.5). Forward-compat per §9.6/§11.6.
+
+## 13. Apendice trava de presença RSSI / proximity key (aditivo, sem quebra)
+
+Aditivo ao contrato Wave4 (§1-§12 intactos). GATT `0xFFFD` inalterado, sem
+opcode novo, revisao permanece `0x01`: o beacon é ADV (service-data), nunca
+GATT. RSSI nunca autentica; lock-only; fail-closed sempre.
+
+| Item | Contrato congelado |
+|------|--------------------|
+| Beacon ADV | service-data UUID `0xFFFE`: `[VER:1=0x01, CTR:4 LE, TAG:4]` (30B ≤ 31B); tick ~1s com saturação de CTR |
+| `TAG` | `AES-CCM-128(K_prox, nonce=VER\|\|CTR\|\|fob_id[6B], AAD=VER\|\|CTR)` truncado 4B. Vetor: `K=0x42×16`, `fob=AA:BB:CC:DD:EE:FF`, `ctr=7` → `TAG=660d4941` (py==rs) |
+| `fob_id` | MAC BLE público do fob (`aegis_ble_own_addr`); host filtra scan pelo MAC bonded (`--fob-id`). Placeholder XOR-fold proibido no release |
+| Gates de anúncio | só `Idle+bonded+trusted+!USB` com `K_prox` (`proximity_adv_allowed`); USB montado silencia BLE; WiFi desacelera (coex) |
+| Decisor host | Away = `< -75 dBm/10s`, histerese 5 dB (volta Near `≥ -70 dBm`); `None`/erro = AWAY; watchdog 3 erros → lock. Trava SO: Win `LockWorkStation`, Linux `loginctl`, macOS `CGSession`. Sem auto-unlock (unlock exige presença+PIN no device) |
+| Anti-replay | CTR crescente; salto `>1000` → reverify |
+| `K_prox` | NVS `prox_k` + `zeroize`; `rekey+ctr=0` no `Paired`; `delete` em `BIND_RELEASE`/`RECOVERY_UNLOCK`. Provisionamento fábrica em link cifrado+bonded (nunca em claro) = follow-up |
+| Referências | desenho em `docs/piv-ble-proximity.md`; handoff em `docs/proximity-worktree-handoff.md`; fw `proximity.rs` (+ testes); agentes `tools/host/{win,linux,macos}/proximity_agent.py` |
