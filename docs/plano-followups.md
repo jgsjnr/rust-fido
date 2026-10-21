@@ -37,8 +37,8 @@ avança), slot 5 + CODE lidos pós-EN. App: VaultScreen envia challenge
 **Aceite**: setPIN → EN → token funciona; retries sobrevivem.
 **Risco**: baixo (NVS já provado). Pré-req: nenhum (independente de F1).
 
-### F4. CCID/PIV no USB [G] — CÓDIGO PRONTO 20/10, PROVA HW PENDENTE
-**Problema**: OpenSC não vê cartão (USB vivo = só HID; CCID/PIV só
+### F4. CCID/PIV no USB [G] — ENUMEROU 20/10, HANDSHAKE 100%, XFR PENDENTE
+**Problema**: OpenSC não via cartão (USB vivo = só HID; CCID/PIV só
 existiam como crates sem driver).
 **Feito (host verde: usb 72 + firmware 250, clippy zero, release clean)**:
 - C: `ccid_device.c` (class driver CCID via hook `usbd_app_driver_get_cb`,
@@ -50,13 +50,38 @@ existiam como crates sem driver).
   `ccid_dispatch.rs` (NVS+KeyManager reais; GEN/AUTH P-256 reais fim-a-fim
   em teste) + poll no loop USB + op enrollment `0x39` (binding→UP, sem PIN;
   BLE+serial; `pin_len||pin(6-8)||puk(8)`).
-**Correções de bind (20/10 noite)**: (1) SlotStatus sempre `0x00`
-(presente) — `0x01/0x02` fazia o UsbCcids concluir "sem cartão"; (2) TCK
-do ATR corrigido; (3) ATR só T=1 (SCARD_E_PROTO_MISMATCH com T=0+T=1);
-(4) `dwFeatures=0x000C0000` (APDU-level!) — com `0` o host falava TPDU cru
-(PPS `FF1111FF`, I-blocks com LRC válido) em vez de APDUs.
-**Falta (HW)**: reflanar com `dwFeatures` e repetir `opensc-tool -l` +
-VERIFY + GEN/AUTH reais. Control class-specific dá stall (v1: OpenSC só precisa do bulk + enumeração).
+**Enumeração (20/10, Windows, de primeira)**: HID intacto em 1º lugar +
+`UsbCcids.sys` inbox binda a MI_01; `opensc-tool -l` lista
+"AegisKey S3 Authenticator 0" com cartão presente.
+**Handshake 100% funcional e provado no fio (capturas UART)**:
+PowerOn→ATR, SetParameters (eco T=1), SetDataRateAndClock→`0x84`.
+**Correções aplicadas ao longo do dia (20/10)**: (1) SlotStatus sempre
+`0x00` (presente) — `0x01/0x02` faziam o Windows concluir "sem cartão";
+(2) TCK do ATR corrigido (era `0x00`); (3) ATR só T=1 (`0x11`; T=0 junto
+dava `SCARD_E_PROTO_MISMATCH 0x8010000F`); (4) `dwFeatures=0x000C0000`
+(APDU-level) — com `0` o host falava TPDU cru (PPS `FF1111FF`, I-blocks
+com LRC válido) em vez de APDUs; (5) descritor funcional recomposto byte
+a byte (faltava `dwMaxDataRate`; `wTotalLength` mentia); (6) `dwDataRate`
+9600 coerente com TA1=`0x11`; (7) SetParameters passou a ecoar o pedido do
+host; (8) SetDataRateAndClock `0x73`/`0x84` implementado; (9) ATR final =
+PIVKey uTrust `3b:96:11:81:21:75:75:54:72:75:73:74:73` (na tabela do
+OpenSC; Feitian E0 descartado porque tem Di=8 reservado e o UsbCcids
+aborta o connect).
+**Estado atual (20/10 noite, NÃO resolvido)**: após handshake perfeito, o
+primeiro SCardTransmit (XFR bulk-OUT) falha instantaneamente no host com
+`0x45D` (depois `0x54F`), sem NENHUM byte chegar ao device (provado por
+captura UART com log de cada transferência USB). Suspeita em teste AGORA:
+falta do NotifySlotChange pós-PowerOn (driver pode esperar slot-change
+antes do primeiro XFR) — implementado `50 03` no PowerOn / `50 02` no
+PowerOff, build em andamento no orquestrador.
+**Ferramentas criadas (20/10)**: `tools/raw_transmit.py` (SCardTransmit
+cru via ctypes, isola OpenSC — falha igual, prova que não é culpa do
+OpenSC), `tools/need_hands.py` (aviso sonoro p/ chamar o operador),
+`TEST_USB_RECONNECT` (drop+re-enumera USB por software, sem replug).
+**Falta**: prova fim-a-fim `opensc-tool -l` + VERIFY + GEN/AUTH reais;
+remover logs de debug temporários do driver C e do poll (`[CCID] rx/tx`);
+merge p/ main (F6). Control class-specific dá stall (v1: OpenSC só precisa
+do bulk + enumeração).
 **Auditoria CCID/OpenSC (explorer, 20/10)**: descritor byte-a-byte OK vs
 CCID 1.1 (única divergência formal: só T=1, aceitável p/ PIV); gap crítico
 achado e CORRIGIDO: `SetParameters(0x61)`/`ResetParameters(0x6D)` agora

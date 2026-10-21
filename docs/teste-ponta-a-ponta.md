@@ -593,3 +593,73 @@ OTA-COMMIT, eFuse.
 
 ### 20/10 18:38 — phase=base only=D08
 - [FAIL] TRANSPORTE erro — serial read timeout (0/1 bytes)
+
+### 20/10 18:56 — phase=base only=D08
+- [PASS] D08a FINISH bad-sig nega e limpa — status=0x04
+- [PASS] D08b BEGIN+5 CHUNKs 20KiB — recebidos=20480/20480
+- [PASS] D08c FINISH verify real — status=0x00
+- [PASS] D08d COMMIT sem UP nega — 0x01 (sessão preservada)
+- [PASS] D08e COMMIT com UP (só marker, sem swap) — status=0x00 body=00000002
+- [PASS] D08f ABORT limpa sessão — status=0x00
+
+### 20/10 18:56 — phase=all-safe
+- [PASS] T01 INIT aloca CID — cid=0x00020201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=3
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [DIVERGENTE] T06 WALLET_GEN sem UP/janela barra — recebido=0x01 (0x01=janela residual aberta)
+- [DIVERGENTE] T06b WALLET_GEN com UP sem janela barra — recebido=0x04 esperado=0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x04 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+- [PASS] T12 trigger 0x2F abre janela — 0x00
+- [PASS] T07b RESCUE lixo com UP dá INVALID_MAGIC — status=0x01
+- [PASS] T07c killswitch sem UP/PIN nega 0x04 (sem wipe) — status=0x04
+- [PASS] T13 KEY_GEN e2e-t1 real — status=0x00 slot=5
+- [PASS] T14 KEY_LIST real — status=0x00 bytes=25 tem=True
+- [PASS] T15 OATH_PUT sem PIN pede PIN — status=0x02
+- [PASS] T16 OATH_CODE sem conta dá NoSlot — 0x03 (lista vazia)
+- [PASS] T17 MakeCredential rp e2e — status=0x00 bytes=742
+- [PASS] T17n MC gravou residente (persiste no NVS!) — credencial e2e criada
+- [PASS] T18 GetAssertion rp e2e — status=0x00 bytes=169
+- [PASS] T19 WALLET_GEN BTC — status=0x00 slot=6 addr=bc1qwyx2rp8qkc3cd4qv5jjr5rt9xdvyftwxsylgka
+- [PASS] T20 WALLET_LIST tem s6 — status=0x00 tem=True
+- [PASS] T21 WALLET_ADDR bate T19 — igual=True
+- [PASS] T22 WALLET rede invalida barra — 0x04
+
+### 20/10 18:56 — phase=base only=T06b
+- [DIVERGENTE] T06b WALLET_GEN com UP sem janela barra — recebido=0x04 esperado=0x05
+
+### 20/10 — F4 USB-CCID: enumerou de primeira + handshake 100% no fio (H7 em andamento)
+- [PASS] H7-parcial enumeração Windows: HID intacto em 1º + `UsbCcids.sys`
+  inbox binda a MI_01; `opensc-tool -l` lista "AegisKey S3 Authenticator 0"
+  com cartão presente.
+- [PASS] Handshake CCID provado em capturas UART: PowerOn→ATR,
+  SetParameters (eco T=1), SetDataRateAndClock→`0x84`.
+- Correções do dia: SlotStatus sempre `0x00` (`0x01/0x02` = "sem cartão"
+  p/ Windows); TCK do ATR corrigido (era `0x00`); ATR só T=1 (`0x11`,
+  T=0 junto dava `SCARD_E_PROTO_MISMATCH 0x8010000F`); `dwFeatures=0x000C0000`
+  APDU-level (com `0` o host falava TPDU cru: PPS `FF1111FF`, I-blocks com
+  LRC válido); descritor funcional recomposto byte a byte (faltava
+  `dwMaxDataRate`; `wTotalLength` mentia); `dwDataRate` 9600 coerente com
+  TA1=`0x11`; SetParameters ecoa o pedido do host; SetDataRateAndClock
+  `0x73`/`0x84` implementado; ATR final = PIVKey uTrust
+  `3b:96:11:81:21:75:75:54:72:75:73:74:73` (tabela OpenSC; Feitian E0
+  descartado: Di=8 reservado, UsbCcids aborta o connect).
+- Ferramentas: `tools/raw_transmit.py` (SCardTransmit cru via ctypes),
+  `tools/need_hands.py` (aviso sonoro p/ chamar o operador),
+  `TEST_USB_RECONNECT` (drop+re-enumera USB por software, sem replug).
+
+### 20/10 — F4 USB-CCID: primeiro XFR falha 0x45D/0x54F, sem byte no device (ABERTO)
+- [DIVERGENTE] Primeiro SCardTransmit (XFR bulk-OUT) após handshake perfeito
+  falha instantaneamente no host com `0x45D` (depois `0x54F`); captura UART
+  com log de cada transferência USB prova que NENHUM byte chega ao device.
+- [TODO] Suspeita em teste AGORA: falta do NotifySlotChange pós-PowerOn
+  (driver pode esperar slot-change antes do primeiro XFR) — implementado
+  `50 03` no PowerOn / `50 02` no PowerOff, build em andamento no
+  orquestrador. `tools/raw_transmit.py` falha igual (não é culpa do OpenSC).
+- [TODO] Pendente: prova fim-a-fim `opensc-tool -l` + VERIFY + GEN/AUTH;
+  remover logs de debug temporários do driver C e do poll (`[CCID] rx/tx`);
+  merge p/ main (F6).
