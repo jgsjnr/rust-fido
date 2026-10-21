@@ -96,3 +96,23 @@ logs de debug CCID removidos; achada e corrigida a causa raiz do "serial 0001"
 - Build variante proximity (board-devkitc,test-mode,debug-terminal,proximity): EXIT 0, 0 errors.
 - Commit c20bce4 no ar (trava RSSI + FF + limpeza + §13 + finalizacoes).
 - Próximo: flash proximity + scan aéreo passivo (0xFFFE/RSSI). Lock real só com confirmação (trava a máquina).
+
+### 21/10 (madrugada) - variante proximity no ar, scan passivo zerado (esperado)
+- Flash proximity OK (2935360 B, hash verificado). Bin limpo: 0002 x2, sem debug.
+- Scan BLE passivo 15 s (bleak, filtro 0xFFFE + nome Aegis): 0 achados.
+- Motivo esperado (gates): USB nativo plugado silencia BLE (coex) + sem bond
+  BLE (bond do app pendente com usuário) + K_prox só nasce no Paired.
+- UART só mostra heartbeats (sem linhas proximity/bond) — coerente c/ gates fechados.
+- Bench+base na variante proximity rodando p/ provar que o binário com feature
+  não quebrou o baseline.
+- Medição aérea real (0xFFFE + CTR + RSSI) e lock real ficam p/ quando houver
+  bond: passo 1 = parear app; passo 2 = desplugar USB nativo 1 min e escanear;
+  passo 3 = agente win --fob-id MAC --k-prox-hex <K do Paired>. Lock real da
+  máquina só com confirmação.
+
+### 21/10 (madrugada) - LOOP FECHADO na variante proximity
+- Bench 5/5 + base 9/11 (mesmas 2 flakes T06/T06b): baseline intacto com proximity compilado.
+- Tudo validado nesta placa: F4 E2E (Linux), FF-padded (device), logs limpos (UART),
+  serial 0002 (fio), fob MAC real (build), all-safe 25/25, gates host verdes.
+- Parado (depende de você): bond app -> scan aéreo -> lock real; WUDF Windows;
+  F6; H1-H7/APK/hold.
