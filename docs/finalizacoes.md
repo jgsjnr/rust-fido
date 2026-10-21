@@ -179,3 +179,7 @@ tinha expectativa errada de tempo, corrigida sem tocar produto.)
 Simulado e verde: pairing phase 14/14, merge F6 (zero conflitos), APK 56,5 MB.
 Físico pendente (usuário): bond app -> scan aéreo -> lock real; hold-gesture real;
 H1-H7; WUDF segue estacionado p/ 2o PC.
+
+### F6 - merge p/ main
+Merge executado em worktree isolada (C:\t\merge-f6) p/ não tocar a árvore de
+trabalho das outras lanes. Simulação prévia (merge-tree): zero conflitos.
