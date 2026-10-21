@@ -74,6 +74,7 @@ STATUS_KEEPALIVE_UP_NEEDED = 0x02
 PAIRING_WINDOW_SECS = 60
 TEST_DUMP_CMD = "TEST_LIFETIME_DUMP"
 TEST_PAIRING_OPEN_CMD = "TEST_PAIRING_OPEN"
+TEST_UP_CMD = "TEST_UP"
 
 # Fase6 vendor ops (BLE appendix 9, frozen range 0x20-0x27).
 OP_KEY_GEN = 0x20
@@ -190,8 +191,10 @@ class Reassembler:
         if raw == CMD_KEEPALIVE:
             return ("keepalive", pkt[7])
         if raw & 0x80:
-            if total > 512:
-                raise ValueError("overflow control-point")
+            # Teto CTAPHID (USB/serial permitem ate 7609 B; o 512 e so do
+            # control-point BLE). Attestation passa de 512 (ex. 743 B).
+            if total > 7609:
+                raise ValueError("overflow ctaphid")
             self.cid, self.cmd, self.total = cid, raw, total
             self.buf = bytearray(pkt[7:7 + min(total, INIT_PAYLOAD_MAX)])
             self.seq = 0
@@ -246,7 +249,7 @@ class SerialStreamReader:
                 del self.buf[:PACKET_SIZE]
                 return frame
             self.buf.extend(self.link.read_exact(1, deadline_s=deadline_s))
-            if len(self.buf) > 4096:
+            if len(self.buf) > 16384:
                 raise ValueError("serial stream desync (buffer overflow)")
 
 
@@ -452,6 +455,19 @@ class SerialLink:
             total += n
         return total
 
+    def flush_input(self):
+        """Descarta bytes velhos (heartbeat/boot) antes de um comando
+        de diagnóstico — elimina a corrida do leitor UART."""
+        try:
+            if os.name == "nt":
+                if self.handle:
+                    self._k32.PurgeComm(self.handle, 0x0004 | 0x0008)
+            elif self.fd is not None:
+                import termios
+                termios.tcflush(self.fd, termios.TCIFLUSH)
+        except Exception:
+            pass
+
     def read_exact(self, n, deadline_s=5.0):
         buf = bytearray()
         end = time.monotonic() + deadline_s
@@ -492,6 +508,63 @@ class SerialLink:
             self.fd = None
 
 
+class HidLink:
+    """Transporte USB-HID nativo (CTAPHID puro, sem texto entrelaçado).
+
+    FIDO HID: reports de 64B; o primeiro byte é o Report ID (0). Leitura
+    bloqueante com timeout via hidapi. Sem SerialStreamReader: no USB não
+    há heartbeat/texto no mesmo endpoint.
+    """
+
+    USB_VID = 0x303A
+    USB_PID = 0xAE61
+
+    def __init__(self, vid=USB_VID, pid=USB_PID):
+        self.vid = vid
+        self.pid = pid
+        self.dev = None
+
+    def open(self):
+        import hid
+        found = [d for d in hid.enumerate(self.vid, self.pid)
+                 if d.get("usage_page") == 0xF1D0 or True]
+        if not found:
+            raise OSError("USB HID %04X:%04X não enumerado (cabo dados? driver?)" % (self.vid, self.pid))
+        self.dev = hid.device()
+        self.dev.open_path(found[0]["path"])
+        self.dev.set_nonblocking(0)
+
+    def write(self, data):
+        assert len(data) == 64, len(data)
+        # Report ID 0 prefixado (hidapi inclui no buffer de escrita).
+        n = self.dev.write(b"\x00" + data)
+        if n < 0:
+            raise OSError("usb hid write failed")
+        return n
+
+    def read_exact(self, n, deadline_s=5.0):
+        import time as _t
+        buf = bytearray()
+        end = _t.monotonic() + deadline_s
+        while len(buf) < n and _t.monotonic() < end:
+            chunk = bytes(self.dev.read(64, timeout_ms=100))
+            if chunk:
+                # hidapi devolve [report_id, 64B]; tolera com/sem prefixo.
+                if len(chunk) == 65:
+                    chunk = chunk[1:]
+                buf.extend(chunk[:n - len(buf)])
+        if len(buf) < n:
+            raise TimeoutError("usb hid read timeout (%d/%d bytes)" % (len(buf), n))
+        return bytes(buf)
+
+    def close(self):
+        try:
+            if self.dev:
+                self.dev.close()
+        finally:
+            self.dev = None
+
+
 # ---------------------------------------------------------------------------
 # Device session: pairing gate + CTAP exchange + HTTP AP + dump.
 # ---------------------------------------------------------------------------
@@ -502,6 +575,7 @@ class Session:
         self.test_mode = test_mode
         self.clock = clock
         self.link = None
+        self.usb = False
         self.cid = 0x11223344
         self.pairing_until = 0.0
 
@@ -526,13 +600,53 @@ class Session:
             counts, _ = parse_dump(dump)
             log_event("TEST_MODE_OK", "counters=%d" % len(counts))
 
+    def connect_usb(self, vid=HidLink.USB_VID, pid=HidLink.USB_PID):
+        self.link = HidLink(vid, pid)
+        self.link.open()
+        self.usb = True
+        log_event("USB_CONNECTED", "vid=%04X pid=%04X" % (vid, pid))
+
     def close(self):
         if self.link:
             self.link.close()
             self.link = None
             log_event("DEVICE_DISCONNECTED")
 
+    def _exchange_usb(self, cmd, payload, timeout_s=30.0, op="op"):
+        """Troca CTAPHID pura via USB-HID (sem texto entrelaçado, sem gates
+        de texto). Keepalive UP imprime aviso como no serial."""
+        if not self.link:
+            raise OSError("not connected (connect_usb primeiro)")
+        self.require_pairing(op)
+        packets = frame_message(self.cid, cmd, payload)
+        log_event("CTAP_SENT", "cmd=%02x bytes=%d pkts=%d" % (cmd, len(payload), len(packets)))
+        for pkt in packets:
+            self.link.write(pkt)
+        asm = Reassembler()
+        end = time.monotonic() + timeout_s
+        up_announced = False
+        while time.monotonic() < end:
+            raw = self.link.read_exact(PACKET_SIZE, deadline_s=2.0)
+            kind, data = asm.feed(raw)
+            if kind == "keepalive":
+                if data == STATUS_KEEPALIVE_UP_NEEDED and not up_announced:
+                    up_announced = True
+                    print("** UP necessario: pressione BOOT no device (ate 25s) **")
+                    log_event("UP_NEEDED")
+                continue
+            if kind == "more":
+                continue
+            if kind == "message":
+                rcid, rcmd, body = data
+                status, cbor = parse_ctap_response(body)
+                log_event("CTAP_RESPONSE", "status=%02x bytes=%d" % (status, len(body)))
+                return status, cbor
+        raise TimeoutError("no CTAP response (UP? timeout?)")
+
     def _exchange(self, cmd, payload, timeout_s=30.0, op="op"):
+        # USB-HID não tem texto entrelaçado: troca binária direta.
+        if getattr(self, "usb", False):
+            return self._exchange_usb(cmd, payload, timeout_s, op)
         if not self.link:
             raise OSError("not connected (menu 1)")
         self.require_pairing(op)
@@ -584,20 +698,28 @@ class Session:
         cbor = parse_hex_even(cbor_hex) if cbor_hex.strip() else b""
         return self._exchange(CMD_CBOR, bytes([ctap_cmd]) + cbor, op=op)
 
-    def send_text_line(self, line, timeout_s=5.0):
+    def send_text_line(self, line, timeout_s=5.0, until=None):
         if not self.link:
             raise OSError("not connected (menu 1)")
+        self.link.flush_input()
         self.link.write((line + "\n").encode("ascii"))
         log_event("DIAG_SENT", "cmd_bytes=%d" % len(line))
         buf = bytearray()
         end = time.monotonic() + timeout_s
+        grace = None  # após o match, drena o resto da linha (ex.: ack splitado)
         while time.monotonic() < end:
             try:
                 chunk = self.link.read_exact(1, deadline_s=1.0)
             except TimeoutError:
                 break
             buf.extend(chunk)
-            if b"lt_end\n" in buf:
+            if until is not None and bytes(until) in buf:
+                if grace is None:
+                    grace = time.monotonic() + 0.4
+                tail = bytes(buf).split(bytes(until), 1)[1]
+                if b"\n" in tail or time.monotonic() >= grace:
+                    break
+            elif until is None and b"lt_end\n" in buf:
                 break
             if len(buf) > 4096:
                 break
@@ -612,18 +734,39 @@ class Session:
         log_event("LIFETIME_DUMP", "bytes=%d" % len(text))
         return text
 
-    def test_pairing_open(self, timeout_s=5.0):
+    def test_pairing_open(self, timeout_s=5.0, retries=3):
         """TEST_PAIRING_OPEN (test-mode fw only): device opens the same 60s
         pairing window as the 5s BOOT hold (source=software, no UP confirm).
         Mirrors menu 9: tracks the window locally so privileged ops pass the
-        host-side gate while the window lasts."""
+        host-side gate while the window lasts. Retries: the UART text reader
+        races CTAPHID framing, so a command lost among log lines is resent."""
         if not self.test_mode:
             raise PermissionError("pairing-open needs --test-mode (firmware must have test-mode)")
-        text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s)
+        text = ""
+        for _ in range(max(1, retries)):
+            text = self.send_text_line(TEST_PAIRING_OPEN_CMD, timeout_s=timeout_s, until=b"pairing_open")
+            if "pairing_open" in text and "source=software" in text:
+                break
         if "pairing_open" not in text or "source=software" not in text:
             raise ValueError("device did not open pairing (test-mode firmware?)")
         self.confirm_pairing()
         log_event("TEST_PAIRING_OPEN", "window_s=%d" % PAIRING_WINDOW_SECS)
+        return text
+
+    def test_up(self, timeout_s=5.0, retries=4):
+        """TEST_UP (test-mode fw only): injects ONE BOOT tap in software
+        (same 1.5s latch semantics as the physical tap; single-shot).
+        Same resend policy as pairing-open (UART reader race)."""
+        if not self.test_mode:
+            raise PermissionError("test-up needs --test-mode (firmware must have test-mode)")
+        text = ""
+        for _ in range(max(1, retries)):
+            text = self.send_text_line(TEST_UP_CMD, timeout_s=timeout_s, until=b"up_latched")
+            if "up_latched" in text and "source=software" in text:
+                break
+        if "up_latched" not in text or "source=software" not in text:
+            raise ValueError("device did not latch UP (test-mode firmware?)")
+        log_event("TEST_UP", "latch=1x")
         return text
 
     # -- HTTP AP ----------------------------------------------------------

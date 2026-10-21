@@ -32,6 +32,16 @@ function Initialize-EspEnvironment {
     # neste env; aponta os defaults BT/BLE-only do workspace root.
     $env:ESP_IDF_SDKCONFIG_DEFAULTS = Join-Path $global:RepoRoot "sdkconfig.defaults.esp32s3"
 
+    # Toolchain ESP (espup): clang/gcc no PATH; sem isso o cmake do
+    # esp-idf-sys cai no IDF errado ou nao acha o compilador (falha ABI).
+    $exportEsp = Join-Path ([Environment]::GetFolderPath("UserProfile")) "export-esp.ps1"
+    if (Test-Path $exportEsp) {
+        . $exportEsp
+        Write-Success "export-esp.ps1 aplicado."
+    } else {
+        Write-Warn "export-esp.ps1 ausente; rode 'espup install' e revalide com scripts/env-check.ps1."
+    }
+
     $global:EsptoolExe = $null
     $candidates = @(
         "C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts\esptool.exe",
@@ -136,6 +146,52 @@ function Invoke-FirmwareTest {
     }
 }
 
+# 3b. Sincroniza componentes C locais (repo) para dentro do IDF.
+# O build ESP compila $IDF_PATH/components/aegis_* (copias!), nao o repo.
+# Sem isso, alteracao em components/*.c nunca embarca (ex.: fix GATT,
+# reboot_to_download). Repo e fonte da verdade; copia e descartavel.
+function Sync-IdfLocalComponents {
+    $idfComps = Join-Path $env:IDF_PATH "components"
+    if (-not (Test-Path $idfComps)) { return }
+    $srcRoot = Join-Path $global:RepoRoot "crates\aegis-fido-firmware\components"
+    foreach ($comp in @("aegis_usb", "aegis_ble", "aegis_wifi")) {
+        $src = Join-Path $srcRoot $comp
+        $dst = Join-Path $idfComps $comp
+        if ((Test-Path $src) -and (Test-Path $dst)) {
+            Copy-Item (Join-Path $src "*") $dst -Recurse -Force
+            Write-Info "Componente C sincronizado: $comp"
+        }
+    }
+    Clear-StaleIdfSysBuild -SrcRoot $srcRoot
+}
+
+# 3c. Invalida build C obsoleto (licao F5/D08 20/10).
+# O cargo NAO re-executa o build-script do esp-idf-sys ao mudar .c: o ninja
+# para no tempo e o link usa .a velho (`undefined reference` fantasma SÓ no
+# símbolo novo). `cargo clean -p` não adianta (objetos C moram no pacote
+# esp-idf-sys, separado). Se algum fonte C é mais novo que os outputs,
+# apaga os build dirs do esp-idf-sys (fingerprint + out) p/ forçar
+# reconfigure total no próximo build.
+function Clear-StaleIdfSysBuild {
+    param([string]$SrcRoot)
+    $newestSrc = Get-ChildItem $SrcRoot -Recurse -File -Include @("*.c", "*.h", "*.txt") |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $newestSrc) { return }
+    $roots = @($global:TargetDir, (Join-Path $global:RepoRoot "target")) | Where-Object { Test-Path $_ }
+    foreach ($root in $roots) {
+        foreach ($triple in Get-ChildItem $root -Directory -Filter "xtensa-*-espidf" -ErrorAction SilentlyContinue) {
+            foreach ($sysdir in Get-ChildItem (Join-Path $triple.FullName "release\build") -Directory -Filter "esp-idf-sys-*" -ErrorAction SilentlyContinue) {
+                $newestOut = Get-ChildItem $sysdir.FullName -Recurse -File -Include @("*.a", "*.obj") -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                if ((-not $newestOut) -or ($newestSrc.LastWriteTime -gt $newestOut.LastWriteTime)) {
+                    Remove-Item -Recurse -Force $sysdir.FullName
+                    Write-Warn ("Build C invalidado (fonte {0} mais novo que output): {1}" -f $newestSrc.Name, $sysdir.Name)
+                }
+            }
+        }
+    }
+}
+
 # 4. Cargo ESP Build Runner
 function Invoke-FirmwareBuild {
     param(
@@ -152,6 +208,10 @@ function Invoke-FirmwareBuild {
             Write-Info "Limpando diretorio de compilacao..."
             & cargo clean -p aegis-fido-firmware
         }
+
+        # O build ESP compila as COPIAS em $IDF_PATH/components (nao o repo!):
+        # sincroniza repo -> IDF antes de compilar, senao C novo nunca embarca.
+        Sync-IdfLocalComponents
 
         Write-Info "Iniciando compilacao Cargo:"
         Write-Host "  Target:  $Target" -ForegroundColor Gray
@@ -231,28 +291,84 @@ function Invoke-FirmwareFlash {
 
     Test-FirmwareArtifact -BinPath $BinPath | Out-Null
     $targetPort = Select-TargetPort $Port
-    Write-Info "Gravando firmware na placa via $targetPort ($Chip a $Baud bps)..."
 
-    $flashArgs = @(
-        "--chip", $Chip,
-        "--port", $targetPort,
-        "--baud", "$Baud",
-        "write_flash",
-        $Offset,
-        $BinPath
-    )
+    # Caminho sem botoes (padrao): TEST_DOWNLOAD via software (RTC_CNTL).
+    # O firmware diag (test-mode) reboota direto p/ ROM download; o esptool
+    # entra com --before no-reset. So cai no fallback manual se o app nao
+    # responder (release sem test-mode, porta ocupada ou placa travada).
+    $softOk = $false
+    try {
+        Write-Info "Tentando download-mode por software (TEST_DOWNLOAD, sem botoes)..."
+        $softProbe = @"
+import sys, time
+sys.path.insert(0, 'tools')
+from app_simulator import SerialLink
+l = SerialLink('$targetPort', 115200)
+l.open()
+l.write(b'TEST_DOWNLOAD\n')
+t0 = time.time(); ok = False
+while time.time() - t0 < 8:
+    try:
+        raw = l.read_exact(64, deadline_s=1.0)
+    except Exception:
+        continue
+    if 'download_mode' in bytes(raw).decode('ascii', 'replace'):
+        ok = True
+        break
+l.close()
+sys.exit(0 if ok else 2)
+"@
+        $probeFile = Join-Path ([IO.Path]::GetTempPath()) "aegis_softdl_probe.py"
+        $softProbe | Set-Content -LiteralPath $probeFile -Encoding ASCII
+        Push-Location $global:RepoRoot
+        try { & python $probeFile 2>$null | Out-Null } catch {}
+        $softOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+    } catch {}
 
-    if ($global:EsptoolExe -match "python -m esptool") {
-        & python -m esptool @flashArgs
+    if ($softOk) {
+        Write-Success "Placa em ROM download por software (sem botoes)."
     } else {
-        & $global:EsptoolExe @flashArgs
+        Write-Warn "Sem resposta a TEST_DOWNLOAD (firmware sem test-mode, porta ocupada ou app travado)."
+        Write-Host "Fallback manual: segure BOOT, aperte+solte EN, continue segurando BOOT e tecle ENTER." -ForegroundColor Yellow
+        Read-Host "Pressione ENTER quando estiver segurando BOOT" | Out-Null
     }
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "A gravacao na porta $targetPort falhou com codigo $LASTEXITCODE."
+    Write-Info "Gravando firmware na placa via $targetPort ($Chip, --before no-reset)..."
+    $bauds = @($Baud)
+    if ($Baud -ne 115200) { $bauds += 115200 }
+    $flashed = $false
+    foreach ($b in $bauds) {
+        $flashArgs = @(
+            "--chip", $Chip,
+            "--port", $targetPort,
+            "--baud", "$b",
+            "--before", "no-reset",
+            "--after", "hard-reset",
+            "write_flash",
+            $Offset,
+            $BinPath
+        )
+
+        # Saida do esptool vai para o console via Write-Host para nao poluir o
+        # valor de retorno da funcao (PowerShell retorna toda saida nao capturada).
+        $flashOut = if ($global:EsptoolExe -match "python -m esptool") {
+            & python -m esptool @flashArgs | Out-String
+        } else {
+            & $global:EsptoolExe @flashArgs | Out-String
+        }
+        Write-Host $flashOut
+
+        if ($LASTEXITCODE -eq 0) { $flashed = $true; break }
+        Write-Warn "Gravacao a $b bps falhou; tentando fallback..."
+    }
+
+    if (-not $flashed) {
+        throw "A gravacao na porta $targetPort falhou."
     }
 
     Write-Success "Gravacao concluida com sucesso na $targetPort!"
+    Write-Host "Se a placa nao bootar sozinha, aperte EN. (RTS faz o reset; BOOT+EN manual so e preciso se o TEST_DOWNLOAD falhar.)" -ForegroundColor Yellow
     return $targetPort
 }
 
@@ -286,7 +402,12 @@ function Test-FirmwareArtifact {
     param([Parameter(Mandatory=$true)] [string]$BinPath)
     if (-not (Test-Path -LiteralPath $BinPath)) { throw "Binario nao encontrado: $BinPath" }
     $f = Get-Item -LiteralPath $BinPath
-    $sha = (Get-FileHash -LiteralPath $BinPath -Algorithm SHA256).Hash
+    $sha = $null
+    try { $sha = (Get-FileHash -LiteralPath $BinPath -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $sha = $null }
+    if (-not $sha) {
+        $sha = (& python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" $BinPath | Select-Object -First 1).Trim()
+    }
+    if (-not $sha) { throw "Nao foi possivel calcular o SHA256 de $BinPath." }
     $max = Get-FactoryMaxSize
     Write-Host ("  SHA256: {0}" -f $sha) -ForegroundColor Gray
     Write-Host ("  SIZE:   {0} bytes (max factory: {1})" -f $f.Length, $max) -ForegroundColor Gray

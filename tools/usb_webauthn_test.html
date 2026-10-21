@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>AegisKey USB e2e (localhost)</title>
+<style>body{font-family:system-ui;max-width:720px;margin:2em auto}button{font-size:1.1em;margin:.4em .2em;padding:.5em 1em}pre{background:#eee;padding:1em;white-space:pre-wrap}</style>
+</head>
+<body>
+<h1>AegisKey USB — prova via WebAuthn</h1>
+<p>Use <b>USB</b> no seletor do Windows e <b>toque o BOOT</b> quando pedir.</p>
+<button id="bMC">1. Criar credencial (MC via USB)</button>
+<button id="bGA">2. Entrar (GA via USB)</button>
+<button id="bCopy">Copiar resultado</button>
+<pre id="log">aguardando...</pre>
+<script>
+const log = (m) => { document.getElementById('log').textContent += '\n' + m; };
+const buf = (n) => crypto.getRandomValues(new Uint8Array(n));
+let lastId = null;
+document.getElementById('bMC').onclick = async () => {
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: buf(32), rp: { name: 'AegisKey USB e2e', id: 'localhost' },
+      user: { id: buf(16), name: 'usb-e2e', displayName: 'USB e2e' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+      timeout: 60000, authenticatorSelection: { residentKey: 'required', userVerification: 'discouraged' },
+    }});
+    lastId = cred.rawId;
+    log('MC OK attBytes=' + cred.response.attestationObject.byteLength +
+        ' credIdBytes=' + cred.rawId.byteLength);
+  } catch (e) { log('MC FALHOU: ' + e.name + ' ' + e.message); }
+};
+document.getElementById('bGA').onclick = async () => {
+  try {
+    const a = await navigator.credentials.get({ publicKey: {
+      challenge: buf(32), rpId: 'localhost', timeout: 60000,
+      allowCredentials: lastId ? [{ type: 'public-key', id: lastId }] : [],
+      userVerification: 'discouraged',
+    }});
+    log('GA OK authBytes=' + a.response.authenticatorData.byteLength +
+        ' sigBytes=' + a.response.signature.byteLength);
+  } catch (e) { log('GA FALHOU: ' + e.name + ' ' + e.message); }
+};
+document.getElementById('bCopy').onclick = async () => {
+  await navigator.clipboard.writeText(document.getElementById('log').textContent);
+  log('(copiado)');
+};
+</script>
+</body>
+</html>

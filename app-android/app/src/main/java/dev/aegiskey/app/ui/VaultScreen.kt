@@ -132,7 +132,12 @@ fun VaultScreen(client: AegisBleClient? = null) {
             error = null
             try {
                 val nameBytes = name.toByteArray(Charsets.UTF_8)
-                val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, nameBytes)
+                // TOTP precisa do contador (device sem RTC): 8B big-endian.
+                // HOTP ignora o challenge (usa o contador interno).
+                val counter = nowSec / 30
+                val chalBytes = ByteArray(8) { i -> ((counter shr (56 - 8 * i)) and 0xFFL).toByte() }
+                val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, nameBytes) +
+                    VendorOps.writeTlv(VendorOps.TAG_OATH_CHALLENGE, chalBytes)
                 val raw = withContext(Dispatchers.IO) {
                     ble.sendVendor(VendorOps.OP_OATH_CODE, req)
                 }

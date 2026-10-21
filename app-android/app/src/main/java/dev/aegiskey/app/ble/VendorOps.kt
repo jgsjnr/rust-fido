@@ -28,11 +28,23 @@ object VendorOps {
     const val OP_OATH_CODE: Int = 0x26
     const val OP_OATH_DELETE: Int = 0x27
 
+    /** Carteira Fase7 (R-07): faixa livre 0x35-0x37 (GATT/revisão intactos). */
+    const val OP_WALLET_GEN: Int = 0x35
+    const val OP_WALLET_LIST: Int = 0x36
+    const val OP_WALLET_ADDR: Int = 0x37
+
+    /** Log da firmware (0x38): resposta `0x00 + ASCII`, sem PII/segredos. */
+    const val OP_FW_LOG: Int = 0x38
+
+    /** Enrollment PIV / smartcard (0x39): request `[pin_len:1, pin, puk:8]`. */
+    const val OP_PIV_ENROLL: Int = 0x39
+
     const val STATUS_OK: Int = 0x00
     const val STATUS_NEED_UP: Int = 0x01
     const val STATUS_NEED_PIN: Int = 0x02
     const val STATUS_NO_SLOT: Int = 0x03
     const val STATUS_BAD_ENVELOPE: Int = 0x04
+    const val STATUS_NEED_BINDING: Int = 0x05
 
     const val TAG_SLOT: Int = 0x01
     const val TAG_LABEL: Int = 0x02
@@ -62,6 +74,7 @@ object VendorOps {
         STATUS_NEED_PIN -> "PIN necessario"
         STATUS_NO_SLOT -> "slot/nome inexistente"
         STATUS_BAD_ENVELOPE -> "dados invalidos"
+        STATUS_NEED_BINDING -> "vincule o dispositivo primeiro"
         else -> "erro desconhecido"
     }
 
@@ -233,6 +246,17 @@ object VendorOps {
             .take(64)
     }
 
+    /**
+     * Request enrollment PIV (0x39): `[pin_len:1, pin, puk:8]` com dígitos
+     * ASCII (PIN 6-8, PUK 8). O chamador deve zerar os buffers com wipe
+     * após sendVendor (PIN/PUK nunca persistem nem entram no Log).
+     */
+    fun pivEnrollRequest(pin: ByteArray, puk: ByteArray): ByteArray {
+        require(pin.size in 6..8 && pin.all { it in 0x30..0x39 }) { "PIN 6..8 dígitos" }
+        require(puk.size == 8 && puk.all { it in 0x30..0x39 }) { "PUK 8 dígitos" }
+        return byteArrayOf(pin.size.toByte()) + pin + puk
+    }
+
     /** Resposta vendor: [op, status, TLV...]. */
     data class VendorResponse(val op: Int, val status: Int, val tlv: ByteArray)
 
@@ -241,5 +265,22 @@ object VendorOps {
         val op = raw[0].toInt() and 0xFF
         val status = raw[1].toInt() and 0xFF
         return VendorResponse(op, status, raw.copyOfRange(2, raw.size))
+    }
+
+    /**
+     * Log da firmware (0x38): corpo ASCII `SEQ EV=cc ARG=aa T=ms` por linha,
+     * já sem PII na origem. Normaliza quebras, corta em maxChars e remove
+     * linhas vazias. Nunca retorna null — firmware antiga sem 0x38 cai no
+     * timeout do chamador, não aqui.
+     */
+    fun parseFwLog(tlv: ByteArray, maxChars: Int = 4000): String {
+        val text = runCatching { tlv.toString(Charsets.UTF_8) }.getOrDefault("")
+        val lines = text.replace("\r\n", "\n").replace('\r', '\n')
+            .split('\n')
+            .map { it.trim().take(80) }
+            .filter { it.isNotEmpty() }
+            .take(200)
+        if (lines.isEmpty()) return "(log vazio — device recém-ligado?)"
+        return lines.joinToString("\n").take(maxChars)
     }
 }

@@ -27,6 +27,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 
 #include "nimble/nimble_port.h"
@@ -403,7 +404,8 @@ static int ensure_init(void)
      * ESP_FAIL (-1) em loop. NAO reintroduzir. */
     err = nimble_port_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nimble_port_init: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "nimble_port_init: %s (heap livre %lu)",
+                 esp_err_to_name(err), (unsigned long)esp_get_free_heap_size());
         return -2;
     }
 
@@ -422,6 +424,12 @@ static int ensure_init(void)
 
     ble_store_config_init();
 
+    /* Serviços padrão GAP (0x1800) + GATT (0x1801, Service Changed): sem
+     * eles o banco ATT anuncia zero serviços e o Windows enumera vazio.
+     * (NimBLE deste IDF: retorno void; falha aparece no count/add.) */
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
+
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_count rc=%d", rc);
@@ -431,6 +439,12 @@ static int ensure_init(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_add rc=%d", rc);
         return -4;
+    }
+    /* Publica o banco ATT: sem start, centrals descobrem zero serviços. */
+    rc = ble_gatts_start();
+    if (rc != 0) {
+        ESP_LOGE(TAG, "gatts_start rc=%d", rc);
+        return -8;
     }
     rc = ble_svc_gap_device_name_set(AEGIS_BLE_NAME);
     if (rc != 0) {
@@ -446,6 +460,13 @@ static int ensure_init(void)
 }
 
 /* --- API p/ o Rust -------------------------------------------------------- */
+
+/* Pré-init no boot (heap fresco), sem anunciar. Idempotente via s_inited;
+ * falha retorna o código sem retry aqui (o gate Rust faz backoff). */
+int aegis_ble_preinit(void)
+{
+    return ensure_init();
+}
 
 int aegis_ble_start(int pairing_flag, int coex_slow)
 {
@@ -533,4 +554,113 @@ void aegis_ble_set_pending_len(uint16_t value)
 int aegis_ble_conn_active(void)
 {
     return (s_inited && s_conn_handle != BLE_HS_CONN_HANDLE_NONE) ? 1 : 0;
+}
+
+/* --- Wave2: anuncio de presenca 0xFFFE (rolling-code) ----------------------
+ *
+ * Service-data construido no Rust (proximity.rs + ble_nimble.rs, feature
+ * proximity); aqui so transporte. GATT 0xFFFD intacto: este adv usa o UUID
+ * 0xFFFE separado e nao altera o banco ATT. Layout total 30 B (<= 31 B).
+ * Coex USB > WiFi > BLE: o Rust so chama com USB inativo; coex_slow != 0
+ * quando o WiFi esta ativo (intervalo lento, BLE cede airtime).
+ */
+#define AEGIS_PROX_SVC_UUID16 0xFFFE
+#define AEGIS_PROX_SVC_DATA_LEN 11
+
+static int
+start_proximity_adv_raw(const uint8_t *svc_data_11, int coex_slow)
+{
+    struct ble_hs_adv_fields fields;
+    struct ble_gap_adv_params params;
+    int rc;
+
+    if (svc_data_11 == NULL) {
+        return -1;
+    }
+    if (svc_data_11[0] != (uint8_t)(AEGIS_PROX_SVC_UUID16 & 0xFF) ||
+        svc_data_11[1] != (uint8_t)((AEGIS_PROX_SVC_UUID16 >> 8) & 0xFF)) {
+        return -1; /* fail-closed: UUID fora de 0xFFFE nao anuncia */
+    }
+    if (svc_data_11[2] != 0x01) {
+        return -1; /* VER suportada: 0x01 */
+    }
+
+    memset(&fields, 0, sizeof(fields));
+    fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    fields.uuids16 = (ble_uuid16_t[]){ BLE_UUID16_INIT(AEGIS_PROX_SVC_UUID16) };
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
+    fields.svc_data_uuid16 = (uint8_t *)svc_data_11;
+    fields.svc_data_uuid16_len = AEGIS_PROX_SVC_DATA_LEN;
+    fields.name = (uint8_t *)AEGIS_BLE_NAME;
+    fields.name_len = sizeof(AEGIS_BLE_NAME) - 1;
+    fields.name_is_complete = 1;
+
+    rc = ble_gap_adv_set_fields(&fields);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "prox_adv_set_fields rc=%d", rc);
+        return rc;
+    }
+
+    memset(&params, 0, sizeof(params));
+    params.conn_mode = BLE_GAP_CONN_MODE_UND;
+    params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    if (coex_slow) {
+        params.itvl_min = AEGIS_ADV_ITVL_COEX_MIN;
+        params.itvl_max = AEGIS_ADV_ITVL_COEX_MAX;
+    } else {
+        params.itvl_min = AEGIS_ADV_ITVL_NORMAL_MIN;
+        params.itvl_max = AEGIS_ADV_ITVL_NORMAL_MAX;
+    }
+
+    rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER,
+                           &params, gap_event, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "prox_adv_start rc=%d", rc);
+        return rc;
+    }
+    s_advertising = 1;
+    ESP_LOGI(TAG, "prox adv on (coex_slow=%d)", coex_slow);
+    return 0;
+}
+
+/* Rust (ble_nimble.rs, feature proximity): svc_data de 11 B
+ * [FE FF VER CTR u32LE TAG 4B]. Retorna 0 ok, negativo = erro. */
+int aegis_ble_proximity_start(const uint8_t *svc_data, int svc_len, int coex_slow)
+{
+    int rc = ensure_init();
+    if (rc != 0) {
+        return rc;
+    }
+    if (!s_synced) {
+        return -10; /* host ainda sincronizando; Rust tenta de novo */
+    }
+    if (s_advertising) {
+        return 0; /* idempotente */
+    }
+    if (svc_data == NULL || svc_len != AEGIS_PROX_SVC_DATA_LEN) {
+        return -1;
+    }
+    return start_proximity_adv_raw(svc_data, coex_slow ? 1 : 0);
+}
+
+/* MAC publico do NimBLE p/ o fob_short_id do beacon (feature proximity).
+ * out[6] recebe o endereco; retorna 0 ok, negativo = erro (stack ainda nao
+ * subiu: sem init/sync retorna != 0 e NUNCA inventa MAC; o Rust trata como
+ * None e o beacon nao anuncia — fail-closed). */
+int aegis_ble_own_addr(uint8_t out[6])
+{
+    int rc;
+    if (out == NULL) {
+        return -1;
+    }
+    if (!s_inited || !s_synced) {
+        return -10; /* stack down; Rust tenta de novo no proximo tick */
+    }
+    rc = ble_hs_id_copy_addr(s_own_addr_type, out, NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "id_copy_addr rc=%d", rc);
+        return rc;
+    }
+    return 0;
 }

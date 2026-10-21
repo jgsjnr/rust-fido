@@ -156,6 +156,40 @@ impl WifiApManager {
     }
 }
 
+/// Acao do AP decidida uma vez por poll (chamador aplica e atualiza o cache).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApPollAction {
+    /// Nada a fazer (inclui: BLE assumiu e AP ja estava off).
+    None,
+    /// Ligar o AP (janela/menu, sem BLE pareando, radio off).
+    Start,
+    /// Desligar UMA vez (janela fechou ou BLE assumiu com radio on).
+    Stop,
+}
+
+/// Decisao pura do poll do AP: edge-triggered, sem spam de stop.
+///
+/// `ap_want` vem de `WifiApManager::is_active`; `ble_pairing_now` de
+/// `should_advertise` (BLE e WiFi sao mutuamente exclusivos no S3);
+/// `ap_active_cache` e o estado que o chamador acha que o radio tem.
+pub fn ap_poll_action(
+    ap_want: bool,
+    ble_pairing_now: bool,
+    ap_active_cache: bool,
+) -> ApPollAction {
+    if ap_want && !ble_pairing_now {
+        if ap_active_cache {
+            ApPollAction::None
+        } else {
+            ApPollAction::Start
+        }
+    } else if ap_active_cache {
+        ApPollAction::Stop
+    } else {
+        ApPollAction::None
+    }
+}
+
 impl Default for WifiApManager {
     fn default() -> Self {
         Self::new()
@@ -394,6 +428,22 @@ mod tests {
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])
+    }
+
+    #[test]
+    fn ap_poll_action_sem_spam_de_stop() {
+        use super::ApPollAction as A;
+        // Idle: quieto.
+        assert_eq!(super::ap_poll_action(false, false, false), A::None);
+        // Janela sem BLE: liga uma vez, depois quieto.
+        assert_eq!(super::ap_poll_action(true, false, false), A::Start);
+        assert_eq!(super::ap_poll_action(true, false, true), A::None);
+        // BLE assumiu com radio off: NENHUM stop (era o spam a cada poll).
+        assert_eq!(super::ap_poll_action(true, true, false), A::None);
+        // BLE assumiu com radio on: desliga UMA vez.
+        assert_eq!(super::ap_poll_action(true, true, true), A::Stop);
+        // Janela fechou com radio on: desliga UMA vez.
+        assert_eq!(super::ap_poll_action(false, false, true), A::Stop);
     }
 
     #[test]

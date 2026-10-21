@@ -20,8 +20,13 @@ foreach ($c in $crates) {
     Write-Host "🧪 Testando crate: $c..." -ForegroundColor Yellow
     Write-Host "------------------------------------------------------------" -ForegroundColor Gray
     
+    # stderr nativo nao pode derrubar o script (Stop): avalia-se pelo exit code.
+    $prevPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     & cargo test -p $c --lib
-    if ($LASTEXITCODE -ne 0) {
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prevPref
+    if ($code -ne 0) {
         $failed += $c
         Write-Host "❌ Falha nos testes de $c!" -ForegroundColor Red
     } else {

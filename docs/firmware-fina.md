@@ -35,3 +35,53 @@ Método geral de estimativa: S = dezenas–poucas centenas B flash e/ou <512B RA
 - GATT: manter `GATT_REVISION 0x01`, framing §3 `[op,len_hi,len_lo]`, sem NACK que quebre §9.6 (`BAD_ENVELOPE 0x04` sem retry).
 - Classic: priorizar MOVER `address.rs` + formatação display primeiro (maior alívio opt-z); S3 usa a mesma lista para abrir folga OTA.
 - Sem mudança de layout NVS/journal nem CBOR IDs nesta wave.
+
+## Delta Step4c-medicao (2026-10-20, sem COM8/sem subagentes)
+
+Verificação por grep no firmware (sem chute):
+- `wallet|sha3|ripemd|bech32|bs58`: **zero ocorrências** em
+  `aegis-fido-firmware/src` → encodings nunca linkados no bin ESP. O
+  move `wallet_address` p/ bridge é app-side only (correto); nada a
+  remover do firmware.
+- Display (`display/ui.rs`): **FICA** — LCD físico precisa renderizar
+  no device; "formatação" inseparável do flush por bandas.
+- Reassemble GATT (`ble_gatt.rs` feed): **FICA** — framing §9.6
+  congelado; mover quebraria `BAD_ENVELOPE`/sem-retry.
+- Retry WiFi (`sta_retry_due` + const 60s, ~10 linhas): **FICA** —
+  timing de rádio é crítico no device; economia S não paga o risco.
+- Countdown TOTP display: **JÁ MOVIDO** (`oath_remaining_seconds` no
+  bridge, teste `oath_remaining_mirrors_firmware_window`).
+- SIZE release S3 medido: **2.646.400 B** (era 2.646.512; −112 B da
+  fiação; test-mode soma 0 B). Conclusão Step4c: nada mais a mover
+  nesta wave sem quebrar fronteira ou wire.
+
+## Delta Wave2 Step4c + plumbing (2026-10-20, branch fd/finalizacao-linux)
+
+- **Bridge move executado**: `wallet_address(network, pubkey_hex)` no
+  `uniffi-bridge` (UDL + `InvalidAddress`) — BTC/ETH/SOL por vetores
+  conhecidos (G BIP-173/EIP-55, zero-seed Solana), rejeita rede/hex/tamanho
+  ruins. App calcula endereço local de pubkey pública; device nunca é
+  perguntado. Testes bridge 13→15 verdes. Kotlin regenera no build do app
+  (SDK ausente aqui).
+- **SIZE medido**: release S3 2.646.512 → **2.646.400 B (−112 B)**. Ganho
+  não vem do move (firmware nunca linkou os encodings — morto no link),
+  e sim da fiação; código test-mode (`TEST_LED_*`, D1b) soma **0 bytes**
+  na release (cfg fora). Classic: bin 1.987.072 B pronto, sem COM8 p/ flash.
+- **Plumbing ClientPIN→killswitch**: `ClientPinState::has_valid_pin_uv_session`
+  + fiação nos 3 transportes (`main.rs` BLE/USB/serial). Prova viva na
+  serial: killswitch remoto sem UP/PIN → `status=0x04`
+  (`tools/killswitch_deny_probe.py` DENY_OK); teste core
+  `killswitch_plumbing_clientpin_session_gates_remote`.
+
+## Delta Wave2 Step3 (2026-10-20, commitado em fd/finalizacao-linux)
+
+Roteamento rescue `0x2E` ligado nos 3 transportes sem mudar framing:
+`main.rs` USB-C + serial-D (`CMD_MSG [0x2E, frame...]` via
+`serial_ctaphid::{is_rescue_msg, dispatch_serial_rescue}`) e BLE
+(`OP_MSG` com primeiro byte `0x2E`, reassembler intacto). UP vem do latch
+BOOT (uso único); PIN via plumbing ClientPIN→`set_pin_uv_authenticated`
+  (sessão viva = PIN verificado; sem ela o remoto nega fail-closed,
+  `RESCUE_STATUS_CONFIRMATION_FAILED`, provado vivo na serial). Hold físico→
+`request_physical_killswitch` pendente: o hold 5s é compartilhado com o
+pareamento, então o gesto de armar exige decisão de UX antes de fiar.
+Fronteira intacta: `GATT_REVISION 0x01`, NVS/CBOR sem mudança.

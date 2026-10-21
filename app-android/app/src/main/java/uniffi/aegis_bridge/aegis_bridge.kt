@@ -735,6 +735,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -772,6 +774,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_aegis_bridge_fn_func_oath_remaining_seconds(`unixSeconds`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    fun uniffi_aegis_bridge_fn_func_wallet_address(`network`: RustBuffer.ByValue,`pubkeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_aegis_bridge_fn_func_wifi_password_valid(`password`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun ffi_aegis_bridge_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -908,6 +912,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_aegis_bridge_checksum_func_oath_remaining_seconds(
     ): Short
+    fun uniffi_aegis_bridge_checksum_func_wallet_address(
+    ): Short
     fun uniffi_aegis_bridge_checksum_func_wifi_password_valid(
     ): Short
     fun ffi_aegis_bridge_uniffi_contract_version(
@@ -958,6 +964,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aegis_bridge_checksum_func_oath_remaining_seconds() != 39562.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_wallet_address() != 62802.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aegis_bridge_checksum_func_wifi_password_valid() != 53703.toShort()) {
@@ -1306,6 +1315,8 @@ sealed class BridgeException(message: String): kotlin.Exception(message) {
         
         class CryptoException(message: String) : BridgeException(message)
         
+        class InvalidAddress(message: String) : BridgeException(message)
+        
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<BridgeException> {
         override fun lift(error_buf: RustBuffer.ByValue): BridgeException = FfiConverterTypeBridgeError.lift(error_buf)
@@ -1326,6 +1337,7 @@ public object FfiConverterTypeBridgeError : FfiConverterRustBuffer<BridgeExcepti
             5 -> BridgeException.InvalidCose(FfiConverterString.read(buf))
             6 -> BridgeException.InvalidOath(FfiConverterString.read(buf))
             7 -> BridgeException.CryptoException(FfiConverterString.read(buf))
+            8 -> BridgeException.InvalidAddress(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
         
@@ -1363,6 +1375,10 @@ public object FfiConverterTypeBridgeError : FfiConverterRustBuffer<BridgeExcepti
             }
             is BridgeException.CryptoException -> {
                 buf.putInt(7)
+                Unit
+            }
+            is BridgeException.InvalidAddress -> {
+                buf.putInt(8)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -1558,6 +1574,16 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_oath_remaining_seconds(
         FfiConverterULong.lower(`unixSeconds`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `walletAddress`(`network`: kotlin.String, `pubkeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_wallet_address(
+        FfiConverterString.lower(`network`),FfiConverterString.lower(`pubkeyHex`),_status)
 }
     )
     }

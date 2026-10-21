@@ -136,6 +136,19 @@ pub fn should_advertise(mgr: &PairingManager, now_ms: u64) -> bool {
     matches!(mgr.state(), PairingState::PairingBle { .. }) && mgr.is_pairing_window_open(now_ms)
 }
 
+/// Reconexão de confiável sem janela (UX, sem botão para reconectar).
+///
+/// `true` em `Idle` com relação de confiança (`bonded` da sessão ou
+/// `claimed` da NVS): o rádio anuncia com flag de pareamento APAGADA
+/// (só reconecta; parear de novo exige janela). Device novo/sem vínculo
+/// segue mudo. Gates intactos: UP por operação + bonding; completar um
+/// pareamento novo continua exigindo janela + UP.
+/// Bateria: anúncio contínuo enquanto ocioso+confiável (troca consciente
+/// por não exigir hold a cada sessão).
+pub fn should_advertise_reconnect(state: PairingState, trusted: bool) -> bool {
+    trusted && matches!(state, PairingState::Idle)
+}
+
 /// Intervalos de advertising (min, max) em unidades de 0,625ms.
 ///
 /// `wifi_active`: AP fallback ligado ou station conectada → intervalo lento
@@ -146,6 +159,75 @@ pub fn adv_intervals(wifi_active: bool) -> (u16, u16) {
         (ADV_ITVL_COEX_MIN, ADV_ITVL_COEX_MAX)
     } else {
         (ADV_ITVL_NORMAL_MIN, ADV_ITVL_NORMAL_MAX)
+    }
+}
+
+/// Backoff entre tentativas de `esp_ble_start` (igual ao do WiFi AP).
+pub const BLE_START_BACKOFF_MS: u64 = 5000;
+/// Desiste após N falhas até a próxima borda de `want` (janela reaberta).
+pub const BLE_START_MAX_TRIES: u32 = 3;
+
+/// Gate de tentativas do `esp_ble_start` (F5/D08).
+///
+/// Sem isso, uma falha de `nimble_port_init` (ex.: heap curto no primeiro
+/// pareamento) repetia o start a CADA poll: cada tentativa realocava o
+/// controlador por cima, vazava heap até `Malloc failed` e o `emi.c`
+/// derrubava o device em panic (Interrupt WDT). Com o gate: 1 tentativa a
+/// cada 5s, no máximo 3 por borda de janela.
+#[derive(Debug, Clone, Copy)]
+pub struct BleStartGate {
+    fails: u32,
+    last_try_ms: u64,
+    want_prev: bool,
+}
+
+impl BleStartGate {
+    /// Gate fechado (nenhuma tentativa ainda).
+    pub fn new() -> Self {
+        Self {
+            fails: 0,
+            last_try_ms: 0,
+            want_prev: false,
+        }
+    }
+
+    /// `true` quando deve chamar `esp_ble_start` neste poll.
+    pub fn allow(&mut self, want_adv: bool, now_ms: u64) -> bool {
+        if !want_adv {
+            self.want_prev = false;
+            self.fails = 0;
+            return false;
+        }
+        if !self.want_prev {
+            // Borda de subida: janela (re)abriu, zera as falhas.
+            self.want_prev = true;
+            self.fails = 0;
+        }
+        if self.fails >= BLE_START_MAX_TRIES {
+            return false;
+        }
+        if self.last_try_ms != 0
+            && now_ms.saturating_sub(self.last_try_ms) < BLE_START_BACKOFF_MS
+        {
+            return false;
+        }
+        self.last_try_ms = now_ms;
+        true
+    }
+
+    /// Registra o resultado da tentativa (`true` = adv ligou).
+    pub fn on_result(&mut self, ok: bool) {
+        if ok {
+            self.fails = 0;
+        } else {
+            self.fails = self.fails.saturating_add(1);
+        }
+    }
+}
+
+impl Default for BleStartGate {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -232,12 +314,14 @@ pub fn on_link_secured(
 #[cfg(target_os = "espidf")]
 extern "C" {
     fn aegis_ble_start(pairing_flag: i32, coex_slow: i32) -> i32;
+    fn aegis_ble_preinit() -> i32;
     fn aegis_ble_stop() -> i32;
     fn aegis_ble_poll_event() -> i32;
     fn aegis_ble_fetch_rx(out_buf: *mut u8, max_len: i32) -> i32;
     fn aegis_ble_notify(data: *const u8, len: i32) -> i32;
     fn aegis_ble_set_pending_len(value: u16);
     fn aegis_ble_conn_active() -> i32;
+    fn aegis_ble_own_addr(out: *mut u8) -> i32;
 }
 
 /// Liga o advertising NimBLE (init uma vez; idempotente).
@@ -248,6 +332,18 @@ extern "C" {
 pub fn esp_ble_start(pairing_open: bool, wifi_active: bool) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "ble-adv");
     unsafe { aegis_ble_start(i32::from(pairing_open), i32::from(wifi_active)) }
+}
+
+/// Pré-inicializa o NimBLE no boot (heap fresco), sem anunciar.
+///
+/// O primeiro pareamento não paga o `nimble_port_init` sob heap
+/// fragmentado (causa raiz dos `hci inits failed` intermitentes que, com
+/// retry a cada poll, vazavam o controlador até o panic). Falha aqui não
+/// trava o boot: o [`BleStartGate`] do loop tenta de novo com backoff.
+/// Retorna `0` ok, negativo = código do backend C.
+#[cfg(target_os = "espidf")]
+pub fn esp_ble_preinit() -> i32 {
+    unsafe { aegis_ble_preinit() }
 }
 
 /// Para o advertising (chamar ao parear, no timeout e ao trocar p/ AP).
@@ -291,6 +387,17 @@ pub fn esp_ble_conn_active() -> bool {
     unsafe { aegis_ble_conn_active() == 1 }
 }
 
+/// MAC público do NimBLE (6 B) p/ o fob_short_id do beacon de presença.
+///
+/// `None` com stack down (init/sync pendente ou erro do C): o chamador NÃO
+/// anuncia (fail-closed, mesma semântica de `proximity_adv_allowed`).
+#[cfg(target_os = "espidf")]
+pub fn own_addr() -> Option<[u8; 6]> {
+    let mut out = [0u8; 6];
+    let rc = unsafe { aegis_ble_own_addr(out.as_mut_ptr()) };
+    if rc == 0 { Some(out) } else { None }
+}
+
 // Shims inertes no host (sem rádio; política testada por unidade).
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_start(_pairing_open: bool, _wifi_active: bool) -> i32 {
@@ -319,10 +426,152 @@ pub fn esp_ble_conn_active() -> bool {
     false
 }
 
+/// Shim host do MAC BLE (sem rádio): sempre `None` (fail-closed, sem adv).
+#[cfg(not(target_os = "espidf"))]
+pub fn own_addr() -> Option<[u8; 6]> {
+    None
+}
+
+
+// ---------------------------------------------------------------------------
+// Wave2: anuncio de presenca 0xFFFE (rolling-code), separado do GATT 0xFFFD.
+//
+// Layout legado (30 B, ver ble_nimble::AdvPayload):
+//   Flags(0x06) + CompleteList16[0xFFFE] + ServiceData16[FE FF VER CTR TAG]
+//   + Nome "AegisKey".
+// O service-data (11 B) e construido por proximity::encode_proximity_svc_data
+// (CTR++ ~1 s + TAG AES-CCM). O GATT 0xFFFD segue intacto: este adv usa UUID
+// 0xFFFE separado e nao altera o banco ATT (o backend C anuncia um ou outro,
+// nunca mistura: pareamento usa 0xFFFD com flag, presenca usa 0xFFFE com
+// rolling-code).
+//
+// Gates: should_adv_proximity exige bonded + Idle + trusted + USB inativo +
+// K_prox presente (proximity::proximity_adv_allowed). Coex USB > WiFi > BLE:
+// USB veta o adv; WiFi ativo so desacelera o intervalo
+// (proximity_adv_intervals); BLE nunca bloqueia o USB.
+// ---------------------------------------------------------------------------
+
+/// Comprimento total do adv de presenca em bytes (30 B <= 31 B legado).
+#[cfg(feature = "proximity")]
+pub const PROXIMITY_ADV_TOTAL_LEN: usize = 30;
+
+/// Monta o payload de presenca: Flags + CompleteList16[0xFFFE] +
+/// ServiceData16[0xFFFE + beacon de 9 B] + Nome.
+///
+/// Nunca excede 31 B (garantido por construcao; teste trava o layout).
+/// O UUID e sempre 0xFFFE (nunca 0xFFFD do GATT FIDO).
+#[cfg(feature = "proximity")]
+pub fn encode_proximity_adv_payload(
+    ctr: u32,
+    tag: &[u8; crate::proximity::PROXIMITY_BEACON_TAG_LEN],
+) -> AdvPayload {
+    use crate::ble_gatt::PROXIMITY_SERVICE_UUID;
+    use crate::proximity::encode_proximity_svc_data;
+    let svc = encode_proximity_svc_data(ctr, tag);
+    let mut bytes = [0u8; ADV_MAX_BYTES];
+    let mut n: usize = 0;
+    bytes[n..n + 3].copy_from_slice(&[0x02, 0x01, 0x06]);
+    n += 3;
+    let lo = (PROXIMITY_SERVICE_UUID & 0xFF) as u8;
+    let hi = ((PROXIMITY_SERVICE_UUID >> 8) & 0xFF) as u8;
+    bytes[n..n + 4].copy_from_slice(&[0x03, 0x03, lo, hi]);
+    n += 4;
+    bytes[n] = 0x0C;
+    bytes[n + 1] = 0x16;
+    bytes[n + 2..n + 13].copy_from_slice(&svc);
+    n += 13;
+    let name = BLE_DEVICE_NAME.as_bytes();
+    bytes[n] = (name.len() + 1) as u8;
+    bytes[n + 1] = 0x09;
+    bytes[n + 2..n + 2 + name.len()].copy_from_slice(name);
+    n += 2 + name.len();
+    debug_assert!(n <= ADV_MAX_BYTES);
+    AdvPayload {
+        bytes,
+        len: n as u8,
+    }
+}
+
+/// Verdade somente quando o radio pode anunciar presenca: fob bonded, estado
+/// Idle, relacao trusted, USB inativo e K_prox presente.
+///
+/// state Idle = sem pareamento em curso e sem trava confirmada; fora de Idle
+/// (PairingBle, Arming, Locked) o adv de presenca fica mudo.
+#[cfg(feature = "proximity")]
+pub fn should_adv_proximity(
+    state: PairingState,
+    bonded: bool,
+    trusted: bool,
+    usb_active: bool,
+    key_present: bool,
+) -> bool {
+    let idle = matches!(state, PairingState::Idle);
+    crate::proximity::proximity_adv_allowed(bonded, idle, trusted, usb_active, key_present)
+}
+
+/// Intervalos do adv de presenca (mesmos do pareamento: lento com WiFi).
+///
+/// Coex USB > WiFi > BLE: USB veta o adv no gate; WiFi ativo desacelera.
+#[cfg(feature = "proximity")]
+pub fn proximity_adv_intervals(wifi_active: bool) -> (u16, u16) {
+    adv_intervals(wifi_active)
+}
+
+#[cfg(all(target_os = "espidf", feature = "proximity"))]
+extern "C" {
+    fn aegis_ble_proximity_start(svc_data: *const u8, svc_len: i32, coex_slow: i32) -> i32;
+}
+
+/// Liga o anuncio de presenca 0xFFFE (init uma vez; idempotente).
+///
+/// svc_data sao os 11 B [FE FF VER CTR TAG] montados por
+/// proximity::encode_proximity_svc_data. wifi_active desacelera o intervalo
+/// (BLE cede airtime). Retorna 0 ok, negativo = codigo do backend C.
+#[cfg(all(target_os = "espidf", feature = "proximity"))]
+pub fn esp_ble_proximity_start(svc_data: &[u8], wifi_active: bool) -> i32 {
+    let len = svc_data.len().min(i32::MAX as usize) as i32;
+    unsafe { aegis_ble_proximity_start(svc_data.as_ptr(), len, i32::from(wifi_active)) }
+}
+
+/// Shim host do adv de presenca (sem radio; politica testada por unidade).
+#[cfg(all(not(target_os = "espidf"), feature = "proximity"))]
+pub fn esp_ble_proximity_start(_svc_data: &[u8], _wifi_active: bool) -> i32 {
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ble_gatt::{OP_CANCEL, OP_MSG, OP_PING};
+
+    #[test]
+    fn ble_start_gate_borda_tenta_backoff_desiste_e_rearma() {
+        let mut g = BleStartGate::new();
+        // Mudo: nunca tenta e zera.
+        assert!(!g.allow(false, 1000));
+        // Borda de subida: tenta de imediato.
+        assert!(g.allow(true, 1000));
+        g.on_result(false);
+        // Backoff: 1s depois, não tenta.
+        assert!(!g.allow(true, 2000));
+        // Após 5s: tenta (2ª).
+        assert!(g.allow(true, 6000));
+        g.on_result(false);
+        // 3ª após backoff; 4ª nega (desistiu até nova borda).
+        assert!(g.allow(true, 11000));
+        g.on_result(false);
+        assert!(!g.allow(true, 16000));
+        assert!(!g.allow(true, 60000));
+        // Janela fechou e reabriu: zera e tenta de novo.
+        assert!(!g.allow(false, 61000));
+        assert!(g.allow(true, 62000));
+        // Sucesso zera a contagem: a próxima falha recomeça do zero.
+        g.on_result(true);
+        assert!(g.allow(true, 67000));
+        g.on_result(false);
+        assert!(!g.allow(true, 67500)); // backoff, contando de 1
+        assert!(g.allow(true, 72000));
+    }
 
     #[test]
     fn adv_payload_carrega_uuid_e_cabe_em_31b() {
@@ -391,6 +640,26 @@ mod tests {
         m2.enter_ap_mode();
         assert!(m2.is_pairing_window_open(LONG_PRESS_MS + 10));
         assert!(!should_advertise(&m2, LONG_PRESS_MS + 10));
+    }
+
+    #[test]
+    fn reconnect_sem_janela_so_com_confianca() {
+        use crate::config::{LONG_PRESS_MS, PAIRING_WINDOW_MS};
+        // Novo/sem vínculo: mudo (privacidade preservada).
+        let m = PairingManager::new();
+        assert!(!should_advertise_reconnect(m.state(), false));
+        // Pareado na sessão: anuncia em Idle mesmo sem janela.
+        let mut b = PairingManager::new();
+        b.on_button_level(true, 0);
+        b.on_button_level(true, LONG_PRESS_MS);
+        assert!(b.complete_pairing(true, LONG_PRESS_MS + 10));
+        assert!(b.is_bonded());
+        assert_eq!(b.state(), PairingState::Idle);
+        assert!(!should_advertise(&b, LONG_PRESS_MS + 10 + PAIRING_WINDOW_MS));
+        assert!(should_advertise_reconnect(b.state(), true));
+        // Fora de Idle (ex.: Locked): sem anúncio de reconexão.
+        b.lock();
+        assert!(!should_advertise_reconnect(b.state(), true));
     }
 
     #[test]
@@ -508,5 +777,91 @@ mod tests {
         assert_eq!(esp_ble_notify(&[1, 2, 3]), 0);
         esp_ble_set_pending_len(7);
         assert!(!esp_ble_conn_active());
+    }
+}
+
+#[cfg(all(test, feature = "proximity"))]
+mod proximity_tests {
+    use super::*;
+    use crate::ble_gatt::PROXIMITY_SERVICE_UUID;
+    use crate::proximity::{
+        PROXIMITY_BEACON_SVC_UUID16, PROXIMITY_BEACON_TAG_LEN, PROXIMITY_BEACON_VERSION,
+        encode_proximity_svc_data, proximity_adv_allowed, proximity_tag,
+    };
+
+    fn tag_for(ctr: u32) -> [u8; PROXIMITY_BEACON_TAG_LEN] {
+        proximity_tag(
+            &[0x42u8; 16],
+            PROXIMITY_BEACON_VERSION,
+            ctr,
+            &[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+        )
+    }
+
+    #[test]
+    fn presence_uuid_is_fffe_separate_from_gatt_fffd() {
+        assert_eq!(PROXIMITY_SERVICE_UUID, 0xFFFE);
+        assert_eq!(PROXIMITY_BEACON_SVC_UUID16, 0xFFFE);
+        assert_eq!(BLE_SERVICE_UUID, 0xFFFD);
+        assert!(crate::ble_gatt::is_proximity_service_uuid(
+            PROXIMITY_BEACON_SVC_UUID16
+        ));
+        assert!(!crate::ble_gatt::is_proximity_service_uuid(0xFFFD));
+    }
+
+    #[test]
+    fn presence_adv_layout_is_30b_with_fffe_svc_data_and_name() {
+        let ctr = 0x01020304u32;
+        let tag = tag_for(ctr);
+        let p = encode_proximity_adv_payload(ctr, &tag);
+        assert_eq!(p.len as usize, PROXIMITY_ADV_TOTAL_LEN);
+        assert_eq!(p.len as usize, 30);
+        let b = p.as_bytes();
+        assert_eq!(&b[0..3], &[0x02, 0x01, 0x06]);
+        assert_eq!(&b[3..7], &[0x03, 0x03, 0xFE, 0xFF]);
+        assert_eq!(b[7], 0x0C);
+        assert_eq!(b[8], 0x16);
+        assert_eq!(&b[9..20], &encode_proximity_svc_data(ctr, &tag));
+        assert_eq!(&b[9..11], &[0xFE, 0xFF]);
+        assert_eq!(b[11], PROXIMITY_BEACON_VERSION);
+        assert_eq!(&b[12..16], &ctr.to_le_bytes());
+        assert_eq!(&b[16..20], &tag);
+        assert_eq!(b[20], (BLE_DEVICE_NAME.len() + 1) as u8);
+        assert_eq!(b[21], 0x09);
+        assert_eq!(
+            &b[22..22 + BLE_DEVICE_NAME.len()],
+            BLE_DEVICE_NAME.as_bytes()
+        );
+    }
+
+    #[test]
+    fn presence_adv_needs_bonded_idle_trusted_no_usb_and_key() {
+        use crate::pairing::PairingState;
+        assert!(should_adv_proximity(PairingState::Idle, true, true, false, true));
+        assert!(!should_adv_proximity(PairingState::Idle, false, true, false, true));
+        assert!(!should_adv_proximity(PairingState::Locked, true, true, false, true));
+        assert!(!should_adv_proximity(PairingState::Idle, true, false, false, true));
+        assert!(!should_adv_proximity(PairingState::Idle, true, true, true, true));
+        assert!(!should_adv_proximity(PairingState::Idle, true, true, false, false));
+        assert_eq!(
+            should_adv_proximity(PairingState::Idle, true, true, false, true),
+            proximity_adv_allowed(true, true, true, false, true)
+        );
+    }
+
+    #[test]
+    fn presence_intervals_follow_wifi_coex() {
+        assert_eq!(proximity_adv_intervals(false), adv_intervals(false));
+        assert_eq!(proximity_adv_intervals(true), adv_intervals(true));
+        assert_ne!(proximity_adv_intervals(false), proximity_adv_intervals(true));
+    }
+
+    #[test]
+    fn presence_shim_is_inert_on_host() {
+        let tag = tag_for(9);
+        let svc = encode_proximity_svc_data(9, &tag);
+        assert_eq!(svc.len(), 11);
+        assert_eq!(esp_ble_proximity_start(&svc, false), 0);
+        assert_eq!(esp_ble_proximity_start(&svc, true), 0);
     }
 }

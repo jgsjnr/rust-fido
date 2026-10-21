@@ -13,7 +13,8 @@
 use aegis_fido_core::ctap::CTAP_CMD_RESET;
 use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
 use aegis_fido_core::oath::OathApplet;
-use aegis_fido_core::otp::rescue::RescueEngine;
+use aegis_fido_core::otp::rescue::{RescueEngine, RESCUE_TRANSPORT_OP};
+use aegis_fido_core::wallet::WalletStore;
 #[cfg(target_os = "espidf")]
 use aegis_fido_firmware::led::LedEffect;
 #[cfg(all(feature = "debug-terminal", target_os = "espidf"))]
@@ -23,7 +24,7 @@ use aegis_fido_firmware::{
     display::{DisplayManager, UiScreen},
     efuse::{EfuseManager, RamEfuseStorage},
     led::{EspWs2812Output, Ws2812Controller},
-    persistence::{RamFlashBackend, SecureStorage},
+    persistence::{PlatformFlashBackend, SecureStorage},
     provision::load_device_keys,
     totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_SHOW_TICKS},
     usb_descriptors,
@@ -51,6 +52,18 @@ extern "C" {
     fn aegis_usb_is_mounted() -> bool;
     fn aegis_usb_send_report(packet: *const u8, len: u16) -> bool;
     fn aegis_usb_pop_packet(out_buf: *mut u8, max_len: u16) -> u16;
+    // F4: CCID bulk (driver C `ccid_device.c`; frames completos remontados).
+    // `pop` devolve 0 sem frame; `send` fragmenta em 64B no bulk-IN.
+    fn aegis_ccid_pop_frame(out_buf: *mut u8, max_len: u16) -> u16;
+    fn aegis_ccid_send(data: *const u8, len: u16) -> bool;
+    // CI-GREP: TEST-HOOK (test-mode only; absent in release).
+    // Reboot p/ download ROM via RTC_CNTL (sem BOOT/DTR/RTS).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    fn aegis_reboot_to_download();
+    // CI-GREP: TEST-HOOK (test-mode only; absent in release).
+    // Drop + re-enumera o USB nativo (dispensa replug físico).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    fn aegis_usb_reconnect() -> bool;
     // Serial CTAPHID (UART 115200, framing identical to USB). Classic reuses
     // the UART-backed aegis_usb_* symbols; S3/S2 use aegis_serial_* (UART0
     // diagnostic channel alongside native USB-OTG).
@@ -189,8 +202,8 @@ fn serial_read_chunk(out: &mut [u8], max_len: u16) -> u16 {
 /// PING ecoa; CANCEL confirma vazio; MSG delega ao `CtapEngine` (mesmo
 /// `[cmd, CBOR...]` do `CMD_CBOR` USB); bind-mgmt `0x28-0x2D` usa os helpers
 /// de `ble_gatt` (gates binding -> UP -> PIN preservados); vendor `0x20-0x27`
-/// valida os gates e responde `0x04` (executor on-device = follow-up,
-/// `docs/ble-nimble.md`). USB/CTAP intactos.
+/// executa de verdade via `vendor_exec` (GEN/LIST/DELETE + OATH, NVS;
+/// IMPORT segue 0x04 = F2b). USB/CTAP intactos.
 #[allow(clippy::too_many_arguments)]
 fn ble_dispatch_complete(
     msg: aegis_fido_firmware::ble_gatt::BleCompleteMessage,
@@ -199,22 +212,64 @@ fn ble_dispatch_complete(
     now_secs: u64,
     ctap_engine: &mut CtapEngine,
     binding_mgr: &mut aegis_fido_firmware::binding::BindingManager,
-    storage: &mut SecureStorage<RamFlashBackend>,
+    storage: &mut SecureStorage<PlatformFlashBackend>,
+    rescue: &mut RescueEngine,
+    wallet: &mut WalletStore,
+    bonded: bool,
+    now_ms: u64,
+    fwlog: &mut aegis_fido_firmware::fw_log::FwLog,
+    key_mgr: &mut aegis_fido_core::credential::key_manager::KeyManager,
+    oath_applet: &mut OathApplet,
 ) {
     use aegis_fido_firmware::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use aegis_fido_firmware::ble_gatt as g;
     use aegis_fido_firmware::ble_nimble as ble;
+    use aegis_fido_firmware::fw_log as fl;
+    use aegis_fido_firmware::wallet_exec as w;
 
     let op = msg.opcode;
     let p = &msg.payload;
+    // Log real do device: toda op recebida + UP quando presente.
+    fwlog.record(fl::EV_OP_RX, op, now_ms);
+    if up {
+        fwlog.record(fl::EV_UP_OK, op, now_ms);
+    }
     let frame: Vec<u8> = match op {
         g::OP_PING => ble::notify_frame(op, 0x00, &g::BleGattServer::dispatch_ping(p)),
         g::OP_CANCEL => ble::notify_frame(op, 0x00, &[]),
         g::OP_MSG => {
-            ctap_engine.set_user_presence(up);
-            let mut rng = rand_core::OsRng;
-            let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
-            ble::notify_frame(op, 0x00, &resp)
+            // Rescue Wave2 Step3: OP_MSG com primeiro byte 0x2E carrega
+            // um frame rescue (reassemble/framing intactos). UP do
+            // latch + PIN via plumbing ClientPIN (fail-closed sem sessão).
+            if p.first() == Some(&RESCUE_TRANSPORT_OP) {
+                rescue.set_user_presence(up);
+                // Plumbing ClientPIN: sessão pinUvAuth viva prova PIN
+                // verificado (fail-closed sem ela).
+                rescue.set_pin_uv_authenticated(
+                    ctap_engine.pin_state.has_valid_pin_uv_session(),
+                );
+                let (st, body) =
+                    aegis_fido_firmware::serial_ctaphid::dispatch_serial_rescue(
+                        rescue,
+                        &p[1..],
+                    );
+                kprintln!("[BLE] rescue 0x2E (status 0x{:02X}).", st);
+                ble::notify_frame(op, st, &body)
+            } else {
+                ctap_engine.set_user_presence(up);
+                let mut rng = rand_core::OsRng;
+                let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
+                // F3: ClientPIN (0x06) mudou estado? Persiste hash+retries.
+                if p.first() == Some(&0x06)
+                    && !aegis_fido_firmware::vendor_exec::save_pin_state(
+                        storage,
+                        &ctap_engine.pin_state,
+                    )
+                {
+                    kprintln!("[WARN] NVS pin save falhou (BLE).");
+                }
+                ble::notify_frame(op, 0x00, &resp)
+            }
         }
         g::OP_BIND_CLAIM => {
             if p.len() != BIND_PUB_LEN + BIND_ID_LEN {
@@ -279,7 +334,15 @@ fn ble_dispatch_complete(
                     &ph,
                     up,
                 ) {
-                    Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                    Ok(()) => {
+                        // Wave2 proximidade: release revoga o K_prox
+                        // (fail-closed; o loop limpa o cache RAM ao ver a NVS
+                        // vazia). Nunca auto-unlock.
+                        #[cfg(feature = "proximity")]
+                        let _ =
+                            aegis_fido_firmware::proximity::delete_proximity_key(storage);
+                        ble::notify_frame(op, 0x00, &[])
+                    }
                     Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
                 }
             }
@@ -295,29 +358,83 @@ fn ble_dispatch_complete(
         },
         g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(p) {
             Ok(pin) => match g::dispatch_recovery_unlock(storage, binding_mgr, pin, up) {
-                Ok(()) => ble::notify_frame(op, 0x00, &[]),
+                Ok(()) => {
+                    // Wave2 proximidade: recovery revoga o K_prox
+                    // (fail-closed; o loop limpa o cache RAM ao ver a NVS
+                    // vazia). Nunca auto-unlock.
+                    #[cfg(feature = "proximity")]
+                    let _ =
+                        aegis_fido_firmware::proximity::delete_proximity_key(storage);
+                    ble::notify_frame(op, 0x00, &[])
+                }
                 Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
             },
             Err(_) => {
                 ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
             }
         },
-        o if g::is_vendor_keys_oath_op(o) => {
-            // Gates §9.4 preservados (app ve NEED_UP/NEED_BINDING/NEED_PIN
-            // corretos); executor TLV on-device = follow-up.
-            match g::authorize_vendor_op(o, binding_mgr.is_claimed(), false, up) {
+        o if g::is_vendor_keys_oath_op(o) || g::is_piv_enroll_op(o) => {
+            // F2: executor real on-device (GEN/LIST/DELETE + OATH
+            // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
+            // (envelope AEGN + vault = F2b). F4: 0x39 enrollment PIV
+            // (binding -> UP, sem PIN). Gates §9.4 intactos.
+            let pin_ok = ctap_engine.pin_state.has_valid_pin_uv_session();
+            let mut rng = rand_core::OsRng;
+            let (st, body) = aegis_fido_firmware::vendor_exec::exec_vendor_op(
+                key_mgr,
+                oath_applet,
+                storage,
+                o,
+                p,
+                binding_mgr.is_claimed(),
+                pin_ok,
+                up,
+                now_secs,
+                &mut rng,
+            );
+            if st == 0x00 {
+                kprintln!("[BLE] op vendor 0x{:02X} executada.", o);
+            }
+            ble::notify_frame(o, st, &body)
+        }
+        o if g::is_wallet_op(o) => {
+            // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
+            // verdade no WalletStore de sessão (chaves TRNG no device).
+            match g::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
                 Ok(()) => {
-                    kprintln!(
-                        "[BLE] op vendor 0x{:02X} com gate ok (executor = follow-up)",
-                        o
-                    );
-                    ble::notify_frame(o, 0x04, &[])
+                    let mut rng = rand_core::OsRng;
+                    let (st, body) = match o {
+                        g::OP_WALLET_GEN => {
+                            w::wallet_gen(wallet, p, now_secs, true, &mut rng)
+                        }
+                        g::OP_WALLET_LIST => w::wallet_list(wallet, true),
+                        g::OP_WALLET_ADDR => w::wallet_addr(wallet, p, true),
+                        _ => (0x04, Vec::new()),
+                    };
+                    kprintln!("[BLE] op wallet 0x{:02X} executada (status 0x{:02X}).", o, st);
+                    ble::notify_frame(o, st, &body)
+                }
+                Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
+            }
+        }
+        o if fl::is_fw_log_op(o) => {
+            // Log da firmware (0x38): leitura sem segredos; BLE exige
+            // vínculo (0x05 sem ele), nunca UP/PIN.
+            match g::authorize_fw_log_op(o, bonded) {
+                Ok(()) => {
+                    let body = fwlog.render_ascii(fl::FW_LOG_MAX_BYTES);
+                    kprintln!("[BLE] fw-log 0x38 ({} B).", body.len());
+                    ble::notify_frame(o, 0x00, &body)
                 }
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
             }
         }
         _ => ble::notify_frame(op, 0x04, &[]),
     };
+    // Status respondido entra no log (frame = [op, status, ...]).
+    if frame.len() >= 2 {
+        fwlog.record(fl::EV_OP_RESP, frame[1], now_ms);
+    }
     let _ = ble::esp_ble_notify(&frame);
 }
 
@@ -353,6 +470,41 @@ const FIRMWARE_VERSION: u32 = 1;
 /// key: `VerifyingKey::from_bytes` rejects it and every FINISH fails.
 #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
 const OTA_RELEASE_PUBKEY: [u8; 32] = [0u8; 32];
+
+/// CI-GREP: TEST-HOOK (test-mode only; absent in release). TEST-OTA-KEY.
+/// Chave Ed25519 de LABORATÓRIO p/ e2e OTA (privada fora do repo,
+/// `C:\t\ota_test_key.bin`; release usa zeros fail-closed).
+/// `check-release-clean.py` prova a ausência no artefato.
+#[cfg(all(
+    target_os = "espidf",
+    not(feature = "board-ttgo-classic"),
+    feature = "test-mode"
+))]
+const OTA_TEST_PUBKEY: [u8; 32] = [
+    0x65, 0x6f, 0x07, 0x2a, 0x6f, 0xfa, 0xc5, 0x02, 0xdf, 0xee, 0x5a, 0x28,
+    0x40, 0x12, 0x4c, 0x9a, 0xde, 0x27, 0x80, 0xdc, 0x15, 0x2b, 0xad, 0xc8,
+    0x98, 0xdf, 0x7e, 0x6b, 0x03, 0xf6, 0x7d, 0x82,
+];
+
+/// Chave OTA efetiva: teste em test-mode, release (zeros fail-closed).
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+fn ota_active_pubkey() -> [u8; 32] {
+    #[cfg(feature = "test-mode")]
+    {
+        OTA_TEST_PUBKEY
+    }
+    #[cfg(not(feature = "test-mode"))]
+    {
+        OTA_RELEASE_PUBKEY
+    }
+}
+
+/// Provisionado p/ OTA: eFuse válido, ou lab em test-mode (CI-GREP: TEST-HOOK).
+#[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+fn ota_provisioned(efuse_mgr: &aegis_fido_firmware::efuse::EfuseManager<aegis_fido_firmware::efuse::RamEfuseStorage>) -> bool {
+    aegis_fido_firmware::provision::load_device_keys(efuse_mgr).is_ok()
+        || cfg!(feature = "test-mode")
+}
 
 fn run_authenticator() {
     kprintln!("\r\n============================================================");
@@ -459,6 +611,18 @@ fn run_authenticator() {
             let mut salt = [0u8; 32];
             rng.fill_bytes(&mut master_key);
             rng.fill_bytes(&mut salt);
+            // CI-GREP: TEST-HOOK (test-mode only; absent in release).
+            // Sem burn de eFuse, com persistencia p/ teste: a chave-dev mora
+            // em flash NVS (namespace "aegisdev"), reutilizada entre boots.
+            // Release sem test-mode NEM COMPILA este ramo (efemero puro).
+            #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+            if let Ok((m, s)) =
+                aegis_fido_firmware::nvs_backend::load_or_create_dev_keys()
+            {
+                kprintln!("[TEST] dev-key flash persistente ativa (test-mode only).");
+                master_key = m;
+                salt = s;
+            }
             aegis_fido_firmware::provision::DeviceKeys {
                 master_key,
                 device_salt: salt,
@@ -470,7 +634,12 @@ fn run_authenticator() {
 
     // 3. Initialize Encrypted Flash / NVS Persistence
     kprintln!("[INIT] Initializing AES-256-GCM Encrypted Storage...");
-    let flash_backend = RamFlashBackend::new();
+    let flash_backend = PlatformFlashBackend::new();
+    if flash_backend.is_persistent() {
+        kprintln!("[INIT] Flash NVS backend online (persiste entre reboots).");
+    } else {
+        kprintln!("[WARN] Flash NVS indisponivel; RAM volatil (sem persistencia).");
+    }
     let mut storage = SecureStorage::new(flash_backend, &master_key, &salt);
     // AUDIT-PREP: wiring na Wave4
 
@@ -516,6 +685,17 @@ fn run_authenticator() {
     let mut ctap_engine = CtapEngine::new(master_key, 0);
     // WAVE8: OATH real no device (contas do NVS via PUT; display calcula CALCULATE no long-press).
     let mut oath_applet = OathApplet::new();
+    // F2: chaves vendor on-device (NVS persistente).
+    let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+    if !aegis_fido_firmware::vendor_exec::load_states(&storage, &mut key_mgr, &mut oath_applet)
+    {
+        kprintln!("[WARN] vendor NVS inconsistente; começando vazio.");
+    }
+    // F3: PIN persistente (hash+retries; sessão pinUvAuth morre no reboot).
+    if !aegis_fido_firmware::vendor_exec::load_pin_state(&storage, &mut ctap_engine.pin_state)
+    {
+        kprintln!("[WARN] PIN NVS inconsistente; sem PIN.");
+    }
     #[cfg(not(target_os = "espidf"))]
     let _ = (&ctaphid_mgr, &ctap_engine);
     // Classic serves CTAPHID through the serial section D (ctaphid_mgr stays
@@ -524,12 +704,28 @@ fn run_authenticator() {
     let _ = &ctaphid_mgr;
     let mut rescue_engine = RescueEngine::new();
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
+    // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
+    let mut wallet_store = WalletStore::new();
+    // Log real do device p/ o app (op 0x38; RAM, sem PII/segredos).
+    let mut fw_log = aegis_fido_firmware::fw_log::FwLog::new();
+    fw_log.record(aegis_fido_firmware::fw_log::EV_BOOT, 0, 0);
 
     kprintln!("============================================================");
     kprintln!("   AegisKey S3 Authenticator ONLINE & ACTIVE!");
     kprintln!("   FIDO2 / WebAuthn ready on native USB (HID Usage Page 0xF1D0)");
     kprintln!("   Dual-Board Ready: DevKitC-1 (WS2812) / LilyGO T-Display-S3");
     kprintln!("============================================================");
+    // F5: pré-init BLE no boot (heap fresco). Sem anunciar; o adv liga só
+    // na janela (gate com backoff no loop).
+    #[cfg(target_os = "espidf")]
+    {
+        let rc = aegis_fido_firmware::ble_nimble::esp_ble_preinit();
+        if rc != 0 {
+            kprintln!("[BLE] preinit rc={} (retry com backoff na janela).", rc);
+        } else {
+            kprintln!("[BLE] nimble preinit ok.");
+        }
+    }
 
     // Main Event Loop
     let mut tick: u64 = 0;
@@ -538,6 +734,11 @@ fn run_authenticator() {
     // OTA staged verify-before-swap session (R-04/R-06; USB section C only).
     #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
     let mut ota_state = OtaState::new(FIRMWARE_VERSION);
+    // F4: transporte CCID (framing) com applet PIV persistente entre polls
+    // (seleção/PIN sobrevivem a frames; NVS+chaves emprestados por frame).
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    #[allow(unused_mut)]
+    let mut ccid_transport = aegis_fido_usb::ccid::CcidTransport::new();
 
     let mut press_start_tick: Option<u64> = None;
     let mut totp_display_until: u64 = 0;
@@ -548,13 +749,45 @@ fn run_authenticator() {
     let mut ble_server = aegis_fido_firmware::ble_gatt::BleGattServer::new();
     let mut ble_adv_active = false;
     let mut ble_bond_pending = false;
+    // Wave2 proximidade (feature proximity): beacon rolling-code 0xFFFE.
+    // fob_id de 6 B derivado do serial USB (placeholder estavel p/ host e
+    // testes). Follow-up: ler o MAC BLE real via FFI (ble_hs_id_copy_addr /
+    // esp_read_mac) e usar os 6 B publicos como fob_short_id; nunca inventar
+    // MAC aqui. Cache RAM do K_prox + flag de presenca (fail-closed sem chave).
+    // Nunca auto-unlock: beacon/RSSI so sinalizam ausencia (ver proximity.rs).
+    // Vetor de interop (py == rs): K=0x42*16, fob=AA:BB:CC:DD:EE:FF, ctr=7,
+    // VER=0x01 => tag=660d4941 (ver proximity_tag; agents host espelham).
+    #[cfg(feature = "proximity")]
+    let mut prox_beacon = aegis_fido_firmware::proximity::ProximityBeacon::new();
+    #[cfg(feature = "proximity")]
+    let mut prox_last_ms: u64 = 0;
+    #[cfg(feature = "proximity")]
+    let mut prox_key: [u8; 16] = [0u8; 16];
+    #[cfg(feature = "proximity")]
+    let mut prox_key_present: bool = false;
+    // fob_short_id = MAC BLE publico real via own_addr(), resolvido a cada
+    // tick no loop (beacon_fob_id); None (stack down) => sem adv (fail-closed).
+    #[cfg(feature = "proximity")]
+    let mut prox_adv_active: bool = false;
+    // F5: gate de tentativas do BLE start (backoff 5s, 3 por borda).
+    // Sem isso, um `nimble_port_init` falho repetia a CADA poll, vazava
+    // heap do controlador até `Malloc failed` e panic (Interrupt WDT).
+    let mut ble_start_gate = aegis_fido_firmware::ble_nimble::BleStartGate::new();
     let mut ble_rx = [0u8; aegis_fido_firmware::ble_nimble::BLE_RX_FRAGMENT_MAX];
+    // Borda da janela de pareamento p/ o fw-log (0x38).
+    let mut pairing_open_prev = false;
     // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
     let mut wifi_ap_mgr = aegis_fido_firmware::wifi_ap::WifiApManager::new();
     let mut mdns_mgr = aegis_fido_firmware::mdns::MdnsManager::new();
     let mut sta_mgr = aegis_fido_firmware::wifi_station::WifiStationManager::new();
     // Etapa B (WiFi real): espelhos do radio p/ edge-trigger + backoff.
     let mut wifi_ap_active = false;
+    // Backoff do AP start: sem isso, uma falha (ex. radio com BLE) repete
+    // o start a CADA poll (~10ms) com NVS load + deinit + log — inunda o
+    // UART, esfomeia o loop e desgasta flash. Tenta no max 1x/5s e desiste
+    // apos 3 falhas ate a proxima borda de want.
+    let mut wifi_ap_last_try_ms: u64 = 0;
+    let mut wifi_ap_fails: u32 = 0;
     let mut mdns_active = false;
     let mut wifi_radio_on = false;
     let mut last_sta_attempt_ms: Option<u64> = None;
@@ -570,8 +803,48 @@ fn run_authenticator() {
     // Diagnostic text-line buffer (TEST_LIFETIME_DUMP with test-mode).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     let mut serial_line: Vec<u8> = Vec::new();
+    // Latch de cor solida p/ diagnostico LED (TEST_LED_*, test-mode only).
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    let mut led_test_hold: Option<aegis_fido_firmware::led::LedEffect> = None;
+    // UP por software (TEST_UP, test-mode only): injeta UM toque BOOT.
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    let mut test_up_latch = false;
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
+    // Wave2 proximidade (feature proximity): carrega o K_prox da NVS cifrada.
+    // So gera+persiste via rekey se ja houver vinculo (bonded/trusted); sem
+    // vinculo deixa ausente fail-closed (sem adv ate o pareamento).
+    #[cfg(feature = "proximity")]
+    {
+        match aegis_fido_firmware::proximity::load_proximity_key(&storage) {
+            Ok(k) => {
+                prox_key = k;
+                prox_key_present = true;
+                kprintln!("[PROX] K_prox carregado da NVS.");
+            }
+            Err(_) => {
+                let bonded_now = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+                if bonded_now {
+                    let mut rng = rand_core::OsRng;
+                    match aegis_fido_firmware::proximity::rekey_proximity(&mut storage, &mut rng)
+                    {
+                        Ok(k) => {
+                            prox_key = k;
+                            prox_key_present = true;
+                            kprintln!("[PROX] K_prox gerado no boot (vinculo previo).");
+                        }
+                        Err(e) => {
+                            prox_key = [0u8; 16];
+                            prox_key_present = false;
+                            kprintln!("[PROX] rekey falhou no boot ({e:?}); sem adv.");
+                        }
+                    }
+                } else {
+                    kprintln!("[PROX] sem K_prox (fail-closed ate parear).");
+                }
+            }
+        }
+    }
 
     // Wave7 test-mode: serial diagnostic inbox (host stdio; on ESP-IDF wire UART RX to dispatch_test_command).
     #[cfg(all(feature = "test-mode", not(target_os = "espidf")))]
@@ -609,13 +882,30 @@ fn run_authenticator() {
         // A. Check physical buttons
         // Button 1: BOOT (GPIO 0) - Confirm / UP / Long press (2s)
         // Button 2: KEY (GPIO 14 on LilyGO T-Display) - Cycle accounts / Cancel
-        let is_boot_pressed = button_mgr.is_boot_pressed(std::thread::sleep);
+        // TEST_UP (test-mode): UM toque via software, mesma semantica do tap
+        // fisico (latch 1.5s, pairing/UP/rescue); consumo unico por comando.
+        #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+        let test_up_once = core::mem::replace(&mut test_up_latch, false);
+        #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+        let test_up_once = false;
+        let is_boot_pressed =
+            button_mgr.is_boot_pressed(std::thread::sleep) || test_up_once;
         let is_key_pressed = button_mgr.is_key_pressed(std::thread::sleep);
 
         // Phase8 UX-conex: alimenta PairingManager todo poll (corrige orfao).
         pairing_mgr.on_button_level(is_boot_pressed, now_ms);
         pairing_mgr.tick(now_ms);
         let pairing_open_now = pairing_mgr.is_pairing_window_open(now_ms);
+        // Borda da janela -> fw-log (0x38) do app.
+        {
+            use aegis_fido_firmware::fw_log as fl;
+            if pairing_open_now && !pairing_open_prev {
+                fw_log.record(fl::EV_PAIR_OPEN, 0, now_ms);
+            } else if !pairing_open_now && pairing_open_prev {
+                fw_log.record(fl::EV_PAIR_CLOSE, 0, now_ms);
+            }
+            pairing_open_prev = pairing_open_now;
+        }
         // Exclusao mutua de radio (OOM BT+WiFi): BLE anuncia SOMENTE em
         // PairingBle; WiFi (AP/station/mDNS) fica desligado nesse estado.
         let ble_pairing_now =
@@ -631,11 +921,30 @@ fn run_authenticator() {
         // os dois juntos); PairingBle desliga todo WiFi, PairingAp desliga BLE.
         wifi_ap_mgr.update(pairing_open_now, false, now_ms);
         let ap_want = wifi_ap_mgr.is_active(now_ms);
-        if ap_want != wifi_ap_active {
-            if ap_want && !ble_pairing_now {
-                let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
-                    usb_descriptors::SERIAL_NUMBER_STRING,
-                );
+        if !ap_want {
+            wifi_ap_fails = 0;
+        }
+        // Decisao edge-triggered (wifi_ap::ap_poll_action): cada acao
+        // executa no maximo uma vez por transicao. O `else` anterior
+        // chamava esp_ap_stop() a CADA poll com BLE pareando (spam de
+        // close/wifi-ap no log e churn no radio durante o bonding).
+        match aegis_fido_firmware::wifi_ap::ap_poll_action(
+            ap_want,
+            ble_pairing_now,
+            wifi_ap_active,
+        ) {
+            aegis_fido_firmware::wifi_ap::ApPollAction::Start => {
+                if wifi_ap_fails >= 3 {
+                    // Desistiu ate a proxima borda: sem spam, sem churn.
+                } else if now_ms.saturating_sub(wifi_ap_last_try_ms) < 5000
+                    && wifi_ap_last_try_ms != 0
+                {
+                    // Backoff: aguarda 5s entre tentativas.
+                } else {
+                    wifi_ap_last_try_ms = now_ms;
+                    let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
+                        usb_descriptors::SERIAL_NUMBER_STRING,
+                    );
                 let pass_bytes = storage
                     .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
                     .unwrap_or_default();
@@ -650,18 +959,24 @@ fn run_authenticator() {
                 let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
                 if rc == 0 {
                     wifi_ap_active = true;
+                    wifi_ap_fails = 0;
                     kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
                 } else {
-                    kprintln!(
-                        "[WIFI] AP start rc={} (nova tentativa no proximo poll).",
-                        rc
-                    );
+                    wifi_ap_fails = wifi_ap_fails.saturating_add(1);
+                    // Loga só a 1ª falha (as seguintes seriam spam a cada 5s);
+                    // apos 3, desiste ate a proxima borda de want.
+                    if wifi_ap_fails == 1 {
+                        kprintln!("[WIFI] AP start rc={} (backoff 5s, desiste apos 3).", rc);
+                    }
                 }
-            } else {
+                }
+            }
+            aegis_fido_firmware::wifi_ap::ApPollAction::Stop => {
                 let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
                 wifi_ap_active = false;
                 kprintln!("[WIFI] AP off.");
             }
+            aegis_fido_firmware::wifi_ap::ApPollAction::None => {}
         }
         // Station: so fora de pareamento, com credenciais e backoff 60s.
         let has_creds = aegis_fido_firmware::wifi_station::has_station_credentials(&storage);
@@ -753,23 +1068,145 @@ fn run_authenticator() {
         } else if radio_in_use {
             wifi_radio_on = true;
         }
-        // Etapa B (BLE NimBLE real): advertising SOMENTE em PairingBle com
-        // janela aberta; fora disso o radio fica mudo (privacidade + bateria).
+        // Etapa B (BLE NimBLE real): advertising na janela de pareamento
+        // (flag ligada) + reconexão de confiável sem janela (flag
+        // apagada, sem botão); fora disso o radio fica mudo.
         // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.
-        let ble_want_adv = aegis_fido_firmware::ble_nimble::should_advertise(&pairing_mgr, now_ms);
+        let trusted =
+            pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+        let ble_want_adv = aegis_fido_firmware::ble_nimble::should_advertise(&pairing_mgr, now_ms)
+            || aegis_fido_firmware::ble_nimble::should_advertise_reconnect(
+                pairing_mgr.state(),
+                trusted,
+            );
         if ble_want_adv != ble_adv_active {
             if ble_want_adv {
                 let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
-                let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(true, wifi_active);
-                if rc == 0 {
-                    ble_adv_active = true;
-                } else {
-                    kprintln!("[BLE] adv start rc={} (nova tentativa no proximo poll)", rc);
+                // Gate: borda tenta já; falha entra em backoff 5s e desiste
+                // após 3 (nunca martela `nimble_port_init` — vaza heap e
+                // derruba o controlador em panic).
+                if aegis_fido_firmware::ble_nimble::BleStartGate::allow(
+                    &mut ble_start_gate,
+                    true,
+                    now_ms,
+                ) {
+                    let rc = aegis_fido_firmware::ble_nimble::esp_ble_start(
+                        pairing_open_now,
+                        wifi_active,
+                    );
+                    ble_start_gate.on_result(rc == 0);
+                    if rc == 0 {
+                        ble_adv_active = true;
+                        fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_START, 0, now_ms);
+                    } else {
+                        kprintln!("[BLE] adv start rc={} (backoff 5s, desiste apos 3).", rc);
+                    }
                 }
             } else {
                 let _ = aegis_fido_firmware::ble_nimble::esp_ble_stop();
                 ble_adv_active = false;
                 ble_bond_pending = false;
+                // Janela fechou: o gate zera na próxima borda.
+                ble_start_gate.allow(false, now_ms);
+                fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
+            }
+        }
+        // Wave2 proximidade (feature proximity): adv 0xFFFE ~1 s quando Idle +
+        // bonded + trusted + USB inativo + K_prox presente. USB veta o adv;
+        // WiFi ativo so desacelera o intervalo (coex). Nunca auto-unlock:
+        // aceitar beacon nunca destrava (unlock exige presenca + PIN).
+        #[cfg(feature = "proximity")]
+        {
+            use aegis_fido_firmware::ble_nimble as prox_ble;
+            use aegis_fido_firmware::proximity as prox_mod;
+            let bonded = pairing_mgr.is_bonded();
+            let trusted = bonded || binding_mgr.is_claimed();
+            #[cfg(target_os = "espidf")]
+            let usb_active = unsafe { aegis_usb_is_mounted() };
+            #[cfg(not(target_os = "espidf"))]
+            let usb_active = false;
+            let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
+            // Revogado via release/recovery (dispatch apagou a NVS): limpa o
+            // cache RAM na borda (fail-closed ate o proximo rekey).
+            if prox_key_present && prox_mod::load_proximity_key(&storage).is_err() {
+                prox_key = [0u8; 16];
+                prox_key_present = false;
+                if prox_adv_active {
+                    let _ = prox_ble::esp_ble_stop();
+                    prox_adv_active = false;
+                }
+                kprintln!("[PROX] K_prox revogado; adv parado.");
+            }
+            // Rollover (ctr travou no MAX): rekey + ctr=0; sem rekey, mudo.
+            if prox_beacon.is_rollover() && prox_key_present {
+                let mut rng = rand_core::OsRng;
+                match prox_mod::rekey_proximity(&mut storage, &mut rng) {
+                    Ok(k) => {
+                        prox_key = k;
+                        prox_beacon = prox_mod::ProximityBeacon::new();
+                        prox_last_ms = now_ms;
+                        kprintln!("[PROX] rekey pos-rollover (ctr=0).");
+                    }
+                    Err(e) => {
+                        prox_key = [0u8; 16];
+                        prox_key_present = false;
+                        kprintln!("[PROX] rekey pos-rollover falhou ({e:?}).");
+                    }
+                }
+            }
+            // fob_short_id real (MAC BLE publico); None => sem adv (fail-closed).
+            let prox_fob = prox_mod::beacon_fob_id();
+            let want_prox = prox_ble::should_adv_proximity(
+                pairing_mgr.state(),
+                bonded,
+                trusted,
+                usb_active,
+                prox_key_present,
+            ) && prox_fob.is_some();
+            if want_prox {
+                // Radio unico: presenca 0xFFFE vence a reconexao 0xFFFD em Idle.
+                if ble_adv_active {
+                    let _ = prox_ble::esp_ble_stop();
+                    ble_adv_active = false;
+                    ble_start_gate.allow(false, now_ms);
+                    fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
+                }
+                // So (re)anuncia no tick de ~1 s (throttle natural + backoff de
+                // falha); o C e idempotente, entao para antes p/ reaplicar o
+                // svc_data novo (ctr++) e o intervalo atual.
+                if prox_beacon.tick_if_due(prox_last_ms, now_ms) {
+                    prox_last_ms = now_ms;
+                    if prox_adv_active {
+                        let _ = prox_ble::esp_ble_stop();
+                        prox_adv_active = false;
+                    }
+                    let ctr = prox_beacon.counter();
+                    // Gate want_prox garante Some; o default abaixo nunca e
+                    // transmitido (fail-closed sem MAC real).
+                    let fob = prox_fob.unwrap_or([0u8; 6]);
+                    let tag = prox_mod::proximity_tag(
+                        &prox_key,
+                        prox_mod::PROXIMITY_BEACON_VERSION,
+                        ctr,
+                        &fob,
+                    );
+                    let svc = prox_mod::encode_proximity_svc_data(ctr, &tag);
+                    let rc = prox_ble::esp_ble_proximity_start(&svc, wifi_active);
+                    if rc == 0 {
+                        prox_adv_active = true;
+                        fw_log.record(
+                            aegis_fido_firmware::fw_log::EV_ADV_START,
+                            0,
+                            now_ms,
+                        );
+                    } else {
+                        kprintln!("[PROX] adv start rc={} (retry ~1 s).", rc);
+                    }
+                }
+            } else if prox_adv_active {
+                let _ = prox_ble::esp_ble_stop();
+                prox_adv_active = false;
+                fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_STOP, 0, now_ms);
             }
         }
         // Etapa B: bomba BLE (eventos GAP + fragmentos FFF1). USB intacto.
@@ -797,6 +1234,31 @@ fn run_authenticator() {
                             kprintln!(
                                 "[BLE] bonding ok: advertising parado, pareamento encerrado."
                             );
+                            fw_log.record(aegis_fido_firmware::fw_log::EV_BOND_OK, 0, now_ms);
+                            // Wave2 proximidade: rekey do K_prox no pareamento +
+                            // zera o contador do beacon (ctr=0 no proximo adv).
+                            #[cfg(feature = "proximity")]
+                            {
+                                let mut rng = rand_core::OsRng;
+                                match aegis_fido_firmware::proximity::rekey_proximity(
+                                    &mut storage,
+                                    &mut rng,
+                                ) {
+                                    Ok(k) => {
+                                        prox_key = k;
+                                        prox_key_present = true;
+                                        prox_beacon =
+                                            aegis_fido_firmware::proximity::ProximityBeacon::new();
+                                        prox_last_ms = now_ms;
+                                        kprintln!("[PROX] rekey pos-pareamento (ctr=0).");
+                                    }
+                                    Err(e) => {
+                                        prox_key = [0u8; 16];
+                                        prox_key_present = false;
+                                        kprintln!("[PROX] rekey falhou ({e:?}); sem adv.");
+                                    }
+                                }
+                            }
                         }
                         ble::BondOutcome::DeniedNoPresence => {
                             ble_bond_pending = true;
@@ -843,6 +1305,31 @@ fn run_authenticator() {
                         led.set_effect(LedEffect::Solid(aegis_fido_firmware::led::Color::GREEN));
                     }
                     kprintln!("[BLE] bonding ok (apos UP): advertising parado.");
+                    fw_log.record(aegis_fido_firmware::fw_log::EV_BOND_OK, 0, now_ms);
+                    // Wave2 proximidade: rekey do K_prox no pareamento +
+                    // zera o contador do beacon (ctr=0 no proximo adv).
+                    #[cfg(feature = "proximity")]
+                    {
+                        let mut rng = rand_core::OsRng;
+                        match aegis_fido_firmware::proximity::rekey_proximity(
+                            &mut storage,
+                            &mut rng,
+                        ) {
+                            Ok(k) => {
+                                prox_key = k;
+                                prox_key_present = true;
+                                prox_beacon =
+                                    aegis_fido_firmware::proximity::ProximityBeacon::new();
+                                prox_last_ms = now_ms;
+                                kprintln!("[PROX] rekey pos-pareamento (ctr=0).");
+                            }
+                            Err(e) => {
+                                prox_key = [0u8; 16];
+                                prox_key_present = false;
+                                kprintln!("[PROX] rekey falhou ({e:?}); sem adv.");
+                            }
+                        }
+                    }
                 }
             }
             // Fragmentos FFF1 -> reassemble -> dispatch -> notify FFF2.
@@ -854,6 +1341,10 @@ fn run_authenticator() {
                     Ok(Some(msg)) => {
                         touch_latched = false;
                         ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
+                        let bonded =
+                            pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+                        #[cfg(feature = "proximity")]
+                        let prox_revoked_op = msg.opcode;
                         ble_dispatch_complete(
                             msg,
                             up,
@@ -862,7 +1353,30 @@ fn run_authenticator() {
                             &mut ctap_engine,
                             &mut binding_mgr,
                             &mut storage,
+                            &mut rescue_engine,
+                            &mut wallet_store,
+                            bonded,
+                            now_ms,
+                            &mut fw_log,
+                            &mut key_mgr,
+                            &mut oath_applet,
                         );
+                        // Wave2 proximidade: release/recovery apagou a NVS
+                        // no dispatch (so no Ok); espelha no cache RAM.
+                        #[cfg(feature = "proximity")]
+                        {
+                            let revoked = prox_revoked_op
+                                == aegis_fido_firmware::ble_gatt::OP_BIND_RELEASE
+                                || prox_revoked_op
+                                    == aegis_fido_firmware::ble_gatt::OP_RECOVERY_UNLOCK;
+                            if revoked
+                                && aegis_fido_firmware::proximity::load_proximity_key(&storage)
+                                    .is_err()
+                            {
+                                prox_key = [0u8; 16];
+                                prox_key_present = false;
+                            }
+                        }
                     }
                     Ok(None) => {
                         ble::esp_ble_set_pending_len(ble::pending_len(&ble_server));
@@ -882,9 +1396,20 @@ fn run_authenticator() {
                 touch_latched = true;
                 rescue_engine.set_user_presence(true);
                 touch_expire_tick = tick + 150; // Keep touch valid for 1.5 seconds
-                kprintln!(
-                    "[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED."
-                );
+                // Distingue software (TEST_UP) do dedo para nao poluir auditoria:
+                // latch valido sem nivel fisico agora => veio de software.
+                #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                let via_software =
+                    !button_mgr.is_boot_pressed(|_| {}) && touch_latched;
+                #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+                let via_software = false;
+                if via_software {
+                    kprintln!("[TEST] UP via software CONFIRMED (latch 1x).");
+                } else {
+                    kprintln!(
+                        "[BUTTON] Physical touch detected on BOOT (GPIO 0)! User Presence CONFIRMED."
+                    );
+                }
             } else if let Some(start) = press_start_tick {
                 // Phase8 UX-conex: hold>=5000 PairingReady vence; TOTP so em [2s,5s) sem pairing.
                 let held_ms = tick.saturating_sub(start).saturating_mul(10);
@@ -1088,9 +1613,9 @@ fn run_authenticator() {
                                 };
                                 if let Some(op) = ota_op {
                                     let ota_ctx = OtaRequestCtx {
-                                        provisioned: load_device_keys(&efuse_mgr).is_ok(),
+                                        provisioned: ota_provisioned(&efuse_mgr),
                                         up: touch_latched,
-                                        ota_pubkey: OTA_RELEASE_PUBKEY,
+                                        ota_pubkey: ota_active_pubkey(),
                                         current_version: FIRMWARE_VERSION,
                                     };
                                     let mut ota_sink =
@@ -1143,6 +1668,56 @@ fn run_authenticator() {
                                         "[CTAPHID] Sent OTA response ({} bytes)",
                                         ota_resp.len()
                                     );
+                                } else if msg.cmd == CMD_MSG
+                                    && aegis_fido_firmware::serial_ctaphid::is_rescue_msg(
+                                        msg.cmd,
+                                        &msg.payload,
+                                    )
+                                {
+                                    // Rescue Wave2 Step3 (0x2E): UP do latch (uso unico),
+                                    // PIN via plumbing ClientPIN (sessão viva = PIN
+                                    // verificado; sem ela o remoto nega fail-closed).
+                                    // Resposta status-first.
+                                    rescue_engine.set_user_presence(touch_latched);
+                                    rescue_engine.set_pin_uv_authenticated(
+                                        ctap_engine.pin_state.has_valid_pin_uv_session(),
+                                    );
+                                    touch_latched = false;
+                                    let (st, body) =
+                                        aegis_fido_firmware::serial_ctaphid::dispatch_serial_rescue(
+                                            &mut rescue_engine,
+                                            &msg.payload[1..],
+                                        );
+                                    kprintln!("[RESCUE] op 0x2E via USB (status 0x{:02X}).", st);
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        unsafe {
+                                            aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && aegis_fido_firmware::pairing::is_host_pairing_msg(
+                                        msg.payload[0],
+                                        msg.payload.len() - 1,
+                                    )
+                                {
+                                    // Pareamento por software (produto 0x2F): abre a
+                                    // mesma janela do hold; UP/bonding seguem
+                                    // exigidos. Só existe no USB físico.
+                                    pairing_mgr.open_host_window(now_ms);
+                                    kprintln!("[PAIRING] 0x2F via USB: janela 60s aberta (UP/bond seguem).");
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid,
+                                        msg.cmd,
+                                        &[0x00],
+                                    ) {
+                                        unsafe {
+                                            aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
                                 } else {
                                 // 1. Determine if this command requires User Presence (UP)
                                 let ctap_subcmd = if !msg.payload.is_empty() {
@@ -1309,6 +1884,16 @@ fn run_authenticator() {
                                 let ctap_res =
                                     ctap_engine.process_packet(&msg.payload, now_secs, &mut rng);
 
+                                // F3: ClientPIN (0x06) mudou estado? Persiste.
+                                if msg.payload.first() == Some(&0x06)
+                                    && !aegis_fido_firmware::vendor_exec::save_pin_state(
+                                        &mut storage,
+                                        &ctap_engine.pin_state,
+                                    )
+                                {
+                                    kprintln!("[WARN] NVS pin save falhou (USB).");
+                                }
+
                                 kprintln!(
                                     "[CTAP2] Response status: 0x{:02X}, length: {} bytes",
                                     ctap_res.get(0).unwrap_or(&0xFF),
@@ -1370,6 +1955,33 @@ fn run_authenticator() {
                     }
                 }
             }
+            // C2. Service CCID frames (F4 PIV; composite interface 2).
+            // O driver C remonta frames bulk completos; o applet Rust
+            // (em `ccid_transport`) sobrevive entre polls; NVS+chaves
+            // são emprestados por frame.
+            #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+            if usb_installed {
+                const CCID_FRAME_MAX: usize = 2048;
+                let mut frame = [0u8; CCID_FRAME_MAX];
+                let n = unsafe {
+                    aegis_ccid_pop_frame(frame.as_mut_ptr(), CCID_FRAME_MAX as u16)
+                };
+                if n >= 10 {
+                    if let Some(rpdu) =
+                        aegis_fido_firmware::ccid_dispatch::process_ccid_frame(
+                            &mut ccid_transport,
+                            &frame[..n as usize],
+                            &mut storage,
+                            &mut key_mgr,
+                            now_secs,
+                        )
+                    {
+                        if !unsafe { aegis_ccid_send(rpdu.as_ptr(), rpdu.len() as u16) } {
+                            kprintln!("[CCID] bulk-IN send falhou ({} B).", rpdu.len());
+                        }
+                    }
+                }
+            }
         }
 
         // D. Service serial CTAPHID (UART 115200, framing identical to USB).
@@ -1384,11 +1996,12 @@ fn run_authenticator() {
         // helpers (same binding -> UP -> PIN gates), status-first answer.
         #[cfg(target_os = "espidf")]
         if serial_installed {
-            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_vendor_keys_oath_op};
+            use aegis_fido_firmware::ble_gatt::{is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
+                OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use aegis_fido_firmware::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt,
-                dispatch_serial_vendor, serial_bind_mgmt_consumes_up, serial_is_up_required,
-                SerialFeed, SerialGate,
+                dispatch_serial_rescue, dispatch_serial_wallet,
+                is_rescue_msg, serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed, SerialGate,
             };
             #[cfg(feature = "test-mode")]
             use aegis_fido_firmware::serial_ctaphid::{
@@ -1396,8 +2009,14 @@ fn run_authenticator() {
             };
 
             // D1. Diagnostic text lines (test-mode only; idle use only).
+            // CI-GREP: TEST-HOOK (test-mode only; absent in release).
             // TEST_PAIRING_OPEN abre a mesma janela 60s do hold (software);
             // TEST_LIFETIME_DUMP responde o dump. Release: linhas desconhecidas.
+            // D1b. LED ground-truth + primarias (test-mode only).
+            // TEST_LED_STATE devolve tela + pairing + efeito ativo (diz o que o
+            // firmware MANDA mostrar). TEST_LED_{RED,GREEN,BLUE,OFF} trava uma
+            // cor solida (latch reaplicado todo poll, vence o override da
+            // jornada); TEST_LED_RELEASE devolve o controle a jornada.
             #[cfg(feature = "test-mode")]
             {
                 let mut chunk = [0u8; 32];
@@ -1405,7 +2024,87 @@ fn run_authenticator() {
                 for b in chunk.iter().take(n as usize) {
                     if *b == b'\n' {
                         if let Ok(line) = core::str::from_utf8(&serial_line) {
-                            if let Some(resp) =
+                            let t = line.trim();
+                            if t == "TEST_UP" {
+                                // UM toque BOOT via software (vale no proximo
+                                // poll, mesma semantica do tap fisico).
+                                test_up_latch = true;
+                                kprintln!("[TEST] UP via software (latch 1x).");
+                                let resp = "up_latched source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_DOWNLOAD" {
+                                // CI-GREP: TEST-HOOK (test-mode only).
+                                // Reboot p/ download ROM via RTC_CNTL
+                                // (dispensa BOOT/DTR/RTS). Nunca retorna.
+                                kprintln!("[TEST] download via software (RTC_CNTL).");
+                                let resp = "download_mode source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                                unsafe { aegis_reboot_to_download() };
+                            } else if t == "TEST_USB_RECONNECT" {
+                                // CI-GREP: TEST-HOOK (test-mode only).
+                                // Drop + re-enumera o USB nativo via software
+                                // (dispensa replug físico; Windows rebinda).
+                                kprintln!("[TEST] usb reconnect via software.");
+                                let resp = "usb_reconnect source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                                unsafe { aegis_usb_reconnect() };
+                            } else if t == "TEST_LED_STATE" {
+                                let screen = match &display_mgr.current_screen {
+                                    UiScreen::BootSplash { .. } => "BootSplash",
+                                    UiScreen::IdleStandby { .. } => "IdleStandby",
+                                    UiScreen::UserPresencePrompt { .. } => {
+                                        "UP-Prompt"
+                                    }
+                                    UiScreen::Success { .. } => "Success",
+                                    UiScreen::Error { .. } => "Error",
+                                    UiScreen::TotpCode { .. } => "TotpCode",
+                                };
+                                let bonded = pairing_mgr.is_bonded()
+                                    || binding_mgr.is_claimed();
+                                let effect = display_mgr
+                                    .led_controller
+                                    .as_ref()
+                                    .map(|l| format!("{:?}", l.current_effect()));
+                                let resp = format!(
+                                    "led_state screen={} pairing={:?} bonded={} claimed={} effect={} tick_ms={}\n",
+                                    screen,
+                                    pairing_mgr.state(),
+                                    bonded as u8,
+                                    binding_mgr.is_claimed() as u8,
+                                    effect.as_deref().unwrap_or("no-led"),
+                                    now_ms
+                                );
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_LED_RELEASE" {
+                                led_test_hold = None;
+                                let resp = "led_set released\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if let Some(held) = match t {
+                                "TEST_LED_RED" => Some(
+                                    LedEffect::Solid(
+                                        aegis_fido_firmware::led::Color::RED,
+                                    ),
+                                ),
+                                "TEST_LED_GREEN" => Some(
+                                    LedEffect::Solid(
+                                        aegis_fido_firmware::led::Color::GREEN,
+                                    ),
+                                ),
+                                "TEST_LED_BLUE" => Some(
+                                    LedEffect::Solid(
+                                        aegis_fido_firmware::led::Color::BLUE,
+                                    ),
+                                ),
+                                "TEST_LED_OFF" => Some(LedEffect::Off),
+                                _ => None,
+                            } {
+                                led_test_hold = Some(held);
+                                if let Some(ref mut led) = display_mgr.led_controller {
+                                    led.set_effect(held);
+                                }
+                                let resp = format!("led_set {}\n", t);
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if let Some(resp) =
                                 dispatch_serial_pairing_line(line, &mut pairing_mgr, now_ms)
                             {
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
@@ -1425,6 +2124,13 @@ fn run_authenticator() {
                         serial_line.push(*b);
                     } else {
                         serial_line.clear();
+                    }
+                }
+                // Reaplica o latch de cor solida todo poll: vence o override
+                // da jornada (B-block) sem altera-lo.
+                if let Some(held) = led_test_hold {
+                    if let Some(ref mut led) = display_mgr.led_controller {
+                        led.set_effect(held);
                     }
                 }
             }
@@ -1516,10 +2222,32 @@ fn run_authenticator() {
                                     }
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
-                                    && is_vendor_keys_oath_op(msg.payload[0])
+                                    && msg.payload[0]
+                                        == aegis_fido_firmware::fw_log::OP_FW_LOG
                                 {
-                                    // Vendor keys/OATH: app-driven UP (latch, like
-                                    // BLE); denial carries the BLE wire status.
+                                    // Log da firmware over serial: posse física
+                                    // = livre (sem pairing, sem UP, sem latch).
+                                    use aegis_fido_firmware::fw_log as fl;
+                                    fw_log.record(fl::EV_OP_RX, fl::OP_FW_LOG, now_ms);
+                                    let body = fw_log.render_ascii(1024);
+                                    fw_log.record(fl::EV_OP_RESP, 0x00, now_ms);
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(0x00);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &resp,
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && (is_vendor_keys_oath_op(msg.payload[0])
+                                        || is_wallet_op(msg.payload[0])
+                                        || is_piv_enroll_op(msg.payload[0]))
+                                {
+                                    // Vendor keys/OATH + carteira + PIV enroll:
+                                    // app-driven UP (latch, like BLE); denial
+                                    // carries the BLE wire status.
                                     let op = msg.payload[0];
                                     match authorize_serial(
                                         msg.cmd,
@@ -1549,11 +2277,50 @@ fn run_authenticator() {
                                         SerialGate::Ok => {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
-                                            let (st, body) = dispatch_serial_vendor(
-                                                op,
-                                                binding_mgr.is_claimed(),
-                                                true,
-                                            );
+                                            let (st, body) = if is_wallet_op(op) {
+                                                // Carteira Fase7: executa de verdade
+                                                // (gate pairing+UP já passou acima).
+                                                let mut rng = rand_core::OsRng;
+                                                use aegis_fido_firmware::wallet_exec as w;
+                                                match op {
+                                                    OP_WALLET_GEN => w::wallet_gen(
+                                                        &mut wallet_store,
+                                                        &msg.payload[1..],
+                                                        now_secs,
+                                                        true,
+                                                        &mut rng,
+                                                    ),
+                                                    OP_WALLET_LIST => {
+                                                        w::wallet_list(&wallet_store, true)
+                                                    }
+                                                    OP_WALLET_ADDR => w::wallet_addr(
+                                                        &wallet_store,
+                                                        &msg.payload[1..],
+                                                        true,
+                                                    ),
+                                                    _ => (0x04, Vec::new()),
+                                                }
+                                            } else {
+                                                // F2: executor real on-device
+                                                // (gate pairing+UP já passou;
+                                                // PIN via plumbing ClientPIN).
+                                                let mut rng = rand_core::OsRng;
+                                                let (st, body) = aegis_fido_firmware::vendor_exec::exec_vendor_op(
+                                                    &mut key_mgr,
+                                                    &mut oath_applet,
+                                                    &mut storage,
+                                                    op,
+                                                    &msg.payload[1..],
+                                                    binding_mgr.is_claimed(),
+                                                    ctap_engine
+                                                        .pin_state
+                                                        .has_valid_pin_uv_session(),
+                                                    true,
+                                                    now_secs,
+                                                    &mut rng,
+                                                );
+                                                (st, body)
+                                            };
                                             let mut resp = Vec::with_capacity(1 + body.len());
                                             resp.push(st);
                                             resp.extend_from_slice(&body);
@@ -1563,6 +2330,115 @@ fn run_authenticator() {
                                                 serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                             }
                                         }
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && aegis_fido_firmware::persistence::is_ota_op(msg.payload[0])
+                                {
+                                    // F5: OTA over serial (mesmos gates do USB:
+                                    // provisionado-lab + UP só no COMMIT).
+                                    // Sem swap real (partição única): COMMIT
+                                    // grava só o marker NVS (zero risco brick).
+                                    #[cfg(all(
+                                        target_os = "espidf",
+                                        not(feature = "board-ttgo-classic")
+                                    ))]
+                                    {
+                                        use aegis_fido_firmware::persistence::{
+                                            dispatch_ota_request, FlashOtaSink,
+                                            OtaRequestCtx, OTA_STATUS_OK,
+                                        };
+                                        use aegis_fido_firmware::ota::OP_OTA_COMMIT;
+                                        let ota_ctx = OtaRequestCtx {
+                                            provisioned: ota_provisioned(&efuse_mgr),
+                                            up: touch_latched,
+                                            ota_pubkey: ota_active_pubkey(),
+                                            current_version: FIRMWARE_VERSION,
+                                        };
+                                        let mut ota_sink = FlashOtaSink::new(
+                                            storage.backend_mut(),
+                                        );
+                                        let op = msg.payload[0];
+                                        let (st, body) = match dispatch_ota_request(
+                                            &mut ota_state,
+                                            &mut ota_sink,
+                                            op,
+                                            &msg.payload[1..],
+                                            &ota_ctx,
+                                        ) {
+                                            Some((st, body)) => {
+                                                kprintln!(
+                                                    "[SERIAL][OTA] op 0x{:02X} (status 0x{:02X}).",
+                                                    op, st
+                                                );
+                                                (st, body)
+                                            }
+                                            None => (0x04, Vec::new()),
+                                        };
+                                        if st == OTA_STATUS_OK && op == OP_OTA_COMMIT {
+                                            touch_latched = false;
+                                            rescue_engine.set_user_presence(true);
+                                        }
+                                        let mut resp = Vec::with_capacity(1 + body.len());
+                                        resp.push(st);
+                                        resp.extend_from_slice(&body);
+                                        for p in CtapHidFramer::frame_message(
+                                            msg.cid, msg.cmd, &resp,
+                                        ) {
+                                            serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                    // Classic (sem OTA): nega genérico, nunca silencia.
+                                    #[cfg(not(all(
+                                        target_os = "espidf",
+                                        not(feature = "board-ttgo-classic")
+                                    )))]
+                                    {
+                                        for p in CtapHidFramer::frame_message(
+                                            msg.cid, msg.cmd, &[0x04],
+                                        ) {
+                                            serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && is_rescue_msg(msg.cmd, &msg.payload)
+                                {
+                                    // Rescue Wave2 Step3 (0x2E) over serial: mesmo gate do
+                                    // USB (UP do latch + plumbing ClientPIN).
+                                    rescue_engine.set_user_presence(touch_latched);
+                                    rescue_engine.set_pin_uv_authenticated(
+                                        ctap_engine.pin_state.has_valid_pin_uv_session(),
+                                    );
+                                    touch_latched = false;
+                                    let (st, body) = dispatch_serial_rescue(
+                                        &mut rescue_engine,
+                                        &msg.payload[1..],
+                                    );
+                                    kprintln!("[SERIAL][RESCUE] op 0x2E (status 0x{:02X}).", st);
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &resp,
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && aegis_fido_firmware::pairing::is_host_pairing_msg(
+                                        msg.payload[0],
+                                        msg.payload.len() - 1,
+                                    )
+                                {
+                                    // Pareamento por software (produto 0x2F) over
+                                    // serial: mesma janela do hold; UP/bonding
+                                    // seguem exigidos. UART = posse física.
+                                    pairing_mgr.open_host_window(now_ms);
+                                    kprintln!("[SERIAL][PAIRING] 0x2F: janela 60s aberta.");
+                                    for p in CtapHidFramer::frame_message(
+                                        msg.cid, msg.cmd, &[0x00],
+                                    ) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
                                     }
                                 } else if authorize_serial(
                                     msg.cmd,
@@ -1653,6 +2529,15 @@ fn run_authenticator() {
                                         now_secs,
                                         &mut rng,
                                     );
+                                    // F3: ClientPIN (0x06) mudou estado? Persiste.
+                                    if msg.payload.first() == Some(&0x06)
+                                        && !aegis_fido_firmware::vendor_exec::save_pin_state(
+                                            &mut storage,
+                                            &ctap_engine.pin_state,
+                                        )
+                                    {
+                                        kprintln!("[WARN] NVS pin save falhou (serial).");
+                                    }
                                     kprintln!(
                                         "[SERIAL][CTAP2] status 0x{:02X}, {} bytes",
                                         res.first().copied().unwrap_or(0xFF),

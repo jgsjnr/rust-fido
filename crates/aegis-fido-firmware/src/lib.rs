@@ -11,11 +11,13 @@
 pub mod ble_gatt;
 pub mod ble_nimble;
 pub mod binding;
+pub mod ccid_dispatch;
 pub mod recovery;
 pub mod button;
 pub mod config;
 pub mod display;
 pub mod efuse;
+pub mod fw_log;
 pub mod identity;
 pub mod led;
 pub mod lifetime_trace;
@@ -31,6 +33,7 @@ pub mod provision;
 #[cfg(feature = "proximity")]
 pub mod proximity;
 pub mod serial_ctaphid;
+pub mod test_hooks;
 pub mod totp_view;
 pub mod ui_journey;
 pub mod watchdog;
@@ -38,12 +41,16 @@ pub mod wifi_ap;
 pub mod wifi_station;
 pub mod usb_descriptors;
 pub mod vault_store;
+pub mod vendor_exec;
+pub mod wallet_exec;
+pub mod nvs_backend;
+pub mod piv_store;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
 pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
 pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage, RamEfuseStorage};
 pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
-pub use persistence::{FlashStorageBackend, MockFlashBackend, RamFlashBackend, SecureStorage, StorageError};
+pub use persistence::{FlashStorageBackend, MockFlashBackend, PlatformFlashBackend, SecureStorage, StorageError};
 pub use watchdog::{StaticBuf, Watchdog};
 pub use usb_descriptors::*;
 

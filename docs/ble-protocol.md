@@ -103,6 +103,24 @@ len `<0x80` direto, `0x81`+1B, `0x82`+2B).
 | `0x26` | `OATH_CODE` | UP |
 | `0x27` | `OATH_DELETE` | UP+PIN |
 
+### 9.1b Opcodes carteira Fase7 (`0x35-0x37`, FFF1 control-point)
+
+Faixa livre (0x28–0x2D bind, 0x2E rescue, 0x2F reservado, 0x30–0x34 OTA).
+GATT/revisão/framing intactos; executor on-device (`WalletStore` + NVS)
+= follow-up (gate ok responde `0x04`, como §9.4).
+
+| Op | Nome | Gate normativo |
+|----|------|----------------|
+| `0x35` | `WALLET_GEN` | binding + UP |
+| `0x36` | `WALLET_LIST` | binding + UP |
+| `0x37` | `WALLET_ADDR` | binding + UP |
+
+Executor on-device (`wallet_exec.rs` + `WalletStore` de sessão):
+GEN `[slot,label,net0x08]` → `[slot,label,address0x07]`, LIST `[]` →
+repetição, ADDR `[slot]` → `[address0x07]`. Tags `0x07/0x08` ignorados
+por decoders antigos (§9.6). Sessão de boot (NVS = follow-up com o
+codec `export/import_routing`). Na serial exige pareamento + UP.
+
 Request wire: `[op:1, len_hi:1, len_lo:1, TLV...]` fragmentado per §3.
 Response wire: `[op:1, status:1, TLV...]` (status §9.5), fragmentado igual.
 
@@ -291,3 +309,40 @@ hold-5s/janela-60s, prioridade `USB > BLE > WiFi`, `POST /ctap`, TOTP RFC6238 �
 todos per §1-§10. Este apendice so adiciona opcodes + split + recovery.
 USB/CTAP (`aegis-fido-usb`, `CtapEngine`) zero mudanca (golden em
 `usb_ctap_bytes_untouched_golden`).
+
+## 12. Apendice fw-log + PIV enroll (`0x38-0x39`, aditivo, congela o existente)
+
+Aditivo ao contrato Wave4 (§1-§11 intactos). GATT inalterado, revisao permanece
+`0x01`. Framing §3 reutilizado sem mudanca. Nenhum byte de fio muda aqui:
+este apendice so documenta o que o firmware e o app ja fazem
+(`ble_gatt.rs`, `vendor_exec.rs`, `serial_ctaphid.rs`, `main.rs`,
+`VendorOps.kt` + `BindingOps.kt`, `PivScreen.kt`, `LogScreen.kt`).
+
+| Op | Nome | Req | Resp OK | Gate normativo |
+|----|------|-----|---------|----------------|
+| `0x38` | `FW_LOG` | vazio (0B) | `0x00 + ASCII` (`SEQ EV=cc ARG=aa T=ms` por linha, sem PII) | BLE: vinculo (sem vinculo -> `0x05`); nunca UP nem PIN. Serial/USB fisico: livre (posse do cabo). |
+| `0x39` | `PIV_ENROLL` | `[pin_len:1, pin:6-8, puk:8]` digitos ASCII | vazio (0B) | binding + UP (ordem canonica §11.2); geometria fora (`pin_len` 6-8, total `1+pin_len+8`) -> `0x04`. PIN/PUK zerados apos o envio, nunca no Log. |
+
+`authorize_fw_log_op` (`ble_gatt.rs`): `!bonded -> NeedBinding (0x05)`;
+fora disso `Ok` (sem UP/PIN). `exec_piv_enroll` (`vendor_exec.rs`):
+`pin_len` fora de 6-8 ou tamanho != `1+pin_len+8` -> `0x04`;
+`provision_pin` erro -> `0x04`; ok -> `0x00`. Segunda tentativa
+pos-enroll nega (PIN ja provisionado). Erros seguem o conjunto fechado
+§9.5+`0x05` (§11.5). Forward-compat per §9.6/§11.6.
+
+## 13. Apendice trava de presença RSSI / proximity key (aditivo, sem quebra)
+
+Aditivo ao contrato Wave4 (§1-§12 intactos). GATT `0xFFFD` inalterado, sem
+opcode novo, revisao permanece `0x01`: o beacon é ADV (service-data), nunca
+GATT. RSSI nunca autentica; lock-only; fail-closed sempre.
+
+| Item | Contrato congelado |
+|------|--------------------|
+| Beacon ADV | service-data UUID `0xFFFE`: `[VER:1=0x01, CTR:4 LE, TAG:4]` (30B ≤ 31B); tick ~1s com saturação de CTR |
+| `TAG` | `AES-CCM-128(K_prox, nonce=VER\|\|CTR\|\|fob_id[6B], AAD=VER\|\|CTR)` truncado 4B. Vetor: `K=0x42×16`, `fob=AA:BB:CC:DD:EE:FF`, `ctr=7` → `TAG=660d4941` (py==rs) |
+| `fob_id` | MAC BLE público do fob (`aegis_ble_own_addr`); host filtra scan pelo MAC bonded (`--fob-id`). Placeholder XOR-fold proibido no release |
+| Gates de anúncio | só `Idle+bonded+trusted+!USB` com `K_prox` (`proximity_adv_allowed`); USB montado silencia BLE; WiFi desacelera (coex) |
+| Decisor host | Away = `< -75 dBm/10s`, histerese 5 dB (volta Near `≥ -70 dBm`); `None`/erro = AWAY; watchdog 3 erros → lock. Trava SO: Win `LockWorkStation`, Linux `loginctl`, macOS `CGSession`. Sem auto-unlock (unlock exige presença+PIN no device) |
+| Anti-replay | CTR crescente; salto `>1000` → reverify |
+| `K_prox` | NVS `prox_k` + `zeroize`; `rekey+ctr=0` no `Paired`; `delete` em `BIND_RELEASE`/`RECOVERY_UNLOCK`. Provisionamento fábrica em link cifrado+bonded (nunca em claro) = follow-up |
+| Referências | desenho em `docs/piv-ble-proximity.md`; handoff em `docs/proximity-worktree-handoff.md`; fw `proximity.rs` (+ testes); agentes `tools/host/{win,linux,macos}/proximity_agent.py` |

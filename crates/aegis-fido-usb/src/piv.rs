@@ -568,7 +568,7 @@ impl PivApplet {
         if !is_valid_piv_pin(&apdu.data) {
             return ResponseApdu::status(SW_WRONG_LENGTH);
         }
-        if secret_matches(&salt, &expected, &apdu.data) {
+        if secret_matches_piv(&salt, &expected, &apdu.data) {
             if store.store_record(PIV_NVS_PIN_RETRIES, &[PIV_PIN_MAX_RETRIES]).is_err() {
                 self.pin_verified = false;
                 return ResponseApdu::status(SW_UNKNOWN_ERROR);
@@ -618,11 +618,15 @@ impl PivApplet {
         if retries == 0 {
             return ResponseApdu::status(SW_AUTH_BLOCKED);
         }
-        for s in PIV_PIN_MIN_LEN..=PIV_PIN_MAX_LEN {
+        // Ordem descendente: o driver PIV envia o old com padding FF até 8B, então
+        // o split correto tem o old mais longo (`s=8` casa via strip do padding
+        // com o new limpo); ascendente casaria `s=6` exato e gravaria o new com
+        // o prefixo `FF FF` do padding junto.
+        for s in (PIV_PIN_MIN_LEN..=PIV_PIN_MAX_LEN).rev() {
             if apdu.data.len() < s || !is_valid_piv_pin(&apdu.data[s..]) {
                 continue;
             }
-            if secret_matches(&salt, &expected, &apdu.data[..s]) {
+            if secret_matches_piv(&salt, &expected, &apdu.data[..s]) {
                 let new_pin = Zeroizing::new(apdu.data[s..].to_vec());
                 return match rewrite_credential(
                     store,
@@ -664,7 +668,7 @@ impl PivApplet {
         if retries == 0 {
             return ResponseApdu::status(SW_AUTH_BLOCKED);
         }
-        if secret_matches(&salt, &expected, &apdu.data[..PIV_PUK_LEN]) {
+        if secret_matches_piv(&salt, &expected, &apdu.data[..PIV_PUK_LEN]) {
             let new_puk = Zeroizing::new(apdu.data[PIV_PUK_LEN..].to_vec());
             return match rewrite_credential(
                 store,
@@ -722,7 +726,7 @@ impl PivApplet {
         if retries == 0 {
             return ResponseApdu::status(SW_AUTH_BLOCKED);
         }
-        if secret_matches(&salt, &expected, &apdu.data[..PIV_PUK_LEN]) {
+        if secret_matches_piv(&salt, &expected, &apdu.data[..PIV_PUK_LEN]) {
             let new_pin = Zeroizing::new(apdu.data[PIV_PUK_LEN..].to_vec());
             let pin_ok = rewrite_credential(
                 store,
@@ -921,6 +925,32 @@ fn secret_matches(
     let ok = ct_eq_32(expected, &digest);
     digest.zeroize();
     ok
+}
+
+/// Compara tolerando o padding `FF` do driver PIV real (PIN sempre 8B no fio).
+///
+/// Tenta o `secret_matches` exato primeiro (preserva PINs crus com `FF`
+/// legítimo); se falhar E `candidate.len() == 8` E termina em `0xFF`,
+/// remove os `FF`s finais e tenta de novo quando o resto fica em 6..=8.
+/// Uma única chamada = uma única tentativa lógica (sem consumir retry extra).
+fn secret_matches_piv(
+    salt: &[u8; PIV_SALT_LEN],
+    expected: &[u8; PIV_HASH_LEN],
+    candidate: &[u8],
+) -> bool {
+    if secret_matches(salt, expected, candidate) {
+        return true;
+    }
+    if candidate.len() == PIV_PIN_MAX_LEN && candidate.last() == Some(&0xFF) {
+        let mut n = candidate.len();
+        while n > 0 && candidate[n - 1] == 0xFF {
+            n -= 1;
+        }
+        if (PIV_PIN_MIN_LEN..=PIV_PIN_MAX_LEN).contains(&n) && n != candidate.len() {
+            return secret_matches(salt, expected, &candidate[..n]);
+        }
+    }
+    false
 }
 
 /// Tripla carregada: salt+hash com zeroize no `drop` + retries restantes.
@@ -2149,5 +2179,82 @@ mod secure_tests {
         let ok_restored = h.run(&verify_apdu(PIN));
         assert_eq!((ok_restored.sw1, ok_restored.sw2), (0x90, 0x00));
         assert!(h.applet.is_verified());
+    }
+
+    #[test]
+    fn should_verify_padded_ff_matches_raw_6b_pin() {
+        // Arrange: PIN cru 6B provisionado, driver real envia 8B com padding FF
+        let mut h = Harness::new();
+        h.select();
+        h.provision();
+        let padded = b"123456\xFF\xFF";
+
+        // Act
+        let resp = h.run(&verify_apdu(padded));
+
+        // Assert: casa sem consumir retry
+        assert_eq!((resp.sw1, resp.sw2), (0x90, 0x00));
+        assert!(h.applet.is_verified());
+        let raw = h.store.load_record(PIV_NVS_PIN_RETRIES).unwrap();
+        assert_eq!(raw, vec![PIV_PIN_MAX_RETRIES]);
+    }
+
+    #[test]
+    fn should_verify_raw_8b_ending_ff_still_exact() {
+        // Arrange: PIN cru 8B terminado em FF (FF legítimo, não padding)
+        let mut h = Harness::new();
+        h.select();
+        let raw_pin = b"1234567\xFF";
+        provision_pin_with_rng(&mut h.store, &mut h.rng, raw_pin, PUK).expect("provision ok");
+
+        // Act
+        let resp = h.run(&verify_apdu(raw_pin));
+
+        // Assert: exato casa na primeira tentativa
+        assert_eq!((resp.sw1, resp.sw2), (0x90, 0x00));
+        assert!(h.applet.is_verified());
+    }
+
+    #[test]
+    fn should_reject_padded_wrong_pin() {
+        // Arrange
+        let mut h = Harness::new();
+        h.select();
+        h.provision();
+
+        // Act: PIN errado com padding FF (63 C2, consome só 1 retry)
+        let resp = h.run(&verify_apdu(b"000000\xFF\xFF"));
+
+        // Assert
+        assert_eq!((resp.sw1, resp.sw2), sw_retries_left(2));
+        assert!(!h.applet.is_verified());
+        let raw = h.store.load_record(PIV_NVS_PIN_RETRIES).unwrap();
+        assert_eq!(raw, vec![2]);
+    }
+
+    #[test]
+    fn should_change_pin_with_padded_old_ok() {
+        // Arrange
+        let mut h = Harness::new();
+        h.select();
+        h.provision();
+        let mut data = b"123456\xFF\xFF".to_vec();
+        data.extend_from_slice(NEW_PIN);
+        let apdu = CommandApdu {
+            cla: 0x00,
+            ins: INS_CHANGE,
+            p1: 0x00,
+            p2: P2_PIN,
+            data,
+            le: None,
+        };
+
+        // Act
+        let resp = h.run(&apdu);
+
+        // Assert
+        assert_eq!((resp.sw1, resp.sw2), (0x90, 0x00));
+        let ok = h.run(&verify_apdu(NEW_PIN));
+        assert_eq!((ok.sw1, ok.sw2), (0x90, 0x00));
     }
 }

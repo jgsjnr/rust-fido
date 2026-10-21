@@ -166,16 +166,28 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
     }
 }
 
-// Wave OTA wiring (Step 4, traces R-04/R-06).
+// Wave OTA wiring (Step 4, traces R-04/R-06; F5 chunked NVS staging).
 //
 // Staging lives under raw `ota_*` flash keys — NEVER through `SecureStorage`
 // envelopes (a firmware image can never fit a single 512 B
 // `MAX_PLAINTEXT_BYTES` envelope, and credential/OATH NVS keys must stay
 // byte-identical across commit and rollback). Rollback on any failure
 // preserves NVS: only `ota_*` keys are ever created, modified, or deleted.
+// F5: o blob único virou família chunked (`ota_stage_len` + `ota_cNNNNNN`
+// de 8 KiB) — NVS não aguenta blob de 2 MiB; o layout é transparente p/
+// `dispatch_ota_request` e testes.
 
 /// Raw flash key holding the staged image bytes (append-only during `Staged`).
+///
+/// Legado F4-: blob único. F5+: só leitura de compat (migra p/ chunked no
+/// primeiro append). Novo código NUNCA escreve aqui.
 pub const OTA_STAGING_KEY: &str = "ota_staging";
+/// Total de bytes stageados (u32 BE) — fonte da verdade F5+.
+pub const OTA_STAGE_LEN_KEY: &str = "ota_stage_len";
+/// Prefixo das chaves de chunk (`ota_c` + 6 dígitos, 8 KiB cada).
+pub const OTA_CHUNK_PREFIX: &str = "ota_c";
+/// Tamanho de cada chunk NVS (cabe folgado no blob NVS).
+pub const OTA_CHUNK_LEN: usize = 8192;
 /// Raw flash key holding the 104 B staged manifest (sig source for FINISH).
 pub const OTA_MANIFEST_KEY: &str = "ota_manifest";
 /// Raw flash key holding the commit marker (`version` BE u32, post-verify).
@@ -215,22 +227,37 @@ pub fn verify_ota_signature(pubkey: &[u8; 32], message: &[u8], signature: &[u8; 
 /// `OtaSink` over a raw flash backend (`ota_*` keys only).
 ///
 /// NEVER touches credential/OATH NVS keys: every read/write/delete targets
-/// exactly `OTA_STAGING_KEY`, `OTA_MANIFEST_KEY`, or `OTA_COMMIT_MARKER_KEY`.
-/// The backend is plain key-value (no offset writes), so chunks append via
-/// read-modify-write; in-order appends are enforced against `len`.
+/// `ota_stage_len`, `ota_cNNNNNN`, `OTA_MANIFEST_KEY`, or
+/// `OTA_COMMIT_MARKER_KEY` (legado `OTA_STAGING_KEY` só leitura p/ migração).
+/// Appends in-order contra `len`; chunks de 8 KiB (NVS-safe).
 pub struct FlashOtaSink<'a, B: FlashStorageBackend> {
     backend: &'a mut B,
     len: usize,
     finalized: bool,
 }
 
+fn chunk_key(index: usize) -> String {
+    // "ota_c" + 6 dígitos (sempre ≤15 chars p/ NVS).
+    format!("ota_c{:06}", index % 1_000_000)
+}
+
+fn read_len(backend: &impl FlashStorageBackend) -> usize {
+    match backend.read_raw(OTA_STAGE_LEN_KEY) {
+        Ok(v) if v.len() == 4 => {
+            u32::from_be_bytes([v[0], v[1], v[2], v[3]]) as usize
+        }
+        _ => {
+            // Migração: blob único legado vira len (conteúdo migrado no
+            // primeiro append; descarte limpa os dois formatos).
+            backend.read_raw(OTA_STAGING_KEY).map(|v| v.len()).unwrap_or(0)
+        }
+    }
+}
+
 impl<'a, B: FlashStorageBackend> FlashOtaSink<'a, B> {
     /// Opens the staging area, resuming `len` from any previously staged bytes.
     pub fn new(backend: &'a mut B) -> Self {
-        let len = backend
-            .read_raw(OTA_STAGING_KEY)
-            .map(|v| v.len())
-            .unwrap_or(0);
+        let len = read_len(backend);
         Self {
             backend,
             len,
@@ -239,8 +266,19 @@ impl<'a, B: FlashStorageBackend> FlashOtaSink<'a, B> {
     }
 
     /// Discards staged image + manifest (rollback); keeps the commit marker
-    /// and every non-`ota_*` key untouched.
+    /// and every non-`ota_*` key untouched. Limpa os dois formatos (chunked F5+
+    /// e blob legado), para nunca deixar lixo atrás.
     pub fn discard(&mut self) {
+        let chunks = self.len.div_ceil(OTA_CHUNK_LEN).max(
+            self.backend
+                .read_raw(OTA_STAGING_KEY)
+                .map(|v| v.len().div_ceil(OTA_CHUNK_LEN))
+                .unwrap_or(0),
+        );
+        for i in 0..chunks {
+            let _ = self.backend.delete_raw(&chunk_key(i));
+        }
+        let _ = self.backend.delete_raw(OTA_STAGE_LEN_KEY);
         let _ = self.backend.delete_raw(OTA_STAGING_KEY);
         let _ = self.backend.delete_raw(OTA_MANIFEST_KEY);
         self.len = 0;
@@ -291,7 +329,35 @@ impl<'a, B: FlashStorageBackend> FlashOtaSink<'a, B> {
 
     /// Whether staged image bytes are present (test seam).
     pub fn exists_staging(&self) -> bool {
-        self.backend.exists(OTA_STAGING_KEY)
+        self.len > 0
+    }
+}
+
+impl<'a, B: FlashStorageBackend> FlashOtaSink<'a, B> {
+    /// Anexa bytes na posição absoluta `pos` (tail read-modify-write +
+    /// chunks cheios). Não toca em `self.len` (chamador gerencia).
+    fn append_at(&mut self, mut pos: usize, mut data: &[u8]) -> Result<(), OtaError> {
+        while !data.is_empty() {
+            let idx = pos / OTA_CHUNK_LEN;
+            let off = pos % OTA_CHUNK_LEN;
+            let take = (OTA_CHUNK_LEN - off).min(data.len());
+            let key = chunk_key(idx);
+            let mut chunk = match self.backend.read_raw(&key) {
+                Ok(v) => v,
+                Err(StorageError::KeyNotFound) => Vec::new(),
+                Err(_) => return Err(OtaError::Overflow),
+            };
+            if chunk.len() != off {
+                return Err(OtaError::Overflow);
+            }
+            chunk.extend_from_slice(&data[..take]);
+            self.backend
+                .write_raw(&key, &chunk)
+                .map_err(|_| OtaError::Overflow)?;
+            pos += take;
+            data = &data[take..];
+        }
+        Ok(())
     }
 }
 
@@ -300,14 +366,6 @@ impl<B: FlashStorageBackend> OtaSink for FlashOtaSink<'_, B> {
         if self.finalized || offset != self.len {
             return Err(OtaError::OutOfOrder);
         }
-        let mut staged = match self.backend.read_raw(OTA_STAGING_KEY) {
-            Ok(v) => v,
-            Err(StorageError::KeyNotFound) => Vec::new(),
-            Err(_) => return Err(OtaError::Overflow),
-        };
-        if staged.len() != self.len {
-            return Err(OtaError::Overflow);
-        }
         let end = self
             .len
             .checked_add(data.len())
@@ -315,16 +373,26 @@ impl<B: FlashStorageBackend> OtaSink for FlashOtaSink<'_, B> {
         if end > MAX_OTA_IMAGE_BYTES {
             return Err(OtaError::Overflow);
         }
-        staged.extend_from_slice(data);
-        self.backend
-            .write_raw(OTA_STAGING_KEY, &staged)
-            .map_err(|_| OtaError::Overflow)?;
+        // Migração preguiçosa: boot com blob legado espalha o conteúdo nos
+        // chunks uma vez (len acompanha; descarte limpa os dois formatos).
+        if self.len == 0 {
+            if let Ok(legacy) = self.backend.read_raw(OTA_STAGING_KEY) {
+                if !legacy.is_empty() {
+                    self.append_at(0, &legacy)?;
+                    self.len = legacy.len();
+                }
+            }
+        }
+        self.append_at(self.len, data)?;
         self.len = end;
+        self.backend
+            .write_raw(OTA_STAGE_LEN_KEY, &(end as u32).to_be_bytes())
+            .map_err(|_| OtaError::Overflow)?;
         Ok(())
     }
 
     fn finalize(&mut self) -> Result<(), OtaError> {
-        if self.finalized || !self.backend.exists(OTA_STAGING_KEY) {
+        if self.finalized || self.len == 0 {
             return Err(OtaError::Overflow);
         }
         self.finalized = true;
@@ -445,15 +513,16 @@ pub fn keys_unchanged<B: FlashStorageBackend>(
             .all(|(k, v)| backend.read_raw(k).ok() == *v)
 }
 
-/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses RamFlashBackend.
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses PlatformFlashBackend.
 /// In-memory storage backend for unit testing and simulation.
 #[derive(Debug, Clone, Default)]
 pub struct MockFlashBackend {
     store: std::collections::HashMap<String, Vec<u8>>,
 }
 
-/// Prod RAM flash backend (no fixture secrets; use provision loader).
-pub type RamFlashBackend = MockFlashBackend;
+/// Backend de plataforma: NVS real no device, RAM no host.
+/// (Nome antigo `RamFlashBackend` removido: mentia no device.)
+pub type PlatformFlashBackend = crate::nvs_backend::PlatformFlashBackend;
 
 impl MockFlashBackend {
     pub fn new() -> Self {
@@ -733,8 +802,37 @@ mod ota_wiring_tests {
     }
 
     #[test]
-    fn ota_begin_rejects_unprovisioned() {
+    fn ota_multichunk_staging_acima_de_8k() {
+        // F5: imagem de 20 KiB atravessa 3 chunks NVS e verifica ponta a ponta.
         let mut storage = credentialed_storage();
+        let image: Vec<u8> = (0..20 * 1024).map(|i| (i % 251) as u8).collect();
+        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let manifest = signed_manifest(OTA_NEXT, &image, &sk);
+        let mut ota = OtaState::new(OTA_CURRENT);
+        let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
+        let staged_len = {
+            let mut sink = FlashOtaSink::new(storage.backend_mut());
+            stage_to_verified(&mut ota, &mut sink, &manifest, &image, &ctx);
+            assert_eq!(ota.received(), image.len());
+            sink.len
+        };
+        // Chunks reais no backend (nenhum blob único gigante).
+        assert!(storage.backend().exists("ota_c000000"));
+        assert!(storage.backend().exists("ota_c000001"));
+        assert!(storage.backend().exists("ota_c000002"));
+        assert!(!storage.backend().exists("ota_staging"));
+        // Reabre o sink (resume pelo len) e confirma NVS intacto.
+        let snap = snapshot_keys(storage.backend(), CRED_KEYS);
+        let staged_len2 = {
+            let sink2 = FlashOtaSink::new(storage.backend_mut());
+            sink2.len
+        };
+        assert_eq!(staged_len2, staged_len);
+        assert!(keys_unchanged(storage.backend(), CRED_KEYS, &snap));
+    }
+
+    #[test]
+    fn ota_begin_rejects_unprovisioned() {        let mut storage = credentialed_storage();
         let image = ota_image();
         let raw = manifest_raw(OTA_NEXT, &image, &[0x5Eu8; 64]);
         let mut ota = OtaState::new(OTA_CURRENT);

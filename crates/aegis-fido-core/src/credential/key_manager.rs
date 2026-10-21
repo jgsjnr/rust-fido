@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::credential::store::KeySlot;
+use crate::credential::store::{KeySlot, MAX_KEY_SLOTS};
 use crate::crypto::curves::{CoseAlgorithm, KeyPair};
 use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
 use crate::vault::AegisVault;
@@ -252,8 +252,7 @@ impl KeyManager {
         &self,
         slot_id: u8,
         presence_confirmed: bool,
-    ) -> Result<Vec<u8>, KeyManagerError> {
-        UpOnly.check_up(false, presence_confirmed)?;
+    ) -> Result<Vec<u8>, KeyManagerError> {        UpOnly.check_up(false, presence_confirmed)?;
         let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
         let alg = CoseAlgorithm::from_i32(self.secrets[spos].alg)
             .ok_or(KeyManagerError::BadEnvelope)?;
@@ -261,6 +260,102 @@ impl KeyManager {
             .map_err(|_| KeyManagerError::BadEnvelope)?;
         Ok(kp.to_cose_cbor())
     }
+
+    /// Ponto SEC1 uncompressed da pública (F4: template PIV `7F 49`).
+    /// Mesmo gate UP de `public_cose`; nunca a privada.
+    pub fn public_sec1(
+        &self,
+        slot_id: u8,
+        presence_confirmed: bool,
+    ) -> Result<Vec<u8>, KeyManagerError> {
+        UpOnly.check_up(false, presence_confirmed)?;
+        let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
+        let alg = CoseAlgorithm::from_i32(self.secrets[spos].alg)
+            .ok_or(KeyManagerError::BadEnvelope)?;
+        let kp = KeyPair::from_private_key_bytes(alg, &self.secrets[spos].private_key)
+            .map_err(|_| KeyManagerError::BadEnvelope)?;
+        Ok(kp.public_key().to_sec1_uncompressed())
+    }
+
+    /// Exporta estado p/ NVS: `[ver=1][n u16BE][slot...]`, slot =
+    /// `[id][alg i32BE][uso][created u64BE][sign u32BE][llen][label][slen u16BE][secret]`.
+    /// Só metadados+segredos (vão cifrados no `SecureStorage`).
+    pub fn export_state(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(0x01);
+        out.extend_from_slice(&(self.slots.len() as u16).to_be_bytes());
+        for (slot, sec) in self.slots.iter().zip(self.secrets.iter()) {
+            out.push(slot.id);
+            out.extend_from_slice(&slot.alg.to_be_bytes());
+            out.push(slot.uso);
+            out.extend_from_slice(&slot.created.to_be_bytes());
+            out.extend_from_slice(&slot.sign_count.to_be_bytes());
+            out.push(slot.label.len() as u8);
+            out.extend_from_slice(slot.label.as_bytes());
+            out.extend_from_slice(&(sec.private_key.len() as u16).to_be_bytes());
+            out.extend_from_slice(&sec.private_key);
+        }
+        out
+    }
+
+    /// Importa estado (substituição atômica: erro não toca no atual).
+    pub fn import_state(&mut self, blob: &[u8]) -> Result<(), KeyManagerError> {
+        let mut slots = Vec::new();
+        let mut secrets = Vec::new();
+        let mut p = blob;
+        if take_bytes(&mut p, 1)?[0] != 0x01 {
+            return Err(KeyManagerError::BadEnvelope);
+        }
+        let n = u16::from_be_bytes(take_bytes(&mut p, 2)?.try_into().unwrap()) as usize;
+        if n > MAX_KEY_SLOTS {
+            return Err(KeyManagerError::BadEnvelope);
+        }
+        for _ in 0..n {
+            let id = take_bytes(&mut p, 1)?[0];
+            let alg = i32::from_be_bytes(take_bytes(&mut p, 4)?.try_into().unwrap());
+            let uso = take_bytes(&mut p, 1)?[0];
+            let created = u64::from_be_bytes(take_bytes(&mut p, 8)?.try_into().unwrap());
+            let sign_count = u32::from_be_bytes(take_bytes(&mut p, 4)?.try_into().unwrap());
+            let llen = take_bytes(&mut p, 1)?[0] as usize;
+            let label = core::str::from_utf8(take_bytes(&mut p, llen)?)
+                .map_err(|_| KeyManagerError::BadEnvelope)?;
+            let slen =
+                u16::from_be_bytes(take_bytes(&mut p, 2)?.try_into().unwrap()) as usize;
+            if slen == 0 || slen > 256 {
+                return Err(KeyManagerError::BadEnvelope);
+            }
+            let secret = take_bytes(&mut p, slen)?.to_vec();
+            let mut slot = KeySlot::new(id, alg, label.into(), uso, created)
+                .map_err(|_| KeyManagerError::BadEnvelope)?;
+            slot.sign_count = sign_count;
+            // Valida que o segredo casa com o alg (nada corrompido entra).
+            let alg_enum =
+                CoseAlgorithm::from_i32(alg).ok_or(KeyManagerError::BadEnvelope)?;
+            KeyPair::from_private_key_bytes(alg_enum, &secret)
+                .map_err(|_| KeyManagerError::BadEnvelope)?;
+            if slots.iter().any(|s: &KeySlot| s.id == id) {
+                return Err(KeyManagerError::BadEnvelope);
+            }
+            slots.push(slot);
+            secrets.push(KeyEntry { slot_id: id, alg, private_key: secret });
+        }
+        if !p.is_empty() {
+            return Err(KeyManagerError::BadEnvelope);
+        }
+        self.slots = slots;
+        self.secrets = secrets;
+        Ok(())
+    }
+}
+
+/// Fatia `n` bytes do cursor (codec NVS F2).
+fn take_bytes<'a>(p: &mut &'a [u8], n: usize) -> Result<&'a [u8], KeyManagerError> {
+    if p.len() < n {
+        return Err(KeyManagerError::BadEnvelope);
+    }
+    let (h, t) = p.split_at(n);
+    *p = t;
+    Ok(h)
 }
 
 impl Default for KeyManager {
@@ -286,6 +381,29 @@ mod tests {
             CoseAlgorithm::ES256K,
             CoseAlgorithm::EdDSA,
         ]
+    }
+
+    #[test]
+    fn state_roundtrip_e_rejeita_lixo() {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0xE2E);
+        let mut m = KeyManager::new();
+        m.generate(5, CoseAlgorithm::ES256, "e2e".into(), KEY_USE_SIGN, 1, true, &mut rng)
+            .expect("gen");
+        let blob = m.export_state();
+        let mut m2 = KeyManager::new();
+        m2.import_state(&blob).expect("import");
+        assert_eq!(m2.len(), 1);
+        let l = m2.list(true).expect("list");
+        assert_eq!((l[0].id, l[0].label.as_str()), (5, "e2e"));
+        // Assina igual (segredo sobreviveu).
+        let s1 = m.sign(5, MSG, true).expect("sign1");
+        let s2 = m2.sign(5, MSG, true).expect("sign2");
+        assert_eq!(s1.len(), s2.len());
+        // Lixo não toca no atual.
+        assert!(m2.import_state(b"\x02 laden").is_err());
+        assert!(m2.import_state(&blob[..blob.len() - 1]).is_err());
+        assert_eq!(m2.len(), 1);
     }
 
     #[test]

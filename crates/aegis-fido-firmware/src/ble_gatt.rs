@@ -26,6 +26,31 @@ pub const CHAR_LEN_UUID: u16 = 0xFFF3;
 /// Caracteristica revisao (read/write).
 pub const CHAR_REVISION_UUID: u16 = 0xFFF4;
 
+/// Servico GATT de proximidade, separado do FIDO `0xFFFD`.
+///
+/// `0xFFFD` segue congelado para CTAP2-BLE + app Android (§1).
+/// Proximidade anuncia/isola neste UUID para nunca conflitar com
+/// FIDO nem com `FFF1-FFF4`. Revisao `GATT_REVISION` intacta.
+pub const PROXIMITY_SERVICE_UUID: u16 = 0xFFFE;
+
+/// `true` para o servico FIDO congelado (`0xFFFD`).
+pub fn is_fido_service_uuid(uuid: u16) -> bool {
+    uuid == BLE_SERVICE_UUID
+}
+
+/// `true` para o servico de proximidade (`0xFFFE`, separado do FIDO).
+pub fn is_proximity_service_uuid(uuid: u16) -> bool {
+    uuid == PROXIMITY_SERVICE_UUID
+}
+
+/// Coexistencia mutuamente exclusiva: BLE-proximidade vs USB/CTAP.
+///
+/// USB ativo => proximidade BLE deve parar (advertise/RX negados).
+/// Retorna `false` com USB ativo; `true` com USB idle.
+pub fn proximity_coex_allow(usb_active: bool) -> bool {
+    !usb_active
+}
+
 /// CTAP2-BLE PING (echo, sem CtapEngine).
 pub const OP_PING: u8 = 0x81;
 /// CTAP2-BLE MSG (CBOR encapsulado, delega a `CtapEngine::process_packet`).
@@ -47,6 +72,16 @@ pub const OP_OATH_DELETE: u8 = 0x27;
 /// Limites da faixa vendor Fase6.
 pub const VENDOR_OP_MIN: u8 = OP_KEY_GEN_ONDEVICE;
 pub const VENDOR_OP_MAX: u8 = OP_OATH_DELETE;
+
+/// Enrollment PIV (PIN/PUK iniciais, F4): fora da faixa 0x20-0x27 de
+/// propósito (gate próprio binding -> UP em `exec_vendor_op`; sem PIN
+/// porque o PIN ainda não existe). Req: `pin_len(1) || pin(6-8) || puk(8)`.
+pub const OP_PIV_ENROLL: u8 = 0x39;
+
+/// `true` para o enrollment PIV 0x39.
+pub fn is_piv_enroll_op(op: u8) -> bool {
+    op == OP_PIV_ENROLL
+}
 
 /// Binding + recovery sobre GATT (apendice §11, aditivo, sem quebra §1-§10).
 /// Framing §3 reutilizado: `[op:1, len_hi:1, len_lo:1, payload...]`.
@@ -91,6 +126,27 @@ pub fn is_vendor_keys_oath_op(op: u8) -> bool {
     (VENDOR_OP_MIN..=VENDOR_OP_MAX).contains(&op)
 }
 
+/// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.
+///
+/// Mapa da vizinhança (primeiro byte de CMD_MSG): 0x20-0x27 vendor
+/// keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue, 0x2F reservado,
+/// 0x30-0x34 OTA. `0x35` GEN (gera sob a curva da rede), `0x36` LIST
+/// (só metadados `wallet:`), `0x37` ADDR (endereço do slot), `0x38`
+/// FW-LOG (log da firmware em ASCII, sem PII — ver `fw_log`).
+/// GATT/revisão/framing intactos; executor on-device = follow-up
+/// (como vendor §9.4: gate ok responde `0x04`).
+pub const OP_WALLET_GEN: u8 = 0x35;
+pub const OP_WALLET_LIST: u8 = 0x36;
+pub const OP_WALLET_ADDR: u8 = 0x37;
+/// Limites da faixa wallet Fase7.
+pub const WALLET_OP_MIN: u8 = OP_WALLET_GEN;
+pub const WALLET_OP_MAX: u8 = OP_WALLET_ADDR;
+
+/// Retorna true para opcodes wallet Fase7 0x35-0x37 (reservados).
+pub fn is_wallet_op(op: u8) -> bool {
+    (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&op)
+}
+
 /// Limite de reassemble (== envelope MAX-ESP, sem alloc extra).
 pub const CONTROL_POINT_LENGTH: usize = 512;
 /// Revisao GATT inicial (FFF4).
@@ -117,6 +173,8 @@ pub enum BleGattError {
     PinRequired,
     /// Binding ausente/invalido (NEED_BINDING 0x05, so BLE/WiFi, nunca USB).
     NeedBinding,
+    /// USB ativo: BLE-proximidade mutuamente exclusivo (falha generica 0x04).
+    CoexBlocked,
 }
 
 impl core::fmt::Display for BleGattError {
@@ -130,6 +188,7 @@ impl core::fmt::Display for BleGattError {
             Self::PresenceRequired => write!(f, "presence required"),
             Self::PinRequired => write!(f, "pin required"),
             Self::NeedBinding => write!(f, "binding required (NEED_BINDING 0x05)"),
+            Self::CoexBlocked => write!(f, "coex blocked (USB active)"),
         }
     }
 }
@@ -464,6 +523,70 @@ pub fn authorize_vendor_op(
     Ok(())
 }
 
+/// Gate normativo carteira Fase7 (R-07): binding válido + UP.
+///
+/// GEN/LIST/ADDR não expõem import/delete (sem PIN nesta faixa); a ordem
+/// canônica binding -> UP é a mesma de vendor. Executor on-device =
+/// follow-up (Wire: gate ok → `0x04`, como vendor §9.4).
+pub fn authorize_wallet_op(
+    op: u8,
+    binding_ok: bool,
+    presence_confirmed: bool,
+) -> Result<(), BleGattError> {
+    if !is_wallet_op(op) {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+    } else if !binding_ok {
+        return Err(BleGattError::NeedBinding);
+    }
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    Ok(())
+}
+
+/// Gate do log da firmware (`0x38`, ver `fw_log`).
+///
+/// Leitura diagnóstica sem segredos: exige vínculo no BLE (ordem
+/// canônica, app alheio vê `NeedBinding` 0x05), mas nunca UP nem PIN.
+/// Serial/USB físico nem passa por aqui (posse do cabo = livre).
+pub fn authorize_fw_log_op(op: u8, bonded: bool) -> Result<(), BleGattError> {
+    if !crate::fw_log::is_fw_log_op(op) {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    if !bonded {
+        return Err(BleGattError::NeedBinding);
+    }
+    Ok(())
+}
+
+/// Gate normativo proximidade-BLE: ordem binding -> UP -> coex.
+///
+/// - `!bonded` => `NeedBinding` (0x05, so BLE, nunca USB).
+/// - `!presence_confirmed` => `PresenceRequired` (0x01).
+/// - `usb_active` => `CoexBlocked` (0x04 generico, sem retry §9.6).
+///
+/// Chamar no transporte quando `is_proximity_service_uuid`, antes de
+/// `control_write`. `0xFFFD`/`control_write` intactos.
+pub fn authorize_proximity_ble(
+    bonded: bool,
+    presence_confirmed: bool,
+    usb_active: bool,
+) -> Result<(), BleGattError> {
+    if !bonded {
+        return Err(BleGattError::NeedBinding);
+    }
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    if usb_active {
+        return Err(BleGattError::CoexBlocked);
+    }
+    Ok(())
+}
+
 /// Mapeia `BindingError` para `BleGattError` (fiação GATT §11).
 pub fn binding_err_to_gatt(e: crate::binding::BindingError) -> BleGattError {
     use crate::binding::BindingError as B;
@@ -597,7 +720,8 @@ impl BleGattError {
             Self::PresenceRequired => 0x01,
             Self::PinRequired => 0x02,
             Self::NeedBinding => VENDOR_STATUS_NEED_BINDING,
-            Self::InvalidOpcode
+            Self::CoexBlocked
+            | Self::InvalidOpcode
             | Self::TransactionBusy
             | Self::NoTransaction
             | Self::Overflow
@@ -673,6 +797,58 @@ mod tests {
     }
 
     #[test]
+    fn wallet_ops_live_in_free_range() {
+        for op in [OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR] {
+            assert!(is_wallet_op(op));
+            assert!(!is_vendor_keys_oath_op(op));
+            assert!(!is_bind_mgmt_op(op));
+            assert_ne!(op, 0x2E);
+            assert!(!(0x30..=0x34).contains(&op));
+        }
+        assert_eq!((OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR), (0x35, 0x36, 0x37));
+        assert!(!is_wallet_op(0x20));
+        assert!(!is_wallet_op(0x2F));
+        assert!(!is_wallet_op(0x34));
+    }
+
+    #[test]
+    fn wallet_gate_order_binding_then_up() {
+        // Ordem canônica: binding -> UP (app alheio sempre vê NEED_BINDING).
+        assert_eq!(
+            authorize_wallet_op(OP_WALLET_GEN, false, false),
+            Err(BleGattError::NeedBinding)
+        );
+        assert_eq!(
+            authorize_wallet_op(OP_WALLET_LIST, true, false),
+            Err(BleGattError::PresenceRequired)
+        );
+        assert!(authorize_wallet_op(OP_WALLET_ADDR, true, true).is_ok());
+        assert_eq!(
+            authorize_wallet_op(0x20, true, true),
+            Err(BleGattError::InvalidOpcode)
+        );
+    }
+
+    #[test]
+    fn fw_log_gate_bonded_sem_up_nem_pin() {
+        // Sem vínculo: NEED_BINDING (0x05) — app alheio não lê o log.
+        assert_eq!(
+            authorize_fw_log_op(crate::fw_log::OP_FW_LOG, false),
+            Err(BleGattError::NeedBinding)
+        );
+        assert_eq!(
+            BleGattError::NeedBinding.to_vendor_status(),
+            VENDOR_STATUS_NEED_BINDING
+        );
+        // Com vínculo: ok direto, sem UP/PIN (diagnóstico sem segredos).
+        assert!(authorize_fw_log_op(crate::fw_log::OP_FW_LOG, true).is_ok());
+        assert_eq!(
+            authorize_fw_log_op(0x37, true),
+            Err(BleGattError::InvalidOpcode)
+        );
+    }
+
+    #[test]
     fn cancel_aborts_and_reports() {
         let mut s = BleGattServer::new();
         let mut r = BleReassembler::new();
@@ -728,6 +904,24 @@ mod tests {
         assert!(!is_bind_mgmt_op(0x27));
         assert!(!is_bind_mgmt_op(0x2E));
         assert_eq!(GATT_REVISION, 0x01);
+    }
+
+    #[test]
+    fn rescue_transport_op_nunca_desvia_para_vendor_ou_fragmento() {
+        // Pre-condicao dos ramos rescue (USB-C, serial-D, BLE OP_MSG):
+        // 0x2E (RESCUE_TRANSPORT_OP, crates/aegis-fido-core/src/otp/rescue.rs)
+        // nao e vendor, nao e bind-mgmt e nao e opcode de fragmento, entao
+        // um payload [0x2E, frame...] sempre alcanca o dispatch rescue.
+        assert!(!is_vendor_keys_oath_op(0x2E));
+        assert!(!is_bind_mgmt_op(0x2E));
+        // 0x2E nao abre transacao no reassembler: rescue viaja como
+        // payload de OP_MSG, nunca como opcode de fragmento.
+        assert_eq!(
+            BleReassembler::new().start_new(0x2E, 1),
+            Err(BleGattError::InvalidOpcode)
+        );
+        assert!(!is_usage_op(0x2E));
+        assert!(!is_config_op(0x2E));
     }
 
     #[test]
@@ -840,6 +1034,71 @@ mod tests {
         assert!(m.is_claimed());
         dispatch_recovery_unlock(&mut st, &mut m, "4242", true).expect("unlock ok");
         assert!(!m.is_claimed());
+    }
+
+    #[test]
+    fn proximity_service_uuid_separate_from_fffd() {
+        // Arrange: FIDO 0xFFFD congelado (§1); proximidade isolada.
+        // Act/Assert: UUIDs distintos, nunca colidem com FFF1-FFF4.
+        assert_ne!(PROXIMITY_SERVICE_UUID, BLE_SERVICE_UUID);
+        assert_eq!(BLE_SERVICE_UUID, 0xFFFD);
+        assert!(is_fido_service_uuid(0xFFFD));
+        assert!(!is_fido_service_uuid(PROXIMITY_SERVICE_UUID));
+        assert!(is_proximity_service_uuid(PROXIMITY_SERVICE_UUID));
+        assert!(!is_proximity_service_uuid(0xFFFD));
+        for ch in [CHAR_CONTROL_UUID, CHAR_STATUS_UUID, CHAR_LEN_UUID, CHAR_REVISION_UUID] {
+            assert_ne!(PROXIMITY_SERVICE_UUID, ch);
+        }
+        assert_eq!(GATT_REVISION, 0x01);
+    }
+
+    #[test]
+    fn coex_mutually_exclusive_usb_blocks_proximity() {
+        // Arrange: BLE-proximidade vs USB/CTAP nunca simultaneo.
+        // Act/Assert
+        assert!(!proximity_coex_allow(true));
+        assert!(proximity_coex_allow(false));
+    }
+
+    #[test]
+    fn authorize_proximity_ble_order_binding_up_coex() {
+        // Arrange: ordem canonica binding -> UP -> coex.
+        // Act/Assert: sem bond nega primeiro, mesmo sem UP/coex.
+        assert_eq!(
+            authorize_proximity_ble(false, false, false),
+            Err(BleGattError::NeedBinding)
+        );
+        assert_eq!(
+            authorize_proximity_ble(false, true, true),
+            Err(BleGattError::NeedBinding)
+        );
+        // Act/Assert: bonded sem UP nega presenca.
+        assert_eq!(
+            authorize_proximity_ble(true, false, false),
+            Err(BleGattError::PresenceRequired)
+        );
+        // Act/Assert: bonded + UP + USB ativo nega coex.
+        assert_eq!(
+            authorize_proximity_ble(true, true, true),
+            Err(BleGattError::CoexBlocked)
+        );
+        // Act/Assert: tudo ok libera.
+        assert_eq!(authorize_proximity_ble(true, true, false), Ok(()));
+    }
+
+    #[test]
+    fn coex_blocked_maps_to_generic_status() {
+        // Arrange: CoexBlocked e falha generica sem retry (§9.6), nunca 0x05.
+        // Act/Assert
+        assert_eq!(BleGattError::CoexBlocked.to_vendor_status(), 0x04);
+        assert_ne!(
+            BleGattError::CoexBlocked.to_vendor_status(),
+            VENDOR_STATUS_NEED_BINDING
+        );
+        assert_eq!(
+            format!("{}", BleGattError::CoexBlocked),
+            "coex blocked (USB active)"
+        );
     }
 }
 

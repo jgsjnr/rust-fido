@@ -61,6 +61,7 @@ pub enum BridgeError {
     InvalidCose,
     InvalidOath,
     CryptoError,
+    InvalidAddress,
 }
 
 impl core::fmt::Display for BridgeError {
@@ -73,6 +74,7 @@ impl core::fmt::Display for BridgeError {
             Self::InvalidCose => write!(f, "invalid cose key"),
             Self::InvalidOath => write!(f, "invalid oath response"),
             Self::CryptoError => write!(f, "crypto operation failed"),
+            Self::InvalidAddress => write!(f, "invalid wallet address input"),
         }
     }
 }
@@ -369,6 +371,67 @@ pub fn oath_parse_response(json: String) -> Result<OathCode, BridgeError> {
     })
 }
 
+/// Derives a wallet address from a public key (public computation only).
+///
+/// Moved here from the firmware audit (`docs/firmware-fina.md` Step4c):
+/// the app computes addresses locally from already-public keys, so the
+/// device is never asked and the ESP binary links no encoding crates.
+/// `network`: `bitcoin`/`btc`, `ethereum`/`evm`/`eth` or `solana`/`sol`
+/// (case-insensitive). `pubkey_hex`: 33B compressed secp256k1 (bitcoin),
+/// 64B uncompressed `x||y` without prefix (ethereum), or 32B Ed25519
+/// (solana), hex-encoded. No private material crosses this interface.
+pub fn wallet_address(network: String, pubkey_hex: String) -> Result<String, BridgeError> {
+    use aegis_fido_core::wallet::address::{
+        bitcoin_p2wpkh_address, ethereum_address, solana_address,
+    };
+    let net = network.trim().to_ascii_lowercase();
+    let raw = decode_even_hex(pubkey_hex.trim()).ok_or(BridgeError::InvalidAddress)?;
+    match net.as_str() {
+        "bitcoin" | "btc" => {
+            if raw.len() != 33 || (raw[0] != 0x02 && raw[0] != 0x03) {
+                return Err(BridgeError::InvalidAddress);
+            }
+            let mut arr = [0u8; 33];
+            arr.copy_from_slice(&raw);
+            Ok(bitcoin_p2wpkh_address(&arr))
+        }
+        "ethereum" | "evm" | "eth" => {
+            if raw.len() != 64 {
+                return Err(BridgeError::InvalidAddress);
+            }
+            let mut arr = [0u8; 64];
+            arr.copy_from_slice(&raw);
+            Ok(ethereum_address(&arr))
+        }
+        "solana" | "sol" => {
+            if raw.len() != 32 {
+                return Err(BridgeError::InvalidAddress);
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&raw);
+            Ok(solana_address(&arr))
+        }
+        _ => Err(BridgeError::InvalidAddress),
+    }
+}
+
+/// Strict even-length ASCII hex decoder (no new dependency for one call).
+fn decode_even_hex(s: &str) -> Option<Vec<u8>> {
+    if s.is_empty() || !s.len().is_multiple_of(2) {
+        return None;
+    }
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len() / 2);
+    let mut i = 0;
+    while i < b.len() {
+        let hi = (b[i] as char).to_digit(16)?;
+        let lo = (b[i + 1] as char).to_digit(16)?;
+        out.push((hi * 16 + lo) as u8);
+        i += 2;
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +622,69 @@ mod tests {
         assert_eq!(
             oath_account_from_path("/oath/code?account=".to_string()),
             None
+        );
+    }
+
+    /// secp256k1 generator G vectors (same as core known-answer tests).
+    const G_COMPRESSED_HEX: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+    const G_UNCOMPRESSED_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
+    const ED_ZERO_PUB_HEX: &str = "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29";
+
+    #[test]
+    fn wallet_address_known_answers() {
+        assert_eq!(
+            wallet_address("bitcoin".to_string(), G_COMPRESSED_HEX.to_string()).unwrap(),
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+        );
+        assert_eq!(
+            wallet_address("ETHEREUM".to_string(), G_UNCOMPRESSED_HEX.to_string()).unwrap(),
+            "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"
+        );
+        assert_eq!(
+            wallet_address(" sol ".to_string(), ED_ZERO_PUB_HEX.to_string()).unwrap(),
+            "4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS"
+        );
+    }
+
+    #[test]
+    fn wallet_address_rejects_bad_inputs() {
+        // Rede desconhecida.
+        assert_eq!(
+            wallet_address("dogecoin".to_string(), G_COMPRESSED_HEX.to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        // Hex ímpar, vazio e não-hex.
+        assert_eq!(
+            wallet_address("bitcoin".to_string(), "abc".to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        assert_eq!(
+            wallet_address("bitcoin".to_string(), "".to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        assert_eq!(
+            wallet_address("bitcoin".to_string(), "zz".to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        // Tamanhos trocados entre redes.
+        assert_eq!(
+            wallet_address("bitcoin".to_string(), ED_ZERO_PUB_HEX.to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        assert_eq!(
+            wallet_address("ethereum".to_string(), G_COMPRESSED_HEX.to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        assert_eq!(
+            wallet_address("solana".to_string(), G_COMPRESSED_HEX.to_string()),
+            Err(BridgeError::InvalidAddress)
+        );
+        // Prefixo comprimido inválido (0x04 com 33B).
+        let mut bad_prefix = String::from("04");
+        bad_prefix.push_str(&G_COMPRESSED_HEX[2..]);
+        assert_eq!(
+            wallet_address("bitcoin".to_string(), bad_prefix),
+            Err(BridgeError::InvalidAddress)
         );
     }
 }

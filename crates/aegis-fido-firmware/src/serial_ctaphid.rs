@@ -33,9 +33,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
-    authorize_vendor_op, is_bind_mgmt_op, is_vendor_keys_oath_op, BleGattError, OP_KEY_DELETE,
+    authorize_vendor_op, authorize_wallet_op, is_bind_mgmt_op, is_piv_enroll_op,
+    is_vendor_keys_oath_op, is_wallet_op, BleGattError, OP_KEY_DELETE,
     OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT,
-    VENDOR_STATUS_NEED_BINDING,
+    OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
 };
 
 /// UART line rate for the serial CTAPHID link (8N1, same as the monitor).
@@ -91,7 +92,8 @@ pub fn serial_requires_pairing(cmd: u8, payload: &[u8]) -> bool {
                 | OP_KEY_DELETE
                 | OP_OATH_PUT
                 | OP_OATH_DELETE
-        );
+                | OP_PIV_ENROLL
+        ) || crate::ble_gatt::is_wallet_op(payload[0]);
     }
     false
 }
@@ -122,7 +124,7 @@ pub fn serial_is_up_required(cmd: u8, payload: &[u8]) -> bool {
     }
     if cmd == CMD_MSG && !payload.is_empty() {
         let op = payload[0];
-        if is_vendor_keys_oath_op(op) {
+        if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
             return true;
         }
         if is_bind_mgmt_op(op) {
@@ -221,7 +223,12 @@ impl Default for SerialRouter {
 /// Vendor ops get `NEED_BINDING` (`0x05`, prompts the pairing ceremony);
 /// CTAP commands get single-byte `NOT_ALLOWED` (`0x30`).
 pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
-    if msg.cmd == CMD_MSG && !msg.payload.is_empty() && is_vendor_keys_oath_op(msg.payload[0]) {
+    if msg.cmd == CMD_MSG
+        && !msg.payload.is_empty()
+        && (is_vendor_keys_oath_op(msg.payload[0])
+            || is_wallet_op(msg.payload[0])
+            || is_piv_enroll_op(msg.payload[0]))
+    {
         return CtapHidFramer::frame_message(msg.cid, msg.cmd, &[VENDOR_STATUS_NEED_BINDING]);
     }
     CtapHidFramer::frame_message(msg.cid, msg.cmd, &[SERIAL_DENY_CTAP_STATUS])
@@ -231,12 +238,59 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
 ///
 /// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
 /// executor = follow-up, same as BLE), denial maps via `to_vendor_status`.
-/// `binding_ok` comes from the caller (`BindingManager::verify` proof).
-pub fn dispatch_serial_vendor(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
-    match authorize_vendor_op(op, binding_ok, false, up) {
+/// `binding_ok` comes from the caller (`BindingManager::verify` proof);
+/// `pin_authenticated` = sessão pinUvAuth viva (plumbing ClientPIN, como
+/// no rescue; fail-closed sem ela).
+pub fn dispatch_serial_vendor(
+    op: u8,
+    binding_ok: bool,
+    pin_authenticated: bool,
+    up: bool,
+) -> (u8, Vec<u8>) {
+    match authorize_vendor_op(op, binding_ok, pin_authenticated, up) {
         Ok(()) => (0x04, Vec::new()),
         Err(e) => (e.to_vendor_status(), Vec::new()),
     }
+}
+
+/// Dispatches one wallet op (0x35-0x37) with the exact BLE gates.
+///
+/// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
+/// executor `WalletStore` + NVS = follow-up, same as BLE), denial maps
+/// via `to_vendor_status` (binding → `0x05`, UP → `0x01`).
+pub fn dispatch_serial_wallet(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
+    match authorize_wallet_op(op, binding_ok, up) {
+        Ok(()) => (0x04, Vec::new()),
+        Err(e) => (e.to_vendor_status(), Vec::new()),
+    }
+}
+
+/// `true` when a reassembled `CMD_MSG` carries a rescue frame.
+///
+/// Wire convention (Wave2 Step3): first payload byte is
+/// `RESCUE_TRANSPORT_OP` (`0x2E`, first free opcode after bind-mgmt
+/// `0x28-0x2D`, outside vendor `0x20-0x27`), followed by the rescue frame
+/// `[MAGIC|VER|CMD|LEN_BE|PAYLOAD]`. Framing byte-identical; the predicate
+/// never touches reassembly.
+pub fn is_rescue_msg(cmd: u8, payload: &[u8]) -> bool {
+    use aegis_fido_core::otp::rescue::is_rescue_transport_op;
+    cmd == CMD_MSG
+        && payload.first().is_some_and(|op| is_rescue_transport_op(*op))
+}
+
+/// Dispatches one rescue frame (`0x2E` already stripped by the caller).
+///
+/// Pure `RescueEngine::handle_packet` pass-through: UP/PIN latches must be
+/// set by the caller beforehand (`set_user_presence` from the BOOT latch;
+/// `set_pin_uv_authenticated` from `ClientPinState::has_valid_pin_uv_session`,
+/// wired at all three transports). Returns `(wire_status, body)` for the
+/// caller to frame status-first (`[status, body...]`), same shape
+/// as the bind-mgmt branch.
+pub fn dispatch_serial_rescue(
+    engine: &mut aegis_fido_core::otp::rescue::RescueEngine,
+    frame: &[u8],
+) -> (u8, Vec<u8>) {
+    engine.handle_packet(frame)
 }
 
 /// `true` when a serial bind-mgmt op consumes the UP latch on success.
@@ -400,9 +454,15 @@ pub fn dispatch_serial_pairing_line(
     pairing: &mut crate::pairing::PairingManager,
     now_ms: u64,
 ) -> Option<String> {
-    if line.trim() == crate::pairing::TEST_PAIRING_OPEN_CMD {
+    use crate::pairing::{
+        TEST_PAIRING_OPEN_300_CMD, TEST_PAIRING_OPEN_300_SECS, TEST_PAIRING_OPEN_CMD,
+    };
+    if line.trim() == TEST_PAIRING_OPEN_CMD {
         pairing.open_test_window(now_ms);
         Some(String::from("pairing_open window_s=60 source=software\n"))
+    } else if line.trim() == TEST_PAIRING_OPEN_300_CMD {
+        pairing.open_test_window_secs(now_ms, TEST_PAIRING_OPEN_300_SECS);
+        Some(String::from("pairing_open window_s=300 source=software\n"))
     } else {
         None
     }
@@ -629,23 +689,51 @@ mod tests {
     #[test]
     fn vendor_dispatch_mirrors_ble_gates() {
         // USAGE without UP -> NEED_UP (0x01) in every mode.
-        assert_eq!(dispatch_serial_vendor(0x26, false, false).0, 0x01);
-        assert_eq!(dispatch_serial_vendor(0x26, false, true).0, 0x04);
+        assert_eq!(dispatch_serial_vendor(0x26, false, false, false).0, 0x01);
+        assert_eq!(dispatch_serial_vendor(0x26, false, false, true).0, 0x04);
         // CONFIG without binding: release denies NEED_BINDING; test-mode
         // bypasses binding but keeps UP/PIN (BLE parity: PIN-less GEN passes,
-        // PIN-gated DELETE answers NEED_PIN since serial carries no pin auth).
-        let (st, _) = dispatch_serial_vendor(0x20, false, true);
+        // PIN-gated DELETE answers NEED_PIN sem sessão, 0x04 com sessão).
+        let (st, _) = dispatch_serial_vendor(0x20, false, false, true);
         if crate::binding::binding_bypass_enabled() {
             assert_eq!(st, 0x04);
         } else {
             assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
         }
-        let (st_pin, _) = dispatch_serial_vendor(0x23, false, true);
+        let (st_pin, _) = dispatch_serial_vendor(0x23, false, false, true);
         if crate::binding::binding_bypass_enabled() {
             assert_eq!(st_pin, 0x02);
         } else {
             assert_eq!(st_pin, VENDOR_STATUS_NEED_BINDING);
         }
+        // F1: com sessão PIN viva, privilegiada passa (gate ok -> 0x04).
+        let (st_ok, _) = dispatch_serial_vendor(0x23, false, true, true);
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(st_ok, 0x04);
+        } else {
+            assert_eq!(st_ok, VENDOR_STATUS_NEED_BINDING);
+        }
+    }
+
+    #[test]
+    fn wallet_dispatch_mirrors_ble_gates() {
+        // Sem UP (com binding) -> NEED_UP (0x01) em qualquer modo.
+        assert_eq!(dispatch_serial_wallet(0x35, true, false).0, 0x01);
+        assert_eq!(dispatch_serial_wallet(0x36, true, false).0, 0x01);
+        // Sem binding: release nega NEED_BINDING; test-mode faz bypass.
+        let (st, _) = dispatch_serial_wallet(0x37, false, true);
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(st, 0x04);
+        } else {
+            assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
+        }
+        // Gate ok -> 0x04 (executor on-device = follow-up).
+        assert_eq!(dispatch_serial_wallet(0x35, true, true).0, 0x04);
+        // Fora da faixa -> opcode invalido.
+        assert_eq!(
+            dispatch_serial_wallet(0x20, true, true).0,
+            BleGattError::InvalidOpcode.to_vendor_status()
+        );
     }
 
     #[test]
@@ -695,6 +783,23 @@ mod tests {
         assert!(!m2.is_pairing_window_open(0));
     }
 
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn pairing_open_300_wide_window_same_gates() {
+        use crate::pairing::{PairingManager, TEST_PAIRING_OPEN_300_SECS};
+        let mut m = PairingManager::new();
+        let ack =
+            dispatch_serial_pairing_line("TEST_PAIRING_OPEN_300", &mut m, 5000).expect("ack");
+        assert!(ack.contains("window_s=300"));
+        assert!(m.is_pairing_window_open(5000));
+        assert!(m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000 - 1));
+        assert!(!m.is_bonded());
+        // Sem presenca nao completa, igual a janela de 60s.
+        assert!(!m.complete_pairing(false, 5100));
+        m.tick(5000 + TEST_PAIRING_OPEN_300_SECS * 1000);
+        assert!(!m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000));
+    }
+
     #[cfg(not(feature = "test-mode"))]
     #[test]
     fn pairing_open_unknown_without_test_mode() {
@@ -707,21 +812,28 @@ mod tests {
     #[test]
     fn serial_vendor_parity_matrix_all_ops() {
         use crate::ble_gatt::{authorize_vendor_op, OP_OATH_CODE};
-        // Full 0x20-0x27 x (vinculo x UP): serial responde o mesmo status do BLE.
+        // Full 0x20-0x27 x (vinculo x PIN x UP): serial responde o mesmo
+        // status do BLE (paridade exata, F1).
         for op in 0x20u8..=0x27u8 {
             for binding_ok in [false, true] {
-                for up in [false, true] {
-                    let (st_s, _) = dispatch_serial_vendor(op, binding_ok, up);
-                    let st_b = match authorize_vendor_op(op, binding_ok, false, up) {
-                        Ok(()) => 0x04,
-                        Err(e) => e.to_vendor_status(),
-                    };
-                    assert_eq!(st_s, st_b, "op {:02X} bind={} up={}", op, binding_ok, up);
+                for pin in [false, true] {
+                    for up in [false, true] {
+                        let (st_s, _) = dispatch_serial_vendor(op, binding_ok, pin, up);
+                        let st_b = match authorize_vendor_op(op, binding_ok, pin, up) {
+                            Ok(()) => 0x04,
+                            Err(e) => e.to_vendor_status(),
+                        };
+                        assert_eq!(
+                            st_s, st_b,
+                            "op {:02X} bind={} pin={} up={}",
+                            op, binding_ok, pin, up
+                        );
+                    }
                 }
             }
         }
-        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, true).0, 0x04);
-        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false).0, 0x01);
+        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false, true).0, 0x04);
+        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false, false).0, 0x01);
     }
 
     #[test]
@@ -777,6 +889,49 @@ mod tests {
             dispatch_serial_bind_mgmt(g::OP_RECOVERY_SET, &[0xFF], true, true, &mut b, &mut s, &mut rng).0,
             0x04
         );
+    }
+
+    #[test]
+    fn rescue_msg_detects_transport_op_only() {
+        use aegis_fido_core::otp::rescue::RESCUE_TRANSPORT_OP;
+        // CMD_MSG + 0x2E com frame: rescue; resto nao.
+        let frame = [0x52u8, 0x45, 0x53, 0x43, 0x01, 0x01, 0x00, 0x00];
+        let mut payload = alloc::vec::Vec::new();
+        payload.push(RESCUE_TRANSPORT_OP);
+        payload.extend_from_slice(&frame);
+        assert!(is_rescue_msg(CMD_MSG, &payload));
+        assert!(!is_rescue_msg(CMD_CBOR, &payload));
+        assert!(!is_rescue_msg(CMD_MSG, &[]));
+        assert!(!is_rescue_msg(CMD_MSG, &[0x20]));
+        assert!(!is_rescue_msg(CMD_MSG, &[0x28]));
+        // 0x2E nao e bind-mgmt: segue para rescue, nunca para bind.
+        assert!(!crate::ble_gatt::is_bind_mgmt_op(RESCUE_TRANSPORT_OP));
+    }
+
+    #[test]
+    fn rescue_dispatch_ping_needs_up_and_answers() {
+        use aegis_fido_core::otp::rescue::{
+            build_packet, RescueEngine, RESCUE_CMD_PING, RESCUE_STATUS_CONFIRMATION_FAILED,
+            RESCUE_STATUS_OK, RESCUE_VERSION,
+        };
+        // Sem UP: nega fail-closed com erro existente.
+        let mut engine = RescueEngine::new();
+        let ping = build_packet(RESCUE_CMD_PING, &[]);
+        let (st, _) = dispatch_serial_rescue(&mut engine, &ping);
+        assert_eq!(st, RESCUE_STATUS_CONFIRMATION_FAILED);
+        // Com UP do latch: PING responde [VER|panic|wipe|recovery].
+        engine.set_user_presence(true);
+        let (st2, body) = dispatch_serial_rescue(&mut engine, &ping);
+        assert_eq!(st2, RESCUE_STATUS_OK);
+        assert_eq!(body[0], RESCUE_VERSION);
+        // Killswitch remoto sem PIN: nega (PIN=false ate o plumbing ClientPIN).
+        let kill = build_packet(
+            aegis_fido_core::otp::rescue::RESCUE_CMD_KILLSWITCH,
+            aegis_fido_core::otp::rescue::KILLSWITCH_CONFIRM_TOKEN,
+        );
+        engine.set_user_presence(true);
+        let (st3, _) = dispatch_serial_rescue(&mut engine, &kill);
+        assert_eq!(st3, RESCUE_STATUS_CONFIRMATION_FAILED);
     }
 
     #[test]

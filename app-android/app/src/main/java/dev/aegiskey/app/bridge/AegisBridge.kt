@@ -107,4 +107,14 @@ object AegisBridge {
         for (b in buffers) b.fill(0)
     }
 
+    /**
+     * Deriva endereco da carteira a partir de pubkey PUBLICA (computacao
+     * local, sem segredos): "bitcoin"/"ethereum"/"solana" + hex da pubkey
+     * (33B comprimida / 64B x||y / 32B Ed25519). O device nunca e perguntado.
+     */
+    fun walletAddress(network: String, pubkeyHex: String): Result<String> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.walletAddress(network, pubkeyHex)
+    }.recoverCatching { throw sanitize(it) }
+
 }

@@ -2,7 +2,8 @@
 //!
 //! Defaults equal observed v1 bytes (G0: sem mudar bytes v1):
 //! - VID `0x303A`, PID `0xAE61` (`usb_descriptors`)
-//! - Serial `"AEGIS-S3-0001"`, manufacturer, product
+//! - Serial `"AEGIS-S3-0002"` (bump intencional p/ re-enumeracao limpa
+//!   no bring-up CCID; era `...-0001`), manufacturer, product
 //! - AAGUID `00..0F` (`attestation::AEGISKEY_AAGUID`, `info::DEFAULT_AAGUID`)
 //!
 //! Per-unit provisioning (auditoria):
@@ -19,7 +20,7 @@ pub const DEFAULT_USB_VID: u16 = 0x303A;
 /// Default USB Product ID (AegisKey S3, current byte).
 pub const DEFAULT_USB_PID: u16 = 0xAE61;
 /// Default serial string (current byte).
-pub const DEFAULT_SERIAL: &str = "AEGIS-S3-0001";
+pub const DEFAULT_SERIAL: &str = "AEGIS-S3-0002";
 /// Default manufacturer string (current byte).
 pub const DEFAULT_MANUFACTURER: &str = "Aegis Security";
 /// Default product string (current byte).
@@ -62,7 +63,7 @@ pub struct DeviceIdentity {
     pub vid: u16,
     /// USB Product ID.
     pub pid: u16,
-    /// Serial string (per-unit, e.g. `AEGIS-S3-0001`).
+    /// Serial string (per-unit, e.g. `AEGIS-S3-0002`).
     pub serial: String,
     /// Manufacturer string.
     pub manufacturer: String,

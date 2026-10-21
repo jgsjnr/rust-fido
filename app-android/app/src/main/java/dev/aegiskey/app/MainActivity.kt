@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -33,16 +34,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AccountsScreen
 import dev.aegiskey.app.ui.AegisScreenColumn
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.AuthScreen
 import dev.aegiskey.app.ui.BindingWizardScreen
+import dev.aegiskey.app.ui.DeviceControlScreen
 import dev.aegiskey.app.ui.FriendlyText
 import dev.aegiskey.app.ui.ForeignDeviceScreen
 import dev.aegiskey.app.ui.LogScreen
 import dev.aegiskey.app.ui.OnboardingScreen
+import dev.aegiskey.app.ui.PivScreen
 import dev.aegiskey.app.ui.RecoveryUnlockScreen
 import dev.aegiskey.app.ui.ScanPairScreen
 import dev.aegiskey.app.ui.TestModeBanner
@@ -52,6 +56,7 @@ import dev.aegiskey.app.ui.TransferOwnershipScreen
 import dev.aegiskey.app.ui.UnbindGuideScreen
 import dev.aegiskey.app.ui.UsbScreen
 import dev.aegiskey.app.ui.VaultScreen
+import dev.aegiskey.app.ui.WalletScreen
 import dev.aegiskey.app.ui.WifiScreen
 
 class MainActivity : ComponentActivity() {
@@ -93,6 +98,14 @@ private val BOTTOM_DESTINATIONS = listOf(
 @Composable
 fun AegisApp(client: AegisBleClient) {
     val nav = rememberNavController()
+    // Prova de navegação no Log: cada troca de tela vira "tela=<rota>".
+    DisposableEffect(nav) {
+        val listener = NavController.OnDestinationChangedListener { _, dest, _ ->
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "tela=" + (dest.route ?: "?"))
+        }
+        nav.addOnDestinationChangedListener(listener)
+        onDispose { nav.removeOnDestinationChangedListener(listener) }
+    }
     AegisTheme {
         Scaffold(
             bottomBar = {
@@ -100,7 +113,7 @@ fun AegisApp(client: AegisBleClient) {
                     val entry by nav.currentBackStackEntryAsState()
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
-                        "scan", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery" -> "connect"
+                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "wallet", "piv" -> "connect"
                         else -> current
                     }
                     for (dest in BOTTOM_DESTINATIONS) {
@@ -125,14 +138,28 @@ fun AegisApp(client: AegisBleClient) {
         ) { inner ->
             NavHost(nav, startDestination = "onboarding", Modifier.padding(inner)) {
                 composable("onboarding") { OnboardingScreen(onStart = { nav.navigate("scan") }, onOpenKeys = { nav.navigate("accounts") }, onOpenVault = { nav.navigate("vault") }, onOpenLog = { nav.navigate("log") }, client = client) }
-                composable("scan") { ScanPairScreen(client) }
+                composable("scan") { ScanPairScreen(client, onOpenControl = { nav.navigate("control") }) }
+                composable("control") {
+                    DeviceControlScreen(
+                        client = client,
+                        onOpenKeys = { nav.navigate("accounts") },
+                        onOpenAuth = { nav.navigate("auth") },
+                        onOpenVault = { nav.navigate("vault") },
+                        onOpenWallet = { nav.navigate("wallet") },
+                        onOpenPiv = { nav.navigate("piv") },
+                        onOpenLog = { nav.navigate("log") },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
                 composable("accounts") { AccountsScreen(client) }
+                composable("wallet") { WalletScreen(client) }
+                composable("piv") { PivScreen(client, onOpenPairing = { nav.navigate("scan") }) }
                 composable("auth") { AuthScreen(client) }
                 composable("vault") { VaultScreen(client) }
                 composable("usb") { UsbScreen(onUseBle = { nav.navigate("scan") }) }
                 composable("wifi") { WifiScreen() }
                 composable("connect") { ConnectHub(nav, client) }
-                composable("log") { LogScreen() }
+                composable("log") { LogScreen(client) }
                 composable("settings") { SettingsScreen(onOpenLog = { nav.navigate("log") }, client = client) }
                 composable("binding") { BindingWizardScreen(client, onDone = { nav.navigate("connect") }, onForeignDevice = { nav.navigate("foreign") }) }
                 composable("foreign") { ForeignDeviceScreen(onUseUsb = { nav.navigate("usb") }, onBack = { nav.navigate("connect") }) }
@@ -162,6 +189,10 @@ private fun ConnectHub(nav: NavController, client: AegisBleClient) {
                 onClick = { nav.navigate("scan") },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("BLE: procurar e parear", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Button(
+                onClick = { nav.navigate("control") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Controle: usar após parear", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             OutlinedButton(
                 onClick = { nav.navigate("usb") },
                 modifier = Modifier.fillMaxWidth(),

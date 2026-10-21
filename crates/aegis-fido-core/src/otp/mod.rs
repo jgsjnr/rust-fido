@@ -19,7 +19,12 @@ pub mod yubikey_otp;
 pub use challenge_response::{ChallengeResponseError, ChallengeResponseManager, ChallengeResponseSlot, SlotIndex};
 pub use modhex::{decode as modhex_decode, encode as modhex_encode, hex_to_modhex, modhex_to_hex, ModhexError};
 pub use nitrokey::{NitrokeyStatus, NK_CMD_STATUS, NK_CMD_VERSION, NK_STATUS_SUCCESS};
-pub use rescue::{RescueEngine, EMERGENCY_WIPE_TOKEN, RESCUE_CMD_PING, RESCUE_MAGIC, RESCUE_STATUS_OK};
+pub use rescue::{
+    build_packet, is_rescue_transport_op, RescueEngine, EMERGENCY_WIPE_TOKEN,
+    KILLSWITCH_ACK, KILLSWITCH_ARM_WINDOW_MS, KILLSWITCH_CONFIRM_TOKEN, KILLSWITCH_HOLD_MS,
+    RESCUE_CMD_KILLSWITCH, RESCUE_CMD_PING, RESCUE_MAGIC, RESCUE_STATUS_OK, RESCUE_TRANSPORT_OP,
+    RESCUE_VERSION,
+};
 pub use scancodes::{char_to_hid_scancode, string_to_hid_reports, HidKeyboardReport, OtpAutoTyper, HID_KEY_ENTER};
 pub use ykman::{YkmanDeviceInfo, YubiOtpStatus, ALL_SUPPORTED_CAPS, YK_MGMT_AID};
 pub use yubikey_otp::{calculate_crc, YubiOtpError, YubiOtpGenerator, YubiOtpPayload, CRC_OK_RESIDUE};

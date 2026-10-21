@@ -41,6 +41,15 @@ object BleContract {
     const val OP_OATH_CODE = 0x26
     const val OP_OATH_DELETE = 0x27
 
+    // Carteira Fase7 (0x35-0x37) + log da firmware (0x38, ASCII sem PII).
+    const val OP_WALLET_GEN = 0x35
+    const val OP_WALLET_LIST = 0x36
+    const val OP_WALLET_ADDR = 0x37
+    const val OP_FW_LOG = 0x38
+
+    // Enrollment PIV / smartcard (0x39, F4).
+    const val OP_PIV_ENROLL = 0x39
+
     // Vendor status set (fechado, S9.5).
     const val VENDOR_OK = 0x00
     const val VENDOR_NEED_UP = 0x01
@@ -59,13 +68,14 @@ object BleContract {
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
     fun statusLabel(status: Int): String = when (status) {
-        STATUS_IDLE -> "idle"
-        STATUS_PROCESSING -> "processing"
-        STATUS_UP_NEEDED -> "up-needed (press device button)"
-        else -> "unknown"
+        STATUS_IDLE -> "livre"
+        STATUS_PROCESSING -> "processando"
+        STATUS_UP_NEEDED -> "toque no botão do dispositivo"
+        else -> "desconhecido"
     }
 
-    fun isVendorOp(op: Int): Boolean = op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE
+    fun isVendorOp(op: Int): Boolean =
+        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_PIV_ENROLL
 
     fun vendorOpName(op: Int): String = when (op) {
         OP_KEY_GEN_ONDEVICE -> "0x20 key-gen-ondevice"
@@ -76,6 +86,11 @@ object BleContract {
         OP_OATH_LIST -> "0x25 oath-list"
         OP_OATH_CODE -> "0x26 oath-code"
         OP_OATH_DELETE -> "0x27 oath-delete"
+        OP_WALLET_GEN -> "0x35 wallet-gen"
+        OP_WALLET_LIST -> "0x36 wallet-list"
+        OP_WALLET_ADDR -> "0x37 wallet-addr"
+        OP_FW_LOG -> "0x38 fw-log"
+        OP_PIV_ENROLL -> "0x39 piv-enroll"
         else -> "0x" + String.format("%02X", op)
     }
 }

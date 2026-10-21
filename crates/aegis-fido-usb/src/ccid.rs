@@ -10,12 +10,15 @@
 // TODO(Wave 2 E-B2/S-C1): zeroizar CommandApdu.data/ResponseApdu
 // (dados sensiveis em memoria; usar `zeroize` com `Zeroizing`/`Drop`).
 
-use crate::piv::PivApplet;
+use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
+/// ATR PIV real (uTrust, T=1 sem T=0, TA1 padrão): consta na tabela do
+/// OpenSC, conecta no UsbCcids e casa o driver PIV. (Feitian E0 tem Di=8
+/// reservado e o UsbCcids aborta o connect com PROTO_MISMATCH.)
+/// TCK = XOR de T0..historico.
 pub const AEGIS_ATR: &[u8] = &[
-    0x3B, 0x8D, 0x80, 0x01, 0x80, 0x4F, 0x0C, 0xA0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 0x10,
-    0x00, 0x01, 0x00,
+    0x3B, 0x96, 0x11, 0x81, 0x21, 0x75, 0x75, 0x54, 0x72, 0x75, 0x73, 0x74, 0x73,
 ];
 
 // ============================================================================
@@ -29,6 +32,7 @@ pub const PC_TO_RDR_GET_PARAMETERS: u8 = 0x6C;
 pub const PC_TO_RDR_RESET_PARAMETERS: u8 = 0x6D;
 pub const PC_TO_RDR_SET_PARAMETERS: u8 = 0x61;
 pub const PC_TO_RDR_ESCAPE: u8 = 0x6B;
+pub const PC_TO_RDR_SET_DATA_RATE_AND_CLOCK: u8 = 0x73;
 
 // ============================================================================
 // CCID Response Message Types (Reader -> PC)
@@ -37,6 +41,7 @@ pub const RDR_TO_PC_DATA_BLOCK: u8 = 0x80;
 pub const RDR_TO_PC_SLOT_STATUS: u8 = 0x81;
 pub const RDR_TO_PC_PARAMETERS: u8 = 0x82;
 pub const RDR_TO_PC_ESCAPE: u8 = 0x83;
+pub const RDR_TO_PC_DATA_RATE_AND_CLOCK: u8 = 0x84;
 
 // ============================================================================
 // ISO 7816-4 Status Words (SW1 SW2)
@@ -364,32 +369,28 @@ impl CcidTransport {
                 self.card_powered = false;
                 self.selected_applet = SelectedApplet::None;
                 self.piv = PivApplet::new();
-                Ok(Self::build_slot_status_response(slot, seq, 0x02)) // 0x02: Card absent/powered off
+                // Slot virtual: cartao sempre presente (remocao nao existe);
+                // 0x00 = pronto. 0x02 faria o host concluir 'sem cartao'.
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
 
             PC_TO_RDR_GET_SLOT_STATUS => {
-                let status = if self.card_powered { 0x00 } else { 0x01 };
-                Ok(Self::build_slot_status_response(slot, seq, status))
+                // Sempre presente+pronto: o UsbCcids conclui 'sem cartao'
+                // com qualquer outro valor e nem chega ao PowerOn.
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
 
-            PC_TO_RDR_GET_PARAMETERS => {
-                // Return default T=1 protocol parameters
-                let mut resp = vec![0u8; 17];
-                resp[0] = RDR_TO_PC_PARAMETERS;
-                resp[1..5].copy_from_slice(&7u32.to_le_bytes()); // Length 7
-                resp[5] = slot;
-                resp[6] = seq;
-                resp[7] = 0; // bStatus
-                resp[8] = 0; // bError
-                resp[9] = 1; // Protocol: T=1
-                resp[10] = 0x11; // Fi/Di
-                resp[11] = 0x10; // TCCKS
-                resp[12] = 0x00; // GuardTime
-                resp[13] = 0x4D; // BWI / CWI
-                resp[14] = 0x00; // ClockStop
-                resp[15] = 0x20; // IFSC (32 bytes)
-                resp[16] = 0x00; // NAD
-                Ok(resp)
+            PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
+
+            PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
+                // Ecoa os parâmetros pedidos (v1 aceita tudo).
+                Ok(Self::parameters_response_with(slot, seq, payload))
+            }
+
+            PC_TO_RDR_SET_DATA_RATE_AND_CLOCK => {
+                // Ecoa clock/rate (o UsbCcids manda de volta os valores do
+                // descritor; sem handler ele desistia com "invalid card").
+                Ok(Self::rate_clock_response(slot, seq, payload))
             }
 
             PC_TO_RDR_XFR_BLOCK => {
@@ -460,6 +461,160 @@ impl CcidTransport {
         }
     }
 
+    /// Processes one CCID message with PIV served by the transport-owned
+    /// applet against real `store` + `crypto` — caminho do firmware (NVS +
+    /// `KeyManager`). O estado do applet (seleção/PIN) persiste no
+    /// `CcidTransport` entre frames; OATH/FIDO seguem no `handler`.
+    /// Framing e CCID idênticos a [`Self::process_ccid_message`].
+    pub fn process_ccid_message_store<H, S, B>(
+        &mut self,
+        packet: &[u8],
+        handler: &mut H,
+        store: &mut S,
+        crypto: &mut B,
+    ) -> Result<Vec<u8>, &'static str>
+    where
+        H: CcidApduHandler,
+        S: PivRecordStore,
+        B: PivKeyBackend,
+    {
+        if packet.len() < 10 {
+            return Err("CCID packet too short (< 10 bytes)");
+        }
+
+        let msg_type = packet[0];
+        let length = u32::from_le_bytes([packet[1], packet[2], packet[3], packet[4]]) as usize;
+        let slot = packet[5];
+        let seq = packet[6];
+
+        if packet.len() < 10 + length {
+            return Err("CCID payload length mismatch");
+        }
+
+        let payload = &packet[10..10 + length];
+
+        match msg_type {
+            PC_TO_RDR_ICC_POWER_ON => {
+                self.card_powered = true;
+                Ok(Self::build_data_block_response(slot, seq, AEGIS_ATR))
+            }
+
+            PC_TO_RDR_ICC_POWER_OFF => {
+                self.card_powered = false;
+                self.selected_applet = SelectedApplet::None;
+                self.piv = PivApplet::new();
+                // Slot virtual: cartao sempre presente (remocao nao existe).
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
+            }
+
+            PC_TO_RDR_GET_SLOT_STATUS => {
+                // Sempre presente+pronto (ver método legado acima).
+                Ok(Self::build_slot_status_response(slot, seq, 0x00))
+            }
+
+            PC_TO_RDR_GET_PARAMETERS => Ok(Self::parameters_response(slot, seq)),
+
+            PC_TO_RDR_SET_PARAMETERS | PC_TO_RDR_RESET_PARAMETERS => {
+                // Ecoa os parâmetros pedidos (v1 aceita tudo).
+                Ok(Self::parameters_response_with(slot, seq, payload))
+            }
+
+            PC_TO_RDR_SET_DATA_RATE_AND_CLOCK => {
+                // Ecoa clock/rate (o UsbCcids manda de volta os valores do
+                // descritor; sem handler ele desistia com "invalid card").
+                Ok(Self::rate_clock_response(slot, seq, payload))
+            }
+
+            PC_TO_RDR_XFR_BLOCK => {
+                if !self.card_powered {
+                    let mut resp = Self::build_data_block_response(slot, seq, &[]);
+                    resp[7] = 0x01;
+                    return Ok(resp);
+                }
+
+                let apdu = CommandApdu::parse(payload)?;
+                let resp_apdu = self.handle_apdu_store(&apdu, handler, store, crypto);
+                // Espelha a seleção do applet interno mesmo quando o
+                // handler externo serviu o PIV (SELECT AID_PIV com store).
+                if apdu.ins == 0xA4 && apdu.p1 == 0x04 {
+                    if apdu.data == AID_PIV {
+                        self.selected_applet = SelectedApplet::Piv;
+                    } else if apdu.data == AID_YKOATH {
+                        self.selected_applet = SelectedApplet::Oath;
+                        self.piv = PivApplet::new();
+                    } else if apdu.data == AID_FIDO_U2F {
+                        self.selected_applet = SelectedApplet::FidoU2f;
+                        self.piv = PivApplet::new();
+                    } else {
+                        self.selected_applet = SelectedApplet::None;
+                        self.piv = PivApplet::new();
+                    }
+                }
+                Ok(Self::build_data_block_response(slot, seq, &resp_apdu.to_bytes()))
+            }
+
+            _ => {
+                let mut resp = Self::build_slot_status_response(slot, seq, 0x01);
+                resp[8] = 0x01;
+                Ok(resp)
+            }
+        }
+    }
+
+    /// APDU router com PIV no applet do transporte (estado persiste entre
+    /// frames) contra store/crypto reais do firmware.
+    fn handle_apdu_store<H, S, B>(
+        &mut self,
+        apdu: &CommandApdu,
+        handler: &mut H,
+        store: &mut S,
+        crypto: &mut B,
+    ) -> ResponseApdu
+    where
+        H: CcidApduHandler,
+        S: PivRecordStore,
+        B: PivKeyBackend,
+    {
+        if apdu.ins == 0xA4 && apdu.p1 == 0x04 {
+            if apdu.data == AID_YKOATH {
+                return handler.handle_oath_apdu(apdu);
+            } else if apdu.data == AID_FIDO_U2F {
+                return handler.handle_fido_apdu(apdu);
+            } else if apdu.data == AID_PIV {
+                let resp = self.piv.handle_store(apdu, store, crypto);
+                if !self.piv.is_selected() {
+                    self.selected_applet = SelectedApplet::None;
+                }
+                return resp;
+            } else {
+                return ResponseApdu::status(SW_NOT_FOUND);
+            }
+        }
+
+        match self.selected_applet {
+            SelectedApplet::Oath => handler.handle_oath_apdu(apdu),
+            SelectedApplet::FidoU2f => handler.handle_fido_apdu(apdu),
+            SelectedApplet::Piv => self.piv.handle_store(apdu, store, crypto),
+            _ => ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED),
+        }
+    }
+
+    /// Builds a best-effort error RPDU for a malformed frame (header
+    /// presente, payload inválido): DataBlock vazio com bStatus de erro.
+    /// O host NUNCA pode ficar sem resposta no bulk-IN (trava o
+    /// SCardConnect). Retorna `None` só se nem o header existir (< 10B).
+    pub fn error_response(packet: &[u8]) -> Option<Vec<u8>> {
+        if packet.len() < 10 {
+            return None;
+        }
+        let slot = packet[5];
+        let seq = packet[6];
+        let mut resp = Self::build_data_block_response(slot, seq, &[]);
+        resp[7] = 0x01; // bStatus: erro (slot preservado p/ o host casar)
+        resp[8] = 0x01; // bError: comando desconhecido/falhou
+        Some(resp)
+    }
+
     fn build_data_block_response(slot: u8, seq: u8, data: &[u8]) -> Vec<u8> {
         let mut resp = Vec::with_capacity(10 + data.len());
         resp.push(RDR_TO_PC_DATA_BLOCK);
@@ -484,11 +639,286 @@ impl CcidTransport {
         resp[9] = 0x00;
         resp
     }
+
+    /// Bloco `RDR_to_PC_DataRateAndClockFrequency` (`0x84`): ecoa o
+    /// clock/rate pedidos; zeros do host = "use os defaults" (responder
+    /// 0/0 invalida o pipe e o Transmit seguinte morre no host).
+    /// Defaults = descritor: 3571 kHz / 9600 bps (coerente com TA1=0x11).
+    fn rate_clock_response(slot: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
+        if payload.len() < 8 {
+            let mut resp = Self::build_slot_status_response(slot, seq, 0x01);
+            resp[8] = 0x01;
+            return resp;
+        }
+        let mut clock = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+        let mut rate = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+        if clock == 0 {
+            clock = 3571;
+        }
+        if rate == 0 {
+            rate = 9600;
+        }
+        let mut resp = vec![0u8; 18];
+        resp[0] = RDR_TO_PC_DATA_RATE_AND_CLOCK;
+        resp[1..5].copy_from_slice(&8u32.to_le_bytes()); // Length 8
+        resp[5] = slot;
+        resp[6] = seq;
+        resp[7] = 0; // bStatus: ok
+        resp[8] = 0; // bError
+        resp[9] = 0; // bRFU
+        resp[10..14].copy_from_slice(&clock.to_le_bytes()); // dwClockFrequency
+        resp[14..18].copy_from_slice(&rate.to_le_bytes()); // dwDataRate
+        resp
+    }
+
+    /// Bloco `RDR_to_PC_Parameters` (T=1 default), servido no GET e ecoado
+    /// no SET/RESET (sem negociação real no v1).
+    fn parameters_response(slot: u8, seq: u8) -> Vec<u8> {
+        Self::parameters_response_with(slot, seq, &[0x11, 0x10, 0x00, 0x4D, 0x00, 0x20, 0x00])
+    }
+
+    /// Variante que ecoa os 7 bytes de parâmetros do host (SET/RESET).
+    /// Eco fixo quebrava quando o host variava BWI/CWI (0x75 vs 0x4D).
+    fn parameters_response_with(slot: u8, seq: u8, params: &[u8]) -> Vec<u8> {
+        let mut resp = vec![0u8; 17];
+        resp[0] = RDR_TO_PC_PARAMETERS;
+        resp[1..5].copy_from_slice(&7u32.to_le_bytes()); // Length 7
+        resp[5] = slot;
+        resp[6] = seq;
+        resp[7] = 0; // bStatus
+        resp[8] = 0; // bError
+        resp[9] = 1; // Protocol: T=1
+        let take = params.len().min(7);
+        resp[10..10 + take].copy_from_slice(&params[..take]);
+        resp
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::piv::{
+        provision_pin, PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError,
+    };
+    use std::collections::HashMap;
+
+    /// Store em RAM para os testes do caminho firmware (espelha `MemStore`
+    /// de `piv::tests`; duplicado aqui porque aquele é privado).
+    #[derive(Default)]
+    struct TMemStore {
+        map: HashMap<String, Vec<u8>>,
+    }
+
+    impl PivRecordStore for TMemStore {
+        fn load_record(&self, key: &str) -> Result<Vec<u8>, PivStoreError> {
+            self.map.get(key).cloned().ok_or(PivStoreError::NotFound)
+        }
+
+        fn store_record(&mut self, key: &str, value: &[u8]) -> Result<(), PivStoreError> {
+            self.map.insert(key.to_string(), value.to_vec());
+            Ok(())
+        }
+
+        fn delete_record(&mut self, key: &str) -> Result<(), PivStoreError> {
+            self.map.remove(key);
+            Ok(())
+        }
+    }
+
+    /// Backend cripto stub (firma devolve bytes enlatados).
+    struct TStubCrypto {
+        pubkey: Vec<u8>,
+        response: Vec<u8>,
+    }
+
+    impl PivKeyBackend for TStubCrypto {
+        fn generate(&mut self, _slot: PivSlot, _alg: u8) -> Result<Vec<u8>, PivCryptoError> {
+            Ok(self.pubkey.clone())
+        }
+
+        fn authenticate(
+            &mut self,
+            _slot: PivSlot,
+            _alg: u8,
+            _challenge: &[u8],
+        ) -> Result<Vec<u8>, PivCryptoError> {
+            Ok(self.response.clone())
+        }
+    }
+
+    /// Backend que recusa tudo como algoritmo não suportado (RSA no device).
+    struct TBadAlgCrypto;
+
+    impl PivKeyBackend for TBadAlgCrypto {
+        fn generate(&mut self, _slot: PivSlot, _alg: u8) -> Result<Vec<u8>, PivCryptoError> {
+            Err(PivCryptoError::BadAlg)
+        }
+
+        fn authenticate(
+            &mut self,
+            _slot: PivSlot,
+            _alg: u8,
+            _challenge: &[u8],
+        ) -> Result<Vec<u8>, PivCryptoError> {
+            Err(PivCryptoError::BadAlg)
+        }
+    }
+
+    /// Handler mínimo: OATH/FIDO fora do escopo (PIV é servido pelo
+    /// applet do transporte com store real).
+    struct TOnlyPiv;
+
+    impl CcidApduHandler for TOnlyPiv {
+        fn handle_oath_apdu(&mut self, _apdu: &CommandApdu) -> ResponseApdu {
+            ResponseApdu::status(SW_INS_NOT_SUPPORTED)
+        }
+
+        fn handle_fido_apdu(&mut self, _apdu: &CommandApdu) -> ResponseApdu {
+            ResponseApdu::status(SW_INS_NOT_SUPPORTED)
+        }
+    }
+
+    struct TStore {
+        store: TMemStore,
+        crypto: TStubCrypto,
+    }
+
+    impl TStore {
+        fn enrolled() -> Self {
+            let mut store = TMemStore::default();
+            provision_pin(&mut store, b"123456", b"12345678").expect("enroll");
+            Self {
+                store,
+                crypto: TStubCrypto {
+                    pubkey: vec![0x04, 0x11, 0x22, 0x33],
+                    response: vec![0xAA, 0xBB],
+                },
+            }
+        }
+
+        fn process(
+            &mut self,
+            t: &mut CcidTransport,
+            frame: &[u8],
+        ) -> Result<Vec<u8>, &'static str> {
+            let mut h = TOnlyPiv;
+            t.process_ccid_message_store(frame, &mut h, &mut self.store, &mut self.crypto)
+        }
+    }
+
+    fn xfr(seq: u8, apdu: &[u8]) -> Vec<u8> {
+        let mut m = vec![PC_TO_RDR_XFR_BLOCK];
+        m.extend_from_slice(&(apdu.len() as u32).to_le_bytes());
+        m.push(0);
+        m.push(seq);
+        m.extend_from_slice(&[0, 0, 0]);
+        m.extend_from_slice(apdu);
+        m
+    }
+
+    fn select_piv() -> Vec<u8> {
+        let mut a = vec![0x00, 0xA4, 0x04, 0x00, AID_PIV.len() as u8];
+        a.extend_from_slice(AID_PIV);
+        a
+    }
+
+    fn power_on(seq: u8) -> Vec<u8> {
+        vec![PC_TO_RDR_ICC_POWER_ON, 0, 0, 0, 0, 0, seq, 0, 0, 0]
+    }
+
+    /// Últimos 2 bytes do DataBlock = SW1 SW2.
+    fn sw(resp: &[u8]) -> (u8, u8) {
+        let n = resp.len();
+        assert!(resp[0] == RDR_TO_PC_DATA_BLOCK && n >= 12);
+        (resp[n - 2], resp[n - 1])
+    }
+
+    #[test]
+    fn store_select_verify_generate_ok() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        let r = s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        assert_eq!(sw(&r), SW_OK);
+        assert_eq!(t.selected_applet, SelectedApplet::Piv);
+        // VERIFY 00 20 00 80 06 "123456".
+        let mut v = vec![0x00, 0x20, 0x00, 0x80, 0x06];
+        v.extend_from_slice(b"123456");
+        let r = s.process(&mut t, &xfr(3, &v)).unwrap();
+        assert_eq!(sw(&r), SW_OK);
+        assert!(t.piv.is_verified());
+        // GENERATE 9A: 00 47 00 9A + AC0301800111.
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = s.process(&mut t, &xfr(4, &g)).unwrap();
+        assert_eq!(sw(&r), SW_OK);
+        // Corpo = 7F 49 <len> <pubkey enlatada>.
+        let body = &r[10..r.len() - 2];
+        assert_eq!(&body[..2], &[0x7F, 0x49]);
+        assert_eq!(body[2] as usize, body.len() - 3);
+        assert_eq!(&body[3..], &[0x04, 0x11, 0x22, 0x33]);
+    }
+
+    #[test]
+    fn store_generate_sem_verify_nega() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = s.process(&mut t, &xfr(3, &g)).unwrap();
+        assert_eq!(sw(&r), SW_SECURITY_STATUS_NOT_SATISFIED);
+    }
+
+    #[test]
+    fn store_verify_pin_errado_devolve_63cx() {
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        let mut v = vec![0x00, 0x20, 0x00, 0x80, 0x06];
+        v.extend_from_slice(b"000000");
+        let r = s.process(&mut t, &xfr(3, &v)).unwrap();
+        let (sw1, _sw2) = sw(&r);
+        assert_eq!(sw1, SW_RETRY_BASE);
+        assert!(!t.piv.is_verified());
+    }
+
+    #[test]
+    fn store_rsa_recusado_como_badalg() {
+        let mut t = CcidTransport::new();
+        let mut store = TMemStore::default();
+        provision_pin(&mut store, b"123456", b"12345678").expect("enroll");
+        let mut crypto = TBadAlgCrypto;
+        let mut h = TOnlyPiv;
+        let mut run = |t: &mut CcidTransport, f: &[u8]| {
+            t.process_ccid_message_store(f, &mut h, &mut store, &mut crypto)
+        };
+        run(&mut t, &power_on(1)).unwrap();
+        run(&mut t, &xfr(2, &select_piv())).unwrap();
+        let mut v = vec![0x00, 0x20, 0x00, 0x80, 0x06];
+        v.extend_from_slice(b"123456");
+        assert_eq!(sw(&run(&mut t, &xfr(3, &v)).unwrap()), SW_OK);
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = run(&mut t, &xfr(4, &g)).unwrap();
+        assert_eq!(sw(&r), SW_WRONG_DATA);
+    }
+
+    #[test]
+    fn store_power_off_reseta_selecao() {        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        s.process(&mut t, &power_on(1)).unwrap();
+        s.process(&mut t, &xfr(2, &select_piv())).unwrap();
+        assert_eq!(t.selected_applet, SelectedApplet::Piv);
+        let off = [PC_TO_RDR_ICC_POWER_OFF, 0, 0, 0, 0, 0, 3, 0, 0, 0];
+        s.process(&mut t, &off).unwrap();
+        assert_eq!(t.selected_applet, SelectedApplet::None);
+        assert!(!t.piv.is_verified());
+        // Sem power: XFR devolve erro de slot, sem tocar no applet.
+        let g = [0x00, 0x47, 0x00, 0x9A, 0x05, 0xAC, 0x03, 0x80, 0x01, 0x11];
+        let r = s.process(&mut t, &xfr(4, &g)).unwrap();
+        assert_eq!(r[7], 0x01);
+    }
+
 
     #[test]
     fn test_power_on_atr() {
@@ -688,5 +1118,144 @@ mod tests {
         assert_eq!(PIV_TAG_X509_CERT, [0x5F, 0xC1, 0x05]);
         assert_eq!(sw_retries_left(3), (0x63, 0xC3));
         assert_eq!(sw_retries_left(0), (0x63, 0xC0));
+    }
+
+    fn param_msg(msg_type: u8, seq: u8) -> Vec<u8> {
+        vec![msg_type, 7, 0, 0, 0, 0, seq, 0, 0, 0, 1, 0x11, 0x10, 0, 0x4D, 0, 0]
+    }
+
+    #[test]
+    fn atr_tck_valido() {
+        // Percorre a estrutura ISO 7816-3: TS, T0 (Y1|K), bytes de
+        // interface seguindo a cadeia de TD; TCK existe se algum TD
+        // anuncia protocolo != T=0; TCK = XOR de T0..último histórico.
+        let a = AEGIS_ATR;
+        assert_eq!(a[0], 0x3B);
+        let mut y = a[1] >> 4;
+        let k = (a[1] & 0x0F) as usize;
+        let mut pos = 2usize;
+        let mut tck_present = false;
+        loop {
+            let mut td = None;
+            for bit in 0..4u8 {
+                if y & (1 << bit) != 0 {
+                    assert!(pos < a.len(), "ATR truncado");
+                    let b = a[pos];
+                    pos += 1;
+                    if bit == 3 {
+                        td = Some(b);
+                    }
+                }
+            }
+            match td {
+                Some(v) => {
+                    if v & 0x0F != 0 {
+                        tck_present = true;
+                    }
+                    y = v >> 4;
+                }
+                None => break,
+            }
+            if y == 0 {
+                break;
+            }
+        }
+        assert!(tck_present, "ATR sem T=1 mas teste espera TCK");
+        let hist_end = pos + k;
+        assert!(hist_end < a.len(), "ATR sem TCK");
+        let mut tck = 0u8;
+        for b in &a[1..hist_end] {
+            tck ^= b;
+        }
+        assert_eq!(a[hist_end], tck, "TCK inválido no ATR");
+        assert_eq!(hist_end + 1, a.len(), "ATR com sobra após TCK");
+    }
+
+    #[test]
+    fn frame_malformado_responde_erro_nunca_silencio() {
+        // XFR vazio (só header): erro com slot/seq preservados, nunca None.
+        let empty_xfr = [PC_TO_RDR_ICC_POWER_ON, 0, 0, 0, 0, 0, 7, 0, 0, 0];
+        let r = CcidTransport::error_response(&empty_xfr).expect("erro rsp");
+        assert_eq!(r[0], RDR_TO_PC_DATA_BLOCK);
+        assert_eq!(r[5], 0);
+        assert_eq!(r[6], 7);
+        assert_ne!(r[7], 0x00);
+        // Sem nem header: aí sim None (C nunca enfileira < 10B).
+        assert!(CcidTransport::error_response(&[0x6F, 0x00]).is_none());
+        // Comprimento inconsistente: process erra, fallback responde.
+        let clipped = [
+            PC_TO_RDR_XFR_BLOCK, 5, 0, 0, 0, 0, 8, 0, 0, 0, 0xAA, 0xBB,
+        ];
+        let mut t = CcidTransport::new();
+        let mut s = TStore::enrolled();
+        assert!(s.process(&mut t, &clipped).is_err());
+        let r = CcidTransport::error_response(&clipped).expect("erro rsp");
+        assert_eq!((r[0], r[5], r[6]), (RDR_TO_PC_DATA_BLOCK, 0, 8));
+        assert_ne!(r[7], 0x00);
+    }
+
+    #[test]
+    fn set_data_rate_zero_responde_defaults() {
+        // Host mandou 0/0 ("use os defaults"): responde 3571 kHz /
+        // 9600 bps, nunca zeros (pipe invalidado derruba o Transmit).
+        let mut t = CcidTransport::new();
+        let mut h = DefaultCcidHandler;
+        let mut m = vec![PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 8, 0, 0, 0, 0, 5, 0, 0, 0];
+        m.extend_from_slice(&0u32.to_le_bytes());
+        m.extend_from_slice(&0u32.to_le_bytes());
+        let r = t.process_ccid_message(&m, &mut h).unwrap();
+        assert_eq!(r[0], RDR_TO_PC_DATA_RATE_AND_CLOCK);
+        assert_eq!(&r[10..14], &3571u32.to_le_bytes());
+        assert_eq!(&r[14..18], &9600u32.to_le_bytes());
+    }
+
+    #[test]
+    fn set_data_rate_and_clock_ecoado() {
+        let mut t = CcidTransport::new();
+        let mut h = DefaultCcidHandler;
+        // clock=3600/rate=10752 LE (valores do descritor).
+        let mut m = vec![PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 8, 0, 0, 0, 0, 9, 0, 0, 0];
+        m.extend_from_slice(&3600u32.to_le_bytes());
+        m.extend_from_slice(&10752u32.to_le_bytes());
+        let r = t.process_ccid_message(&m, &mut h).unwrap();
+        assert_eq!(r[0], RDR_TO_PC_DATA_RATE_AND_CLOCK);
+        assert_eq!(r[6], 9);
+        assert_eq!(&r[10..14], &3600u32.to_le_bytes());
+        assert_eq!(&r[14..18], &10752u32.to_le_bytes());
+        // Curto: erro de slot, nunca silêncio.
+        let short = [PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 2, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2];
+        let r = t.process_ccid_message(&short, &mut h).unwrap();
+        assert_eq!(r[0], RDR_TO_PC_SLOT_STATUS);
+        assert_ne!(r[7], 0x00);
+    }
+
+    #[test]
+    fn set_reset_parameters_ecoam_t1() {
+        // Caminho legado (transporte puro).
+        let mut t = CcidTransport::new();
+        let mut h = DefaultCcidHandler;
+        for (ty, seq) in [
+            (PC_TO_RDR_GET_PARAMETERS, 1),
+            (PC_TO_RDR_SET_PARAMETERS, 2),
+            (PC_TO_RDR_RESET_PARAMETERS, 3),
+        ] {
+            let r = t
+                .process_ccid_message(&param_msg(ty, seq), &mut h)
+                .unwrap();
+            assert_eq!(r[0], RDR_TO_PC_PARAMETERS);
+            assert_eq!(r[6], seq);
+            assert_eq!(r[9], 1); // T=1
+        }
+        // Caminho firmware (store real): mesmo eco.
+        let mut s = TStore::enrolled();
+        for (ty, seq) in [
+            (PC_TO_RDR_SET_PARAMETERS, 4),
+            (PC_TO_RDR_RESET_PARAMETERS, 5),
+        ] {
+            let r = s.process(&mut t, &param_msg(ty, seq)).unwrap();
+            assert_eq!(r[0], RDR_TO_PC_PARAMETERS);
+            assert_eq!(r[6], seq);
+            assert_eq!(r[9], 1);
+        }
     }
 }
