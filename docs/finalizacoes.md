@@ -157,3 +157,25 @@ c20bce4 loop (prox+FF+limpeza), a0dbeac bateria, 97cca8b fechamento; base: d5d59
 ### Validações finais na placa
 bench 5/5, base 9/11 (flakes T06/T06b), all-safe 25/25, host 464 + clippy zero,
 proximity 3 OS ok, OpenSC E2E 9000 x4, VERIFY padded 9000 (retries 3), UART limpa.
+
+### 21/10 (madrugada) - WUDF estacionado, merge F6 simulado, pairing verde
+- SCardConnect agora falha 0x80100069 SEM NENHUM URB no fio (USBPcap 600 pkts: só
+  GET_DESCRIPTOR + lixo bulk de outro device; zero CCID p/ o Aegis). Purge PnP total,
+  TEST_USB_RECONNECT e restart SCardSvr: sem efeito. Device inocentado (bench/base/
+  pairing verdes, UART sem CCID). ESTACIONADO: precisa 2o PC ou reinstall stack
+  smartcard do Windows (lado usuário). Provas F4 valem no Linux.
+- Bug real anotado (variante proximity): wifi_init ESP_ERR_NO_MEM no boot/coex —
+  follow-up da lane proximity (heap), não bloqueia CCID/serial.
+- Pairing phase 14/14 (hold-gesture coberto no que dá p/ simular sem BLE bond).
+- Merge F6 simulado (merge-tree): ZERO conflitos; 174 arquivos no diff.
+- APK: sem wrapper no repo; instalando Gradle do sistema p/ assembleDebug.
+
+### 21/10 (madrugada) - app simulado em Python 15/15 (C:\t\sim_app.py)
+Sem hardware e sem lock: TAG vetor 660d4941 py==rs==fw; parse ok/rejeita;
+RollingCode accept 7-9, replay/salto/VER-ruim negados; decisor lock aos 15s e 37s,
+sem relock em away contínuo, near desarma latch, None 12s relocka (fail-closed),
+erros contam como away; SimulatedSource varia. (Decisor certo; 1ª versão do script
+tinha expectativa errada de tempo, corrigida sem tocar produto.)
+Simulado e verde: pairing phase 14/14, merge F6 (zero conflitos), APK 56,5 MB.
+Físico pendente (usuário): bond app -> scan aéreo -> lock real; hold-gesture real;
+H1-H7; WUDF segue estacionado p/ 2o PC.
