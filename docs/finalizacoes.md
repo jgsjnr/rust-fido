@@ -88,3 +88,11 @@ logs de debug CCID removidos; achada e corrigida a causa raiz do "serial 0001"
 - Serial no fio agora AEGIS-S3-0002 (fio == fonte; .bin velho era o culpado).
 - Devolvido ao Windows (unbind+rescan) após validação.
 - Falta: build+flash variante proximity + medição aérea; merge F6; itens usuário.
+
+### 21/10 (madrugada) - bateria completa + build proximity
+- Host: cargo test workspace 101+8+1+254+3+81+16+0s, 0 failed; clippy -D warnings limpo.
+- Placa (firmware base diag): bench 5/5, base 9/11 (flakes T06/T06b), all-safe 25/25 zero divergente.
+- Proximity agents: win 34 OK + self-test ok; linux OK + self-test; macos OK + self-test.
+- Build variante proximity (board-devkitc,test-mode,debug-terminal,proximity): EXIT 0, 0 errors.
+- Commit c20bce4 no ar (trava RSSI + FF + limpeza + §13 + finalizacoes).
+- Próximo: flash proximity + scan aéreo passivo (0xFFFE/RSSI). Lock real só com confirmação (trava a máquina).
