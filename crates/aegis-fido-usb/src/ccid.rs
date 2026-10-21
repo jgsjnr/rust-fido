@@ -642,13 +642,22 @@ impl CcidTransport {
     }
 
     /// Bloco `RDR_to_PC_DataRateAndClockFrequency` (`0x84`): ecoa o
-    /// clock/rate pedidos (o UsbCcids manda de volta os valores do
-    /// descritor). Payload curto = erro de slot (nunca silencia).
+    /// clock/rate pedidos; zeros do host = "use os defaults" (responder
+    /// 0/0 invalida o pipe e o Transmit seguinte morre no host).
+    /// Defaults = descritor: 3571 kHz / 9600 bps (coerente com TA1=0x11).
     fn rate_clock_response(slot: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
         if payload.len() < 8 {
             let mut resp = Self::build_slot_status_response(slot, seq, 0x01);
             resp[8] = 0x01;
             return resp;
+        }
+        let mut clock = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+        let mut rate = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+        if clock == 0 {
+            clock = 3571;
+        }
+        if rate == 0 {
+            rate = 9600;
         }
         let mut resp = vec![0u8; 18];
         resp[0] = RDR_TO_PC_DATA_RATE_AND_CLOCK;
@@ -658,8 +667,8 @@ impl CcidTransport {
         resp[7] = 0; // bStatus: ok
         resp[8] = 0; // bError
         resp[9] = 0; // bRFU
-        resp[10..14].copy_from_slice(&payload[0..4]); // dwClockFrequency
-        resp[14..18].copy_from_slice(&payload[4..8]); // dwDataRate
+        resp[10..14].copy_from_slice(&clock.to_le_bytes()); // dwClockFrequency
+        resp[14..18].copy_from_slice(&rate.to_le_bytes()); // dwDataRate
         resp
     }
 
@@ -1183,6 +1192,22 @@ mod tests {
         let r = CcidTransport::error_response(&clipped).expect("erro rsp");
         assert_eq!((r[0], r[5], r[6]), (RDR_TO_PC_DATA_BLOCK, 0, 8));
         assert_ne!(r[7], 0x00);
+    }
+
+    #[test]
+        #[test]
+    fn set_data_rate_zero_responde_defaults() {
+        // Host mandou 0/0 ("use os defaults"): responde 3571 kHz /
+        // 9600 bps, nunca zeros (pipe invalidado derruba o Transmit).
+        let mut t = CcidTransport::new();
+        let mut h = DefaultCcidHandler;
+        let mut m = vec![PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 8, 0, 0, 0, 0, 5, 0, 0, 0];
+        m.extend_from_slice(&0u32.to_le_bytes());
+        m.extend_from_slice(&0u32.to_le_bytes());
+        let r = t.process_ccid_message(&m, &mut h).unwrap();
+        assert_eq!(r[0], RDR_TO_PC_DATA_RATE_AND_CLOCK);
+        assert_eq!(&r[10..14], &3571u32.to_le_bytes());
+        assert_eq!(&r[14..18], &9600u32.to_le_bytes());
     }
 
     #[test]
