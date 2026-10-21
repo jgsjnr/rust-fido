@@ -70,10 +70,10 @@ aborta o connect).
 **Estado atual (20/10 noite, NÃO resolvido)**: após handshake perfeito, o
 primeiro SCardTransmit (XFR bulk-OUT) falha instantaneamente no host com
 `0x45D` (depois `0x54F`), sem NENHUM byte chegar ao device (provado por
-captura UART com log de cada transferência USB). Suspeita em teste AGORA:
-falta do NotifySlotChange pós-PowerOn (driver pode esperar slot-change
-antes do primeiro XFR) — implementado `50 03` no PowerOn / `50 02` no
-PowerOff, build em andamento no orquestrador.
+captura UART com log de cada transferência USB, IN e OUT com completion).
+NotifySlotChange implementado (`50 03` PowerOn / `50 02` PowerOff) e
+testado: sem efeito. USB inocentado em todos os níveis; falha é dentro do
+WUDF/UsbCcids antes de emitir o URB. Falta: USBPcap (admin) ou 2º PC.
 **Ferramentas criadas (20/10)**: `tools/raw_transmit.py` (SCardTransmit
 cru via ctypes, isola OpenSC — falha igual, prova que não é culpa do
 OpenSC), `tools/need_hands.py` (aviso sonoro p/ chamar o operador),
