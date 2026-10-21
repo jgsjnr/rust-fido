@@ -199,6 +199,9 @@ static uint16_t ccidd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf
 // Enumeration is unaffected (static config bytes served by the stack).
 static bool ccidd_control_xfer_cb(uint8_t rhport, uint8_t stage,
                                   tusb_control_request_t const *request) {
+    ESP_LOGI(TAG, "ctrl stage=%u type=0x%02X req=0x%02X val=0x%04X idx=0x%04X len=%u",
+             stage, request->bmRequestType_bit.type, request->bRequest, request->wValue,
+             request->wIndex, request->wLength);
     (void)rhport;
     (void)stage;
     (void)request;
