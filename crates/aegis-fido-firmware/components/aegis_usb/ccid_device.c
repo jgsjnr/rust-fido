@@ -40,7 +40,18 @@ static const char *TAG = "AegisCCID";
 #define CCID_FRAME_MAX 2048u
 #define CCID_QUEUE_DEPTH 4u
 #define CCID_FUNC_DESC_TYPE 0x21u
-#define CCID_NOTIFY_SLOT_CHANGE 0x50u
+#define CCID_NOTIFY_SLOT_CHANGE 0x50
+#define PC_TO_RDR_ICC_POWER_ON_MSG 0x62
+#define PC_TO_RDR_ICC_POWER_OFF_MSG 0x63
+
+static void ccid_arm_notify(uint8_t rhport) {
+    if (!s_configured || s_ep_notify == 0 || s_notify_busy || !s_notify_has_pending) {
+        return;
+    }
+    s_notify_busy = true;
+    s_notify_has_pending = false;
+    usbd_edpt_xfer(rhport, s_ep_notify, s_notify_buf, sizeof(s_notify_buf));
+}u
 
 typedef struct {
     uint16_t len;
@@ -58,6 +69,12 @@ static uint8_t s_ep_in = 0;
 static uint8_t s_ep_notify = 0;
 static volatile bool s_configured = false;
 static volatile bool s_tx_busy = false;
+static uint8_t s_rhport = 0;
+static volatile bool s_notify_busy = false;
+static uint8_t s_notify_pending = 0;
+static bool s_notify_has_pending = false;
+
+static void ccid_arm_notify(uint8_t rhport);
 
 static uint8_t s_rx_chunk[CCID_BULK_MPS];
 static uint8_t s_rx_asm[CCID_FRAME_MAX];
@@ -72,6 +89,8 @@ static void ccid_reset_state(void) {
     s_ep_notify = 0;
     s_configured = false;
     s_tx_busy = false;
+    s_notify_busy = false;
+    s_notify_has_pending = false;
     s_rx_len = 0;
 }
 
@@ -122,7 +141,18 @@ static void ccid_on_bulk_out(const uint8_t *data, uint16_t n) {
             break; // wait for more chunks
         }
         ESP_LOGI(TAG, "rx frame type=0x%02X len=%u", s_rx_asm[0], (unsigned)(uint16_t)total);
-        ccid_push_frame(s_rx_asm, (uint16_t)total);
+        if (s_rx_asm[0] == PC_TO_RDR_ICC_POWER_ON_MSG) {
+        s_notify_buf[0] = CCID_NOTIFY_SLOT_CHANGE;
+        s_notify_buf[1] = 0x03; /* slot 0: cartao presente e ativo */
+        s_notify_has_pending = true;
+        ccid_arm_notify(s_rhport);
+    } else if (s_rx_asm[0] == PC_TO_RDR_ICC_POWER_OFF_MSG) {
+        s_notify_buf[0] = CCID_NOTIFY_SLOT_CHANGE;
+        s_notify_buf[1] = 0x02; /* slot 0: sem cartao */
+        s_notify_has_pending = true;
+        ccid_arm_notify(s_rhport);
+    }
+    ccid_push_frame(s_rx_asm, (uint16_t)total);
         uint16_t rest = s_rx_len - (uint16_t)total;
         if (rest > 0) {
             memmove(s_rx_asm, &s_rx_asm[total], rest);
@@ -189,6 +219,7 @@ static uint16_t ccidd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf
     s_ep_in = ep_in;
     s_ep_notify = ep_notify;
     s_configured = true;
+    s_rhport = rhport;
     ESP_LOGI(TAG, "CCID open itf=%u out=0x%02X in=0x%02X notify=0x%02X", s_itf_num, s_ep_out,
              s_ep_in, s_ep_notify);
     ccid_arm_out(rhport);
@@ -226,8 +257,10 @@ static bool ccidd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
         ccid_arm_out(rhport);
     } else if (ep_addr == s_ep_in) {
         s_tx_busy = false;
+    } else if (ep_addr == s_ep_notify) {
+        s_notify_busy = false;
+        ccid_arm_notify(rhport); /* rearma se outra mudanca enfileirou */
     }
-    // notify endpoint: fire-and-forget
     return true;
 }
 
