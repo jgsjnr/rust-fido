@@ -129,7 +129,8 @@ impl PairingManager {
     pub fn tick(&mut self, now_ms: u64) {
         match self.state {
             PairingState::PairingBle { expires_ms } | PairingState::PairingAp { expires_ms }
-                if now_ms >= expires_ms => {
+                if now_ms >= expires_ms =>
+            {
                 self.state = PairingState::Locked;
                 crate::ltrace!(LtCat::Pairing, LtEvt::PairingTimeout, now_ms);
             }
@@ -194,6 +195,15 @@ impl PairingManager {
         crate::ltrace!(LtCat::Pairing, LtEvt::PairingArming, SoftwareArming(now_ms));
     }
 
+    /// Fecha a janela de teste (test-only; determinismo entre sessões).
+    ///
+    /// Espelha `TEST_PAIRING_CLOSE`: vira `Locked`, mesmo estado do timeout
+    /// natural; não toca em `bonded`.
+    #[cfg(feature = "test-mode")]
+    pub fn close_test_window(&mut self) {
+        self.state = PairingState::Locked;
+    }
+
     /// Abre a janela de 60s por comando do host (produto, USB/serial).
     ///
     /// Software abre a janela, NÃO confirma presença: `bonded` segue `false`
@@ -214,6 +224,13 @@ impl PairingManager {
 /// Sem a feature a linha e desconhecida: nenhum dispatch a reconhece.
 #[cfg(feature = "test-mode")]
 pub const TEST_PAIRING_OPEN_CMD: &str = "TEST_PAIRING_OPEN";
+
+/// Comando de teste que fecha a janela residual (determinismo entre sessões).
+///
+/// Fecha para `Locked` (mesmo estado do timeout natural); sem `test-mode` a
+/// linha é desconhecida.
+#[cfg(feature = "test-mode")]
+pub const TEST_PAIRING_CLOSE_CMD: &str = "TEST_PAIRING_CLOSE";
 
 /// Variante longa (300s) para coordenação humana: mesmos gates, mais folga.
 #[cfg(feature = "test-mode")]
@@ -354,14 +371,46 @@ mod tests {
         use core::fmt::Write as _;
         let mut buf = [0u8; 64];
         let len = {
-            let mut w = FmtBuf { buf: &mut buf, len: 0 };
+            let mut w = FmtBuf {
+                buf: &mut buf,
+                len: 0,
+            };
             let _ = write!(w, "{}", SoftwareArming(1234));
             w.len
         };
         let text = core::str::from_utf8(&buf[..len]).expect("ascii");
-        assert!(text.contains("software"), "audit must tell software apart from hold");
+        assert!(
+            text.contains("software"),
+            "audit must tell software apart from hold"
+        );
         assert!(text.contains("1234"));
         assert_eq!(TEST_PAIRING_OPEN_CMD, "TEST_PAIRING_OPEN");
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn test_window_close_locks_and_reopen_works() {
+        let mut m = PairingManager::new();
+        m.open_test_window(1000);
+        assert!(m.is_pairing_window_open(1000));
+        m.close_test_window();
+        assert_eq!(m.state(), PairingState::Locked);
+        assert!(!m.is_pairing_window_open(1000));
+        // Fechar nao confirma presenca nem bonding.
+        assert!(!m.is_bonded());
+        // Reabrir (60s) volta a funcionar sem reset.
+        m.open_test_window(2000);
+        assert!(m.is_pairing_window_open(2000));
+        assert!(!m.is_bonded());
+        // Reabrir (300s) tambem volta a funcionar; fechar encerra igual.
+        m.close_test_window();
+        assert!(!m.is_pairing_window_open(2100));
+        m.open_test_window_secs(3000, TEST_PAIRING_OPEN_300_SECS);
+        assert!(m.is_pairing_window_open(3000 + TEST_PAIRING_OPEN_300_SECS * 1000 - 1));
+        assert!(!m.is_bonded());
+        m.close_test_window();
+        assert_eq!(m.state(), PairingState::Locked);
+        assert!(!m.is_pairing_window_open(3000));
     }
 
     #[cfg(feature = "test-mode")]

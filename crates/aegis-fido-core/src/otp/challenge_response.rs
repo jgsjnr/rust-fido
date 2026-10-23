@@ -272,15 +272,14 @@ pub fn parse_challenge_envelope(
     if envelope.len() < CHALLENGE_ENVELOPE_MIN_LEN {
         return Err(Ed25519ChallengeError::InvalidEnvelope);
     }
-    if envelope[0..4] != CHALLENGE_ENVELOPE_MAGIC
-        || envelope[4] != CHALLENGE_ENVELOPE_VERSION
-    {
+    if envelope[0..4] != CHALLENGE_ENVELOPE_MAGIC || envelope[4] != CHALLENGE_ENVELOPE_VERSION {
         return Err(Ed25519ChallengeError::InvalidEnvelope);
     }
     let mut challenge = [0u8; ED25519_CHALLENGE_LEN];
     let mut signature = [0u8; ED25519_SIGNATURE_LEN];
     challenge.copy_from_slice(&envelope[5..5 + ED25519_CHALLENGE_LEN]);
-    signature.copy_from_slice(&envelope[5 + ED25519_CHALLENGE_LEN..5 + CHALLENGE_VERIFIED_PAYLOAD_LEN]);
+    signature
+        .copy_from_slice(&envelope[5 + ED25519_CHALLENGE_LEN..5 + CHALLENGE_VERIFIED_PAYLOAD_LEN]);
     Ok((challenge, signature))
 }
 
@@ -393,10 +392,7 @@ mod tests {
         manager.new_challenge(&mut rng);
         assert!(manager.respond_active().is_ok());
         // Segundo respond sem novo challenge nega (uso único)
-        assert_eq!(
-            manager.respond_active(),
-            Err(Ed25519ChallengeError::Replay)
-        );
+        assert_eq!(manager.respond_active(), Err(Ed25519ChallengeError::Replay));
         assert_eq!(manager.active_challenge(), None);
     }
 

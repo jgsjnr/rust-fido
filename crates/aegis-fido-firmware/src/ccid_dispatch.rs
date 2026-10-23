@@ -113,7 +113,8 @@ mod tests {
         let r = process_ccid_frame(&mut t, &xfr(4, &v), &mut storage, &mut keys, 0).expect("vfy");
         assert_eq!((r[r.len() - 2], r[r.len() - 1]), (0x90, 0x00));
         // GEN agora gera P-256 de verdade (template 7F 49).
-        let r = process_ccid_frame(&mut t, &xfr(5, &gen), &mut storage, &mut keys, 1).expect("gen2");
+        let r =
+            process_ccid_frame(&mut t, &xfr(5, &gen), &mut storage, &mut keys, 1).expect("gen2");
         assert_eq!((r[r.len() - 2], r[r.len() - 1]), (0x90, 0x00));
         assert_eq!(&r[10..12], &[0x7F, 0x49]);
         // AUTH com witness → assinatura real (7C{82..}).

@@ -1,8 +1,8 @@
 extern crate alloc;
 
+use crate::oath::presence::{PresenceError, PresenceVerifier};
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::oath::presence::{PresenceError, PresenceVerifier};
 
 /// Nitrokey Command IDs
 pub const NK_CMD_STATUS: u8 = 0x01;
@@ -34,8 +34,8 @@ impl Default for NitrokeyStatus {
     fn default() -> Self {
         Self {
             uuid: [
-                0xAE, 0x61, 0x50, 0x33, 0x10, 0x20, 0x30, 0x40,
-                0x50, 0x60, 0x70, 0x80, 0x90, 0xA0, 0xB0, 0xC0,
+                0xAE, 0x61, 0x50, 0x33, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xA0,
+                0xB0, 0xC0,
             ],
             version: [1, 0, 0],
             variant: String::from("AegisKey S3 (Nitrokey Compatible)"),
@@ -76,16 +76,14 @@ impl NitrokeyStatus {
                 resp.extend_from_slice(self.variant.as_bytes());
                 (NK_STATUS_SUCCESS, resp)
             }
-            NK_CMD_UUID => {
-                (NK_STATUS_SUCCESS, self.uuid.to_vec())
-            }
-            NK_CMD_TEST_TOUCH => {
-                match presence.wait_for_presence(3000) {
-                    Ok(true) => (NK_STATUS_SUCCESS, alloc::vec![1]),
-                    Ok(false) | Err(PresenceError::Timeout) => (NK_STATUS_TOUCH_TIMEOUT, alloc::vec![0]),
-                    Err(_) => (NK_STATUS_INVALID_PARAMETER, alloc::vec![0]),
+            NK_CMD_UUID => (NK_STATUS_SUCCESS, self.uuid.to_vec()),
+            NK_CMD_TEST_TOUCH => match presence.wait_for_presence(3000) {
+                Ok(true) => (NK_STATUS_SUCCESS, alloc::vec![1]),
+                Ok(false) | Err(PresenceError::Timeout) => {
+                    (NK_STATUS_TOUCH_TIMEOUT, alloc::vec![0])
                 }
-            }
+                Err(_) => (NK_STATUS_INVALID_PARAMETER, alloc::vec![0]),
+            },
             NK_CMD_PIN_STATUS => {
                 let mut resp = Vec::new();
                 resp.push(self.pin_retries);

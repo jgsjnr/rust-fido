@@ -255,11 +255,7 @@ impl OtaState {
     /// then `version > current`.
     pub fn verify(&mut self, ota_pubkey: &[u8; 32], current_version: u32) -> Result<(), OtaError> {
         let manifest = self.manifest.as_ref().ok_or(OtaError::NotStaged)?;
-        let sig_valid = verify_signature(
-            ota_pubkey,
-            &manifest.signed_bytes(),
-            &manifest.signature,
-        );
+        let sig_valid = verify_signature(ota_pubkey, &manifest.signed_bytes(), &manifest.signature);
         self.verify_with(current_version, sig_valid)
     }
 
@@ -397,7 +393,8 @@ mod tests {
     fn staged(version: u32, image: &[u8]) -> (OtaState, RamOtaSink) {
         let mut ota = OtaState::new(CURRENT);
         let mut sink = RamOtaSink::default();
-        ota.begin(&manifest_for(version, image), true).expect("begin");
+        ota.begin(&manifest_for(version, image), true)
+            .expect("begin");
         let mut off = 0;
         for chunk in image.chunks(256) {
             off = ota.stage_chunk(off, chunk, &mut sink).expect("chunk");
@@ -506,7 +503,10 @@ mod tests {
         let mut ota = OtaState::new(CURRENT);
         let mut sink = RamOtaSink::default();
         ota.begin(&manifest_for(NEXT, &image), true).expect("begin");
-        assert_eq!(ota.stage_chunk(0, &[], &mut sink), Err(OtaError::OutOfOrder));
+        assert_eq!(
+            ota.stage_chunk(0, &[], &mut sink),
+            Err(OtaError::OutOfOrder)
+        );
     }
 
     #[test]
@@ -524,7 +524,10 @@ mod tests {
         let image = image_bytes();
         let (mut ota, _sink) = staged(NEXT, &image);
         // Wave-1 fail-closed stub denies every signature on prod path.
-        assert_eq!(ota.verify(&[0x11u8; 32], CURRENT), Err(OtaError::BadSignature));
+        assert_eq!(
+            ota.verify(&[0x11u8; 32], CURRENT),
+            Err(OtaError::BadSignature)
+        );
         assert_eq!(ota.phase(), OtaPhase::Staged);
     }
 
@@ -585,7 +588,8 @@ mod tests {
         assert_eq!(ota.committed_version(), CURRENT);
         assert_eq!(ota.received(), 0);
         // Machine is usable again immediately.
-        ota.begin(&manifest_for(NEXT, &image), true).expect("re-begin");
+        ota.begin(&manifest_for(NEXT, &image), true)
+            .expect("re-begin");
         assert_eq!(ota.phase(), OtaPhase::Staged);
     }
 

@@ -212,6 +212,32 @@ class Reassembler:
 
 MIN_TEXT_LINE = 8  # text fast-path: shorter printable runs stay binary (0x0A in headers/CBOR)
 
+RESYNC_SCAN_MAX = 4096  # CID-anchored resync scan cap (bytes slid past seeking an anchor)
+
+
+def _is_anchor_window(window, expected_cid, require_init=False):
+    """True when a 64B window plausibly starts our response at this offset.
+
+    Anchor = CID (u32 BE) matches the expected CID AND the 5th byte is
+    plausible framing: INIT bit set with total<=7609 (CTAPHID ceiling),
+    keepalive (handled by the reassembler), or a CONT byte. With
+    `require_init` (assembler idle, no INIT seen yet) CONT windows are
+    skipped — feeding one would just raise "unexpected continuation".
+    A 32-bit CID match makes false anchors ~2^-32 per window.
+    """
+    if len(window) != PACKET_SIZE:
+        return False
+    if is_text_chunk(window):
+        return False
+    cid, b4, total = struct.unpack_from(">IBH", window, 0)
+    if cid != expected_cid:
+        return False
+    if b4 == CMD_KEEPALIVE:
+        return True
+    if b4 & 0x80:
+        return total <= 7609
+    return not require_init
+
 
 class SerialStreamReader:
     """Byte-stream demux: text lines vs 64B CTAPHID frames on one wire.
@@ -220,21 +246,37 @@ class SerialStreamReader:
     on the same UART as fixed 64B binary packets, so fixed 64B reads
     misalign after every text line. This reader accumulates bytes,
     strips LF-terminated printable text lines, and yields the next 64B
-    non-text frame. A frame that still fails to parse is returned to
-    the caller, which drops one byte and retries (sliding resync).
+    non-text frame. A frame that still fails `Reassembler.feed` (poisoned
+    window: colored IDF log with 0x1B, stray text tail, binary 0x0A split)
+    is recovered via `resync`: a CID-anchored scan, not a 1-byte slide
+    (the 1-byte slide permanently misaligns every following good frame).
     """
-    def __init__(self, link):
+    def __init__(self, link, expected_cid=None):
         self.link = link
         self.buf = bytearray()
+        self.expected_cid = expected_cid
 
     def _is_text_line(self, raw):
         if not raw or b"\x00" in raw:
             return False
         return all(b in (0x09, 0x0A, 0x0D) or 0x20 <= b <= 0x7E for b in raw)
 
-    def next_frame(self, deadline_s=2.0):
-        """Return the next 64B frame, skipping interleaved text lines."""
+    def next_frame(self, deadline_s=2.0, deadline_total_s=30.0, op="op"):
+        """Return the next 64B frame, skipping interleaved text lines.
+
+        `deadline_s` bounds each byte read; `deadline_total_s` is a global
+        cap for the whole call so a device that stays silent-but-chatty
+        (endless heartbeat/text, trickle of bytes, no frame) cannot hang
+        the caller forever. On expiry a `TimeoutError` carrying the op and
+        the bytes seen is raised. Happy path (frame available) is unchanged.
+        """
+        start = time.monotonic()
+        seen = len(self.buf)
         while True:
+            if time.monotonic() - start >= deadline_total_s:
+                raise TimeoutError(
+                    "serial stream timeout op=%s bytes=%d elapsed=%.1fs"
+                    % (op, seen, time.monotonic() - start))
             nl = self.buf.find(b"\n")
             if nl + 1 >= MIN_TEXT_LINE and self._is_text_line(bytes(self.buf[:nl + 1])):
                 log_event("SERIAL_TEXT_SKIPPED", "bytes=%d" % (nl + 1))
@@ -248,9 +290,69 @@ class SerialStreamReader:
                     continue
                 del self.buf[:PACKET_SIZE]
                 return frame
-            self.buf.extend(self.link.read_exact(1, deadline_s=deadline_s))
+            try:
+                chunk = self.link.read_exact(1, deadline_s=deadline_s)
+            except TimeoutError as e:
+                raise TimeoutError(
+                    "serial stream timeout op=%s bytes=%d: %s" % (op, seen, e))
+            self.buf.extend(chunk)
+            seen += len(chunk)
             if len(self.buf) > 16384:
                 raise ValueError("serial stream desync (buffer overflow)")
+
+    def resync(self, expected_cid=None, poisoned=None, scan_max=RESYNC_SCAN_MAX,
+               deadline_s=2.0, op="op", require_init=False):
+        """CID-anchored resync after a poisoned 64B window.
+
+        Scans byte-by-byte (plus whole printable-line skips) until a 64B
+        window carries the expected CID with plausible framing
+        (`_is_anchor_window`). The rejected `poisoned` window re-enters the
+        scan minus its first byte (sliding), followed by leftover buffered
+        bytes, then fresh link bytes. The aligned frame is consumed from
+        the scan and returned; trailing bytes stay buffered for the next
+        `next_frame`. Raises `TimeoutError` with op/cid/dropped context
+        when no anchor appears within `scan_max` bytes or the link goes
+        silent. Prior `Reassembler` state is the caller's to keep: extra
+        log bytes between packets lose no packet, so the message completes.
+        """
+        cid = self.expected_cid if expected_cid is None else expected_cid
+        if cid is None:
+            raise ValueError("resync needs an expected CID")
+        window = bytearray()
+        if poisoned:
+            window.extend(poisoned[1:] if len(poisoned) == PACKET_SIZE else bytes(poisoned))
+        window.extend(self.buf)
+        self.buf = bytearray()
+        dropped = 0
+        while True:
+            while len(window) - dropped < PACKET_SIZE:
+                if dropped >= scan_max:
+                    raise TimeoutError(
+                        "serial resync failed op=%s cid=%08x dropped=%d "
+                        "(scan cap %dB, no anchor)" % (op, cid, dropped, scan_max))
+                try:
+                    chunk = self.link.read_exact(1, deadline_s=deadline_s)
+                except TimeoutError as e:
+                    raise TimeoutError(
+                        "serial resync timeout op=%s cid=%08x dropped=%d: %s"
+                        % (op, cid, dropped, e))
+                window.extend(chunk)
+            cand = bytes(window[dropped:dropped + PACKET_SIZE])
+            if _is_anchor_window(cand, cid, require_init=require_init):
+                self.buf = bytearray(window[dropped + PACKET_SIZE:])
+                log_event("SERIAL_RESYNC", "dropped=%d" % dropped)
+                return cand
+            nl = window.find(b"\n", dropped, dropped + 256)
+            if nl >= 0 and nl + 1 - dropped >= MIN_TEXT_LINE \
+                    and self._is_text_line(bytes(window[dropped:nl + 1])):
+                log_event("SERIAL_TEXT_SKIPPED", "bytes=%d" % (nl + 1 - dropped))
+                dropped = nl + 1
+                continue
+            dropped += 1
+            if dropped > scan_max:
+                raise TimeoutError(
+                    "serial resync failed op=%s cid=%08x dropped=%d "
+                    "(scan cap %dB, no anchor)" % (op, cid, dropped, scan_max))
 
 
 def parse_ctap_response(payload):
@@ -280,6 +382,13 @@ def parse_dump(text):
         elif line.startswith("lt.") and "=" in line:
             name, val = line.split("=", 1)
             counts[name] = int(val)
+        elif (line.startswith("[") or "[FREERTOS]" in line
+                or not line.startswith("lt.") or "=" not in line):
+            # Tick/lixo intercalado no UART (ex.: `[FREERTOS] tick N.`
+            # splitando `lt.oath.*` em fragmentos sem `=`/`lt.`): ignora
+            # a linha em vez de quebrar o dump. A re-leitura (1 retry) é
+            # feita pelo chamador quando há evidência de contaminação.
+            continue
         else:
             raise ValueError("bad dump line: %r" % line[:32])
     return counts, states
@@ -655,19 +764,34 @@ class Session:
         for pkt in packets:
             self.link.write(pkt)
         asm = Reassembler()
-        stream = SerialStreamReader(self.link)
+        stream = SerialStreamReader(self.link, expected_cid=self.cid)
         end = time.monotonic() + timeout_s
         up_announced = False
         while time.monotonic() < end:
-            raw = stream.next_frame(deadline_s=2.0)
+            raw = stream.next_frame(deadline_s=2.0, op=op)
             try:
                 kind, data = asm.feed(raw)
             except ValueError:
-                # Stray bytes (e.g. heartbeat tail + packet head):
-                # drop one byte and resync, keep waiting for response.
-                log_event("SERIAL_RESYNC", "dropped=1")
-                stream.buf = bytearray(raw[1:]) + stream.buf
-                continue
+                # Poisoned window (colored IDF log with 0x1B, stray text
+                # tail, binary 0x0A split): re-anchor on the expected CID
+                # instead of sliding one byte, which permanently misaligns
+                # every following good frame into a RESYNC storm. Bounded
+                # scan; contextual TimeoutError when nothing realigns.
+                try:
+                    raw = stream.resync(expected_cid=self.cid,
+                                        poisoned=raw,
+                                        require_init=(asm.cid is None),
+                                        deadline_s=2.0, op=op)
+                except TimeoutError:
+                    raise
+                try:
+                    kind, data = asm.feed(raw)
+                except ValueError:
+                    # Anchor rejected (e.g. INIT itself was destroyed by the
+                    # poison): drop this frame and keep waiting for the next
+                    # anchor instead of stalling on it.
+                    log_event("SERIAL_RESYNC", "dropped=64 anchor-rejected")
+                    continue
             if kind == "text":
                 continue
             if kind == "keepalive":
@@ -731,6 +855,23 @@ class Session:
         text = self.send_text_line(TEST_DUMP_CMD, timeout_s=timeout_s)
         if "lt_dump v=1" not in text:
             raise ValueError("device did not answer TEST_LIFETIME_DUMP (test-mode firmware?)")
+        try:
+            parse_dump(text)
+        except ValueError:
+            contaminated = True
+        else:
+            contaminated = ("[FREERTOS]" in text or " tick " in text)
+        if contaminated:
+            # Linha tick splitou o dump no UART: no máximo 1 re-leitura;
+            # mantém o melhor texto (nunca piora o happy path de 1 leitura).
+            retry = self.send_text_line(TEST_DUMP_CMD, timeout_s=timeout_s)
+            if "lt_dump v=1" in retry:
+                try:
+                    parse_dump(retry)
+                except ValueError:
+                    pass
+                else:
+                    text = retry
         log_event("LIFETIME_DUMP", "bytes=%d" % len(text))
         return text
 
@@ -1131,6 +1272,47 @@ def run_self_test():
                 break
         assert got is not None and got[2] == payload
 
+    def t_stream_cid_resync_poisoned():
+        # Poisoned UART: valid N-packet response with an ANSI-colored IDF
+        # log line (0x1B), binary 0x0A bytes inside the CBOR, and
+        # `[FREERTOS] tick` lines interleaved between packets at
+        # non-64B-aligned offsets. The reassembler must still deliver the
+        # whole message via ONE CID-anchored resync (not a RESYNC storm).
+        cid = 0x11223344
+        cbor = bytes([0xA5, 0x01, 0x02, 0x0A, 0x03, 0x18, 0x0A,
+                      0x04, 0x58, 0x0A] + [(i * 37 + 11) % 256 for i in range(190)])
+        assert b"\n" in cbor  # binary newlines present on purpose
+        body = b"\x00" + cbor  # CTAP success + CBOR
+        frames = frame_message(cid, CMD_CBOR, body)
+        assert len(frames) >= 3
+        colored = b"\x1b[0;32mI (12345) example: ok\x1b[0m\r\n"
+        assert b"\x1b" in colored and len(colored) % PACKET_SIZE != 0
+        tick = b"[FREERTOS] tick 7.\r\n"
+        assert len(tick) % PACKET_SIZE != 0
+        wire = (frames[0] + tick + frames[1] + colored
+                + frames[2] + tick + b"".join(frames[3:]))
+        before = sum(1 for _, name, _ in LOG_EVENTS if name == "SERIAL_RESYNC")
+        s = Session("http://127.0.0.1:9")
+        s.link = _FakeLink(wire)
+        s.cid = cid
+        status, cbor_out = s._exchange(CMD_CBOR, b"\x04", timeout_s=10.0,
+                                        op="get_info")
+        assert (status, cbor_out) == (0x00, cbor)
+        after = sum(1 for _, name, _ in LOG_EVENTS if name == "SERIAL_RESYNC")
+        assert after - before == 1  # single anchored resync, no storm
+
+    def t_stream_resync_scan_cap():
+        # No CID anchor anywhere: resync must give up with a contextual
+        # TimeoutError (op + cid), not spin until the 30s exchange timeout.
+        link = _FakeLink(b"\x00" * 128)
+        stream = SerialStreamReader(link, expected_cid=0x11223344)
+        try:
+            stream.resync(poisoned=b"\xFF" * 64, scan_max=64,
+                          deadline_s=0.5, op="get_info")
+            raise AssertionError("should expire")
+        except TimeoutError as e:
+            assert "cid=11223344" in str(e) and "get_info" in str(e)
+
     cases = [("framing single", t_framing_single), ("framing multi", t_framing_multi),
              ("keepalive", t_keepalive), ("ctap status", t_ctap_status),
              ("pairing gate", t_pairing_gate), ("dump parse", t_dump_parse),
@@ -1140,7 +1322,9 @@ def run_self_test():
              ("heartbeat mid reassembly", t_heartbeat_mid_reassembly),
              ("pairing open cmd", t_pairing_open_cmd),
              ("stream skips heartbeat", t_stream_skips_variable_heartbeat),
-             ("stream resync corrupt", t_stream_resync_after_corrupt_byte)]
+             ("stream resync corrupt", t_stream_resync_after_corrupt_byte),
+             ("stream cid resync poisoned", t_stream_cid_resync_poisoned),
+             ("stream resync scan cap", t_stream_resync_scan_cap)]
     for name, fn in cases:
         if check(name, fn):
             passed += 1

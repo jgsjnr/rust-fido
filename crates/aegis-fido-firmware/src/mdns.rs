@@ -7,10 +7,10 @@
 
 extern crate alloc;
 
-use alloc::string::String;
-use alloc::format;
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use alloc::format;
+use alloc::string::String;
 
 /// Prefixo do hostname mDNS (lowercase, RFC 6762).
 pub const MDNS_PREFIX: &str = "aegiskey-";
@@ -32,8 +32,17 @@ pub fn mdns_hostname_for_serial(serial: &str) -> String {
         .chars()
         .rev()
         .collect();
-    let suffix = if tail.len() == 4 { tail } else { String::from(MDNS_FALLBACK_SUFFIX) };
-    format!("{}{}{}", MDNS_PREFIX, suffix.to_ascii_lowercase(), MDNS_SUFFIX)
+    let suffix = if tail.len() == 4 {
+        tail
+    } else {
+        String::from(MDNS_FALLBACK_SUFFIX)
+    };
+    format!(
+        "{}{}{}",
+        MDNS_PREFIX,
+        suffix.to_ascii_lowercase(),
+        MDNS_SUFFIX
+    )
 }
 
 /// Valida hostname mDNS (`aegiskey-XXXX.local`, 1..64, ascii).
@@ -45,7 +54,10 @@ pub fn is_valid_mdns_hostname(host: &str) -> bool {
         return false;
     }
     let mid = &host[MDNS_PREFIX.len()..host.len() - MDNS_SUFFIX.len()];
-    !mid.is_empty() && mid.chars().all(|c| c.is_ascii_alphanumeric() || c == (45 as char))
+    !mid.is_empty()
+        && mid
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == (45 as char))
 }
 
 /// Estado do responder mDNS.
@@ -66,7 +78,9 @@ pub struct MdnsManager {
 impl MdnsManager {
     /// Cria desligado.
     pub fn new() -> Self {
-        Self { state: MdnsState::Off }
+        Self {
+            state: MdnsState::Off,
+        }
     }
 
     /// Estado atual.
@@ -125,12 +139,7 @@ extern "C" {
 #[cfg(target_os = "espidf")]
 pub fn esp_mdns_start(host: &str) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "mdns");
-    unsafe {
-        aegis_mdns_start(
-            host.as_ptr(),
-            host.len().min(i32::MAX as usize) as i32,
-        )
-    }
+    unsafe { aegis_mdns_start(host.as_ptr(), host.len().min(i32::MAX as usize) as i32) }
 }
 
 /// Desliga o responder (`0` ok).
@@ -161,8 +170,14 @@ mod tests {
 
     #[test]
     fn hostname_derives_lowercase_suffix() {
-        assert_eq!(mdns_hostname_for_serial("AEGIS-S3-00AF"), "aegiskey-00af.local");
-        assert_eq!(mdns_hostname_for_serial("AEGIS-S3-0001"), "aegiskey-0001.local");
+        assert_eq!(
+            mdns_hostname_for_serial("AEGIS-S3-00AF"),
+            "aegiskey-00af.local"
+        );
+        assert_eq!(
+            mdns_hostname_for_serial("AEGIS-S3-0001"),
+            "aegiskey-0001.local"
+        );
         assert_eq!(mdns_hostname_for_serial("x"), "aegiskey-0001.local");
     }
 

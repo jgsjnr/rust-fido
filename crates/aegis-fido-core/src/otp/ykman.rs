@@ -129,9 +129,7 @@ impl YkmanDeviceInfo {
                 (self.encode_tlv(), 0x9000)
             }
             // Read Device Info
-            INS_READ_DEVICE_INFO => {
-                (self.encode_tlv(), 0x9000)
-            }
+            INS_READ_DEVICE_INFO => (self.encode_tlv(), 0x9000),
             // Write Device Config
             INS_DEVICE_CONFIG => {
                 if apdu.len() > 5 {

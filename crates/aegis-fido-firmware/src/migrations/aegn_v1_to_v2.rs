@@ -102,7 +102,11 @@ pub fn migrate_v1_to_v2<B: FlashStorageBackend>(
         done.push(String::from(*key));
     }
     storage
-        .store(MIGRATION_VERSION_KEY, &[MIGRATION_VERSION_V2], &IGNORED_NONCE)
+        .store(
+            MIGRATION_VERSION_KEY,
+            &[MIGRATION_VERSION_V2],
+            &IGNORED_NONCE,
+        )
         .map_err(MigrationError::Storage)?;
     let back = storage
         .load(MIGRATION_VERSION_KEY)
@@ -187,7 +191,8 @@ mod tests {
     #[test]
     fn migrates_and_verifies_slots() {
         let mut st = test_storage();
-        st.store("credential_01", b"cred-bytes", &IGNORED_NONCE).unwrap();
+        st.store("credential_01", b"cred-bytes", &IGNORED_NONCE)
+            .unwrap();
         st.store("pin_hash", b"pin-bytes", &IGNORED_NONCE).unwrap();
         let rep = migrate_v1_to_v2(&mut st, &["credential_01", "pin_hash"]).unwrap();
         assert_eq!(rep.migrated, 2);

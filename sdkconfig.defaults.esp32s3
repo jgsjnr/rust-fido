@@ -1,6 +1,11 @@
 # Etapa B - BLE real via NimBLE no S3 (BLE-only; Bluedroid OFF p/ RAM).
 # Lido pelo esp-idf-sys a partir do workspace root. Padrao oficial IDF v5.3.1
 # examples/bluetooth/nimble/bleprph_wifi_coex.
+# Defesa em profundidade contra estouro de stack da main no boot: o health-check
+# AES/NVS saiu da main pré-yield e o envelope foi p/ heap, mas a main segue
+# crítica (~116 B livres no build com hang vs ~25 KiB nos bons). 64 KiB cabem
+# folgados na SRAM do S3 (512 KiB) e dão margem p/ HKDF/AES/display no boot.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=65536
 CONFIG_BT_ENABLED=y
 CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
 CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n

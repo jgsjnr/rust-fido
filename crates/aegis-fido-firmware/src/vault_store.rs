@@ -17,10 +17,10 @@ use zeroize::Zeroize;
 use ciborium::value::Value;
 
 use crate::config::{DeviceConfig, MAX_LABEL_BYTES};
-use crate::migrations::vault_v7::VAULT_LIVE_PREFIX;
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::migrations::vault_v7::VAULT_LIVE_PREFIX;
+use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 
 /// Max blob bytes per vault slot (envelope budget, like OATH).
 pub const VAULT_STORE_MAX_BYTES: usize = 512;
@@ -129,8 +129,7 @@ fn save_index<B: FlashStorageBackend>(
 fn encode_index(labels: &[String]) -> Result<Vec<u8>, VaultStoreError> {
     let items: Vec<Value> = labels.iter().map(|s| Value::Text(s.clone())).collect();
     let mut buf = Vec::new();
-    ciborium::into_writer(&Value::Array(items), &mut buf)
-        .map_err(|_| VaultStoreError::Storage)?;
+    ciborium::into_writer(&Value::Array(items), &mut buf).map_err(|_| VaultStoreError::Storage)?;
     Ok(buf)
 }
 

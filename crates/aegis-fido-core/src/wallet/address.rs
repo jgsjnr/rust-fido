@@ -80,9 +80,7 @@ pub fn address_for_public_key(
             raw.copy_from_slice(&vk.to_encoded_point(false).as_bytes()[1..65]);
             Ok(ethereum_address(&raw))
         }
-        (PublicKey::Ed25519(vk), CryptoNetwork::Solana) => {
-            Ok(solana_address(&vk.to_bytes()))
-        }
+        (PublicKey::Ed25519(vk), CryptoNetwork::Solana) => Ok(solana_address(&vk.to_bytes())),
         _ => Err(KeyManagerError::BadEnvelope),
     }
 }
@@ -175,8 +173,7 @@ mod tests {
             address_for_public_key(&secp.public_key(), CryptoNetwork::Bitcoin).unwrap(),
             "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
         );
-        let g_pub =
-            PublicKey::from_cose_cbor(&secp.to_cose_cbor()).unwrap();
+        let g_pub = PublicKey::from_cose_cbor(&secp.to_cose_cbor()).unwrap();
         assert_eq!(
             address_for_public_key(&g_pub, CryptoNetwork::EthereumEvm).unwrap(),
             "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"

@@ -16,10 +16,10 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::credential::store::{KeySlot, MAX_KEY_SLOTS};
 use crate::crypto::curves::{CoseAlgorithm, KeyPair};
-use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
-use crate::vault::AegisVault;
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
+use crate::vault::AegisVault;
 
 /// 9.5 closed status set (response wire [op:1, status:1, TLV...]).
 pub const STATUS_OK: u8 = 0x00;
@@ -235,8 +235,8 @@ impl KeyManager {
     ) -> Result<Vec<u8>, KeyManagerError> {
         UpOnly.check_up(false, presence_confirmed)?;
         let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
-        let alg = CoseAlgorithm::from_i32(self.secrets[spos].alg)
-            .ok_or(KeyManagerError::BadEnvelope)?;
+        let alg =
+            CoseAlgorithm::from_i32(self.secrets[spos].alg).ok_or(KeyManagerError::BadEnvelope)?;
         let kp = KeyPair::from_private_key_bytes(alg, &self.secrets[spos].private_key)
             .map_err(|_| KeyManagerError::BadEnvelope)?;
         let sig = kp.sign(message).map_err(|_| KeyManagerError::BadEnvelope)?;
@@ -252,10 +252,11 @@ impl KeyManager {
         &self,
         slot_id: u8,
         presence_confirmed: bool,
-    ) -> Result<Vec<u8>, KeyManagerError> {        UpOnly.check_up(false, presence_confirmed)?;
+    ) -> Result<Vec<u8>, KeyManagerError> {
+        UpOnly.check_up(false, presence_confirmed)?;
         let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
-        let alg = CoseAlgorithm::from_i32(self.secrets[spos].alg)
-            .ok_or(KeyManagerError::BadEnvelope)?;
+        let alg =
+            CoseAlgorithm::from_i32(self.secrets[spos].alg).ok_or(KeyManagerError::BadEnvelope)?;
         let kp = KeyPair::from_private_key_bytes(alg, &self.secrets[spos].private_key)
             .map_err(|_| KeyManagerError::BadEnvelope)?;
         Ok(kp.to_cose_cbor())
@@ -270,8 +271,8 @@ impl KeyManager {
     ) -> Result<Vec<u8>, KeyManagerError> {
         UpOnly.check_up(false, presence_confirmed)?;
         let spos = self.secret_pos(slot_id).ok_or(KeyManagerError::NoSlot)?;
-        let alg = CoseAlgorithm::from_i32(self.secrets[spos].alg)
-            .ok_or(KeyManagerError::BadEnvelope)?;
+        let alg =
+            CoseAlgorithm::from_i32(self.secrets[spos].alg).ok_or(KeyManagerError::BadEnvelope)?;
         let kp = KeyPair::from_private_key_bytes(alg, &self.secrets[spos].private_key)
             .map_err(|_| KeyManagerError::BadEnvelope)?;
         Ok(kp.public_key().to_sec1_uncompressed())
@@ -319,8 +320,7 @@ impl KeyManager {
             let llen = take_bytes(&mut p, 1)?[0] as usize;
             let label = core::str::from_utf8(take_bytes(&mut p, llen)?)
                 .map_err(|_| KeyManagerError::BadEnvelope)?;
-            let slen =
-                u16::from_be_bytes(take_bytes(&mut p, 2)?.try_into().unwrap()) as usize;
+            let slen = u16::from_be_bytes(take_bytes(&mut p, 2)?.try_into().unwrap()) as usize;
             if slen == 0 || slen > 256 {
                 return Err(KeyManagerError::BadEnvelope);
             }
@@ -329,15 +329,18 @@ impl KeyManager {
                 .map_err(|_| KeyManagerError::BadEnvelope)?;
             slot.sign_count = sign_count;
             // Valida que o segredo casa com o alg (nada corrompido entra).
-            let alg_enum =
-                CoseAlgorithm::from_i32(alg).ok_or(KeyManagerError::BadEnvelope)?;
+            let alg_enum = CoseAlgorithm::from_i32(alg).ok_or(KeyManagerError::BadEnvelope)?;
             KeyPair::from_private_key_bytes(alg_enum, &secret)
                 .map_err(|_| KeyManagerError::BadEnvelope)?;
             if slots.iter().any(|s: &KeySlot| s.id == id) {
                 return Err(KeyManagerError::BadEnvelope);
             }
             slots.push(slot);
-            secrets.push(KeyEntry { slot_id: id, alg, private_key: secret });
+            secrets.push(KeyEntry {
+                slot_id: id,
+                alg,
+                private_key: secret,
+            });
         }
         if !p.is_empty() {
             return Err(KeyManagerError::BadEnvelope);
@@ -388,8 +391,16 @@ mod tests {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(0xE2E);
         let mut m = KeyManager::new();
-        m.generate(5, CoseAlgorithm::ES256, "e2e".into(), KEY_USE_SIGN, 1, true, &mut rng)
-            .expect("gen");
+        m.generate(
+            5,
+            CoseAlgorithm::ES256,
+            "e2e".into(),
+            KEY_USE_SIGN,
+            1,
+            true,
+            &mut rng,
+        )
+        .expect("gen");
         let blob = m.export_state();
         let mut m2 = KeyManager::new();
         m2.import_state(&blob).expect("import");
@@ -458,17 +469,50 @@ mod tests {
         assert!(env.len() >= 33);
         let mut mgr = KeyManager::new();
         assert_eq!(
-            mgr.import(0, CoseAlgorithm::ES256, String::from("imp"), KEY_USE_SIGN, 0, &env, PIN, false, true, &vault)
-                .unwrap_err(),
+            mgr.import(
+                0,
+                CoseAlgorithm::ES256,
+                String::from("imp"),
+                KEY_USE_SIGN,
+                0,
+                &env,
+                PIN,
+                false,
+                true,
+                &vault
+            )
+            .unwrap_err(),
             KeyManagerError::NeedUp
         );
         assert_eq!(
-            mgr.import(0, CoseAlgorithm::ES256, String::from("imp"), KEY_USE_SIGN, 0, &env, PIN, true, false, &vault)
-                .unwrap_err(),
+            mgr.import(
+                0,
+                CoseAlgorithm::ES256,
+                String::from("imp"),
+                KEY_USE_SIGN,
+                0,
+                &env,
+                PIN,
+                true,
+                false,
+                &vault
+            )
+            .unwrap_err(),
             KeyManagerError::NeedPin
         );
         let slot = mgr
-            .import(0, CoseAlgorithm::ES256, String::from("imp"), KEY_USE_SIGN, 0, &env, PIN, true, true, &vault)
+            .import(
+                0,
+                CoseAlgorithm::ES256,
+                String::from("imp"),
+                KEY_USE_SIGN,
+                0,
+                &env,
+                PIN,
+                true,
+                true,
+                &vault,
+            )
             .unwrap();
         assert_eq!(slot.id, 0);
         assert_eq!(mgr.len(), 1);
@@ -478,20 +522,53 @@ mod tests {
         assert!(pubkey.verify(MSG, &sig).is_ok());
         let mut mgr2 = KeyManager::new();
         let err = mgr2
-            .import(1, CoseAlgorithm::ES256, String::from("x"), KEY_USE_SIGN, 0, &env, b"wrong-pin-token", true, true, &vault)
+            .import(
+                1,
+                CoseAlgorithm::ES256,
+                String::from("x"),
+                KEY_USE_SIGN,
+                0,
+                &env,
+                b"wrong-pin-token",
+                true,
+                true,
+                &vault,
+            )
             .unwrap_err();
         assert_eq!(err, KeyManagerError::BadEnvelope);
         assert_eq!(err.status(), STATUS_BAD_ENVELOPE);
         let mut tampered = env.clone();
         tampered[20] ^= 0x55;
         assert_eq!(
-            mgr2.import(2, CoseAlgorithm::ES256, String::from("y"), KEY_USE_SIGN, 0, &tampered, PIN, true, true, &vault)
-                .unwrap_err(),
+            mgr2.import(
+                2,
+                CoseAlgorithm::ES256,
+                String::from("y"),
+                KEY_USE_SIGN,
+                0,
+                &tampered,
+                PIN,
+                true,
+                true,
+                &vault
+            )
+            .unwrap_err(),
             KeyManagerError::BadEnvelope
         );
         assert_eq!(
-            mgr.import(0, CoseAlgorithm::ES256, String::from("dup"), KEY_USE_SIGN, 0, &env, PIN, true, true, &vault)
-                .unwrap_err(),
+            mgr.import(
+                0,
+                CoseAlgorithm::ES256,
+                String::from("dup"),
+                KEY_USE_SIGN,
+                0,
+                &env,
+                PIN,
+                true,
+                true,
+                &vault
+            )
+            .unwrap_err(),
             KeyManagerError::NoSlot
         );
     }
@@ -500,17 +577,34 @@ mod tests {
     fn delete_wipes_and_gates() {
         let mut rng = rand::rngs::OsRng;
         let mut mgr = KeyManager::new();
-        mgr.generate(3, CoseAlgorithm::EdDSA, String::from("del"), KEY_USE_SIGN, 0, true, &mut rng)
-            .unwrap();
+        mgr.generate(
+            3,
+            CoseAlgorithm::EdDSA,
+            String::from("del"),
+            KEY_USE_SIGN,
+            0,
+            true,
+            &mut rng,
+        )
+        .unwrap();
         assert_eq!(mgr.len(), 1);
-        assert_eq!(mgr.delete(3, true, false).unwrap_err(), KeyManagerError::NeedPin);
-        assert_eq!(mgr.delete(3, false, true).unwrap_err(), KeyManagerError::NeedUp);
+        assert_eq!(
+            mgr.delete(3, true, false).unwrap_err(),
+            KeyManagerError::NeedPin
+        );
+        assert_eq!(
+            mgr.delete(3, false, true).unwrap_err(),
+            KeyManagerError::NeedUp
+        );
         assert_eq!(mgr.len(), 1);
         mgr.delete(3, true, true).unwrap();
         assert!(mgr.is_empty());
         assert_eq!(mgr.list(true).unwrap().len(), 0);
         assert_eq!(mgr.sign(3, MSG, true).unwrap_err(), KeyManagerError::NoSlot);
-        assert_eq!(mgr.delete(3, true, true).unwrap_err(), KeyManagerError::NoSlot);
+        assert_eq!(
+            mgr.delete(3, true, true).unwrap_err(),
+            KeyManagerError::NoSlot
+        );
     }
 
     #[test]
@@ -519,12 +613,28 @@ mod tests {
         let mut mgr = KeyManager::new();
         assert_eq!(mgr.list(false).unwrap_err(), KeyManagerError::NeedUp);
         assert_eq!(
-            mgr.generate(0, CoseAlgorithm::ES256, String::from("k0"), KEY_USE_SIGN, 0, false, &mut rng)
-                .unwrap_err(),
+            mgr.generate(
+                0,
+                CoseAlgorithm::ES256,
+                String::from("k0"),
+                KEY_USE_SIGN,
+                0,
+                false,
+                &mut rng
+            )
+            .unwrap_err(),
             KeyManagerError::NeedUp
         );
-        mgr.generate(0, CoseAlgorithm::ES256, String::from("k0"), KEY_USE_SIGN, 0, true, &mut rng)
-            .unwrap();
+        mgr.generate(
+            0,
+            CoseAlgorithm::ES256,
+            String::from("k0"),
+            KEY_USE_SIGN,
+            0,
+            true,
+            &mut rng,
+        )
+        .unwrap();
         let items = mgr.list(true).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, 0);

@@ -10,13 +10,13 @@
 
 extern crate alloc;
 
-use alloc::string::String;
-use alloc::format;
-use aegis_fido_core::oath::{calculate_code, OathAlgorithm};
-use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
-use crate::persistence::{FlashStorageBackend, SecureStorage};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use aegis_fido_core::oath::{calculate_code, OathAlgorithm};
+use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
+use alloc::format;
+use alloc::string::String;
 
 /// Prefixo do AP.
 pub const WIFI_AP_PREFIX: &str = "AegisKey-";
@@ -92,15 +92,18 @@ pub fn ap_ssid_for_serial(serial: &str) -> String {
         .chars()
         .rev()
         .collect();
-    let suffix = if tail.len() == 4 { tail } else { String::from("0001") };
+    let suffix = if tail.len() == 4 {
+        tail
+    } else {
+        String::from("0001")
+    };
     format!("{}{}", WIFI_AP_PREFIX, suffix)
 }
 
 /// Valida senha do AP (bounds WPA2).
 pub fn is_valid_wifi_password(pass: &str) -> bool {
     let len = pass.len();
-    (MIN_WIFI_PASS_LEN..=MAX_WIFI_PASS_LEN).contains(&len)
-        && pass.is_ascii()
+    (MIN_WIFI_PASS_LEN..=MAX_WIFI_PASS_LEN).contains(&len) && pass.is_ascii()
 }
 
 /// Gerente do AP (sem I/O; ESP liga o radio via `esp_ap_start`, componente C `aegis_wifi`).
@@ -172,11 +175,7 @@ pub enum ApPollAction {
 /// `ap_want` vem de `WifiApManager::is_active`; `ble_pairing_now` de
 /// `should_advertise` (BLE e WiFi sao mutuamente exclusivos no S3);
 /// `ap_active_cache` e o estado que o chamador acha que o radio tem.
-pub fn ap_poll_action(
-    ap_want: bool,
-    ble_pairing_now: bool,
-    ap_active_cache: bool,
-) -> ApPollAction {
+pub fn ap_poll_action(ap_want: bool, ble_pairing_now: bool, ap_active_cache: bool) -> ApPollAction {
     if ap_want && !ble_pairing_now {
         if ap_active_cache {
             ApPollAction::None
@@ -290,7 +289,13 @@ pub fn handle_get_oath_code(
     }
     for (name, secret, algo, digits) in secrets {
         if *name == account {
-            return Ok(totp_code_for_secret(account, secret, *algo, *digits, unix_seconds));
+            return Ok(totp_code_for_secret(
+                account,
+                secret,
+                *algo,
+                *digits,
+                unix_seconds,
+            ));
         }
     }
     Err(WifiApError::UnknownAccount)
@@ -367,7 +372,6 @@ pub fn resolve_ap_password(stored: Option<&[u8]>) -> Option<String> {
     Some(String::from(pass))
 }
 
-
 // Gates de binding para o HTTP mgmt (`binding.rs`).
 //
 // - `POST /config/wifi` (troca de senha): binding + UP + PIN.
@@ -422,9 +426,9 @@ pub fn handle_get_oath_code_bound(
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
     use super::*;
     use crate::persistence::MockFlashBackend;
+    use alloc::vec::Vec;
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])
@@ -501,10 +505,16 @@ mod tests {
         env.extend_from_slice(&[9u8; 20]);
         env.extend_from_slice(&[0u8; 16]);
         assert!(validate_ctap_envelope(&env).is_ok());
-        assert_eq!(validate_ctap_envelope(b"lixo"), Err(WifiApError::InvalidEnvelope));
+        assert_eq!(
+            validate_ctap_envelope(b"lixo"),
+            Err(WifiApError::InvalidEnvelope)
+        );
         let mut bad = env.clone();
         bad[0] ^= 0xFF;
-        assert_eq!(validate_ctap_envelope(&bad), Err(WifiApError::InvalidEnvelope));
+        assert_eq!(
+            validate_ctap_envelope(&bad),
+            Err(WifiApError::InvalidEnvelope)
+        );
     }
 
     #[test]
@@ -559,5 +569,3 @@ mod tests {
         assert_eq!(parse_oath_account_query("/oath/code?account="), None);
     }
 }
-
-

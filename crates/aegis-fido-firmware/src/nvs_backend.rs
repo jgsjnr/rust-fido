@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use crate::persistence::{FlashStorageBackend, MockFlashBackend, StorageError};
 
 /// Teto de leitura por blob (envelopes SecureStorage são pequenos).
-const NVS_READ_MAX: usize = 8192;
+pub(crate) const NVS_READ_MAX: usize = 8192;
 
 #[cfg(target_os = "espidf")]
 fn map_esp_err(e: esp_idf_sys::EspError) -> StorageError {
@@ -46,10 +46,8 @@ static STORAGE_PART: std::sync::OnceLock<
 > = std::sync::OnceLock::new();
 
 #[cfg(target_os = "espidf")]
-fn storage_partition() -> Result<
-    esp_idf_svc::nvs::EspNvsPartition<esp_idf_svc::nvs::NvsCustom>,
-    StorageError,
-> {
+fn storage_partition(
+) -> Result<esp_idf_svc::nvs::EspNvsPartition<esp_idf_svc::nvs::NvsCustom>, StorageError> {
     use esp_idf_svc::nvs::{EspNvsPartition, NvsCustom};
     if let Some(p) = STORAGE_PART.get() {
         return Ok(p.clone());
@@ -98,8 +96,7 @@ impl PlatformFlashBackend {
     }
 
     #[cfg(target_os = "espidf")]
-    fn open_nvs(
-    ) -> Result<esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsCustom>, StorageError> {
+    fn open_nvs() -> Result<esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsCustom>, StorageError> {
         use esp_idf_svc::nvs::EspNvs;
         let part = storage_partition()?;
         EspNvs::new(part, "aegis", true).map_err(|_| StorageError::FlashWriteError)

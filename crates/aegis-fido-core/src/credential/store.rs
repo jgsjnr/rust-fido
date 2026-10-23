@@ -1,7 +1,7 @@
-use alloc::string::String;
-use alloc::vec::Vec;
 use crate::credential::record::CredentialRecord;
 use crate::crypto::hash::sha256;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 pub trait CredentialStore {
     fn save(&mut self, record: CredentialRecord) -> Result<(), &'static str>;
@@ -50,7 +50,13 @@ pub struct KeySlot {
 
 impl KeySlot {
     /// Cria slot validando bounds §9.2.
-    pub fn new(id: u8, alg: i32, label: String, uso: u8, created: u64) -> Result<Self, &'static str> {
+    pub fn new(
+        id: u8,
+        alg: i32,
+        label: String,
+        uso: u8,
+        created: u64,
+    ) -> Result<Self, &'static str> {
         if (id as usize) >= MAX_KEY_SLOTS {
             return Err("bad slot");
         }
@@ -64,7 +70,14 @@ impl KeySlot {
         if uso == 0 {
             return Err("bad uso");
         }
-        Ok(Self { id, alg, label, uso, created, sign_count: 0 })
+        Ok(Self {
+            id,
+            alg,
+            label,
+            uso,
+            created,
+            sign_count: 0,
+        })
     }
 
     /// Incremento monotonico saturante (mesmo padrao do journal).
@@ -140,16 +153,21 @@ impl MemoryCredentialStore {
         for b in blob[..expect - 4].iter() {
             sum = sum.wrapping_add(*b as u32);
         }
-        let want = u32::from_be_bytes([blob[expect-4], blob[expect-3], blob[expect-2], blob[expect-1]]);
+        let want = u32::from_be_bytes([
+            blob[expect - 4],
+            blob[expect - 3],
+            blob[expect - 2],
+            blob[expect - 1],
+        ]);
         if sum != want {
             return Err("crc");
         }
         let mut off = 10;
         for _ in 0..n {
             let mut h = [0u8; 32];
-            h.copy_from_slice(&blob[off..off+32]);
+            h.copy_from_slice(&blob[off..off + 32]);
             off += 32;
-            let v = u32::from_be_bytes([blob[off], blob[off+1], blob[off+2], blob[off+3]]);
+            let v = u32::from_be_bytes([blob[off], blob[off + 1], blob[off + 2], blob[off + 3]]);
             off += 4;
             let mut placed = false;
             for c in self.credentials.iter_mut() {
@@ -163,8 +181,17 @@ impl MemoryCredentialStore {
             }
             if !placed {
                 match self.non_resident_counts.iter_mut().find(|(k, _)| *k == h) {
-                    Some(e) => { if v > e.1 { e.1 = v; } }
-                    None => { if self.non_resident_counts.len() >= SIGN_JOURNAL_MAX_BLOB_ENTRIES { self.non_resident_counts.remove(0); } self.non_resident_counts.push((h, v)); }
+                    Some(e) => {
+                        if v > e.1 {
+                            e.1 = v;
+                        }
+                    }
+                    None => {
+                        if self.non_resident_counts.len() >= SIGN_JOURNAL_MAX_BLOB_ENTRIES {
+                            self.non_resident_counts.remove(0);
+                        }
+                        self.non_resident_counts.push((h, v));
+                    }
                 }
             }
         }
@@ -218,7 +245,10 @@ impl CredentialStore for MemoryCredentialStore {
     }
 
     fn find_by_rp_id(&self, rp_id: &str) -> Vec<&CredentialRecord> {
-        self.credentials.iter().filter(|c| c.rp_id == rp_id).collect()
+        self.credentials
+            .iter()
+            .filter(|c| c.rp_id == rp_id)
+            .collect()
     }
 
     fn find_by_rp_id_hash(&self, rp_id_hash: &[u8; 32]) -> Vec<&CredentialRecord> {
@@ -268,7 +298,10 @@ impl CredentialStore for MemoryCredentialStore {
                 e.1 = e.1.saturating_add(1);
                 Ok(e.1)
             } else {
-                if self.non_resident_counts.len() >= SIGN_JOURNAL_MAX_BLOB_ENTRIES { self.non_resident_counts.remove(0); } self.non_resident_counts.push((h, 1));
+                if self.non_resident_counts.len() >= SIGN_JOURNAL_MAX_BLOB_ENTRIES {
+                    self.non_resident_counts.remove(0);
+                }
+                self.non_resident_counts.push((h, 1));
                 Ok(1)
             }
         }
@@ -339,13 +372,25 @@ mod tests {
         assert!(KeySlot::new(0, -7, alloc::string::String::from(""), KEY_USE_SIGN, 0).is_err());
         let big = alloc::string::String::from_utf8(vec![b'x'; MAX_KEY_LABEL_BYTES + 1]).unwrap();
         assert!(KeySlot::new(0, -7, big, KEY_USE_SIGN, 0).is_err());
-        assert!(KeySlot::new(MAX_KEY_SLOTS as u8, -7, alloc::string::String::from("a"), KEY_USE_SIGN, 0).is_err());
+        assert!(KeySlot::new(
+            MAX_KEY_SLOTS as u8,
+            -7,
+            alloc::string::String::from("a"),
+            KEY_USE_SIGN,
+            0
+        )
+        .is_err());
         assert!(KeySlot::new(0, -99, alloc::string::String::from("a"), KEY_USE_SIGN, 0).is_err());
         assert!(KeySlot::new(0, -7, alloc::string::String::from("a"), 0, 0).is_err());
-        let mut s = KeySlot::new(1, -8, alloc::string::String::from("k"), KEY_USE_SIGN | KEY_USE_AUTH, 7).unwrap();
+        let mut s = KeySlot::new(
+            1,
+            -8,
+            alloc::string::String::from("k"),
+            KEY_USE_SIGN | KEY_USE_AUTH,
+            7,
+        )
+        .unwrap();
         assert_eq!(s.increment_sign_count(), 1);
         assert_eq!(s.increment_sign_count(), 2);
     }
 }
-
-

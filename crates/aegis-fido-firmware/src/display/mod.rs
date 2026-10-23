@@ -8,7 +8,11 @@ pub mod st7789;
 pub mod ui;
 
 pub use st7789::{St7789Config, St7789Display};
-pub use ui::{band_count, band_range, colors, AegisUiRenderer, DisplayBand, DisplayBuffer, UiScreen, CLASSIC_BAND_HEIGHT, CLASSIC_HEIGHT, CLASSIC_WIDTH, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+pub use ui::{
+    band_count, band_range, colors, AegisUiRenderer, DisplayBand, DisplayBuffer, UiScreen,
+    CLASSIC_BAND_HEIGHT, CLASSIC_HEIGHT, CLASSIC_WIDTH, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT,
+    DISPLAY_WIDTH,
+};
 
 use crate::led::{Color, LedEffect, LedOutput, Ws2812Controller};
 

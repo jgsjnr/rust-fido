@@ -8,7 +8,10 @@ use super::{AegisVault, VaultPasskey};
 #[derive(Debug)]
 pub struct VaultStore<CHAR>(pub CHAR);
 
-impl<CHAR> VaultStore<CHAR> where CHAR: AsMut<AegisVault> + AsRef<AegisVault> {
+impl<CHAR> VaultStore<CHAR>
+where
+    CHAR: AsMut<AegisVault> + AsRef<AegisVault>,
+{
     /// Creates a store view.
     pub fn new(inner: CHAR) -> Self {
         Self(inner)

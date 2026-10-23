@@ -222,14 +222,33 @@ mod tests {
 
     #[test]
     fn new_accepts_defaults() {
-        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS).expect("defaults valid");
+        let cfg = DeviceConfig::new(
+            50,
+            512,
+            4,
+            8,
+            3,
+            DEFAULT_MAX_KEYS,
+            DEFAULT_MAX_OATH,
+            DEFAULT_MAX_VAULT_SLOTS,
+        )
+        .expect("defaults valid");
         assert_eq!(cfg, DeviceConfig::default());
     }
 
     #[test]
     fn rejects_zero_resident() {
         assert_eq!(
-            DeviceConfig::new(0, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                0,
+                512,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxResident)
         );
     }
@@ -237,7 +256,16 @@ mod tests {
     #[test]
     fn rejects_over_bound_resident() {
         assert_eq!(
-            DeviceConfig::new(MAX_RESIDENT_CREDENTIALS_BOUND + 1, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                MAX_RESIDENT_CREDENTIALS_BOUND + 1,
+                512,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxResident)
         );
     }
@@ -245,7 +273,16 @@ mod tests {
     #[test]
     fn rejects_over_bound_plaintext() {
         assert_eq!(
-            DeviceConfig::new(50, MAX_PLAINTEXT_BYTES_BOUND + 1, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                MAX_PLAINTEXT_BYTES_BOUND + 1,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxPlaintext)
         );
     }
@@ -253,7 +290,16 @@ mod tests {
     #[test]
     fn rejects_zero_plaintext() {
         assert_eq!(
-            DeviceConfig::new(50, 0, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                0,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxPlaintext)
         );
     }
@@ -261,11 +307,29 @@ mod tests {
     #[test]
     fn rejects_pin_length_bounds() {
         assert_eq!(
-            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_LOWER - 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                MIN_PIN_LENGTH_LOWER - 1,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMinPinLength)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, MIN_PIN_LENGTH_UPPER + 1, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                MIN_PIN_LENGTH_UPPER + 1,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMinPinLength)
         );
     }
@@ -273,42 +337,124 @@ mod tests {
     #[test]
     fn rejects_retries_bounds() {
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 0, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                0,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidPinRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, MAX_PIN_RETRIES_BOUND + 1, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                MAX_PIN_RETRIES_BOUND + 1,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidPinRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 0, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                0,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidUvRetries)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, MAX_UV_RETRIES_BOUND + 1, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                MAX_UV_RETRIES_BOUND + 1,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidUvRetries)
         );
     }
 
     #[test]
     fn fase6_keys_oath_bounds() {
-        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS).expect("fase6 defaults valid");
+        let cfg = DeviceConfig::new(
+            50,
+            512,
+            4,
+            8,
+            3,
+            DEFAULT_MAX_KEYS,
+            DEFAULT_MAX_OATH,
+            DEFAULT_MAX_VAULT_SLOTS,
+        )
+        .expect("fase6 defaults valid");
         assert_eq!(cfg.max_keys, 32);
         assert_eq!(cfg.max_oath, 64);
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, 0, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                3,
+                0,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxKeys)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, MAX_KEYS_BOUND + 1, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                3,
+                MAX_KEYS_BOUND + 1,
+                DEFAULT_MAX_OATH,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxKeys)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, 0, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                0,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxOath)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, MAX_OATH_BOUND + 1, DEFAULT_MAX_VAULT_SLOTS),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                MAX_OATH_BOUND + 1,
+                DEFAULT_MAX_VAULT_SLOTS
+            ),
             Err(ConfigError::InvalidMaxOath)
         );
         assert_eq!(MAX_LABEL_BYTES, 32);
@@ -316,15 +462,33 @@ mod tests {
 
     #[test]
     fn vault_slots_bounds() {
-        let cfg = DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, DEFAULT_MAX_VAULT_SLOTS)
-            .expect("vault defaults valid");
+        let cfg = DeviceConfig::new(
+            50,
+            512,
+            4,
+            8,
+            3,
+            DEFAULT_MAX_KEYS,
+            DEFAULT_MAX_OATH,
+            DEFAULT_MAX_VAULT_SLOTS,
+        )
+        .expect("vault defaults valid");
         assert_eq!(cfg.max_vault_slots, 32);
         assert_eq!(
             DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, 0),
             Err(ConfigError::InvalidMaxVault)
         );
         assert_eq!(
-            DeviceConfig::new(50, 512, 4, 8, 3, DEFAULT_MAX_KEYS, DEFAULT_MAX_OATH, MAX_VAULT_SLOTS_BOUND + 1),
+            DeviceConfig::new(
+                50,
+                512,
+                4,
+                8,
+                3,
+                DEFAULT_MAX_KEYS,
+                DEFAULT_MAX_OATH,
+                MAX_VAULT_SLOTS_BOUND + 1
+            ),
             Err(ConfigError::InvalidMaxVault)
         );
     }

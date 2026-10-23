@@ -11,9 +11,9 @@
 //! ao app (`VendorOps`) e ao `oath/tlv.rs`: tags `0x01` slot, `0x02`
 //! label, `0x07` address (resposta), `0x08` network (pedido GEN).
 
+use rand_core::{CryptoRng, RngCore};
 use std::string::String;
 use std::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
 
 use aegis_fido_core::oath::tlv::{find_tlv, parse_tlv_records, write_tlv};
 use aegis_fido_core::wallet::{types::CryptoNetwork, WalletError, WalletStore};
@@ -40,11 +40,9 @@ fn slot_of(records: &[aegis_fido_core::oath::tlv::TlvRecord<'_>]) -> Result<u8, 
 
 fn label_of(records: &[aegis_fido_core::oath::tlv::TlvRecord<'_>]) -> Result<String, WalletError> {
     match find_tlv(records, TAG_WALLET_LABEL) {
-        Some(v) if !v.is_empty() && v.len() <= 32 => {
-            core::str::from_utf8(v)
-                .map(String::from)
-                .map_err(|_| WalletError::BadEnvelope)
-        }
+        Some(v) if !v.is_empty() && v.len() <= 32 => core::str::from_utf8(v)
+            .map(String::from)
+            .map_err(|_| WalletError::BadEnvelope),
         _ => Err(WalletError::BadEnvelope),
     }
 }
@@ -150,7 +148,13 @@ mod tests {
         let mut rng = rand::rngs::OsRng;
         let mut store = WalletStore::new();
         // Sem UP: nega NEED_UP (0x01).
-        let (st, _) = wallet_gen(&mut store, &gen_payload(3, b"btc", 0x01), 1, false, &mut rng);
+        let (st, _) = wallet_gen(
+            &mut store,
+            &gen_payload(3, b"btc", 0x01),
+            1,
+            false,
+            &mut rng,
+        );
         assert_eq!(st, 0x01);
         // Com UP: gera; endereço bech32 no corpo.
         let (st, body) = wallet_gen(&mut store, &gen_payload(3, b"btc", 0x01), 1, true, &mut rng);
@@ -158,7 +162,11 @@ mod tests {
         let recs = parse_tlv_records(&body).unwrap();
         assert_eq!(find_tlv(&recs, TAG_WALLET_SLOT), Some(&[3u8][..]));
         let addr = find_tlv(&recs, TAG_WALLET_ADDRESS).unwrap();
-        assert!(addr.starts_with(b"bc1q"), "{}", String::from_utf8_lossy(addr));
+        assert!(
+            addr.starts_with(b"bc1q"),
+            "{}",
+            String::from_utf8_lossy(addr)
+        );
         // LIST traz o registro; ADDR confere o mesmo endereço.
         let (st, list) = wallet_list(&store, true);
         assert_eq!(st, 0x00);

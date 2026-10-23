@@ -244,7 +244,13 @@ pub struct AegisUiRenderer;
 
 impl AegisUiRenderer {
     /// Renders the specified UI Screen into the framebuffer
-    pub fn render(screen: &UiScreen, target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>) {
+    pub fn render(
+        screen: &UiScreen,
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
+    ) {
         let _ = target.clear(colors::BG_DARK);
 
         match screen {
@@ -308,7 +314,14 @@ impl AegisUiRenderer {
         ((DISPLAY_WIDTH as i32 - w) / 2).max(2)
     }
 
-    fn draw_header(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, title: &str, accent_color: Rgb565) {
+    fn draw_header(
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
+        title: &str,
+        accent_color: Rgb565,
+    ) {
         let h_height = if DISPLAY_HEIGHT < 150 { 20u32 } else { 24u32 };
         let header_rect =
             Rectangle::new(Point::new(0, 0), Size::new(DISPLAY_WIDTH as u32, h_height));
@@ -354,7 +367,14 @@ impl AegisUiRenderer {
         let _ = pill.draw(target);
     }
 
-    fn draw_boot_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, version: &str, chip: &str) {
+    fn draw_boot_screen(
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
+        version: &str,
+        chip: &str,
+    ) {
         let center_x = (DISPLAY_WIDTH / 2) as i32;
         let is_small = DISPLAY_HEIGHT < 150;
 
@@ -418,7 +438,13 @@ impl AegisUiRenderer {
         .draw(target);
     }
 
-    fn draw_idle_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, status_text: &str) {
+    fn draw_idle_screen(
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
+        status_text: &str,
+    ) {
         Self::draw_header(target, "AEGISKEY • PRONTO", colors::ACCENT_CYAN);
 
         let center_x = (DISPLAY_WIDTH / 2) as i32;
@@ -503,7 +529,10 @@ impl AegisUiRenderer {
     }
 
     fn draw_prompt_screen(
-        target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>,
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
         rp_id: &str,
         user_name: &str,
         operation: &str,
@@ -613,7 +642,14 @@ impl AegisUiRenderer {
         .draw(target);
     }
 
-    fn draw_success_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, title: &str, subtitle: &str) {
+    fn draw_success_screen(
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
+        title: &str,
+        subtitle: &str,
+    ) {
         Self::draw_header(target, "AUTORIZAÇÃO CONFIRMADA", colors::SUCCESS_GREEN);
 
         let center_x = (DISPLAY_WIDTH / 2) as i32;
@@ -672,7 +708,13 @@ impl AegisUiRenderer {
         .draw(target);
     }
 
-    fn draw_error_screen(target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>, message: &str) {
+    fn draw_error_screen(
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
+        message: &str,
+    ) {
         Self::draw_header(target, "FALHA / CANCELADO", colors::DANGER_RED);
 
         let center_x = (DISPLAY_WIDTH / 2) as i32;
@@ -734,7 +776,10 @@ impl AegisUiRenderer {
     }
 
     fn draw_totp_screen(
-        target: &mut impl embedded_graphics::draw_target::DrawTarget<Color = Rgb565, Error = core::convert::Infallible>,
+        target: &mut impl embedded_graphics::draw_target::DrawTarget<
+            Color = Rgb565,
+            Error = core::convert::Infallible,
+        >,
         label: &str,
         code: &str,
         remaining_seconds: u32,
@@ -937,8 +982,14 @@ mod tests {
         const SMALL_HEAP_BYTES: usize = 20 * 1024;
         const FULL_BYTES: usize = CLASSIC_WIDTH * CLASSIC_HEIGHT * 2;
         const BAND_BYTES: usize = CLASSIC_WIDTH * CLASSIC_BAND_HEIGHT * 2;
-        assert!(FULL_BYTES > SMALL_HEAP_BYTES, "full deve estourar o heap pequeno");
-        assert!(BAND_BYTES <= SMALL_HEAP_BYTES, "banda deve caber no heap pequeno");
+        assert!(
+            FULL_BYTES > SMALL_HEAP_BYTES,
+            "full deve estourar o heap pequeno"
+        );
+        assert!(
+            BAND_BYTES <= SMALL_HEAP_BYTES,
+            "banda deve caber no heap pequeno"
+        );
         // Prova por alocacao real no host: 6 bandas sequenciais cabem onde 1 full falharia.
         let mut peak = 0usize;
         for i in 0..band_count(CLASSIC_HEIGHT, CLASSIC_BAND_HEIGHT) {

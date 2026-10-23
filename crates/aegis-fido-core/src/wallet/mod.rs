@@ -34,7 +34,9 @@ pub mod address;
 pub mod store;
 pub mod types;
 
-pub use address::{address_for_public_key, bitcoin_p2wpkh_address, ethereum_address, solana_address};
+pub use address::{
+    address_for_public_key, bitcoin_p2wpkh_address, ethereum_address, solana_address,
+};
 pub use store::{WalletStore, WALLET_LABEL_PREFIX};
 pub use types::{CryptoNetwork, WalletRecord};
 
@@ -102,16 +104,34 @@ mod tests {
         assert_eq!(WalletError::NeedPin.status(), STATUS_NEED_PIN);
         assert_eq!(WalletError::NoSlot.status(), STATUS_NO_SLOT);
         assert_eq!(WalletError::BadEnvelope.status(), STATUS_BAD_ENVELOPE);
-        assert_eq!(WalletError::from(KeyManagerError::NeedUp), WalletError::NeedUp);
-        assert_eq!(WalletError::from(KeyManagerError::NeedPin), WalletError::NeedPin);
-        assert_eq!(WalletError::from(KeyManagerError::NoSlot), WalletError::NoSlot);
+        assert_eq!(
+            WalletError::from(KeyManagerError::NeedUp),
+            WalletError::NeedUp
+        );
+        assert_eq!(
+            WalletError::from(KeyManagerError::NeedPin),
+            WalletError::NeedPin
+        );
+        assert_eq!(
+            WalletError::from(KeyManagerError::NoSlot),
+            WalletError::NoSlot
+        );
         assert_eq!(
             WalletError::from(KeyManagerError::BadEnvelope),
             WalletError::BadEnvelope
         );
-        assert_eq!(alloc::format!("{}", WalletError::NeedUp), "user presence required");
-        assert_eq!(alloc::format!("{}", WalletError::NeedPin), "PIN authentication required");
-        assert_eq!(alloc::format!("{}", WalletError::NoSlot), "wallet slot unavailable");
+        assert_eq!(
+            alloc::format!("{}", WalletError::NeedUp),
+            "user presence required"
+        );
+        assert_eq!(
+            alloc::format!("{}", WalletError::NeedPin),
+            "PIN authentication required"
+        );
+        assert_eq!(
+            alloc::format!("{}", WalletError::NoSlot),
+            "wallet slot unavailable"
+        );
         assert_eq!(
             alloc::format!("{}", WalletError::BadEnvelope),
             "bad wallet envelope or network"

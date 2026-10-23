@@ -402,7 +402,11 @@ impl CcidTransport {
 
                 let apdu = CommandApdu::parse(payload)?;
                 let resp_apdu = self.handle_apdu(&apdu, handler);
-                Ok(Self::build_data_block_response(slot, seq, &resp_apdu.to_bytes()))
+                Ok(Self::build_data_block_response(
+                    slot,
+                    seq,
+                    &resp_apdu.to_bytes(),
+                ))
             }
 
             _ => {
@@ -550,7 +554,11 @@ impl CcidTransport {
                         self.piv = PivApplet::new();
                     }
                 }
-                Ok(Self::build_data_block_response(slot, seq, &resp_apdu.to_bytes()))
+                Ok(Self::build_data_block_response(
+                    slot,
+                    seq,
+                    &resp_apdu.to_bytes(),
+                ))
             }
 
             _ => {
@@ -904,7 +912,8 @@ mod tests {
     }
 
     #[test]
-    fn store_power_off_reseta_selecao() {        let mut t = CcidTransport::new();
+    fn store_power_off_reseta_selecao() {
+        let mut t = CcidTransport::new();
         let mut s = TStore::enrolled();
         s.process(&mut t, &power_on(1)).unwrap();
         s.process(&mut t, &xfr(2, &select_piv())).unwrap();
@@ -919,7 +928,6 @@ mod tests {
         assert_eq!(r[7], 0x01);
     }
 
-
     #[test]
     fn test_power_on_atr() {
         let mut transport = CcidTransport::new();
@@ -927,13 +935,20 @@ mod tests {
 
         let power_on_cmd = [
             PC_TO_RDR_ICC_POWER_ON,
-            0, 0, 0, 0, // dwLength: 0
-            0,          // bSlot
-            1,          // bSeq
-            0, 0, 0,    // PowerSelect / RFU
+            0,
+            0,
+            0,
+            0, // dwLength: 0
+            0, // bSlot
+            1, // bSeq
+            0,
+            0,
+            0, // PowerSelect / RFU
         ];
 
-        let resp = transport.process_ccid_message(&power_on_cmd, &mut handler).unwrap();
+        let resp = transport
+            .process_ccid_message(&power_on_cmd, &mut handler)
+            .unwrap();
         assert_eq!(resp[0], RDR_TO_PC_DATA_BLOCK);
         assert_eq!(resp[5], 0); // Slot
         assert_eq!(resp[6], 1); // Seq
@@ -958,7 +973,9 @@ mod tests {
         ccid_msg.extend_from_slice(&[0, 0, 0]); // RFU
         ccid_msg.extend_from_slice(&apdu_bytes);
 
-        let resp = transport.process_ccid_message(&ccid_msg, &mut handler).unwrap();
+        let resp = transport
+            .process_ccid_message(&ccid_msg, &mut handler)
+            .unwrap();
         assert_eq!(resp[0], RDR_TO_PC_DATA_BLOCK);
         assert_eq!(resp[6], 42); // Seq
         let apdu_resp = &resp[10..];
@@ -986,7 +1003,9 @@ mod tests {
         ccid_msg.extend_from_slice(&[0, 0, 0]);
         ccid_msg.extend_from_slice(&apdu_bytes);
 
-        let resp = transport.process_ccid_message(&ccid_msg, &mut handler).unwrap();
+        let resp = transport
+            .process_ccid_message(&ccid_msg, &mut handler)
+            .unwrap();
         let apdu_resp = &resp[10..];
         assert_eq!(&apdu_resp[..6], b"U2F_V2");
         assert_eq!(apdu_resp[6], 0x90);
@@ -1068,7 +1087,9 @@ mod tests {
         assert_eq!(transport.selected_applet, SelectedApplet::Piv);
 
         // Act: VERIFY sem PIN provisionado (transporte puro, sem NVS)
-        let verify = vec![0x00, 0x20, 0x00, 0x80, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36];
+        let verify = vec![
+            0x00, 0x20, 0x00, 0x80, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+        ];
         let resp = transport
             .process_ccid_message(&xfr_block(&verify, 2), &mut handler)
             .unwrap();
@@ -1121,7 +1142,9 @@ mod tests {
     }
 
     fn param_msg(msg_type: u8, seq: u8) -> Vec<u8> {
-        vec![msg_type, 7, 0, 0, 0, 0, seq, 0, 0, 0, 1, 0x11, 0x10, 0, 0x4D, 0, 0]
+        vec![
+            msg_type, 7, 0, 0, 0, 0, seq, 0, 0, 0, 1, 0x11, 0x10, 0, 0x4D, 0, 0,
+        ]
     }
 
     #[test]
@@ -1183,9 +1206,7 @@ mod tests {
         // Sem nem header: aí sim None (C nunca enfileira < 10B).
         assert!(CcidTransport::error_response(&[0x6F, 0x00]).is_none());
         // Comprimento inconsistente: process erra, fallback responde.
-        let clipped = [
-            PC_TO_RDR_XFR_BLOCK, 5, 0, 0, 0, 0, 8, 0, 0, 0, 0xAA, 0xBB,
-        ];
+        let clipped = [PC_TO_RDR_XFR_BLOCK, 5, 0, 0, 0, 0, 8, 0, 0, 0, 0xAA, 0xBB];
         let mut t = CcidTransport::new();
         let mut s = TStore::enrolled();
         assert!(s.process(&mut t, &clipped).is_err());
@@ -1223,7 +1244,20 @@ mod tests {
         assert_eq!(&r[10..14], &3600u32.to_le_bytes());
         assert_eq!(&r[14..18], &10752u32.to_le_bytes());
         // Curto: erro de slot, nunca silêncio.
-        let short = [PC_TO_RDR_SET_DATA_RATE_AND_CLOCK, 2, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2];
+        let short = [
+            PC_TO_RDR_SET_DATA_RATE_AND_CLOCK,
+            2,
+            0,
+            0,
+            0,
+            0,
+            3,
+            0,
+            0,
+            0,
+            1,
+            2,
+        ];
         let r = t.process_ccid_message(&short, &mut h).unwrap();
         assert_eq!(r[0], RDR_TO_PC_SLOT_STATUS);
         assert_ne!(r[7], 0x00);
@@ -1239,9 +1273,7 @@ mod tests {
             (PC_TO_RDR_SET_PARAMETERS, 2),
             (PC_TO_RDR_RESET_PARAMETERS, 3),
         ] {
-            let r = t
-                .process_ccid_message(&param_msg(ty, seq), &mut h)
-                .unwrap();
+            let r = t.process_ccid_message(&param_msg(ty, seq), &mut h).unwrap();
             assert_eq!(r[0], RDR_TO_PC_PARAMETERS);
             assert_eq!(r[6], seq);
             assert_eq!(r[9], 1); // T=1

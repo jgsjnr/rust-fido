@@ -8,49 +8,52 @@
 //! - Composite USB descriptors (CTAPHID, CCID, Keyboard, WinUSB with MS OS 2.0).
 //! - Wave4: pairing journey (5s hold), BLE GATT 0xFFFD, WiFi AP, UI journey.
 
+pub mod binding;
 pub mod ble_gatt;
 pub mod ble_nimble;
-pub mod binding;
-pub mod ccid_dispatch;
-pub mod recovery;
 pub mod button;
+pub mod ccid_dispatch;
 pub mod config;
 pub mod display;
 pub mod efuse;
+pub mod freertos;
 pub mod fw_log;
 pub mod identity;
 pub mod led;
 pub mod lifetime_trace;
 pub mod mdns;
 pub mod migrations;
+pub mod nvs_backend;
 pub mod oath_store;
 pub mod ota;
 pub mod pairing;
 pub mod pairing_flow;
 pub mod pairing_led;
 pub mod persistence;
+pub mod piv_store;
 pub mod provision;
 #[cfg(feature = "proximity")]
 pub mod proximity;
+pub mod recovery;
 pub mod serial_ctaphid;
 pub mod test_hooks;
 pub mod totp_view;
 pub mod ui_journey;
-pub mod watchdog;
-pub mod wifi_ap;
-pub mod wifi_station;
 pub mod usb_descriptors;
 pub mod vault_store;
 pub mod vendor_exec;
 pub mod wallet_exec;
-pub mod nvs_backend;
-pub mod piv_store;
+pub mod watchdog;
+pub mod wifi_ap;
+pub mod wifi_station;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
 pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
 pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage, RamEfuseStorage};
+pub use freertos::{EventGroup, FirmwareEvent, FreeRtosQueue, FreeRtosScheduler, TaskConfig};
 pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
-pub use persistence::{FlashStorageBackend, MockFlashBackend, PlatformFlashBackend, SecureStorage, StorageError};
-pub use watchdog::{StaticBuf, Watchdog};
+pub use persistence::{
+    FlashStorageBackend, MockFlashBackend, PlatformFlashBackend, SecureStorage, StorageError,
+};
 pub use usb_descriptors::*;
-
+pub use watchdog::{StaticBuf, Watchdog};

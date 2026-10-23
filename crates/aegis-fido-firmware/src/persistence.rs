@@ -26,7 +26,16 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 pub const NONCE_SIZE: usize = 12;
 pub const TAG_SIZE: usize = 16;
 pub const KEY_SIZE: usize = 32;
-pub const MAX_PLAINTEXT_BYTES: usize = 512;
+/// Teto fail-closed do plaintext por `store` (auditoria device-side T13):
+/// `export_state` do `KeyManager` = 3 B de header (`ver` + `n u16BE`) +
+/// 21 B fixos/slot (`id`+`alg i32BE`+`uso`+`created u64BE`+`sign u32BE`+
+/// `llen`+`slen u16BE`) + label ≤32 (`MAX_KEY_LABEL_BYTES`) + segredo ≤66
+/// (maior curva, P-521/ES512) → pior caso 32 slots =
+/// `3 + 32×(21+32+66) = 3811 ≤ 4096` (margem 285 B); provado no device
+/// (T13 GEN `0x00` com estado de 534 B falha com teto 512). Envelope máx
+/// 4129 B < `NVS_READ_MAX` 8192 e < limite de blob NVS (~508 kB na
+/// partição storage 896 KiB).
+pub const MAX_PLAINTEXT_BYTES: usize = 4096;
 pub const MAX_ENVELOPE_BYTES: usize = 4 + 1 + NONCE_SIZE + MAX_PLAINTEXT_BYTES + TAG_SIZE;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -91,23 +100,40 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
     /// Encrypts plaintext data with AES-256-GCM and stores it under key.
     /// Wave1: nonce TRNG 12B gerado internamente, parametro fixo ignorado.
     /// Envelope AEGN VER nonce ct+tag inalterado. Zeroize apos uso.
-    pub fn store(&mut self, key: &str, plaintext: &[u8], _nonce_bytes: &[u8; 12]) -> Result<(), StorageError> {
+    pub fn store(
+        &mut self,
+        key: &str,
+        plaintext: &[u8],
+        _nonce_bytes: &[u8; 12],
+    ) -> Result<(), StorageError> {
         let mut trng = rand_core::OsRng;
         self.store_with_rng(key, plaintext, &mut trng)
     }
 
     /// Variante TRNG explicita (mesmo padrao de seal_blob): gera nonce via RngCore.
-    /// MAX-ESP: envelope em buffer estatico, sem alloc no hot path do envelope.
-    pub fn store_with_rng<R: RngCore + CryptoRng>(&mut self, key: &str, plaintext: &[u8], rng: &mut R) -> Result<(), StorageError> {
+    /// MAX-ESP: envelope em heap (`Vec`), nunca na stack — a main do boot roda
+    /// com stack crítica (~116 B livres no build com hang) e 545 B na stack
+    /// aqui + AES/HKDF sem yield estourava em silêncio (TWDT). Heap move o
+    /// custo p/ a DRAM; `zeroize` antes do drop preserva o segredo.
+    pub fn store_with_rng<R: RngCore + CryptoRng>(
+        &mut self,
+        key: &str,
+        plaintext: &[u8],
+        rng: &mut R,
+    ) -> Result<(), StorageError> {
         if plaintext.len() > MAX_PLAINTEXT_BYTES {
             return Err(StorageError::BufferOverflow);
         }
         let mut nonce_bytes = [0u8; NONCE_SIZE];
         rng.fill_bytes(&mut nonce_bytes);
-        let cipher = Aes256Gcm::new_from_slice(&self.encryption_key).map_err(|_| StorageError::FlashWriteError)?;
+        let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
+            .map_err(|_| StorageError::FlashWriteError)?;
         let nonce = Nonce::from(nonce_bytes);
-        let mut ciphertext = cipher.encrypt(&nonce, plaintext).map_err(|_| StorageError::FlashWriteError)?;
-        let mut envelope = [0u8; MAX_ENVELOPE_BYTES];
+        let mut ciphertext = cipher
+            .encrypt(&nonce, plaintext)
+            .map_err(|_| StorageError::FlashWriteError)?;
+        // Heap: 545 B fora da stack da chamadora (main pré-yield tem ~116 B).
+        let mut envelope = vec![0u8; MAX_ENVELOPE_BYTES];
         let total = 4 + 1 + NONCE_SIZE + ciphertext.len();
         envelope[0..4].copy_from_slice(&ENVELOPE_MAGIC);
         envelope[4] = ENVELOPE_VERSION;
@@ -169,8 +195,8 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
 // Wave OTA wiring (Step 4, traces R-04/R-06; F5 chunked NVS staging).
 //
 // Staging lives under raw `ota_*` flash keys — NEVER through `SecureStorage`
-// envelopes (a firmware image can never fit a single 512 B
-// `MAX_PLAINTEXT_BYTES` envelope, and credential/OATH NVS keys must stay
+// envelopes (a firmware image can never fit a single `MAX_PLAINTEXT_BYTES`
+// envelope, and credential/OATH NVS keys must stay
 // byte-identical across commit and rollback). Rollback on any failure
 // preserves NVS: only `ota_*` keys are ever created, modified, or deleted.
 // F5: o blob único virou família chunked (`ota_stage_len` + `ota_cNNNNNN`
@@ -243,13 +269,14 @@ fn chunk_key(index: usize) -> String {
 
 fn read_len(backend: &impl FlashStorageBackend) -> usize {
     match backend.read_raw(OTA_STAGE_LEN_KEY) {
-        Ok(v) if v.len() == 4 => {
-            u32::from_be_bytes([v[0], v[1], v[2], v[3]]) as usize
-        }
+        Ok(v) if v.len() == 4 => u32::from_be_bytes([v[0], v[1], v[2], v[3]]) as usize,
         _ => {
             // Migração: blob único legado vira len (conteúdo migrado no
             // primeiro append; descarte limpa os dois formatos).
-            backend.read_raw(OTA_STAGING_KEY).map(|v| v.len()).unwrap_or(0)
+            backend
+                .read_raw(OTA_STAGING_KEY)
+                .map(|v| v.len())
+                .unwrap_or(0)
         }
     }
 }
@@ -366,10 +393,7 @@ impl<B: FlashStorageBackend> OtaSink for FlashOtaSink<'_, B> {
         if self.finalized || offset != self.len {
             return Err(OtaError::OutOfOrder);
         }
-        let end = self
-            .len
-            .checked_add(data.len())
-            .ok_or(OtaError::Overflow)?;
+        let end = self.len.checked_add(data.len()).ok_or(OtaError::Overflow)?;
         if end > MAX_OTA_IMAGE_BYTES {
             return Err(OtaError::Overflow);
         }
@@ -576,7 +600,9 @@ mod tests {
         let backend = MockFlashBackend::new();
         let mut storage = SecureStorage::new(backend, &master_key, &salt);
 
-        let nonce = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C];
+        let nonce = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+        ];
         let secret_data = b"Master Passkey Credential Data #12345";
 
         storage.store("credential_01", secret_data, &nonce).unwrap();
@@ -595,7 +621,9 @@ mod tests {
 
         {
             let mut storage = SecureStorage::new(backend.clone(), &master_key, &salt);
-            storage.store("pin_hash", b"my_secure_pin_salt_hash", &nonce).unwrap();
+            storage
+                .store("pin_hash", b"my_secure_pin_salt_hash", &nonce)
+                .unwrap();
             backend = storage.backend.clone();
         }
 
@@ -617,7 +645,9 @@ mod tests {
         let salt = [0xAAu8; 32];
         let backend = MockFlashBackend::new();
         let mut storage = SecureStorage::new(backend, &master_key, &salt);
-        let ignored = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C];
+        let ignored = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+        ];
         let data = b"same plaintext for nonce uniqueness";
         storage.store("k1", data, &ignored).unwrap();
         storage.store("k2", data, &ignored).unwrap();
@@ -647,6 +677,62 @@ mod tests {
         let big = [0x41u8; MAX_PLAINTEXT_BYTES + 1];
         let res = storage.store("big", &big, &ignored);
         assert_eq!(res, Err(StorageError::BufferOverflow));
+    }
+
+    /// Regressão do hang de boot (main com ~116 B livres): o frame de
+    /// `store_with_rng` + as maiores structs de boot ficam abaixo do teto de
+    /// 8 KiB, e o `store` no teto (`MAX_PLAINTEXT_BYTES`) funciona via Mock.
+    /// Nada aqui depende de device (host-only, `MockFlashBackend`).
+    #[test]
+    fn boot_stack_budget_store_heap_e_teto() {
+        // Teto documentado: 8 KiB p/ todo o caminho de `store` no boot.
+        const BOOT_STACK_BUDGET_BYTES: usize = 8 * 1024;
+        // O teto antigo `<= 1024` estava errado diante do `MAX_PLAINTEXT_BYTES`
+        // de 4096 (envelope máx 4129 B, provado no device T13): o invariante
+        // correto é o envelope caber no `NVS_READ_MAX` (8192), não em 1 KiB.
+        // Se o plaintext crescer de novo, este teste quebra antes da placa
+        // travar — sem rebaixar o teto funcional.
+        const { assert!(MAX_ENVELOPE_BYTES < crate::nvs_backend::NVS_READ_MAX) };
+        assert!(
+            core::mem::size_of::<SecureStorage<MockFlashBackend>>() < 2048,
+            "SecureStorage grande demais p/ stack crítica do boot"
+        );
+        assert!(
+            MAX_ENVELOPE_BYTES + core::mem::size_of::<SecureStorage<MockFlashBackend>>()
+                < BOOT_STACK_BUDGET_BYTES,
+            "orçamento de stack do boot excedido"
+        );
+        // Roundtrip no teto atual (4096 B): prova que o caminho heap cobre o
+        // pior caso real sem tocar na stack da main.
+        let master_key = [0x55u8; 32];
+        let salt = [0xAAu8; 32];
+        let backend = MockFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &master_key, &salt);
+        let ignored = [0x00u8; 12];
+        let max = vec![0x41u8; MAX_PLAINTEXT_BYTES];
+        storage.store("boot_ceiling", &max, &ignored).unwrap();
+        assert_eq!(storage.load("boot_ceiling").unwrap(), max);
+    }
+    /// Teto funcional auditado: 3 B de header + 32 slots × (21 B fixos +
+    /// label ≤32 + segredo ≤66, maior curva P-521/ES512) = 3811 ≤ 4096
+    /// (margem 285 B); envelope máx 4129 B < `NVS_READ_MAX` 8192.
+    /// FALHARIA com o teto antigo de 512 B (3811 > 512); o fail-closed
+    /// acima do teto segue coberto por `test_max_esp_overflow`.
+    #[test]
+    fn teto_cobre_pior_caso_32_slots() {
+        const PIOR_CASO_BYTES: usize = 3 + 32 * (21 + 32 + 66);
+        const { assert!(PIOR_CASO_BYTES == 3811) };
+        const { assert!(PIOR_CASO_BYTES <= MAX_PLAINTEXT_BYTES) };
+        const { assert!(MAX_ENVELOPE_BYTES < crate::nvs_backend::NVS_READ_MAX) };
+        // Roundtrip opaco de 3811 B (pior caso real) via Mock.
+        let master_key = [0x55u8; 32];
+        let salt = [0xAAu8; 32];
+        let backend = MockFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &master_key, &salt);
+        let ignored = [0x00u8; 12];
+        let max = vec![0x42u8; PIOR_CASO_BYTES];
+        storage.store("pior_caso_32_slots", &max, &ignored).unwrap();
+        assert_eq!(storage.load("pior_caso_32_slots").unwrap(), max);
     }
     #[test]
     fn power_loss_mid_write() {
@@ -683,8 +769,8 @@ mod tests {
 mod ota_wiring_tests {
     use super::*;
     use crate::ota::{
-        OtaPhase, OtaState, OP_OTA_ABORT, OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_COMMIT,
-        OP_OTA_FINISH, OTA_MANIFEST_LEN, OtaManifest,
+        OtaManifest, OtaPhase, OtaState, OP_OTA_ABORT, OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_COMMIT,
+        OP_OTA_FINISH, OTA_MANIFEST_LEN,
     };
     use ed25519_dalek::SigningKey;
     use sha2::Digest as _;
@@ -732,11 +818,14 @@ mod ota_wiring_tests {
     }
 
     fn credentialed_storage() -> SecureStorage<MockFlashBackend> {
-        let mut storage =
-            SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
+        let mut storage = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
         let nonce = [0x00u8; 12];
-        storage.store("credential_01", b"passkey-bytes", &nonce).unwrap();
-        storage.store("oath_secret_02", b"oath-seed", &nonce).unwrap();
+        storage
+            .store("credential_01", b"passkey-bytes", &nonce)
+            .unwrap();
+        storage
+            .store("oath_secret_02", b"oath-seed", &nonce)
+            .unwrap();
         storage.store("pin_hash", b"pin-salt-hash", &nonce).unwrap();
         storage
     }
@@ -777,7 +866,10 @@ mod ota_wiring_tests {
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
         let mut sink = FlashOtaSink::new(storage.backend_mut());
         for op in [0x20u8, 0x2D, 0x2F, 0x35, 0xFF] {
-            assert_eq!(dispatch_ota_request(&mut ota, &mut sink, op, &[], &ctx), None);
+            assert_eq!(
+                dispatch_ota_request(&mut ota, &mut sink, op, &[], &ctx),
+                None
+            );
         }
         assert_eq!(ota.phase(), OtaPhase::Idle);
     }
@@ -832,7 +924,8 @@ mod ota_wiring_tests {
     }
 
     #[test]
-    fn ota_begin_rejects_unprovisioned() {        let mut storage = credentialed_storage();
+    fn ota_begin_rejects_unprovisioned() {
+        let mut storage = credentialed_storage();
         let image = ota_image();
         let raw = manifest_raw(OTA_NEXT, &image, &[0x5Eu8; 64]);
         let mut ota = OtaState::new(OTA_CURRENT);
@@ -949,8 +1042,8 @@ mod ota_wiring_tests {
             let mut off = 0u32;
             for chunk in image.chunks(256) {
                 let p = chunk_payload(off, chunk);
-                let st = dispatch_ota_request(&mut ota, &mut sink, OP_OTA_CHUNK, &p, &ctx)
-                    .map(|r| r.0);
+                let st =
+                    dispatch_ota_request(&mut ota, &mut sink, OP_OTA_CHUNK, &p, &ctx).map(|r| r.0);
                 assert_eq!(st, Some(OTA_STATUS_OK));
                 off += chunk.len() as u32;
             }
@@ -1006,5 +1099,3 @@ mod ota_wiring_tests {
         assert!(!verify_ota_signature(&vk, b"tampered message", &sig));
     }
 }
-
-

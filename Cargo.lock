@@ -49,6 +49,7 @@ version = "1.0.0"
 dependencies = [
  "aegis-fido-core",
  "aegis-fido-usb",
+ "aes",
  "aes-gcm",
  "ciborium",
  "ed25519-dalek",

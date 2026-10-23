@@ -1,8 +1,8 @@
 extern crate alloc;
 
+use crate::policy::{UpAndPin, UpOnly, UpPolicy};
 use alloc::vec::Vec;
 use zeroize::Zeroize;
-use crate::policy::{UpAndPin, UpOnly, UpPolicy};
 
 pub const RESCUE_MAGIC: [u8; 4] = [0x52, 0x45, 0x53, 0x43]; // "RESC"
 pub const RESCUE_VERSION: u8 = 0x01;
@@ -126,7 +126,9 @@ impl RescueEngine {
     /// Backoff exponencial puro em funcao de auth_fail_count (saturante).
     pub fn backoff_ms(&self) -> u32 {
         let shift = core::cmp::min(self.auth_fail_count, RESCUE_MAX_AUTH_FAILURES);
-        RESCUE_BACKOFF_BASE_MS.saturating_mul(1u32 << shift).min(RESCUE_BACKOFF_MAX_MS)
+        RESCUE_BACKOFF_BASE_MS
+            .saturating_mul(1u32 << shift)
+            .min(RESCUE_BACKOFF_MAX_MS)
     }
 
     fn deny(&mut self) -> (u8, Vec<u8>) {
@@ -199,7 +201,10 @@ impl RescueEngine {
         self.killswitch_armed = false;
         let mut dummy = [0xFFu8; 32];
         dummy.zeroize();
-        (RESCUE_STATUS_OK, alloc::vec![KILLSWITCH_ACK[0], KILLSWITCH_ACK[1]])
+        (
+            RESCUE_STATUS_OK,
+            alloc::vec![KILLSWITCH_ACK[0], KILLSWITCH_ACK[1]],
+        )
     }
 
     /// Process a rescue frame: [MAGIC(4) | VERSION(1) | CMD(1) | PAYLOAD_LEN(2) | PAYLOAD(N)]
@@ -226,7 +231,10 @@ impl RescueEngine {
 
         match cmd {
             RESCUE_CMD_PING => {
-                if UpOnly.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
+                if UpOnly
+                    .check_up(self.pin_uv_authenticated, self.user_presence_confirmed)
+                    .is_err()
+                {
                     return self.deny();
                 }
                 let mut resp = Vec::new();
@@ -238,7 +246,10 @@ impl RescueEngine {
                 (RESCUE_STATUS_OK, resp)
             }
             RESCUE_CMD_DIAGNOSTICS => {
-                if UpOnly.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
+                if UpOnly
+                    .check_up(self.pin_uv_authenticated, self.user_presence_confirmed)
+                    .is_err()
+                {
                     return self.deny();
                 }
                 let mut resp = Vec::new();
@@ -250,7 +261,10 @@ impl RescueEngine {
                 (RESCUE_STATUS_OK, resp)
             }
             RESCUE_CMD_EMERGENCY_WIPE => {
-                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
+                if UpAndPin
+                    .check_up(self.pin_uv_authenticated, self.user_presence_confirmed)
+                    .is_err()
+                {
                     return self.deny();
                 }
                 if payload == EMERGENCY_WIPE_TOKEN {
@@ -267,7 +281,10 @@ impl RescueEngine {
                 }
             }
             RESCUE_CMD_PIN_RECOVERY => {
-                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
+                if UpAndPin
+                    .check_up(self.pin_uv_authenticated, self.user_presence_confirmed)
+                    .is_err()
+                {
                     return self.deny();
                 }
                 self.auth_fail_count = 0;
@@ -277,7 +294,10 @@ impl RescueEngine {
                 (RESCUE_STATUS_OK, alloc::vec![1])
             }
             RESCUE_CMD_REBOOT => {
-                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
+                if UpAndPin
+                    .check_up(self.pin_uv_authenticated, self.user_presence_confirmed)
+                    .is_err()
+                {
                     return self.deny();
                 }
                 self.auth_fail_count = 0;
@@ -287,7 +307,10 @@ impl RescueEngine {
             }
             RESCUE_CMD_KILLSWITCH => {
                 // Remote trigger: UP+PIN + dedicated confirmation token.
-                if UpAndPin.check_up(self.pin_uv_authenticated, self.user_presence_confirmed).is_err() {
+                if UpAndPin
+                    .check_up(self.pin_uv_authenticated, self.user_presence_confirmed)
+                    .is_err()
+                {
                     return self.deny();
                 }
                 if payload == KILLSWITCH_CONFIRM_TOKEN {
@@ -365,16 +388,31 @@ mod tests {
         let mut engine = RescueEngine::new();
         // Sem UP e sem PIN: tudo negado com erro existente, sem mudar frames
         let ping = build_pkt(RESCUE_CMD_PING, &[]);
-        assert_eq!(engine.handle_packet(&ping).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&ping).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         let diag = build_pkt(RESCUE_CMD_DIAGNOSTICS, &[]);
         // UP foi consumido/limpado apos primeira negacao, continua negado
-        assert_eq!(engine.handle_packet(&diag).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&diag).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         let wipe = build_pkt(RESCUE_CMD_EMERGENCY_WIPE, EMERGENCY_WIPE_TOKEN);
-        assert_eq!(engine.handle_packet(&wipe).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&wipe).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         let rec = build_pkt(RESCUE_CMD_PIN_RECOVERY, &[]);
-        assert_eq!(engine.handle_packet(&rec).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&rec).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         let reboot = build_pkt(RESCUE_CMD_REBOOT, &[]);
-        assert_eq!(engine.handle_packet(&reboot).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&reboot).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         // Contador saturante incrementou
         assert!(engine.auth_fail_count >= 5);
         // Backoff cresceu
@@ -392,15 +430,24 @@ mod tests {
         engine.set_user_presence(true);
         engine.set_pin_uv_authenticated(false);
         let wipe = build_pkt(RESCUE_CMD_EMERGENCY_WIPE, EMERGENCY_WIPE_TOKEN);
-        assert_eq!(engine.handle_packet(&wipe).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&wipe).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
 
         engine.set_user_presence(true);
         let rec = build_pkt(RESCUE_CMD_PIN_RECOVERY, &[]);
-        assert_eq!(engine.handle_packet(&rec).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&rec).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
 
         engine.set_user_presence(true);
         let reboot = build_pkt(RESCUE_CMD_REBOOT, &[]);
-        assert_eq!(engine.handle_packet(&reboot).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&reboot).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
     }
 
     #[test]
@@ -426,7 +473,10 @@ mod tests {
         assert!(!engine.user_presence_confirmed);
         engine.set_user_presence(true);
         let again = build_pkt(RESCUE_CMD_EMERGENCY_WIPE, EMERGENCY_WIPE_TOKEN);
-        assert_eq!(engine.handle_packet(&again).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&again).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
     }
 
     #[test]
@@ -450,16 +500,25 @@ mod tests {
         let mut engine = RescueEngine::new();
         // Sem UP e sem PIN: nega com erro existente.
         let pkt = build_packet(RESCUE_CMD_KILLSWITCH, KILLSWITCH_CONFIRM_TOKEN);
-        assert_eq!(engine.handle_packet(&pkt).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&pkt).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         // UP sem PIN: nega (remoto exige UP+PIN).
         engine.set_user_presence(true);
         engine.set_pin_uv_authenticated(false);
-        assert_eq!(engine.handle_packet(&pkt).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&pkt).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         // UP+PIN com token errado: nega.
         engine.set_user_presence(true);
         engine.set_pin_uv_authenticated(true);
         let bad = build_packet(RESCUE_CMD_KILLSWITCH, b"WRONG");
-        assert_eq!(engine.handle_packet(&bad).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&bad).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         // UP+PIN com token certo: executa, consome latches, conta wipe.
         engine.set_user_presence(true);
         engine.set_pin_uv_authenticated(true);
@@ -526,7 +585,10 @@ mod tests {
         assert!(!engine.is_killswitch_armed(2000));
         // Confirmar de novo sem re-armar: nega.
         engine.set_user_presence(true);
-        assert_eq!(engine.confirm_physical_killswitch(2000).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.confirm_physical_killswitch(2000).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
     }
 
     #[test]
@@ -539,7 +601,9 @@ mod tests {
         assert!(!engine.is_killswitch_armed(KILLSWITCH_ARM_WINDOW_MS.saturating_add(1)));
         engine.set_user_presence(true);
         assert_eq!(
-            engine.confirm_physical_killswitch(KILLSWITCH_ARM_WINDOW_MS.saturating_add(1)).0,
+            engine
+                .confirm_physical_killswitch(KILLSWITCH_ARM_WINDOW_MS.saturating_add(1))
+                .0,
             RESCUE_STATUS_CONFIRMATION_FAILED
         );
     }
@@ -551,11 +615,17 @@ mod tests {
         engine.set_user_presence(true);
         engine.set_pin_uv_authenticated(true);
         let wipe_as_kill = build_packet(RESCUE_CMD_KILLSWITCH, EMERGENCY_WIPE_TOKEN);
-        assert_eq!(engine.handle_packet(&wipe_as_kill).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&wipe_as_kill).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         engine.set_user_presence(true);
         engine.set_pin_uv_authenticated(true);
         let kill_as_wipe = build_packet(RESCUE_CMD_EMERGENCY_WIPE, KILLSWITCH_CONFIRM_TOKEN);
-        assert_eq!(engine.handle_packet(&kill_as_wipe).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.handle_packet(&kill_as_wipe).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         assert_eq!(engine.wipe_count, 0);
         assert_eq!(engine.kill_count, 0);
     }
@@ -586,7 +656,10 @@ mod tests {
         engine.disarm_killswitch();
         assert!(!engine.is_killswitch_armed(0));
         engine.set_user_presence(true);
-        assert_eq!(engine.confirm_physical_killswitch(0).0, RESCUE_STATUS_CONFIRMATION_FAILED);
+        assert_eq!(
+            engine.confirm_physical_killswitch(0).0,
+            RESCUE_STATUS_CONFIRMATION_FAILED
+        );
         assert_eq!(engine.wipe_count, 0);
         assert_eq!(engine.kill_count, 0);
     }
@@ -598,7 +671,10 @@ mod tests {
         assert_eq!(&pkt[0..4], &RESCUE_MAGIC);
         assert_eq!(pkt[4], RESCUE_VERSION);
         assert_eq!(pkt[5], RESCUE_CMD_KILLSWITCH);
-        assert_eq!(u16::from_be_bytes([pkt[6], pkt[7]]) as usize, KILLSWITCH_CONFIRM_TOKEN.len());
+        assert_eq!(
+            u16::from_be_bytes([pkt[6], pkt[7]]) as usize,
+            KILLSWITCH_CONFIRM_TOKEN.len()
+        );
         assert_eq!(&pkt[8..], KILLSWITCH_CONFIRM_TOKEN);
         // Round-trip: engine aceita o proprio builder com UP+PIN + token.
         let mut engine = RescueEngine::new();
@@ -607,4 +683,3 @@ mod tests {
         assert_eq!(engine.handle_packet(&pkt).0, RESCUE_STATUS_OK);
     }
 }
-

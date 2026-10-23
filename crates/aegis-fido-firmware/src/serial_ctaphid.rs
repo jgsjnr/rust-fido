@@ -34,9 +34,8 @@ use alloc::vec::Vec;
 
 use crate::ble_gatt::{
     authorize_vendor_op, authorize_wallet_op, is_bind_mgmt_op, is_piv_enroll_op,
-    is_vendor_keys_oath_op, is_wallet_op, BleGattError, OP_KEY_DELETE,
-    OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT,
-    OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
+    is_vendor_keys_oath_op, is_wallet_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE,
+    OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT, OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
 };
 
 /// UART line rate for the serial CTAPHID link (8N1, same as the monitor).
@@ -275,7 +274,9 @@ pub fn dispatch_serial_wallet(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8
 pub fn is_rescue_msg(cmd: u8, payload: &[u8]) -> bool {
     use aegis_fido_core::otp::rescue::is_rescue_transport_op;
     cmd == CMD_MSG
-        && payload.first().is_some_and(|op| is_rescue_transport_op(*op))
+        && payload
+            .first()
+            .is_some_and(|op| is_rescue_transport_op(*op))
 }
 
 /// Dispatches one rescue frame (`0x2E` already stripped by the caller).
@@ -328,32 +329,35 @@ where
     use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PAYLOAD_HASH_LEN, BIND_PUB_LEN};
     use crate::ble_gatt as g;
     if !g::is_bind_mgmt_op(op) {
-        return (g::BleGattError::InvalidOpcode.to_vendor_status(), Vec::new());
+        return (
+            g::BleGattError::InvalidOpcode.to_vendor_status(),
+            Vec::new(),
+        );
     }
     match op {
         g::OP_BIND_CLAIM => {
             if params.len() != BIND_PUB_LEN + BIND_ID_LEN {
-                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+                return (
+                    g::BleGattError::InvalidFragment.to_vendor_status(),
+                    Vec::new(),
+                );
             }
             let mut app_pub = [0u8; BIND_PUB_LEN];
             let mut binding_id = [0u8; BIND_ID_LEN];
             app_pub.copy_from_slice(&params[..BIND_PUB_LEN]);
             binding_id.copy_from_slice(&params[BIND_PUB_LEN..]);
-            match g::dispatch_bind_claim(
-                binding,
-                storage,
-                &app_pub,
-                &binding_id,
-                pairing_open,
-                up,
-            ) {
+            match g::dispatch_bind_claim(binding, storage, &app_pub, &binding_id, pairing_open, up)
+            {
                 Ok(()) => (0x00, binding_id.to_vec()),
                 Err(e) => (e.to_vendor_status(), Vec::new()),
             }
         }
         g::OP_BIND_CHALLENGE => {
             if !params.is_empty() {
-                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+                return (
+                    g::BleGattError::InvalidFragment.to_vendor_status(),
+                    Vec::new(),
+                );
             }
             match g::dispatch_bind_challenge(binding, storage, rng) {
                 Ok(ch) => (0x00, ch.to_vec()),
@@ -362,7 +366,10 @@ where
         }
         g::OP_BIND_VERIFY => {
             if params.len() < 1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
-                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+                return (
+                    g::BleGattError::InvalidFragment.to_vendor_status(),
+                    Vec::new(),
+                );
             }
             let vop = params[0];
             let mut ch = [0u8; BIND_CHALLENGE_LEN];
@@ -384,12 +391,17 @@ where
         }
         g::OP_BIND_RELEASE => {
             if params.len() < BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
-                return (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new());
+                return (
+                    g::BleGattError::InvalidFragment.to_vendor_status(),
+                    Vec::new(),
+                );
             }
             let mut ch = [0u8; BIND_CHALLENGE_LEN];
             let mut ph = [0u8; BIND_PAYLOAD_HASH_LEN];
             ch.copy_from_slice(&params[..BIND_CHALLENGE_LEN]);
-            ph.copy_from_slice(&params[BIND_CHALLENGE_LEN..BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN]);
+            ph.copy_from_slice(
+                &params[BIND_CHALLENGE_LEN..BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN],
+            );
             match g::dispatch_bind_release(
                 binding,
                 storage,
@@ -407,16 +419,25 @@ where
                 Ok(()) => (0x00, Vec::new()),
                 Err(e) => (e.to_vendor_status(), Vec::new()),
             },
-            Err(_) => (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new()),
+            Err(_) => (
+                g::BleGattError::InvalidFragment.to_vendor_status(),
+                Vec::new(),
+            ),
         },
         g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(params) {
             Ok(pin) => match g::dispatch_recovery_unlock(storage, binding, pin, up) {
                 Ok(()) => (0x00, Vec::new()),
                 Err(e) => (e.to_vendor_status(), Vec::new()),
             },
-            Err(_) => (g::BleGattError::InvalidFragment.to_vendor_status(), Vec::new()),
+            Err(_) => (
+                g::BleGattError::InvalidFragment.to_vendor_status(),
+                Vec::new(),
+            ),
         },
-        _ => (g::BleGattError::InvalidOpcode.to_vendor_status(), Vec::new()),
+        _ => (
+            g::BleGattError::InvalidOpcode.to_vendor_status(),
+            Vec::new(),
+        ),
     }
 }
 
@@ -441,13 +462,15 @@ pub fn dispatch_serial_text_line(line: &str, extra_states: &str) -> Option<Strin
     }
 }
 
-/// Dispatches `TEST_PAIRING_OPEN` (test-mode only).
+/// Dispatches `TEST_PAIRING_OPEN` / `TEST_PAIRING_CLOSE` (test-mode only).
 ///
 /// Abre a MESMA janela de 60s do hold 5s via
 /// [`crate::pairing::PairingManager::open_test_window`]: software abre a
 /// janela, NAO confirma presenca (gates UP/bonding seguem exigidos).
+/// `TEST_PAIRING_CLOSE` fecha via `close_test_window` (vira `Locked`,
+/// mesmo estado do timeout natural; determinismo entre sessões sem reset).
 /// Retorna o ack na batida exata, `None` caso contrario; sem `test-mode`
-/// o comando nao existe (sempre `None`, comando desconhecido).
+/// os comandos nao existem (sempre `None`, comandos desconhecidos).
 #[cfg(feature = "test-mode")]
 pub fn dispatch_serial_pairing_line(
     line: &str,
@@ -455,7 +478,8 @@ pub fn dispatch_serial_pairing_line(
     now_ms: u64,
 ) -> Option<String> {
     use crate::pairing::{
-        TEST_PAIRING_OPEN_300_CMD, TEST_PAIRING_OPEN_300_SECS, TEST_PAIRING_OPEN_CMD,
+        TEST_PAIRING_CLOSE_CMD, TEST_PAIRING_OPEN_300_CMD, TEST_PAIRING_OPEN_300_SECS,
+        TEST_PAIRING_OPEN_CMD,
     };
     if line.trim() == TEST_PAIRING_OPEN_CMD {
         pairing.open_test_window(now_ms);
@@ -463,12 +487,16 @@ pub fn dispatch_serial_pairing_line(
     } else if line.trim() == TEST_PAIRING_OPEN_300_CMD {
         pairing.open_test_window_secs(now_ms, TEST_PAIRING_OPEN_300_SECS);
         Some(String::from("pairing_open window_s=300 source=software\n"))
+    } else if line.trim() == TEST_PAIRING_CLOSE_CMD {
+        pairing.close_test_window();
+        Some(String::from("pairing_closed source=software\n"))
     } else {
         None
     }
 }
 
-/// Release: `TEST_PAIRING_OPEN` nao existe (comando desconhecido, sem janela).
+/// Release: `TEST_PAIRING_OPEN` / `TEST_PAIRING_CLOSE` nao existem (comandos
+/// desconhecidos, sem janela).
 #[cfg(not(feature = "test-mode"))]
 pub fn dispatch_serial_pairing_line(
     _line: &str,
@@ -767,8 +795,7 @@ mod tests {
         use crate::config::PAIRING_WINDOW_MS;
         use crate::pairing::PairingManager;
         let mut m = PairingManager::new();
-        let ack =
-            dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 5000).expect("ack");
+        let ack = dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 5000).expect("ack");
         assert!(ack.contains("pairing_open"));
         assert!(ack.contains("source=software"));
         assert!(m.is_pairing_window_open(5000));
@@ -788,8 +815,7 @@ mod tests {
     fn pairing_open_300_wide_window_same_gates() {
         use crate::pairing::{PairingManager, TEST_PAIRING_OPEN_300_SECS};
         let mut m = PairingManager::new();
-        let ack =
-            dispatch_serial_pairing_line("TEST_PAIRING_OPEN_300", &mut m, 5000).expect("ack");
+        let ack = dispatch_serial_pairing_line("TEST_PAIRING_OPEN_300", &mut m, 5000).expect("ack");
         assert!(ack.contains("window_s=300"));
         assert!(m.is_pairing_window_open(5000));
         assert!(m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000 - 1));
@@ -800,12 +826,63 @@ mod tests {
         assert!(!m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000));
     }
 
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn pairing_close_ends_60s_window_and_reopen_works() {
+        use crate::config::PAIRING_WINDOW_MS;
+        use crate::pairing::{PairingManager, PairingState};
+        let mut m = PairingManager::new();
+        dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 5000).expect("ack");
+        assert!(m.is_pairing_window_open(5000));
+        let ack = dispatch_serial_pairing_line("TEST_PAIRING_CLOSE", &mut m, 5100).expect("ack");
+        assert!(ack.contains("pairing_closed"));
+        assert!(ack.contains("source=software"));
+        assert_eq!(m.state(), PairingState::Locked);
+        assert!(!m.is_pairing_window_open(5100));
+        assert!(!m.is_bonded());
+        // Reabrir volta a funcionar (determinismo entre sessões sem reset).
+        let reopen = dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 6000).expect("ack");
+        assert!(reopen.contains("pairing_open"));
+        assert!(m.is_pairing_window_open(6000));
+        assert!(!m.is_bonded());
+        m.tick(6000 + PAIRING_WINDOW_MS);
+        assert!(!m.is_pairing_window_open(6000 + PAIRING_WINDOW_MS));
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn pairing_close_ends_300s_window_and_reopen_works() {
+        use crate::pairing::{PairingManager, PairingState, TEST_PAIRING_OPEN_300_SECS};
+        let mut m = PairingManager::new();
+        dispatch_serial_pairing_line("TEST_PAIRING_OPEN_300", &mut m, 5000).expect("ack");
+        assert!(m.is_pairing_window_open(5000 + TEST_PAIRING_OPEN_300_SECS * 1000 - 1));
+        let ack = dispatch_serial_pairing_line("TEST_PAIRING_CLOSE", &mut m, 5100).expect("ack");
+        assert!(ack.contains("pairing_closed"));
+        assert!(ack.contains("source=software"));
+        assert_eq!(m.state(), PairingState::Locked);
+        assert!(!m.is_pairing_window_open(5100));
+        assert!(!m.is_bonded());
+        // Reabrir (300s) volta a funcionar.
+        dispatch_serial_pairing_line("TEST_PAIRING_OPEN_300", &mut m, 6000).expect("ack");
+        assert!(m.is_pairing_window_open(6000 + TEST_PAIRING_OPEN_300_SECS * 1000 - 1));
+        assert!(!m.is_bonded());
+    }
+
     #[cfg(not(feature = "test-mode"))]
     #[test]
     fn pairing_open_unknown_without_test_mode() {
         use crate::pairing::PairingManager;
         let mut m = PairingManager::new();
         assert!(dispatch_serial_pairing_line("TEST_PAIRING_OPEN", &mut m, 0).is_none());
+        assert!(!m.is_pairing_window_open(0));
+    }
+
+    #[cfg(not(feature = "test-mode"))]
+    #[test]
+    fn pairing_close_unknown_without_test_mode() {
+        use crate::pairing::PairingManager;
+        let mut m = PairingManager::new();
+        assert!(dispatch_serial_pairing_line("TEST_PAIRING_CLOSE", &mut m, 0).is_none());
         assert!(!m.is_pairing_window_open(0));
     }
 
@@ -832,8 +909,14 @@ mod tests {
                 }
             }
         }
-        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false, true).0, 0x04);
-        assert_eq!(dispatch_serial_vendor(OP_OATH_CODE, false, false, false).0, 0x01);
+        assert_eq!(
+            dispatch_serial_vendor(OP_OATH_CODE, false, false, true).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_vendor(OP_OATH_CODE, false, false, false).0,
+            0x01
+        );
     }
 
     #[test]
@@ -870,23 +953,68 @@ mod tests {
             0x04
         );
         assert_eq!(
-            dispatch_serial_bind_mgmt(g::OP_BIND_CLAIM, &[0x01, 0x02], true, true, &mut b, &mut s, &mut rng).0,
+            dispatch_serial_bind_mgmt(
+                g::OP_BIND_CLAIM,
+                &[0x01, 0x02],
+                true,
+                true,
+                &mut b,
+                &mut s,
+                &mut rng
+            )
+            .0,
             0x04
         );
         assert_eq!(
-            dispatch_serial_bind_mgmt(g::OP_BIND_CHALLENGE, &[0x01], true, true, &mut b, &mut s, &mut rng).0,
+            dispatch_serial_bind_mgmt(
+                g::OP_BIND_CHALLENGE,
+                &[0x01],
+                true,
+                true,
+                &mut b,
+                &mut s,
+                &mut rng
+            )
+            .0,
             0x04
         );
         assert_eq!(
-            dispatch_serial_bind_mgmt(g::OP_BIND_VERIFY, &[0x22], true, true, &mut b, &mut s, &mut rng).0,
+            dispatch_serial_bind_mgmt(
+                g::OP_BIND_VERIFY,
+                &[0x22],
+                true,
+                true,
+                &mut b,
+                &mut s,
+                &mut rng
+            )
+            .0,
             0x04
         );
         assert_eq!(
-            dispatch_serial_bind_mgmt(g::OP_BIND_RELEASE, &[0x00; 10], true, true, &mut b, &mut s, &mut rng).0,
+            dispatch_serial_bind_mgmt(
+                g::OP_BIND_RELEASE,
+                &[0x00; 10],
+                true,
+                true,
+                &mut b,
+                &mut s,
+                &mut rng
+            )
+            .0,
             0x04
         );
         assert_eq!(
-            dispatch_serial_bind_mgmt(g::OP_RECOVERY_SET, &[0xFF], true, true, &mut b, &mut s, &mut rng).0,
+            dispatch_serial_bind_mgmt(
+                g::OP_RECOVERY_SET,
+                &[0xFF],
+                true,
+                true,
+                &mut b,
+                &mut s,
+                &mut rng
+            )
+            .0,
             0x04
         );
     }
@@ -936,7 +1064,7 @@ mod tests {
 
     #[test]
     fn serial_bind_mgmt_parity_with_ble() {
-        use crate::binding::{BIND_ID_LEN, BIND_PUB_LEN, BindingManager};
+        use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
         use crate::ble_gatt as g;
         use crate::persistence::{MockFlashBackend, SecureStorage};
 
@@ -985,11 +1113,11 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let (st_b, body_b) = match g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true)
-            {
-                Ok(()) => (0x00, id.to_vec()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            };
+            let (st_b, body_b) =
+                match g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true) {
+                    Ok(()) => (0x00, id.to_vec()),
+                    Err(e) => (e.to_vendor_status(), Vec::new()),
+                };
             assert_eq!((st_s, body_s.clone()), (st_b, body_b));
             assert_eq!((st_s, body_s), (0x00, id.to_vec()));
             let (st_s2, _) = dispatch_serial_bind_mgmt(
@@ -1148,8 +1276,11 @@ mod tests {
         {
             let (mut b1, mut s1) = fixtures();
             let (_b2, mut s2) = fixtures();
-            for (pin, up, want) in [("123", true, 0x02), ("4242", false, 0x01), ("4242", true, 0x00)]
-            {
+            for (pin, up, want) in [
+                ("123", true, 0x02),
+                ("4242", false, 0x01),
+                ("4242", true, 0x00),
+            ] {
                 let (st_s, _) = dispatch_serial_bind_mgmt(
                     g::OP_RECOVERY_SET,
                     pin.as_bytes(),

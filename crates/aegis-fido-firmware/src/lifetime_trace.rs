@@ -70,7 +70,6 @@ pub const TEST_LIFETIME_DUMP_CMD: &str = "TEST_LIFETIME_DUMP";
 #[cfg(feature = "test-mode")]
 pub fn test_lifetime_dump(extra_states: &str) -> alloc::string::String {
     use alloc::string::String;
-    use core::fmt::Write as _;
     let snap = snapshot();
     let mut out = String::from("lt_dump v=1\n");
     let _ = write_dump(&snap, &mut out);
@@ -91,10 +90,7 @@ pub fn test_lifetime_dump(extra_states: &str) -> alloc::string::String {
 /// Returns `Some(dump)` only for the exact `TEST_LIFETIME_DUMP` line
 /// (surrounding whitespace/CRLF tolerated); anything else returns `None`.
 #[cfg(feature = "test-mode")]
-pub fn dispatch_test_command(
-    line: &str,
-    extra_states: &str,
-) -> Option<alloc::string::String> {
+pub fn dispatch_test_command(line: &str, extra_states: &str) -> Option<alloc::string::String> {
     if line.trim() == TEST_LIFETIME_DUMP_CMD {
         Some(test_lifetime_dump(extra_states))
     } else {
@@ -114,10 +110,18 @@ mod tests {
 
     #[test]
     fn ltrace_macro_compiles_in_both_modes() {
-        crate::ltrace!(LifetimeCategory::Pairing, LifetimeEvent::PairingArming, 6000u64);
+        crate::ltrace!(
+            LifetimeCategory::Pairing,
+            LifetimeEvent::PairingArming,
+            6000u64
+        );
         crate::ltrace!(LifetimeCategory::Pin, LifetimeEvent::PinRetry, 7u8);
         crate::ltrace!(LifetimeCategory::Transport, LifetimeEvent::TpOpen, "wifi");
-        crate::ltrace!(LifetimeCategory::Oath, LifetimeEvent::OathPut, "GitHub:alice");
+        crate::ltrace!(
+            LifetimeCategory::Oath,
+            LifetimeEvent::OathPut,
+            "GitHub:alice"
+        );
     }
 
     #[cfg(feature = "debug-terminal")]

@@ -316,7 +316,6 @@ macro_rules! ltrace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn labels_are_stable_wire_strings() {
@@ -379,7 +378,11 @@ mod tests {
     #[test]
     fn ltrace_macro_compiles_in_both_modes() {
         crate::ltrace!(LifetimeCategory::KeySlot, LifetimeEvent::KeyCreate, 3u8);
-        crate::ltrace!(LifetimeCategory::Oath, LifetimeEvent::OathPut, "GitHub:alice");
+        crate::ltrace!(
+            LifetimeCategory::Oath,
+            LifetimeEvent::OathPut,
+            "GitHub:alice"
+        );
         crate::ltrace!(LifetimeCategory::Transport, LifetimeEvent::TpError, "ble");
     }
 

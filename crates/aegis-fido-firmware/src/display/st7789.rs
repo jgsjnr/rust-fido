@@ -10,14 +10,7 @@ use alloc::vec::Vec;
 extern "C" {
     fn aegis_display_init() -> esp_idf_sys::esp_err_t;
     fn aegis_display_set_backlight(on: bool);
-    fn aegis_display_flush(
-        x1: u16,
-        y1: u16,
-        x2: u16,
-        y2: u16,
-        pixels: *const u16,
-        count: u32,
-    );
+    fn aegis_display_flush(x1: u16, y1: u16, x2: u16, y2: u16, pixels: *const u16, count: u32);
 }
 
 /// ST7789 Display Controller Configuration
@@ -160,7 +153,11 @@ impl St7789Display {
                 band.set_window(y0, h);
                 AegisUiRenderer::render(screen, &mut band);
                 be.clear();
-                be.extend(band.pixels.iter().map(|px| (*px).into_storage().swap_bytes()));
+                be.extend(
+                    band.pixels
+                        .iter()
+                        .map(|px| (*px).into_storage().swap_bytes()),
+                );
                 aegis_display_flush(
                     0,
                     y0 as u16,

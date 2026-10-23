@@ -90,9 +90,7 @@ where
     F: FnMut() -> bool,
 {
     pub fn new(read_gpio0_pressed: F) -> Self {
-        Self {
-            read_gpio0_pressed,
-        }
+        Self { read_gpio0_pressed }
     }
 }
 

@@ -21,13 +21,41 @@ impl Color {
     pub const RED: Color = Color { r: 255, g: 0, b: 0 };
     pub const GREEN: Color = Color { r: 0, g: 255, b: 0 };
     pub const BLUE: Color = Color { r: 0, g: 0, b: 255 };
-    pub const CYAN: Color = Color { r: 0, g: 255, b: 255 };
-    pub const MAGENTA: Color = Color { r: 255, g: 0, b: 255 };
-    pub const YELLOW: Color = Color { r: 255, g: 220, b: 0 };
-    pub const AMBER: Color = Color { r: 255, g: 140, b: 0 };
-    pub const ORANGE: Color = Color { r: 255, g: 70, b: 0 };
-    pub const PURPLE: Color = Color { r: 180, g: 0, b: 255 };
-    pub const WHITE: Color = Color { r: 255, g: 255, b: 255 };
+    pub const CYAN: Color = Color {
+        r: 0,
+        g: 255,
+        b: 255,
+    };
+    pub const MAGENTA: Color = Color {
+        r: 255,
+        g: 0,
+        b: 255,
+    };
+    pub const YELLOW: Color = Color {
+        r: 255,
+        g: 220,
+        b: 0,
+    };
+    pub const AMBER: Color = Color {
+        r: 255,
+        g: 140,
+        b: 0,
+    };
+    pub const ORANGE: Color = Color {
+        r: 255,
+        g: 70,
+        b: 0,
+    };
+    pub const PURPLE: Color = Color {
+        r: 180,
+        g: 0,
+        b: 255,
+    };
+    pub const WHITE: Color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
 
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
@@ -274,11 +302,9 @@ impl LedOutput for EspWs2812Output {
             // CPU cycles, discounted from the HIGH phase.
             // Bit 0: HIGH 400ns total. Bit 1: HIGH 800ns total. Period 1400ns.
             const WRITE_OVERHEAD_CYCLES: u32 = 28;
-            let t0h_cycles: u32 =
-                (400 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
+            let t0h_cycles: u32 = (400 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
             let t0_tot_cycles: u32 = 1400 * freq_mhz / 1000;
-            let t1h_cycles: u32 =
-                (800 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
+            let t1h_cycles: u32 = (800 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
             let t1_tot_cycles: u32 = 1400 * freq_mhz / 1000;
 
             #[inline(always)]

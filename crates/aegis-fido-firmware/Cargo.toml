@@ -19,6 +19,8 @@ proximity = []
 debug-terminal = ["aegis-fido-core/debug-terminal"]
 # Wave7: TEST_LIFETIME_DUMP serial diagnostic (default OFF; absent without it).
 test-mode = []
+# Variante FreeRTOS em Rust (tasks + queue + event-group; ver src/freertos.rs).
+freertos = []
 
 [dependencies]
 aegis-fido-core = { path = "../aegis-fido-core" }
@@ -27,6 +29,7 @@ embedded-graphics = "0.8"
 ciborium = { workspace = true }
 log = { workspace = true }
 hmac = { workspace = true }
+aes = { workspace = true }
 aes-gcm = { workspace = true, features = ["alloc"] }
 sha2 = { workspace = true }
 rand_core = { workspace = true }

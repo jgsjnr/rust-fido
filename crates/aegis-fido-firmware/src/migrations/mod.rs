@@ -18,8 +18,8 @@ pub mod keys_oath_v6;
 pub mod vault_v7;
 
 pub use aegn_v1_to_v2::{
-    is_migrated, migrate_v1_to_v2, MigrationError, MigrationReport,
-    MIGRATION_VERSION_KEY, MIGRATION_VERSION_V1, MIGRATION_VERSION_V2,
+    is_migrated, migrate_v1_to_v2, MigrationError, MigrationReport, MIGRATION_VERSION_KEY,
+    MIGRATION_VERSION_V1, MIGRATION_VERSION_V2,
 };
 
 pub use keys_oath_v6::{
@@ -30,6 +30,6 @@ pub use keys_oath_v6::{
 
 pub use vault_v7::{
     is_migrated_v7, migrate_vault_v7, VaultV7Report, MIGRATION_VAULT_V7_KEY,
-    MIGRATION_VAULT_V7_VERSION, VAULT_A_PREFIX, VAULT_B_PREFIX, VAULT_BACKUP_PREFIX,
+    MIGRATION_VAULT_V7_VERSION, VAULT_A_PREFIX, VAULT_BACKUP_PREFIX, VAULT_B_PREFIX,
     VAULT_LIVE_PREFIX,
 };

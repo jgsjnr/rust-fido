@@ -121,7 +121,11 @@ pub fn migrate_keys_oath_v6<B: FlashStorageBackend>(
         done_oath.push(String::from(*key));
     }
     storage
-        .store(MIGRATION_KEYS6_VERSION_KEY, &[MIGRATION_KEYS6_VERSION], &IGNORED_NONCE)
+        .store(
+            MIGRATION_KEYS6_VERSION_KEY,
+            &[MIGRATION_KEYS6_VERSION],
+            &IGNORED_NONCE,
+        )
         .map_err(MigrationError::Storage)?;
     let back = storage
         .load(MIGRATION_KEYS6_VERSION_KEY)
@@ -184,7 +188,8 @@ mod tests {
         assert!(validate_v6_label("a").is_ok());
         assert!(validate_v6_label("GitHub:alice").is_ok());
         assert!(validate_v6_label("").is_err());
-        let big = alloc::string::String::from_utf8(vec![0x78u8; MAX_KEYS6_LABEL_BYTES + 1]).unwrap();
+        let big =
+            alloc::string::String::from_utf8(vec![0x78u8; MAX_KEYS6_LABEL_BYTES + 1]).unwrap();
         assert!(validate_v6_label(&big).is_err());
         assert_eq!(keys6_key("k1"), "keys6/k1");
         assert_eq!(oath6_key("a1"), "oath6/a1");
