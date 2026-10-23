@@ -575,7 +575,10 @@ impl PivApplet {
             return ResponseApdu::status(SW_WRONG_LENGTH);
         }
         if secret_matches_piv(&salt, &expected, &apdu.data) {
-            if store.store_record(PIV_NVS_PIN_RETRIES, &[PIV_PIN_MAX_RETRIES]).is_err() {
+            if store
+                .store_record(PIV_NVS_PIN_RETRIES, &[PIV_PIN_MAX_RETRIES])
+                .is_err()
+            {
                 self.pin_verified = false;
                 return ResponseApdu::status(SW_UNKNOWN_ERROR);
             }

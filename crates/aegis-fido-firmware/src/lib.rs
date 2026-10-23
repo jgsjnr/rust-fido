@@ -48,7 +48,9 @@ pub mod wifi_ap;
 pub mod wifi_station;
 
 pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
-pub use display::{AegisUiRenderer, DisplayBuffer, DisplayManager, UiScreen};
+#[cfg(feature = "has-display")]
+pub use display::{AegisUiRenderer, DisplayBuffer};
+pub use display::{DisplayManager, UiScreen};
 pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage, RamEfuseStorage};
 pub use freertos::{EventGroup, FirmwareEvent, FreeRtosQueue, FreeRtosScheduler, TaskConfig};
 pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};

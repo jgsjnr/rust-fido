@@ -61,6 +61,9 @@ impl St7789Display {
     /// Initializes SPI Bus, GPIOs and ST7789 Controller
     pub fn init_hardware(&mut self) -> Result<(), &'static str> {
         #[cfg(target_os = "espidf")]
+        // SAFETY: `aegis_display_init` takes no pointers and only programs the
+        // board SPI/GPIO block; the return is checked against `ESP_OK` before
+        // marking the driver initialized.
         unsafe {
             let ret = aegis_display_init();
             if ret != esp_idf_sys::ESP_OK {
@@ -77,6 +80,8 @@ impl St7789Display {
         let _ = on;
         #[cfg(target_os = "espidf")]
         if self.is_initialized {
+            // SAFETY: `aegis_display_set_backlight` takes only a bool (no
+            // pointers) and is only reached after successful `init_hardware`.
             unsafe {
                 aegis_display_set_backlight(on);
             }
@@ -95,6 +100,9 @@ impl St7789Display {
         }
 
         #[cfg(target_os = "espidf")]
+        // SAFETY: `be` is a live `Vec<u16>` for the whole synchronous FFI call
+        // and `be.as_ptr()`/`be.len()` stay in sync; slice ranges come from
+        // clamped band math (`y0..y0 + h` within `DISPLAY_HEIGHT`).
         unsafe {
             use super::ui::{DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH};
             use embedded_graphics::prelude::IntoStorage;
@@ -137,6 +145,9 @@ impl St7789Display {
             return Err("Display not initialized");
         }
         #[cfg(target_os = "espidf")]
+        // SAFETY: `band`/`be` are live for the whole synchronous FFI call and
+        // `be.as_ptr()`/`be.len()` stay in sync; the flushed window
+        // (`y0..y0 + h`) is clamped to `DISPLAY_HEIGHT` by the loop.
         unsafe {
             use super::ui::{
                 AegisUiRenderer, DisplayBand, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH,

@@ -9,8 +9,9 @@ repository.workspace = true
 [features]
 default = ["board-devkitc"]
 board-devkitc = []
-board-t-display = []
-board-ttgo-classic = []
+has-display = ["dep:embedded-graphics"]
+board-t-display = ["has-display"]
+board-ttgo-classic = ["has-display"]
 ble = []
 menu = []
 wifi = []
@@ -25,7 +26,7 @@ freertos = []
 [dependencies]
 aegis-fido-core = { path = "../aegis-fido-core" }
 aegis-fido-usb = { path = "../aegis-fido-usb" }
-embedded-graphics = "0.8"
+embedded-graphics = { version = "0.8", optional = true }
 ciborium = { workspace = true }
 log = { workspace = true }
 hmac = { workspace = true }

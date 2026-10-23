@@ -179,7 +179,6 @@ pub fn authorize_proximity_sample(bonded: bool, usb_active: bool) -> bool {
     bonded && !usb_active
 }
 
-
 // ---------------------------------------------------------------------------
 // Wave2: rolling-code de presenca (adv 0xFFFE, separado do GATT 0xFFFD).
 //
@@ -395,7 +394,10 @@ pub fn encode_proximity_svc_data(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeaconParse {
     /// Beacon bem formado: contador e tag para verificar.
-    Ok { ctr: u32, tag: [u8; PROXIMITY_BEACON_TAG_LEN] },
+    Ok {
+        ctr: u32,
+        tag: [u8; PROXIMITY_BEACON_TAG_LEN],
+    },
     /// UUID diferente de 0xFFFE: nao e adv de presenca, ignorar.
     Ignore,
     /// VER diferente de 0x01: relatar Unsupported, nunca autenticar.
@@ -794,17 +796,47 @@ mod rolling_tests {
         let key = test_key();
         let fob = test_fob();
         let good = proximity_tag(&key, PROXIMITY_BEACON_VERSION, 7, &fob);
-        assert!(verify_proximity_tag(&key, PROXIMITY_BEACON_VERSION, 7, &fob, &good));
+        assert!(verify_proximity_tag(
+            &key,
+            PROXIMITY_BEACON_VERSION,
+            7,
+            &fob,
+            &good
+        ));
         let mut other = key;
         other[0] ^= 0xFF;
-        assert!(!verify_proximity_tag(&other, PROXIMITY_BEACON_VERSION, 7, &fob, &good));
-        assert!(!verify_proximity_tag(&key, PROXIMITY_BEACON_VERSION, 8, &fob, &good));
+        assert!(!verify_proximity_tag(
+            &other,
+            PROXIMITY_BEACON_VERSION,
+            7,
+            &fob,
+            &good
+        ));
+        assert!(!verify_proximity_tag(
+            &key,
+            PROXIMITY_BEACON_VERSION,
+            8,
+            &fob,
+            &good
+        ));
         let mut fob2 = fob;
         fob2[5] ^= 0x01;
-        assert!(!verify_proximity_tag(&key, PROXIMITY_BEACON_VERSION, 7, &fob2, &good));
+        assert!(!verify_proximity_tag(
+            &key,
+            PROXIMITY_BEACON_VERSION,
+            7,
+            &fob2,
+            &good
+        ));
         let mut bad = good;
         bad[3] ^= 0x80;
-        assert!(!verify_proximity_tag(&key, PROXIMITY_BEACON_VERSION, 7, &fob, &bad));
+        assert!(!verify_proximity_tag(
+            &key,
+            PROXIMITY_BEACON_VERSION,
+            7,
+            &fob,
+            &bad
+        ));
     }
 
     #[test]
@@ -847,7 +879,10 @@ mod rolling_tests {
             let data = beacon_data(ctr, &tag);
             assert_eq!(
                 v.accept(&key, &fob, PROXIMITY_BEACON_SVC_UUID16, &data),
-                BeaconVerdict::Accept { ctr, reverify: false }
+                BeaconVerdict::Accept {
+                    ctr,
+                    reverify: false
+                }
             );
         }
         assert_eq!(v.last_ctr(), Some(3));
@@ -875,7 +910,10 @@ mod rolling_tests {
         let data1 = beacon_data(1, &tag1);
         assert_eq!(
             v.accept(&key, &fob, PROXIMITY_BEACON_SVC_UUID16, &data1),
-            BeaconVerdict::Accept { ctr: 1, reverify: false }
+            BeaconVerdict::Accept {
+                ctr: 1,
+                reverify: false
+            }
         );
         let mut bad = proximity_tag(&key, PROXIMITY_BEACON_VERSION, 2, &fob);
         bad[0] ^= 0xFF;
@@ -896,14 +934,20 @@ mod rolling_tests {
         let data1 = beacon_data(10, &tag1);
         assert_eq!(
             v.accept(&key, &fob, PROXIMITY_BEACON_SVC_UUID16, &data1),
-            BeaconVerdict::Accept { ctr: 10, reverify: false }
+            BeaconVerdict::Accept {
+                ctr: 10,
+                reverify: false
+            }
         );
         let jump = 10 + PROXIMITY_REVERIFY_JUMP + 1;
         let tagj = proximity_tag(&key, PROXIMITY_BEACON_VERSION, jump, &fob);
         let dataj = beacon_data(jump, &tagj);
         assert_eq!(
             v.accept(&key, &fob, PROXIMITY_BEACON_SVC_UUID16, &dataj),
-            BeaconVerdict::Accept { ctr: jump, reverify: true }
+            BeaconVerdict::Accept {
+                ctr: jump,
+                reverify: true
+            }
         );
         assert!(v.reverify_pending());
         v.clear_reverify();
@@ -912,7 +956,10 @@ mod rolling_tests {
         let data_next = beacon_data(jump + 1, &tag_next);
         assert_eq!(
             v.accept(&key, &fob, PROXIMITY_BEACON_SVC_UUID16, &data_next),
-            BeaconVerdict::Accept { ctr: jump + 1, reverify: false }
+            BeaconVerdict::Accept {
+                ctr: jump + 1,
+                reverify: false
+            }
         );
     }
 
@@ -945,20 +992,14 @@ mod rolling_tests {
     fn should_roundtrip_k_prox_in_encrypted_nvs() {
         let mut s = storage();
         let mut rng = rand::rngs::StdRng::seed_from_u64(0xA0E615);
-        assert_eq!(
-            load_proximity_key(&s),
-            Err(StorageError::KeyNotFound)
-        );
+        assert_eq!(load_proximity_key(&s), Err(StorageError::KeyNotFound));
         let key = rekey_proximity(&mut s, &mut rng).expect("rekey salva");
         assert_eq!(load_proximity_key(&s).expect("carrega"), key);
         let key2 = rekey_proximity(&mut s, &mut rng).expect("rekey troca");
         assert_ne!(key, key2);
         assert_eq!(load_proximity_key(&s).expect("carrega nova"), key2);
         delete_proximity_key(&mut s).expect("release apaga");
-        assert_eq!(
-            load_proximity_key(&s),
-            Err(StorageError::KeyNotFound)
-        );
+        assert_eq!(load_proximity_key(&s), Err(StorageError::KeyNotFound));
     }
 
     #[test]
@@ -970,21 +1011,18 @@ mod rolling_tests {
         s.backend_mut()
             .write_raw(PROXIMITY_BOND_NVS_KEY, &[1u8, 2, 3])
             .expect("injeta curto");
-        assert_eq!(
-            load_proximity_key(&s),
-            Err(StorageError::CorruptedEnvelope)
-        );
+        assert_eq!(load_proximity_key(&s), Err(StorageError::CorruptedEnvelope));
         save_proximity_key(&mut s, &key, &mut rng).expect("salva de novo");
-        let mut raw = s.backend().read_raw(PROXIMITY_BOND_NVS_KEY).expect("envelope");
+        let mut raw = s
+            .backend()
+            .read_raw(PROXIMITY_BOND_NVS_KEY)
+            .expect("envelope");
         let last = raw.len() - 1;
         raw[last] ^= 0xFF;
         s.backend_mut()
             .write_raw(PROXIMITY_BOND_NVS_KEY, &raw)
             .expect("injeta tamper");
-        assert_eq!(
-            load_proximity_key(&s),
-            Err(StorageError::DecryptionFailed)
-        );
+        assert_eq!(load_proximity_key(&s), Err(StorageError::DecryptionFailed));
     }
 
     #[test]
@@ -1010,7 +1048,10 @@ mod rolling_tests {
         let mut v = ProximityVerifier::new();
         assert_eq!(
             v.accept(&key, &fob, PROXIMITY_BEACON_SVC_UUID16, &data),
-            BeaconVerdict::Accept { ctr: 41, reverify: false }
+            BeaconVerdict::Accept {
+                ctr: 41,
+                reverify: false
+            }
         );
         assert_eq!(m.state(), ProximityState::Locked);
         assert!(!m.unlock(false, false));

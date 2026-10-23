@@ -48,8 +48,8 @@ use core::time::Duration;
 
 #[cfg(target_os = "espidf")]
 extern "C" {
-    // USB-OTG desligado no dispatcher (ver comentário no init); mantido p/
-    // o loop legado + futuro root-cause do TinyUSB no HW.
+    // USB-OTG (TinyUSB) ATIVO no dispatcher FreeRTOS: dono único do PHY
+    // interno (GPIO19/20); console primário no UART0 (sdkconfig).
     #[allow(dead_code)]
     fn aegis_usb_init() -> esp_idf_sys::esp_err_t;
     fn aegis_usb_is_mounted() -> bool;
@@ -1461,6 +1461,27 @@ fn run_authenticator_freertos() {
     }
     #[cfg(target_os = "espidf")]
     aegis_fido_firmware::freertos::log_boot_info();
+    // USB-OTG nativo (TinyUSB) no PHY interno (GPIO19 D-/GPIO20 D+):
+    // console primário no UART0 (`ESP_CONSOLE_UART_DEFAULT` +
+    // `ESP_CONSOLE_SECONDARY_NONE` em sdkconfig.defaults.esp32s3) libera o
+    // PHY p/ o TinyUSB como dono único — com o default S3 (console
+    // USB_SERIAL_JTAG), o USJ reclama o mesmo PHY e o
+    // `tinyusb_driver_install` falha (`LoadProhibited` no dump do
+    // descritor). USB soma como transporte; a serial (UART0 115200)
+    // segue intacta p/ CTAPHID + TEST_*.
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    {
+        // SAFETY: sem ponteiros; só instala o driver TinyUSB e lê o retorno.
+        let rc = unsafe { aegis_usb_init() };
+        if rc == esp_idf_sys::ESP_OK {
+            kprintln!("[INIT] TinyUSB FIDO2 HID online (USB-OTG D+/D- 19/20).");
+        } else {
+            kprintln!(
+                "[WARN] TinyUSB init rc=0x{:04X}; CTAPHID segue na serial.",
+                rc as i32
+            );
+        }
+    }
     // Serial CTAPHID UART (UART0 115200, diagnóstico + TEST_*): sem ela,
     // `aegis_serial_pop_packet`/`read_chunk` devolvem 0 para sempre
     // (`s_serial_initialized` do C). Igual ao boot legado.
@@ -1619,11 +1640,9 @@ fn run_authenticator_freertos() {
             }
         }
     };
-    // USB-OTG nativo (TinyUSB): DESLIGADO nesta variante — `tinyusb_driver_install`
-    // dá LoadProhibited no HW (COM7) durante o dump do descritor; o legado
-    // em QEMU nunca exercitou o periférico real. CTAPHID segue 100% pela
-    // serial (UART0) + TEST_*; USB volta após root-cause dedicado do driver.
-    // (gap documentado; sem eFuse/secure/NVS tocados).
+    // USB-OTG nativo (TinyUSB): ATIVO nesta variante (init acima, antes da
+    // serial; dono único do PHY interno 19/20 com console no UART0).
+    // CTAPHID soma USB + serial (UART0) + TEST_*; sem eFuse/secure/NVS tocados.
     // FreeRTOS: display/LED + BLE + NVS + WiFi + CCID (paridade com o loop
     // legado; o dispatcher CTAPHID acima segue intacto). Tudo `device-only`.
     // Marca d'água da stack da main a cada etapa (caça ao overflow da main).
@@ -1925,8 +1944,38 @@ fn run_authenticator_freertos() {
                         #[cfg(all(target_os = "espidf", feature = "test-mode"))]
                         if line.trim() == "TEST_BLE_PREINIT" {
                             kprintln!("[TEST] ble preinit on demand...");
+                            // Prova de heap p/ o `Malloc failed` (emi.c:164): livre +
+                            // maior bloco contíguo antes/depois (fragmentação, não
+                            // vazamento). O C (`ensure_init`) também loga via ESP_LOGI.
+                            // SAFETY: só lê estatísticas do heap; sem ponteiros, sem escrita.
+                            let free_before = unsafe { esp_idf_sys::esp_get_free_heap_size() };
+                            // SAFETY: `MALLOC_CAP_DEFAULT` só seleciona o heap; sem
+                            // ponteiros, sem escrita; devolve o maior bloco livre.
+                            let largest_before = unsafe {
+                                esp_idf_sys::heap_caps_get_largest_free_block(
+                                    esp_idf_sys::MALLOC_CAP_DEFAULT,
+                                )
+                            };
+                            kprintln!(
+                                "[BLE] heap antes livre={} maior={}.",
+                                free_before,
+                                largest_before
+                            );
                             let rc = aegis_fido_firmware::ble_nimble::esp_ble_preinit();
-                            kprintln!("[TEST] ble preinit rc={}.", rc);
+                            // SAFETY: mesma leitura pós-preinit; sem ponteiros, sem escrita.
+                            let free_after = unsafe { esp_idf_sys::esp_get_free_heap_size() };
+                            // SAFETY: mesma leitura do maior bloco; sem ponteiros, sem escrita.
+                            let largest_after = unsafe {
+                                esp_idf_sys::heap_caps_get_largest_free_block(
+                                    esp_idf_sys::MALLOC_CAP_DEFAULT,
+                                )
+                            };
+                            kprintln!(
+                                "[TEST] ble preinit rc={} heap depois livre={} maior={}.",
+                                rc,
+                                free_after,
+                                largest_after
+                            );
                             if rc == 0 {
                                 ble_preinit_ok = true;
                                 kprintln!("[BLE] preinit ok; reconexao sem janela liberada.");
@@ -1955,9 +2004,18 @@ fn run_authenticator_freertos() {
                         );
                         // TEST_PAIRING_CLOSE fecha também a janela host em
                         // `pairing_mgr` (placa não reseta entre sessões; uma
-                        // janela de sonda anterior ainda vale aqui).
+                        // janela de sonda anterior ainda vale aqui) e muda o
+                        // radio: `shutdown_after_config` + `esp_ap_stop` se o
+                        // AP estava on (sem isto o `WifiApManager` seguia
+                        // `Active` ate expirar e o poll pedia Start sem heap).
                         if line.trim() == aegis_fido_firmware::pairing::TEST_PAIRING_CLOSE_CMD {
                             pairing_mgr.close_test_window();
+                            wifi_ap_mgr.shutdown_after_config();
+                            if wifi_ap_active {
+                                let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
+                                wifi_ap_active = false;
+                                kprintln!("[WIFI] AP off (pairing fechado).");
+                            }
                         }
                         if let Some(resp) = outcome.response {
                             // `resp` viva até ao fim da chamada; o C só
@@ -2335,6 +2393,16 @@ fn run_authenticator_freertos() {
                         fw_log.record(fl::EV_PAIR_OPEN, 0, freertos_now_ms);
                     } else if !pairing_open_now && pairing_open_prev {
                         fw_log.record(fl::EV_PAIR_CLOSE, 0, freertos_now_ms);
+                        // Close/timeout (Locked): radio mudo no close. O
+                        // `WifiApManager` so expira por tempo; sem isto ele
+                        // seguia `Active` apos o close e, caido o veto BLE, o
+                        // poll pedia Start sem heap -> OOM/abort do IDF.
+                        wifi_ap_mgr.shutdown_after_config();
+                        if wifi_ap_active {
+                            let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
+                            wifi_ap_active = false;
+                            kprintln!("[WIFI] AP off (pairing fechado).");
+                        }
                     }
                     pairing_open_prev = pairing_open_now;
                 }
@@ -2350,6 +2418,15 @@ fn run_authenticator_freertos() {
                 }
                 {
                     use aegis_fido_firmware::ble_nimble as ble;
+                    // Gate BLE ao vivo (Fix gate TEST): `TEST_PAIRING_OPEN`
+                    // arma a janela em `freertos_test`, não em `pairing_mgr`.
+                    // Sem o OR o adv nunca ligava em janela TEST (só o AP
+                    // subia). Espelha o `pairing_live` do despacho vendor;
+                    // `should_advertise` preserva o mute em `PairingAp`.
+                    #[cfg(feature = "test-mode")]
+                    let ble_pairing_now = ble::should_advertise(&pairing_mgr, freertos_now_ms)
+                        || freertos_test.is_pairing_window_open(freertos_now_ms);
+                    #[cfg(not(feature = "test-mode"))]
                     let ble_pairing_now = ble::should_advertise(&pairing_mgr, freertos_now_ms);
                     match aegis_fido_firmware::wifi_ap::ap_poll_action(
                         ap_want,
@@ -2361,31 +2438,56 @@ fn run_authenticator_freertos() {
                                 && (wifi_ap_last_try_ms == 0
                                     || freertos_now_ms.saturating_sub(wifi_ap_last_try_ms) >= 5000)
                             {
-                                wifi_ap_last_try_ms = freertos_now_ms;
-                                let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
-                                    usb_descriptors::SERIAL_NUMBER_STRING,
-                                );
-                                let pass_bytes = storage
-                                    .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
-                                    .unwrap_or_default();
-                                let pass_opt = aegis_fido_firmware::wifi_ap::resolve_ap_password(
-                                    if pass_bytes.is_empty() {
-                                        None
-                                    } else {
-                                        Some(&pass_bytes)
-                                    },
-                                );
-                                let pass_str = pass_opt.unwrap_or_default();
-                                let rc =
-                                    aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
-                                if rc == 0 {
-                                    wifi_ap_active = true;
-                                    wifi_ap_fails = 0;
-                                    kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
+                                // Guarda de heap: sem bloco contiguo o driver
+                                // aborta (OOM) em vez de retornar erro.
+                                #[cfg(target_os = "espidf")]
+                                // SAFETY: só lê o maior bloco livre do heap; sem ponteiros, sem escrita.
+                                let largest: usize = unsafe {
+                                    esp_idf_sys::heap_caps_get_largest_free_block(
+                                        esp_idf_sys::MALLOC_CAP_DEFAULT,
+                                    )
+                                };
+                                #[cfg(not(target_os = "espidf"))]
+                                let largest: usize = usize::MAX;
+                                if !aegis_fido_firmware::wifi_ap::wifi_ap_start_allowed(largest) {
+                                    wifi_ap_last_try_ms = freertos_now_ms;
+                                    kprintln!("[WIFI] AP skip (heap curto).");
                                 } else {
-                                    wifi_ap_fails = wifi_ap_fails.saturating_add(1);
-                                    if wifi_ap_fails == 1 {
-                                        kprintln!("[WIFI] AP start rc={} (backoff 5s).", rc);
+                                    wifi_ap_last_try_ms = freertos_now_ms;
+                                    let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
+                                        usb_descriptors::SERIAL_NUMBER_STRING,
+                                    );
+                                    let pass_bytes = storage
+                                        .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
+                                        .unwrap_or_default();
+                                    let pass_opt =
+                                        aegis_fido_firmware::wifi_ap::resolve_ap_password(
+                                            if pass_bytes.is_empty() {
+                                                None
+                                            } else {
+                                                Some(&pass_bytes)
+                                            },
+                                        );
+                                    let pass_str = pass_opt.unwrap_or_default();
+                                    let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(
+                                        &ssid, &pass_str,
+                                    );
+                                    if rc == 0 {
+                                        wifi_ap_active = true;
+                                        wifi_ap_fails = 0;
+                                        kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
+                                    } else if rc == aegis_fido_firmware::wifi_ap::WIFI_AP_RC_NO_MEM
+                                    {
+                                        // NO_MEM terminal ate nova borda, sem retry.
+                                        wifi_ap_fails = 3;
+                                        kprintln!(
+                                            "[WIFI] AP start rc=-4 NO_MEM (terminal ate nova borda)."
+                                        );
+                                    } else {
+                                        wifi_ap_fails = wifi_ap_fails.saturating_add(1);
+                                        if wifi_ap_fails == 1 {
+                                            kprintln!("[WIFI] AP start rc={} (backoff 5s).", rc);
+                                        }
                                     }
                                 }
                             }
@@ -2498,7 +2600,10 @@ fn run_authenticator_freertos() {
                     // (claimed + Idle) fica mudo em vez de chamar
                     // `esp_ble_start → nimble_port_init` (LoadProhibited).
                     let trusted = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
-                    let ble_want_adv = ble::should_advertise(&pairing_mgr, freertos_now_ms)
+                    // Mesmo gate vivo do AP/BLE acima: janela TEST
+                    // (`freertos_test`) também pede adv; sem isto o Tick
+                    // pós-`TEST_PAIRING_OPEN` ficava mudo (sem EV_ADV_START).
+                    let ble_want_adv = ble_pairing_now
                         || (ble_preinit_ok
                             && ble::should_advertise_reconnect(pairing_mgr.state(), trusted));
                     if ble_want_adv != ble_adv_active {
@@ -2508,16 +2613,29 @@ fn run_authenticator_freertos() {
                             if ble::BleStartGate::allow(&mut ble_start_gate, true, freertos_now_ms)
                             {
                                 let rc = ble::esp_ble_start(pairing_open_now, wifi_active);
-                                ble_start_gate.on_result(rc == 0);
-                                if rc == 0 {
-                                    ble_adv_active = true;
+                                if rc == ble::BLE_ADV_RC_NOMEM {
+                                    // 519 residual: registra e NAO consome retry.
+                                    ble_start_gate.on_nomem();
                                     fw_log.record(
-                                        aegis_fido_firmware::fw_log::EV_ADV_START,
+                                        aegis_fido_firmware::fw_log::EV_ADV_NOMEM,
                                         0,
                                         freertos_now_ms,
                                     );
+                                    kprintln!(
+                                        "[BLE] adv start rc=519 NOMEM (residual; sem gastar retry)."
+                                    );
                                 } else {
-                                    kprintln!("[BLE] adv start rc={} (backoff 5s).", rc);
+                                    ble_start_gate.on_result(rc == 0);
+                                    if rc == 0 {
+                                        ble_adv_active = true;
+                                        fw_log.record(
+                                            aegis_fido_firmware::fw_log::EV_ADV_START,
+                                            0,
+                                            freertos_now_ms,
+                                        );
+                                    } else {
+                                        kprintln!("[BLE] adv start rc={} (backoff 5s).", rc);
+                                    }
                                 }
                             }
                         } else {
@@ -3071,6 +3189,15 @@ fn run_authenticator() {
                 fw_log.record(fl::EV_PAIR_OPEN, 0, now_ms);
             } else if !pairing_open_now && pairing_open_prev {
                 fw_log.record(fl::EV_PAIR_CLOSE, 0, now_ms);
+                // Close/timeout (Locked): radio mudo no close (mesmo fix do
+                // FreeRTOS; sem isto o AP seguia `Active` e o poll pedia
+                // Start sem heap -> OOM/abort).
+                wifi_ap_mgr.shutdown_after_config();
+                if wifi_ap_active {
+                    let _ = aegis_fido_firmware::wifi_ap::esp_ap_stop();
+                    wifi_ap_active = false;
+                    kprintln!("[WIFI] AP off (pairing fechado).");
+                }
             }
             pairing_open_prev = pairing_open_now;
         }
@@ -3106,33 +3233,55 @@ fn run_authenticator() {
                 {
                     // Backoff: aguarda 5s entre tentativas.
                 } else {
-                    wifi_ap_last_try_ms = now_ms;
-                    let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
-                        usb_descriptors::SERIAL_NUMBER_STRING,
-                    );
-                    let pass_bytes = storage
-                        .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
-                        .unwrap_or_default();
-                    let pass_opt = aegis_fido_firmware::wifi_ap::resolve_ap_password(
-                        if pass_bytes.is_empty() {
-                            None
-                        } else {
-                            Some(&pass_bytes)
-                        },
-                    );
-                    let pass_str = pass_opt.unwrap_or_default();
-                    // Nunca loga a senha.
-                    let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
-                    if rc == 0 {
-                        wifi_ap_active = true;
-                        wifi_ap_fails = 0;
-                        kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
+                    // Guarda de heap: sem bloco contiguo o driver aborta (OOM).
+                    #[cfg(target_os = "espidf")]
+                    // SAFETY: só lê o maior bloco livre do heap; sem ponteiros, sem escrita.
+                    let largest: usize = unsafe {
+                        esp_idf_sys::heap_caps_get_largest_free_block(
+                            esp_idf_sys::MALLOC_CAP_DEFAULT,
+                        )
+                    };
+                    #[cfg(not(target_os = "espidf"))]
+                    let largest: usize = usize::MAX;
+                    if !aegis_fido_firmware::wifi_ap::wifi_ap_start_allowed(largest) {
+                        wifi_ap_last_try_ms = now_ms;
+                        kprintln!("[WIFI] AP skip (heap curto).");
                     } else {
-                        wifi_ap_fails = wifi_ap_fails.saturating_add(1);
-                        // Loga só a 1ª falha (as seguintes seriam spam a cada 5s);
-                        // apos 3, desiste ate a proxima borda de want.
-                        if wifi_ap_fails == 1 {
-                            kprintln!("[WIFI] AP start rc={} (backoff 5s, desiste apos 3).", rc);
+                        wifi_ap_last_try_ms = now_ms;
+                        let ssid = aegis_fido_firmware::wifi_ap::ap_ssid_for_serial(
+                            usb_descriptors::SERIAL_NUMBER_STRING,
+                        );
+                        let pass_bytes = storage
+                            .load(aegis_fido_firmware::wifi_ap::WIFI_PASS_NVS_KEY)
+                            .unwrap_or_default();
+                        let pass_opt = aegis_fido_firmware::wifi_ap::resolve_ap_password(
+                            if pass_bytes.is_empty() {
+                                None
+                            } else {
+                                Some(&pass_bytes)
+                            },
+                        );
+                        let pass_str = pass_opt.unwrap_or_default();
+                        // Nunca loga a senha.
+                        let rc = aegis_fido_firmware::wifi_ap::esp_ap_start(&ssid, &pass_str);
+                        if rc == 0 {
+                            wifi_ap_active = true;
+                            wifi_ap_fails = 0;
+                            kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
+                        } else if rc == aegis_fido_firmware::wifi_ap::WIFI_AP_RC_NO_MEM {
+                            // NO_MEM terminal ate nova borda, sem retry.
+                            wifi_ap_fails = 3;
+                            kprintln!("[WIFI] AP start rc=-4 NO_MEM (terminal ate nova borda).");
+                        } else {
+                            wifi_ap_fails = wifi_ap_fails.saturating_add(1);
+                            // Loga só a 1ª falha (as seguintes seriam spam a cada 5s);
+                            // apos 3, desiste ate a proxima borda de want.
+                            if wifi_ap_fails == 1 {
+                                kprintln!(
+                                    "[WIFI] AP start rc={} (backoff 5s, desiste apos 3).",
+                                    rc
+                                );
+                            }
                         }
                     }
                 }
@@ -3262,12 +3411,19 @@ fn run_authenticator() {
                         pairing_open_now,
                         wifi_active,
                     );
-                    ble_start_gate.on_result(rc == 0);
-                    if rc == 0 {
-                        ble_adv_active = true;
-                        fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_START, 0, now_ms);
+                    if rc == aegis_fido_firmware::ble_nimble::BLE_ADV_RC_NOMEM {
+                        // 519 residual: registra e NAO consome retry.
+                        ble_start_gate.on_nomem();
+                        fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_NOMEM, 0, now_ms);
+                        kprintln!("[BLE] adv start rc=519 NOMEM (residual; sem gastar retry).");
                     } else {
-                        kprintln!("[BLE] adv start rc={} (backoff 5s, desiste apos 3).", rc);
+                        ble_start_gate.on_result(rc == 0);
+                        if rc == 0 {
+                            ble_adv_active = true;
+                            fw_log.record(aegis_fido_firmware::fw_log::EV_ADV_START, 0, now_ms);
+                        } else {
+                            kprintln!("[BLE] adv start rc={} (backoff 5s, desiste apos 3).", rc);
+                        }
                     }
                 }
             } else {

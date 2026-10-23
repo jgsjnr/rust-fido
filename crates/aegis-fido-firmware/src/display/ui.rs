@@ -6,6 +6,7 @@
 extern crate alloc;
 
 use alloc::string::String;
+#[cfg(feature = "has-display")]
 use embedded_graphics::{
     geometry::{Point, Size},
     mono_font::{ascii::FONT_10X20, ascii::FONT_6X10, ascii::FONT_9X15_BOLD, MonoTextStyle},
@@ -18,14 +19,14 @@ use embedded_graphics::{
     Drawable,
 };
 
-#[cfg(feature = "board-ttgo-classic")]
+#[cfg(all(feature = "has-display", feature = "board-ttgo-classic"))]
 pub const DISPLAY_WIDTH: usize = 135;
-#[cfg(feature = "board-ttgo-classic")]
+#[cfg(all(feature = "has-display", feature = "board-ttgo-classic"))]
 pub const DISPLAY_HEIGHT: usize = 240;
 
-#[cfg(not(feature = "board-ttgo-classic"))]
+#[cfg(all(feature = "has-display", not(feature = "board-ttgo-classic")))]
 pub const DISPLAY_WIDTH: usize = 320;
-#[cfg(not(feature = "board-ttgo-classic"))]
+#[cfg(all(feature = "has-display", not(feature = "board-ttgo-classic")))]
 pub const DISPLAY_HEIGHT: usize = 170;
 
 /// Altura da faixa (banda) do framebuffer parcial no classic.
@@ -36,15 +37,19 @@ pub const DISPLAY_HEIGHT: usize = 170;
 /// 135x40 = 5400px = 10800B por banda (6 bandas cobrem 240 sem resto),
 /// flush por banda via `aegis_display_flush(x1,y1,x2,y2)`.
 /// S3 mantem buffer cheio (banda = altura total); mesma imagem final.
-#[cfg(feature = "board-ttgo-classic")]
+#[cfg(all(feature = "has-display", feature = "board-ttgo-classic"))]
 pub const DISPLAY_BAND_HEIGHT: usize = 40;
-#[cfg(not(feature = "board-ttgo-classic"))]
+#[cfg(all(feature = "has-display", not(feature = "board-ttgo-classic")))]
 pub const DISPLAY_BAND_HEIGHT: usize = DISPLAY_HEIGHT;
 /// Dimensoes do classic para testes host sem feature (OOM simulado + recomposicao).
+#[cfg(feature = "has-display")]
 pub const CLASSIC_WIDTH: usize = 135;
+#[cfg(feature = "has-display")]
 pub const CLASSIC_HEIGHT: usize = 240;
+#[cfg(feature = "has-display")]
 pub const CLASSIC_BAND_HEIGHT: usize = 40;
 /// Numero de bandas para `height` com fatia `band_h` (teto, ultima pode ser menor).
+#[cfg(feature = "has-display")]
 pub fn band_count(height: usize, band_h: usize) -> usize {
     if band_h == 0 {
         return 0;
@@ -52,6 +57,7 @@ pub fn band_count(height: usize, band_h: usize) -> usize {
     height.div_ceil(band_h)
 }
 /// Janela `(y0, h)` da banda `idx` (para `aegis_display_flush` por banda).
+#[cfg(feature = "has-display")]
 pub fn band_range(idx: usize, height: usize, band_h: usize) -> (usize, usize) {
     let y0 = idx.saturating_mul(band_h);
     let h = height.saturating_sub(y0).min(band_h);
@@ -59,6 +65,7 @@ pub fn band_range(idx: usize, height: usize, band_h: usize) -> (usize, usize) {
 }
 
 /// Cyber Security Color Palette (RGB565)
+#[cfg(feature = "has-display")]
 pub mod colors {
     use embedded_graphics::pixelcolor::Rgb565;
 
@@ -71,6 +78,23 @@ pub mod colors {
     pub const TEXT_WHITE: Rgb565 = Rgb565::new(31, 63, 31); // Pure White
     pub const TEXT_MUTED: Rgb565 = Rgb565::new(18, 36, 18); // Dim gray (#94A3B8)
     pub const BORDER_BOX: Rgb565 = Rgb565::new(5, 15, 20);
+}
+
+/// Cyber Security Color Palette as raw RGB565 values (LED-only contract).
+///
+/// Same colors as above (`Rgb565::new(r, g, b)` packs as `(r << 11) | (g << 5) | b`);
+/// kept available without `has-display` so headless boards share the UI contract.
+#[cfg(not(feature = "has-display"))]
+pub mod colors {
+    pub const BG_DARK: u16 = 0x0865; // Deep Cyber Slate
+    pub const HEADER_BG: u16 = 0x10CA; // Slightly lighter header
+    pub const ACCENT_CYAN: u16 = 0x079F; // Electric Neon Cyan
+    pub const SUCCESS_GREEN: u16 = 0x1F4C; // Emerald
+    pub const WARN_AMBER: u16 = 0xFE02; // Glowing Amber
+    pub const DANGER_RED: u16 = 0xF108; // Crimson
+    pub const TEXT_WHITE: u16 = 0xFFFF; // Pure White
+    pub const TEXT_MUTED: u16 = 0x9492; // Dim gray
+    pub const BORDER_BOX: u16 = 0x29F4;
 }
 
 /// Screen States for AegisKey UI
@@ -103,20 +127,25 @@ pub enum UiScreen {
     },
 }
 
+#[cfg(feature = "has-display")]
 use alloc::vec;
+#[cfg(feature = "has-display")]
 use alloc::vec::Vec;
 
 /// In-memory 320x170 RGB565 Framebuffer (heap-allocated to prevent stack overflow)
+#[cfg(feature = "has-display")]
 pub struct DisplayBuffer {
     pub pixels: Vec<Rgb565>,
 }
 
+#[cfg(feature = "has-display")]
 impl Default for DisplayBuffer {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "has-display")]
 impl DisplayBuffer {
     pub fn new() -> Self {
         Self {
@@ -135,6 +164,9 @@ impl DisplayBuffer {
     }
 
     pub fn as_raw_bytes(&self) -> &[u8] {
+        // SAFETY: `Rgb565` is a single-`u16` pixel newtype with no padding, so
+        // the pixel slice occupies exactly `len * size_of::<Rgb565>()`
+        // contiguous bytes, valid to read as `u8` for the returned lifetime.
         unsafe {
             core::slice::from_raw_parts(
                 self.pixels.as_ptr() as *const u8,
@@ -144,6 +176,7 @@ impl DisplayBuffer {
     }
 }
 
+#[cfg(feature = "has-display")]
 impl embedded_graphics::draw_target::DrawTarget for DisplayBuffer {
     type Color = Rgb565;
     type Error = core::convert::Infallible;
@@ -165,6 +198,7 @@ impl embedded_graphics::draw_target::DrawTarget for DisplayBuffer {
     }
 }
 
+#[cfg(feature = "has-display")]
 impl embedded_graphics::geometry::Dimensions for DisplayBuffer {
     fn bounding_box(&self) -> Rectangle {
         Rectangle::new(
@@ -179,12 +213,14 @@ impl embedded_graphics::geometry::Dimensions for DisplayBuffer {
 /// `y_offset` e a primeira linha global da banda; `pixels` guarda so `height`
 /// linhas (`DISPLAY_WIDTH * height`). `DrawTarget` recorta (clipping) por Y:
 /// re-renderizar a tela cheia por banda recompoe os mesmos pixels finais.
+#[cfg(feature = "has-display")]
 pub struct DisplayBand {
     pub y_offset: usize,
     pub height: usize,
     pub pixels: Vec<Rgb565>,
 }
 
+#[cfg(feature = "has-display")]
 impl DisplayBand {
     pub fn new(y_offset: usize, height: usize) -> Self {
         Self {
@@ -204,6 +240,7 @@ impl DisplayBand {
     }
 }
 
+#[cfg(feature = "has-display")]
 impl embedded_graphics::draw_target::DrawTarget for DisplayBand {
     type Color = Rgb565;
     type Error = core::convert::Infallible;
@@ -230,6 +267,7 @@ impl embedded_graphics::draw_target::DrawTarget for DisplayBand {
     }
 }
 
+#[cfg(feature = "has-display")]
 impl embedded_graphics::geometry::Dimensions for DisplayBand {
     fn bounding_box(&self) -> Rectangle {
         Rectangle::new(
@@ -240,8 +278,10 @@ impl embedded_graphics::geometry::Dimensions for DisplayBand {
 }
 
 /// UI Renderer for AegisKey S3
+#[cfg(feature = "has-display")]
 pub struct AegisUiRenderer;
 
+#[cfg(feature = "has-display")]
 impl AegisUiRenderer {
     /// Renders the specified UI Screen into the framebuffer
     pub fn render(
@@ -859,7 +899,7 @@ impl AegisUiRenderer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "has-display"))]
 mod tests {
     use super::*;
 

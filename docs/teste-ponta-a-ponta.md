@@ -827,3 +827,143 @@ Achados p/ pré-F6: (a) serial no fio = AEGIS-S3-0001, Rust diz 0002 (lado C nã
 - [PASS] B02b janela pareamento — aberta
 - [PASS] B03 MC [812ms] — 742B
 - [PASS] B04 GA [948ms] — 170B
+
+### 23/10 11:40 — phase=base
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T01 INIT aloca CID — cid=0x00010201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=2
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [PASS] T06 WALLET_GEN sem UP/janela barra — 0x05
+- [PASS] T06b WALLET_GEN com UP sem janela barra — 0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+
+### 23/10 11:40 — phase=all-safe
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T01 INIT aloca CID — cid=0x00020201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=4
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [PASS] T06 WALLET_GEN sem UP/janela barra — 0x05
+- [PASS] T06b WALLET_GEN com UP sem janela barra — 0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] T12 trigger 0x2F abre janela — 0x00
+- [PASS] T07b RESCUE lixo com UP dá INVALID_MAGIC — status=0x01
+- [PASS] T07c killswitch sem UP/PIN nega 0x04 (sem wipe) — status=0x04
+- [DIVERGENTE] T13 KEY_GEN e2e-t1 real — status=0x03 slot=None
+- [PASS] T14 KEY_LIST real — status=0x00 bytes=132 tem=False
+- [PASS] T15 OATH_PUT sem PIN pede PIN — status=0x02
+- [PASS] T16 OATH_CODE sem conta dá NoSlot — 0x03 (lista vazia)
+- [PASS] T17 MakeCredential rp e2e — status=0x00 bytes=744
+- [PASS] T17n MC gravou residente (persiste no NVS!) — credencial e2e criada
+- [PASS] T18 GetAssertion rp e2e — status=0x00 bytes=171
+- [PASS] T19 WALLET_GEN BTC — status=0x00 slot=6 addr=bc1qt2f6epnkcv9pwhsu286d36fn57mstjj766e62f
+- [PASS] T20 WALLET_LIST tem s6 — status=0x00 tem=True
+- [PASS] T21 WALLET_ADDR bate T19 — igual=True
+- [PASS] T22 WALLET rede invalida barra — 0x04
+
+### 23/10 11:41 — phase=bench
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] B01 PING [20ms] — eco
+- [PASS] B02 GetInfo [67ms] — 480B
+- [PASS] B02b janela pareamento — aberta
+- [PASS] B03 MC [807ms] — 743B
+- [DIVERGENTE] B04 GA [3077ms] — 0B
+
+### 23/10 11:54 — phase=destructive
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [FAIL] T15b OATH_PUT com sessão (sem PIN?) — token falhou
+- [FAIL] T15c OATH TOTP (sem PIN?) — token falhou
+- [FAIL] T16b OATH HOTP contador (sem PIN?) — token falhou
+- [PASS] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x02
+- [PASS] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x02
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x00
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] D01b KEY_DELETE com sessão PIN executa — status=0x00 slot=5
+- [DIVERGENTE] D02b OATH_DELETE com sessão PIN executa — status=0x03
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x00 id=05610f93
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [DIVERGENTE] D08a BEGIN bad-sig (aceito p/ testar FINISH) — status=0x01
+
+### 23/10 11:55 — phase=wipe
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [DIVERGENTE] D01 KEY_DELETE s5 pede PIN (gap plumbing) — status=0x03
+- [DIVERGENTE] D02 OATH_DELETE pede PIN (gap plumbing) — status=0x03
+- [PASS] D03 setPIN 1234 (muda o device!) — status=0x33 (já tinha PIN)
+- [PASS] D03b getPinToken 1234 (sessão viva) — token 32B (oculto)
+- [PASS] T15b OATH_PUT HOTP real — status=0x00
+- [PASS] T15c OATH_CODE TOTP bate conta local — status=0x00 got=717538 want=717538
+- [PASS] T16b HOTP avança e é válido — codes=['858575', '524447'] (segredo nunca sai do device)
+- [DIVERGENTE] D01b KEY_DELETE com sessão PIN executa — status=0x01 slot=None
+- [PASS] D02b OATH_DELETE com sessão PIN executa — status=0x00
+- [PASS] D04a changePIN 1234->5678 — status=0x00
+- [PASS] D04b changePIN 5678->1234 (volta) — status=0x00 (device fica com 1234)
+- [PASS] D05a RECOVERY_SET 1234 — status=0x00
+- [PASS] D06 CLAIM posse (muda binding!) — status=0x04 id=6b78a714 (já claimed)
+- [PASS] D06n device agora CLAIMED (NVS) — gates de binding mudam; ver T10
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D07 RELEASE (wipe binding, test-mode) — status=0x00
+- [PASS] D07b CHALLENGE pós-release nega (unclaimed) — status=0x05 (prova do wipe)
+- [PASS] D06c CLAIM posse (muda binding!) — status=0x00 id=6f792482
+- [PASS] D06b CHALLENGE pós-claim dá 32B — status=0x00 bytes=32
+- [PASS] D05b RECOVERY_UNLOCK 1234 (wipe binding) — status=0x00
+- [PASS] D05c CHALLENGE pós-unlock nega (unclaimed) — status=0x05 (prova do wipe)
+- [DIVERGENTE] D08a BEGIN bad-sig (aceito p/ testar FINISH) — status=0x01
+
+### 23/10 11:55 — phase=all-safe
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T01 INIT aloca CID — cid=0x00010201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=4
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [PASS] T06 WALLET_GEN sem UP/janela barra — 0x05
+- [PASS] T06b WALLET_GEN com UP sem janela barra — 0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] T12 trigger 0x2F abre janela — 0x00
+- [PASS] T07b RESCUE lixo com UP dá INVALID_MAGIC — status=0x01
+- [PASS] T07c killswitch sem UP/PIN nega 0x04 (sem wipe) — status=0x04
+- [PASS] T13 KEY_GEN e2e-t1 real — status=0x00 slot=5
+- [PASS] T14 KEY_LIST real — status=0x00 bytes=132 tem=True
+- [PASS] T15 OATH_PUT sem PIN pede PIN — status=0x02
+- [PASS] T16 OATH_CODE sem conta dá NoSlot — 0x03 (lista vazia)
+- [PASS] T17 MakeCredential rp e2e — status=0x00 bytes=742
+- [PASS] T17n MC gravou residente (persiste no NVS!) — credencial e2e criada
+- [PASS] T18 GetAssertion rp e2e — status=0x00 bytes=169
+- [PASS] T19 WALLET_GEN BTC — status=0x00 slot=6 addr=bc1qhs22aydsdfpj5atcz3genrwnqwg0ecu3mxfny2
+- [PASS] T20 WALLET_LIST tem s6 — status=0x00 tem=True
+- [PASS] T21 WALLET_ADDR bate T19 — igual=True
+- [PASS] T22 WALLET rede invalida barra — 0x04
+
+### 23/10 14:01 — phase=base
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T01 INIT aloca CID — cid=0x00010201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=18
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [PASS] T06 WALLET_GEN sem UP/janela barra — 0x05
+- [PASS] T06b WALLET_GEN com UP sem janela barra — 0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)

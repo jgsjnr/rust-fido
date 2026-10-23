@@ -28,6 +28,22 @@ pub const MIN_WIFI_PASS_LEN: usize = 8;
 pub const MAX_WIFI_PASS_LEN: usize = 63;
 /// Timeout do AP em ms (mesma janela de pareamento, 60s).
 pub const WIFI_AP_TIMEOUT_MS: u64 = 60_000;
+/// Maior bloco livre minimo p/ ligar o AP (32 KiB).
+///
+/// Abaixo dele o `esp_wifi_init` aborta o IDF por OOM em vez de retornar
+/// erro; o chamador pula `esp_ap_start` ("AP skip (heap curto)") sem contar
+/// tentativa. Mesmo limiar do C (`AEGIS_WIFI_MIN_HEAP_LARGEST`).
+pub const WIFI_AP_MIN_HEAP_LARGEST: usize = 32 * 1024;
+/// `true` quando ha bloco contiguo suficiente p/ tocar no driver WiFi.
+///
+/// Pura e host-testavel; sensor ausente (`None` no device) vira `false`
+/// (fail-closed, nunca zero inventado aqui: o chamador passa o valor lido).
+pub fn wifi_ap_start_allowed(largest_free: usize) -> bool {
+    largest_free >= WIFI_AP_MIN_HEAP_LARGEST
+}
+/// Codigo NO_MEM do backend C (`ensure_init` sem heap / `esp_wifi_init`
+/// recusado): terminal ate nova borda, sem retry.
+pub const WIFI_AP_RC_NO_MEM: i32 = -4;
 
 /// Erro tipado do AP/HTTP (sem panics).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -567,5 +583,43 @@ mod tests {
         );
         assert_eq!(parse_oath_account_query("/oath/code"), None);
         assert_eq!(parse_oath_account_query("/oath/code?account="), None);
+    }
+
+    #[test]
+    fn heap_guard_limiar_32kib() {
+        assert_eq!(WIFI_AP_MIN_HEAP_LARGEST, 32 * 1024);
+        assert!(!wifi_ap_start_allowed(0));
+        assert!(!wifi_ap_start_allowed(WIFI_AP_MIN_HEAP_LARGEST - 1));
+        assert!(wifi_ap_start_allowed(WIFI_AP_MIN_HEAP_LARGEST));
+        assert!(wifi_ap_start_allowed(WIFI_AP_MIN_HEAP_LARGEST + 1));
+    }
+
+    #[test]
+    fn close_cancela_ap_want_nunca_start_pos_close() {
+        // Janela aberta liga o want; close (shutdown_after_config) cancela:
+        // mesmo sem BLE pareando, o poll nunca pede Start depois do close.
+        let mut m = WifiApManager::new();
+        m.update(true, false, 1000);
+        assert!(m.is_active(1000));
+        assert_eq!(
+            super::ap_poll_action(m.is_active(1000), false, false),
+            super::ApPollAction::Start
+        );
+        // Close do pareamento: radio mudo no close.
+        m.shutdown_after_config();
+        assert!(!m.is_active(2000));
+        assert_ne!(
+            super::ap_poll_action(m.is_active(2000), false, false),
+            super::ApPollAction::Start
+        );
+        assert_eq!(
+            super::ap_poll_action(m.is_active(2000), false, false),
+            super::ApPollAction::None
+        );
+        // Com radio ligado, o close vira Stop uma vez, depois quieto.
+        assert_eq!(
+            super::ap_poll_action(m.is_active(2000), false, true),
+            super::ApPollAction::Stop
+        );
     }
 }

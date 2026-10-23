@@ -32,6 +32,7 @@
 #include "freertos/task.h"
 
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -65,6 +66,12 @@ static const char *TAG = "aegis_wifi";
 #define AEGIS_MDNS_TTL 120
 #define AEGIS_MDNS_TASK_STACK 4096
 #define AEGIS_MDNS_TASK_PRIO 5
+
+/* Heap minimo p/ tocar no driver WiFi (fail-closed, nunca OOM/abort).
+ * Mesmo limiar de `wifi_ap::WIFI_AP_MIN_HEAP_LARGEST` (32 KiB): abaixo dele
+ * `ensure_init` retorna -4 (NO_MEM) sem `esp_wifi_init`, e o Rust trata -4
+ * como terminal ate nova borda (sem retry cego que esgota o heap). */
+#define AEGIS_WIFI_MIN_HEAP_LARGEST (32u * 1024u)
 
 static uint8_t s_inited = 0;
 static uint8_t s_wifi_started = 0;
@@ -138,6 +145,16 @@ static int ensure_init(void)
     }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    /* Guarda de heap antes de tocar no driver: sem bloco contiguo, o
+     * `esp_wifi_init` aborta o IDF (OOM) em vez de retornar erro. */
+    {
+        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+        if (largest < AEGIS_WIFI_MIN_HEAP_LARGEST) {
+            ESP_LOGE(TAG, "heap curto p/ esp_wifi_init (largest=%u < %u); sem retry",
+                     (unsigned)largest, (unsigned)AEGIS_WIFI_MIN_HEAP_LARGEST);
+            return -4;
+        }
+    }
     err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_init: %s", esp_err_to_name(err));
