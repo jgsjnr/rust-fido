@@ -967,3 +967,40 @@ Achados p/ pré-F6: (a) serial no fio = AEGIS-S3-0001, Rust diz 0002 (lado C nã
 - [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
 - [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
 - [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+
+### 23/10 14:01 — phase=all-safe
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T01 INIT aloca CID — cid=0x00020201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=480
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=20
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [PASS] T06 WALLET_GEN sem UP/janela barra — 0x05
+- [PASS] T06b WALLET_GEN com UP sem janela barra — 0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)
+- [PASS] T11 janela via TEST_PAIRING_OPEN — pairing_open 60s
+- [PASS] T12 trigger 0x2F abre janela — 0x00
+- [PASS] T07b RESCUE lixo com UP dá INVALID_MAGIC — status=0x01
+- [PASS] T07c killswitch sem UP/PIN nega 0x04 (sem wipe) — status=0x04
+- [DIVERGENTE] T13 KEY_GEN e2e-t1 real — status=0x03 slot=None
+- [PASS] T14 KEY_LIST real — status=0x00 bytes=132 tem=False
+- [PASS] T15 OATH_PUT sem PIN pede PIN — status=0x02
+- [PASS] T16 OATH_CODE sem conta dá NoSlot — 0x03 (lista vazia)
+- [PASS] T17 MakeCredential rp e2e — status=0x00 bytes=744
+- [PASS] T17n MC gravou residente (persiste no NVS!) — credencial e2e criada
+- [PASS] T18 GetAssertion rp e2e — status=0x00 bytes=171
+- [PASS] T19 WALLET_GEN BTC — status=0x00 slot=6 addr=bc1qpcfjy7uxc45xe000w4akffwdcqdakt5c64fe7g
+- [PASS] T20 WALLET_LIST tem s6 — status=0x00 tem=True
+- [PASS] T21 WALLET_ADDR bate T19 — igual=True
+- [PASS] T22 WALLET rede invalida barra — 0x04
+
+### 23/10 14:01 — phase=bench
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] B01 PING [20ms] — eco
+- [PASS] B02 GetInfo [67ms] — 480B
+- [PASS] B02b janela pareamento — aberta
+- [PASS] B03 MC [807ms] — 743B
+- [PASS] B04 GA [948ms] — 169B
