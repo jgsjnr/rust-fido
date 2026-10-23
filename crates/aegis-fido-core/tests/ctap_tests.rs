@@ -58,8 +58,8 @@ fn test_get_info() {
             .collect();
         assert!(list.contains(&"credProtect".into()));
         assert!(list.contains(&"hmac-secret".into()));
-        assert!(list.contains(&"credBlobs".into()));
-        assert!(list.contains(&"largeBlobKey".into()));
+        assert!(list.contains(&"credBlob".into()));
+        assert!(list.contains(&"largeBlobs".into()));
         assert!(list.contains(&"minPinLength".into()));
         assert!(list.contains(&"pinComplexity".into()));
         assert!(list.contains(&"uvm".into()));
@@ -133,6 +133,20 @@ fn test_get_info() {
     } else {
         panic!("protocols not an array");
     }
+
+    // 0x13 (19): certifications MUST be a map (id -> version), never int.
+    let certs = get_int_key(&map, 19).expect("certifications (0x13) missing");
+    assert!(
+        matches!(certs, Value::Map(_)),
+        "certifications (0x13) must be a map"
+    );
+
+    // 0x14 (20): remainingDiscoverableCredentials is int.
+    let remaining = get_int_key(&map, 20).expect("remainingDiscoverableCredentials (0x14) missing");
+    assert!(
+        matches!(remaining, Value::Integer(_)),
+        "remainingDiscoverableCredentials (0x14) must be int"
+    );
 }
 
 #[test]
@@ -752,6 +766,140 @@ fn test_rk_deny_policy() {
 
     let mc_res = engine.process_packet(&full_mc, 1001, &mut rng);
     assert_eq!(mc_res[0], CTAP2_ERR_OPERATION_DENIED);
+}
+
+#[test]
+fn test_get_info_canonical_cbor_golden() {
+    use aegis_fido_core::ctap::cbor::encode_canonical_cbor;
+    let mut engine = test_engine();
+    let mut rng = rand::thread_rng();
+
+    let res = engine.process_packet(&[CTAP_CMD_GET_INFO], 1001, &mut rng);
+    assert_eq!(res[0], CTAP1_ERR_SUCCESS);
+    let wire = &res[1..];
+
+    // Host-style golden: decode -> re-encode must be byte-identical,
+    // proving canonical (deterministic) map ordering on the wire.
+    let val: Value = ciborium::from_reader(wire).expect("CBOR decode failed");
+    let re_encoded = encode_canonical_cbor(&val).unwrap();
+    let re_encoded_plain = encode_cbor_value(&val).unwrap();
+    assert_eq!(
+        wire,
+        &re_encoded[..],
+        "GetInfo wire bytes are not canonical: decode->re-encode mismatch"
+    );
+    assert_eq!(
+        re_encoded, re_encoded_plain,
+        "encode_cbor_value must emit canonical bytes"
+    );
+
+    // Top-level keys already ascend 1..19; nested maps must also be sorted
+    // by (encoded-len, lexicographic) per RFC 8949 §4.2.1.
+    let Value::Map(top) = &val else {
+        panic!("GetInfo top level not a map");
+    };
+    let key_rank = |k: &Value| -> Vec<u8> {
+        let mut out = Vec::new();
+        ciborium::into_writer(k, &mut out).unwrap();
+        out
+    };
+    let rank_key = |k: &Value| -> (usize, Vec<u8>) {
+        let b = key_rank(k);
+        (b.len(), b)
+    };
+    let keys: Vec<&Value> = top.iter().map(|(k, _)| k).collect();
+    for w in keys.windows(2) {
+        assert!(
+            rank_key(w[0]) <= rank_key(w[1]),
+            "top-level map not in canonical order"
+        );
+    }
+
+    let top_owned: Vec<(Value, Value)> = top.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let options = get_int_key(&top_owned, 4).expect("options missing");
+    if let Value::Map(opts) = options {
+        let names: Vec<&str> = opts
+            .iter()
+            .map(|(k, _)| match k {
+                Value::Text(s) => s.as_str(),
+                _ => panic!("option key not text"),
+            })
+            .collect();
+        let mut sorted = names.clone();
+        sorted.sort_by(|a, b| {
+            let ka = Value::Text((*a).into());
+            let kb = Value::Text((*b).into());
+            rank_key(&ka).cmp(&rank_key(&kb))
+        });
+        assert_eq!(
+            names, sorted,
+            "options map not in canonical order: {names:?}"
+        );
+        // Spot-check: same-length keys sort lexicographically ("rk" before "up"),
+        // shorter keys sort first ("up"/"rk"/"ep" before "clientPin").
+        let pos = |n: &str| names.iter().position(|x| *x == n).unwrap();
+        assert!(pos("rk") < pos("up"));
+        assert!(pos("up") < pos("clientPin"));
+    } else {
+        panic!("options not a map");
+    }
+
+    let algs = get_int_key(&top_owned, 10).expect("algorithms missing");
+    if let Value::Array(entries) = algs {
+        for entry in entries {
+            if let Value::Map(m) = entry {
+                let names: Vec<&str> = m
+                    .iter()
+                    .map(|(k, _)| match k {
+                        Value::Text(s) => s.as_str(),
+                        _ => panic!("alg key not text"),
+                    })
+                    .collect();
+                // Canonical: "alg" (shorter) before "type".
+                assert_eq!(
+                    names,
+                    vec!["alg", "type"],
+                    "algorithm map not canonical: {names:?}"
+                );
+            } else {
+                panic!("algorithm entry not a map");
+            }
+        }
+    } else {
+        panic!("algorithms not an array");
+    }
+
+    // CTAP2 semantics: standard extension names + 0x13 certifications as map.
+    let exts = get_int_key(&top_owned, 2).expect("extensions missing");
+    if let Value::Array(list) = exts {
+        let names: Vec<&str> = list
+            .iter()
+            .map(|x| match x {
+                Value::Text(s) => s.as_str(),
+                _ => panic!("extension id not text"),
+            })
+            .collect();
+        assert!(names.contains(&"credBlob"), "missing credBlob: {names:?}");
+        assert!(
+            names.contains(&"largeBlobs"),
+            "missing largeBlobs: {names:?}"
+        );
+        assert!(
+            !names.contains(&"credBlobs"),
+            "non-standard credBlobs: {names:?}"
+        );
+        assert!(
+            !names.contains(&"largeBlobKey"),
+            "non-standard largeBlobKey: {names:?}"
+        );
+    } else {
+        panic!("extensions not an array");
+    }
+    let certs = get_int_key(&top_owned, 19).expect("certifications (0x13) missing");
+    assert!(
+        matches!(certs, Value::Map(_)),
+        "certifications (0x13) must be a map"
+    );
 }
 
 #[test]

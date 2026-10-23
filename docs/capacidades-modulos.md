@@ -334,15 +334,15 @@ Onde mora hoje:
 
 - Subsistema: `src/display/mod.rs:1-8` (T-Display-S3 ST7789 170x320 vs
   DevKitC-1 LED + espelho serial).
-- Gate: `has-display` (`Cargo.toml:12-14`: `board-t-display` e
-  `board-ttgo-classic` implicam `has-display`); `lib.rs:51-53` reexporta
+- Gate: `has-display` (`Cargo.toml:12` = `dep:embedded-graphics` optional; `:13-14` `board-t-display`/`board-ttgo-classic` implicam `has-display`
+  features reais `board-devkitc` (`:11`, default `:10`) headless, `ble` (`:15`), `wifi` (`:17`), `proximity` (`:18`), `test-mode` (`:22`), `freertos` (`:24`)); `lib.rs:51-53` reexporta
   `AegisUiRenderer/DisplayBuffer` só com a feature.
-- Stub: `display/mod.rs:137-144` (`#[cfg(not(feature = "has-display"))]`
-  constrói `DisplayManager` com o mesmo contrato LED + screen-state).
-- UI: `src/display/ui.rs` (gates `has-display` em ~15 pontos), driver
+- Stub: `display/mod.rs:131-175` (`#[cfg(not(feature = "has-display"))]`
+  DevKitC-1 headless constrói `DisplayManager` com o mesmo contrato `new`/`init_hardware`/`set_screen`/`tick` + `apply_screen_led_effect` compartilhado, sem `todo!()` quando off).
+- UI: `src/display/ui.rs` (gates `has-display` em ~20 pontos), driver
   `src/display/st7789.rs:10` (`extern "C"`, `aegis_display_st7789.c`,
-  `include/aegis_display.h`), LED compartilhado `display/mod.rs:23-33`
-  (`apply_screen_led_effect`).
+  `include/aegis_display.h`), LED compartilhado `display/mod.rs:29-58`
+  (`apply_screen_led_effect`). Periféricos reais (R14): LCD ST7789 (T-Display-S3 320x170 / TTGO-Classic 135x240) + WS2812 RGB + espelho serial no headless; sem mudar comportamento.
 - Jornada UI: `src/ui_journey.rs`, `src/totp_view.rs`, telas via `UiScreen`
   (`display/mod.rs:21`).
 

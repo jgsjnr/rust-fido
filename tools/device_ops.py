@@ -85,7 +85,22 @@ def cmd_verify(port, app):
 
 
 def cmd_boot_check(port, secs=25):
-    """Aguarda boot e classifica: ONLINE / loop / panic / mudo."""
+    """Aguarda boot e classifica: ONLINE / loop / panic / mudo.
+
+    Reset-then-capture: emite hard reset (default_reset, provado contra
+    UART ocupada/ruido 0x5B) antes de abrir a serial, de modo que a
+    janela de captura sempre contenha o boot. Sem esse reset, anexar
+    tarde ve so ticks de 1 Hz e declara MUDA por engano.
+    Nota: ticks de 1 Hz (bytes 0x5B) + panic=False indicam placa viva
+    pos-boot, mas ONLINE so e cobrado nesta janela com reset.
+    """
+    try:
+        esptool(["--chip", "esp32s3", "--port", port, "--baud",
+                 BAUD_ID, "--before", "default_reset", "--after",
+                 "hard_reset", "chip_id"], timeout=60)
+    except Exception as e:
+        print("AVISO: reset pre-captura falhou: %s" % e)
+    time.sleep(0.5)
     link = SerialLink(port, 115200, timeout_ms=200)
     try:
         link.open()
@@ -108,8 +123,9 @@ def cmd_boot_check(port, secs=25):
     online = b"ONLINE & ACTIVE" in txt
     panic = (b"Guru Meditation" in txt or b"stack overflow" in txt
              or b"panic'ed" in txt or b"Backtrace:" in txt)
-    print("bytes=%d boots=%d online=%s panic=%s"
-          % (len(txt), boots, online, panic))
+    ticks = txt.count(b"\x5b")
+    print("bytes=%d boots=%d online=%s panic=%s ticks_1Hz=%d"
+          % (len(txt), boots, online, panic, ticks))
     head = txt[:300].replace(b"\r", b"").decode("ascii", "replace")
     print("HEAD: %s" % head[:200])
     if panic:
@@ -123,6 +139,10 @@ def cmd_boot_check(port, secs=25):
         return 0
     if boots >= 1:
         print("RESULTADO: bootou mas sem ONLINE (verificar)")
+        return 1
+    if ticks > 0 and not panic:
+        print("RESULTADO: VIVA via ticks 1Hz (sem boot na janela; "
+              "refazer com reset para cobrar ONLINE)")
         return 1
     print("RESULTADO: MUDA (0 bytes: placa em download ou sem firmware?)")
     return 1
@@ -199,9 +219,13 @@ def cmd_flash_id(port):
 
 
 def cmd_reset(port):
-    """Sai do download e boota o app (hard reset via RTS; sem BOOT)."""
+    """Sai do download e boota o app (hard reset via RTS; sem BOOT).
+
+    Usa --before default_reset (provado: no_reset falha quando o app
+    segura a UART/ruido 0x5B) + --after hard_reset.
+    """
     rc, out = esptool(["--chip", "esp32s3", "--port", port, "--baud",
-                       BAUD_ID, "--before", "no_reset", "--after",
+                       BAUD_ID, "--before", "default_reset", "--after",
                        "hard_reset", "chip_id"])
     print(out[-300:])
     return 0 if rc == 0 else 1

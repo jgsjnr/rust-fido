@@ -85,3 +85,57 @@ mod tests {
         assert_eq!(e1, LedEffect::Solid(Color::RED));
     }
 }
+
+// ---------------------------------------------------------------------------
+// T8: LED para a TrustFacade (unico ponto de efeito do pareamento).
+//
+// Delega para `effect_for_pairing_state`; proximidade `Locked` (quando a
+// feature `proximity` esta ON e o monitor trava) forca vermelho solido
+// (mesmo `Locked` do pareamento). Sem display/LCD: funcao pura.
+// ---------------------------------------------------------------------------
+
+/// Efeito LED do estado de confianca (pareamento + trava de proximidade).
+///
+/// `proximity_locked` so existe com a feature `proximity`; sem ela, e
+/// sempre `false` (R12 mutavel: mesma assinatura nos dois builds).
+pub fn effect_for_trust_state(
+    state: PairingState,
+    bonded: bool,
+    #[cfg(feature = "proximity")] proximity_locked: bool,
+) -> LedEffect {
+    #[cfg(feature = "proximity")]
+    if proximity_locked {
+        return LedEffect::Solid(Color::RED);
+    }
+    effect_for_pairing_state(state, bonded)
+}
+
+#[cfg(test)]
+mod pairing_led_trust_tests {
+    use super::*;
+
+    #[test]
+    fn trust_delega_para_pareamento_sem_trava() {
+        let e = effect_for_trust_state(
+            PairingState::Idle,
+            false,
+            #[cfg(feature = "proximity")]
+            false,
+        );
+        assert_eq!(e, effect_for_pairing_state(PairingState::Idle, false));
+        let e = effect_for_trust_state(
+            PairingState::Locked,
+            false,
+            #[cfg(feature = "proximity")]
+            false,
+        );
+        assert_eq!(e, LedEffect::Solid(Color::RED));
+    }
+
+    #[cfg(feature = "proximity")]
+    #[test]
+    fn trust_forca_vermelho_com_proximidade_locked() {
+        let e = effect_for_trust_state(PairingState::Idle, true, true);
+        assert_eq!(e, LedEffect::Solid(Color::RED));
+    }
+}

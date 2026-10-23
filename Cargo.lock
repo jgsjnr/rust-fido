@@ -2366,6 +2366,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "universal-device-sdk"
+version = "1.0.0"
+dependencies = [
+ "bech32",
+ "bs58",
+ "ripemd",
+ "sha3",
+]
+
+[[package]]
 name = "universal-hash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,6 +1,6 @@
 //! Backend PIV on-device (F4): store NVS + chaves via `KeyManager`.
 //!
-//! - `PivNvsStore`: `PivRecordStore` sobre `SecureStorage` (AEGN v1).
+//! - `PivNvsStore`: `PivRecordStore` sobre `NamespacedStore` (AEGN v1, T5).
 //! - `PivFwBackend`: `PivKeyBackend` sobre `KeyManager` (slots reservados
 //!   24-27 p/ 9A/9C/9D/9E; colisão com slot vendor ocupado falha `NoSlot`,
 //!   nunca sobrescreve). EC P-256 (`0x11`) e P-384 (`0x14`); RSA = `BadAlg`
@@ -16,7 +16,9 @@ use aegis_fido_core::crypto::curves::CoseAlgorithm;
 use aegis_fido_usb::piv::{PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError};
 use alloc::vec::Vec;
 
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
+use crate::persistence::{
+    FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
+};
 
 /// Slots `KeyManager` reservados p/ PIV (longe do uso típico 0-23).
 pub const PIV_SLOT_BASE: u8 = 24;
@@ -61,28 +63,47 @@ impl<'a, B: FlashStorageBackend> PivNvsStore<'a, B> {
     }
 }
 
+/// Namespace PIV: chaves cruas (sem prefixo), sem teto além do envelope
+/// (`MAX_PLAINTEXT_BYTES`, fail-closed no `store`), sem quota, delete
+/// idempotente (paridade com o comportamento anterior a T5).
+fn piv_ns() -> NamespacedStore {
+    NamespacedStore {
+        prefix: "",
+        max_bytes: None,
+        quota_index_key: None,
+        max_slots: 0,
+        delete_absent_ok: true,
+        strict_index_reads: false,
+        validate: piv_key_ok,
+    }
+}
+
+/// Qualquer chave NVS é aceita (o applet valida o layout; T5 preserva isso).
+fn piv_key_ok(_key: &str) -> bool {
+    true
+}
+
 impl<B: FlashStorageBackend> PivRecordStore for PivNvsStore<'_, B> {
     fn load_record(&self, key: &str) -> Result<Vec<u8>, PivStoreError> {
-        match self.storage.load(key) {
+        match piv_ns().get(self.storage, key) {
             Ok(v) => Ok(v),
-            Err(StorageError::KeyNotFound) => Err(PivStoreError::NotFound),
+            Err(NamespacedStoreError::NotFound) => Err(PivStoreError::NotFound),
             Err(_) => Err(PivStoreError::Io),
         }
     }
 
     fn store_record(&mut self, key: &str, value: &[u8]) -> Result<(), PivStoreError> {
-        self.storage
-            .store(key, value, &[0u8; 12])
+        // T5: verify-after-write via `NamespacedStore` (antes só `store`).
+        piv_ns()
+            .put(self.storage, key, value)
             .map_err(|_| PivStoreError::Io)
     }
 
     fn delete_record(&mut self, key: &str) -> Result<(), PivStoreError> {
-        // Idempotente: ausente = ok.
-        match self.storage.delete(key) {
-            Ok(()) => Ok(()),
-            Err(StorageError::KeyNotFound) => Ok(()),
-            Err(_) => Err(PivStoreError::Io),
-        }
+        // Idempotente: ausente = ok (`delete_absent_ok` no namespace).
+        piv_ns()
+            .delete(self.storage, key)
+            .map_err(|_| PivStoreError::Io)
     }
 }
 

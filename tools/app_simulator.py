@@ -987,6 +987,10 @@ def run_menu(args):
         print(" 4 GetAssertion (0x02)    5 ClientPIN getRetries (0x06)")
         print(" 6 OATH code (HTTP)       7 vendor KEY/OATH raw (priv for writes)")
         print(" 8 WiFi config (HTTP, priv)  9 confirm pairing-mode (hold 5s BOOT)")
+        print(" 12 OTA 0x30-34 builders  13 CCID/PIV-APDU builders (no enroll)")
+        print(" 14 OTP typer input check  15 ext routes 6D00 (ykman/nitrokey/yubiotp)")
+        print(" 16 proximity FFFE walkaway  17 PIV-OpenSC/F4 helpers")
+        print(" 18 killswitch builder (confirm only, never executes)")
         if args.test_mode:
             print(" 10 TEST_LIFETIME_DUMP (test-mode fw)")
             print(" 11 TEST_PAIRING_OPEN 60s (test-mode fw, sem segurar BOOT)")
@@ -1051,6 +1055,99 @@ def run_menu(args):
                 print("hold BOOT 5s on the device, then press ENTER here")
                 ask("(ENTER after the hold) ")
                 sess.confirm_pairing()
+            elif choice in ("12", "13", "14", "15", "16", "17", "18"):
+                try:
+                    from tools.host_sdk import ops as _ops
+                except ImportError:
+                    import sys as _sys
+                    import os as _os
+                    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), ".."))
+                    from tools.host_sdk import ops as _ops
+                if choice == "12":
+                    print("OTA ops: 0x30 BEGIN 0x31 CHUNK 0x32 VERIFY 0x33 COMMIT(USB-only) 0x34 ABORT")
+                    sub = ask("ota sub (begin/chunk/verify/commit/abort): ").strip().lower()
+                    if sub == "begin":
+                        n = ask("total_len bytes: ").strip()
+                        print("vector begin total=%s sha=32x00 -> %s"
+                              % (n, _ops.ota_begin(int(n), b"\x00" * 32).hex()[:64]))
+                    elif sub == "chunk":
+                        print("vector chunk seq=0 len=4 -> %s" % _ops.ota_chunk(0, b"\x01\x02\x03\x04").hex())
+                    elif sub == "verify":
+                        print("vector verify -> (empty %dB)" % len(_ops.ota_verify()))
+                    elif sub == "commit":
+                        print("NOTE: COMMIT is USB-only on device; NEVER executed here.")
+                        print("vector commit -> (empty %dB)" % len(_ops.ota_commit()))
+                    elif sub == "abort":
+                        print("vector abort -> (empty %dB)" % len(_ops.ota_abort()))
+                    else:
+                        print("unknown ota sub")
+                    log_event("OTA_BUILDER", "sub=%s" % sub)
+                elif choice == "13":
+                    print("PIV AID a0000005272101 INS 01/02/03/04/A1-A4 (+A4 SELECT)")
+                    pin = ask("pin 6-8 digits (empty = SELECT only): ").strip()
+                    print("SELECT -> %s" % _ops.piv_select_aid().hex())
+                    if pin:
+                        try:
+                            apdu = _ops.piv_verify_pin(pin.encode("ascii"))
+                            print("VERIFY bytes=%d" % len(apdu))
+                            log_event("PIV_APDU", "bytes=%d" % len(apdu))
+                        except ValueError as e:
+                            print("DENIED: %s" % e)
+                elif choice == "14":
+                    code = ask("otp code (6-8 digits, never logged): ", secret=True).strip()
+                    try:
+                        ok = _ops.otp_typer_input(code)
+                        log_event("OTP_TYPER_OK", "digits=%d" % len(ok))
+                        print("ok digits=%d (secret not shown)" % len(ok))
+                    except ValueError as e:
+                        print("DENIED: %s" % e)
+                elif choice == "15":
+                    r = ask("route (ykman/nitrokey/yubiotp): ").strip().lower()
+                    try:
+                        st = _ops.ext_route_status(r)
+                        print("route=%s answers %s (honest, out of scope)" % (r, st.hex()))
+                        log_event("EXT_6D00", "route=%s" % r)
+                    except ValueError as e:
+                        print("DENIED: %s" % e)
+                elif choice == "16":
+                    t = ask("walkaway timeout 5..300 s: ").strip()
+                    try:
+                        body = _ops.prox_walkaway(int(t))
+                        print("FFFE walkaway bytes=%d hex=%s (RAM-only, no FFF1-FFF4)"
+                              % (len(body), body.hex()))
+                        print("K_prox begin bytes=%d" % len(_ops.prox_k_prox_begin()))
+                        log_event("PROX_BUILDER", "timeout_bytes=%d" % len(body))
+                    except ValueError as e:
+                        print("DENIED: %s" % e)
+                elif choice == "17":
+                    raw = ask("F4 record hex (FF-padded): ")
+                    try:
+                        from tools.app_simulator import parse_hex_even as _hx
+                    except ImportError:
+                        _hx = parse_hex_even
+                    try:
+                        norm = _ops.piv_strip_ff(_hx(raw) if raw.strip() else b"\xff\xff")
+                        print("stripped bytes=%d" % len(norm))
+                        print("GEN AUTH envelope bytes=%d" % len(_ops.piv_gen_auth(b"\x11" * 32)))
+                        log_event("PIV_F4", "bytes=%d" % len(norm))
+                    except ValueError as e:
+                        print("DENIED: %s" % e)
+                elif choice == "18":
+                    c = ask("type --confirm WIPE-ACK to build killswitch frame: ").strip()
+                    if c != "--confirm WIPE-ACK":
+                        print("DENIED: needs --confirm WIPE-ACK (jig+HSM warning)")
+                        continue
+                    try:
+                        f = _ops.rescue_killswitch_frame("WIPE-ACK")
+                        print("killswitch frame bytes=%d (builder only)" % len(f))
+                        print("WARNING: jig+HSM required; kill real = ExternalBlocked here")
+                        log_event("KILLSWITCH_BUILDER", "bytes=%d" % len(f))
+                        try:
+                            _ops.killswitch_execute_denied()
+                        except PermissionError as e:
+                            print("DENIED (expected): %s" % e)
+                    except ValueError as e:
+                        print("DENIED: %s" % e)
             elif choice == "10" and args.test_mode:
                 print(sess.lifetime_dump())
             elif choice == "11" and args.test_mode:
@@ -1067,6 +1164,21 @@ def run_menu(args):
 
 def run_self_test():
     passed = failed = 0
+
+    def _load_ops():
+        """Load host_sdk.ops whether run as file or module (offline only)."""
+        try:
+            from tools.host_sdk import ops as _o
+            return _o
+        except ImportError:
+            import importlib.util as _ilu
+            import os as _os
+            import sys as _sys
+            _root = _os.path.dirname(_os.path.dirname(__file__))
+            if _root not in _sys.path:
+                _sys.path.insert(0, _root)
+            from tools.host_sdk import ops as _o2
+            return _o2
 
     def check(name, fn):
         nonlocal_pass = [0]
@@ -1313,6 +1425,101 @@ def run_self_test():
         except TimeoutError as e:
             assert "cid=11223344" in str(e) and "get_info" in str(e)
 
+    def t_ota_builders():
+        _om = _load_ops()
+        b = _om.ota_begin(1024, b"\x00" * 32)
+        assert len(b) > 32
+        assert _om.ota_chunk(0, b"\x01\x02")[:2] == b"\x00\x00"
+        assert _om.ota_verify() == b"" and _om.ota_commit() == b"" and _om.ota_abort() == b""
+        try:
+            _om.ota_begin(0, b"\x00" * 32)
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+        try:
+            _om.ota_chunk(0, b"")
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+
+    def t_piv_apdu_builders():
+        _om = _load_ops()
+        sel = _om.piv_select_aid()
+        assert sel[:4] == bytes((0x00, 0xA4, 0x04, 0x00))
+        v = _om.piv_verify_pin(b"123456")
+        assert len(v) > 4
+        try:
+            _om.piv_verify_pin(b"12ab56")
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+        try:
+            _om.piv_apdu(0x00, 0xFF, 0, 0)
+            raise AssertionError("should reject INS")
+        except ValueError:
+            pass
+
+    def t_otp_typer():
+        _om = _load_ops()
+        assert _om.otp_typer_input("123456") == b"123456"
+        for bad in ("12345", "123456789", "12ab56", ""):
+            try:
+                _om.otp_typer_input(bad)
+                raise AssertionError("should reject %r" % bad)
+            except ValueError:
+                pass
+
+    def t_ext_6d00():
+        _om = _load_ops()
+        for r in ("ykman", "nitrokey", "yubiotp"):
+            assert _om.ext_route_status(r) == bytes((0x6D, 0x00))
+        try:
+            _om.ext_route_status("nope")
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+        try:
+            _om.ext_route_deny("ykman", op="x")
+            raise AssertionError("should block")
+        except PermissionError:
+            pass
+
+    def t_prox_ffff():
+        _om = _load_ops()
+        assert _om.PROXIMITY_SERVICE == 0xFFFE
+        assert _om.prox_walkaway(60) == bytes((0x00, 0x3C))
+        assert _om.prox_k_prox_begin() == b""
+        try:
+            _om.prox_walkaway(4)
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+
+    def t_piv_f4_helpers():
+        _om = _load_ops()
+        assert _om.piv_strip_ff(bytes((0x01, 0x02, 0xFF, 0xFF))) == bytes((0x01, 0x02))
+        assert len(_om.piv_gen_auth(b"\x11" * 32)) == 33
+        try:
+            _om.piv_gen_auth(b"\x00" * 16)
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+
+    def t_killswitch_builder():
+        _om = _load_ops()
+        f = _om.rescue_killswitch_frame("WIPE-ACK")
+        assert f[:4] == b"RESC"
+        try:
+            _om.rescue_killswitch_frame("nope")
+            raise AssertionError("should reject")
+        except ValueError:
+            pass
+        try:
+            _om.killswitch_execute_denied()
+            raise AssertionError("should block")
+        except PermissionError:
+            pass
+
     cases = [("framing single", t_framing_single), ("framing multi", t_framing_multi),
              ("keepalive", t_keepalive), ("ctap status", t_ctap_status),
              ("pairing gate", t_pairing_gate), ("dump parse", t_dump_parse),
@@ -1324,7 +1531,14 @@ def run_self_test():
              ("stream skips heartbeat", t_stream_skips_variable_heartbeat),
              ("stream resync corrupt", t_stream_resync_after_corrupt_byte),
              ("stream cid resync poisoned", t_stream_cid_resync_poisoned),
-             ("stream resync scan cap", t_stream_resync_scan_cap)]
+             ("stream resync scan cap", t_stream_resync_scan_cap),
+             ("ota builders", t_ota_builders),
+             ("piv apdu builders", t_piv_apdu_builders),
+             ("otp typer", t_otp_typer),
+             ("ext 6d00", t_ext_6d00),
+             ("prox fffe", t_prox_ffff),
+             ("piv f4 helpers", t_piv_f4_helpers),
+             ("killswitch builder", t_killswitch_builder)]
     for name, fn in cases:
         if check(name, fn):
             passed += 1

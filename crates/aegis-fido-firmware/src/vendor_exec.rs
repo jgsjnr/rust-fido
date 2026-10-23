@@ -14,7 +14,10 @@ use aegis_fido_core::credential::KEY_USE_SIGN;
 use aegis_fido_core::crypto::curves::CoseAlgorithm;
 use aegis_fido_core::ctap::client_pin::ClientPinState;
 use aegis_fido_core::oath::applet::{OathApplet, OathDeviceError};
-use aegis_fido_core::oath::tlv::{find_tlv, parse_tlv_records, write_tlv};
+use aegis_fido_core::oath::tlv::{
+    find_tlv, parse_tlv_records, write_tlv, TAG_ALG_HINT, TAG_LABEL, TAG_OATH_NAME,
+    TAG_OATH_RESPONSE, TAG_SLOT, TAG_USAGE_HINT,
+};
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
@@ -31,15 +34,9 @@ pub const NVS_KEYS_OATH: &str = "oath_creds_v1";
 pub const NVS_PIN_HASH: &str = "pin_hash";
 pub const NVS_PIN_RETRIES: &str = "pin_retries";
 
-/// Tags do pedido GEN (espelho `VendorOps` do app).
-const TAG_SLOT: u8 = 0x01;
-const TAG_LABEL: u8 = 0x02;
-const TAG_ALG_HINT: u8 = 0x05;
-const TAG_USAGE_HINT: u8 = 0x06;
-/// Tag OATH de resposta CODE (espelho `VendorOps.TAG_OATH_RESPONSE`).
-const TAG_OATH_NAME: u8 = 0x71;
-const TAG_OATH_RESPONSE: u8 = 0x75;
-
+// Tags do pedido GEN: TLV canônico T4 (`oath/tlv`; mesmos valores do app).
+// (aliases locais removidos — usa direto `TAG_SLOT`/`TAG_LABEL`/...
+// de `aegis_fido_core::oath::tlv`.)
 fn km_status(e: KeyManagerError) -> u8 {
     e.status()
 }

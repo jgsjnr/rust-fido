@@ -7,6 +7,16 @@
 //!   se transacao ativa; tudo delega a `CtapEngine` + `UpPolicy`.
 //! - Bonding obrigatorio; UP por operacao (latch uso unico pelo chamador).
 //! - USB/CTAP bytes intactos: este transporte so encapsula.
+//!
+//! Audit §3B (limites declarados, sem mudanca de wire):
+//! - FFF1/FFF2 dependem de bonding + cifra link-layer (NimBLE `ble_store`);
+//!   SEM cifra app-layer. Link sem bonding expõe bytes no ar.
+//! - Gates: binding → UP → PIN (R6/R7); USO (`0x22`/`0x25`/`0x26`) só UP;
+//!   `NEED_BINDING` 0x05 só BLE/WiFi, nunca USB.
+//! - UP latch single-shot por operação (inclusive `PING 0x81` via
+//!   `control_write`); `GATT_REVISION` congelada em `0x01`;
+//!   coex `USB > WiFi > BLE`; notify excedente falha fechado (`0x04`).
+//!   R13/R14 preservados: nenhum truncamento silencioso.
 
 extern crate alloc;
 

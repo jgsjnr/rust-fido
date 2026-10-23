@@ -1,9 +1,11 @@
 //! Fase6 Step3 - oath_store NVS para credenciais OATH sobre BLE.
 //!
-//! - Aditivo: namespaces oath6/ via oath6_key, bounds via validate_v6_label.
+//! - Aditivo: namespaces oath6/ via `OATH6_PREFIX`, bounds via validate_v6_label.
 //! - TLV total <=512B; verify-after-write no put (igual migrations).
-//! - Reusa SecureStorage store/load/delete; sem nova cripto, sem getter de segredo
-//!   fora do envelope cifrado (secret nunca sai em claro, 9.7).
+//! - T5: delega ao `NamespacedStore` (`persistence`) — ponto único de
+//!   put/get/delete + prefixo + verify-after-write. Envelope AEGN v1,
+//!   fail-closed e AEGN bytes preservados (nenhuma cripto nova, sem getter
+//!   de segredo fora do envelope cifrado — secret nunca sai em claro, 9.7).
 
 extern crate alloc;
 
@@ -11,13 +13,13 @@ use alloc::vec::Vec;
 
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
-use crate::migrations::keys_oath_v6::{oath6_key, validate_v6_label};
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
+use crate::migrations::keys_oath_v6::{validate_v6_label, OATH6_PREFIX};
+use crate::persistence::{
+    FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
+};
 
 /// Limite do blob OATH por slot (9.3 TLV total <=512B).
 pub const OATH_STORE_MAX_BYTES: usize = 512;
-/// Nonce placeholder (ignorado, TRNG dentro de store).
-const IGNORED_NONCE: [u8; 12] = [0u8; 12];
 
 /// Erro tipado do oath_store (sem panics, sem stringly).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,12 +48,32 @@ impl core::fmt::Display for OathStoreError {
     }
 }
 
-impl From<StorageError> for OathStoreError {
-    fn from(e: StorageError) -> Self {
+impl From<NamespacedStoreError> for OathStoreError {
+    fn from(e: NamespacedStoreError) -> Self {
         match e {
-            StorageError::KeyNotFound => Self::NotFound,
-            _ => Self::Storage,
+            NamespacedStoreError::BadLabel => Self::BadLabel,
+            NamespacedStoreError::TooLarge => Self::TooLarge,
+            NamespacedStoreError::NotFound => Self::NotFound,
+            NamespacedStoreError::QuotaExceeded | NamespacedStoreError::Storage => Self::Storage,
         }
+    }
+}
+
+/// Gate do label OATH (§9: 1..32B) como predicado do namespace.
+fn oath_label_ok(label: &str) -> bool {
+    validate_v6_label(label).is_ok()
+}
+
+/// Namespace `oath6/`: 512B/slot, sem quota, delete estrito.
+fn oath_ns() -> NamespacedStore {
+    NamespacedStore {
+        prefix: OATH6_PREFIX,
+        max_bytes: Some(OATH_STORE_MAX_BYTES),
+        quota_index_key: None,
+        max_slots: 0,
+        delete_absent_ok: false,
+        strict_index_reads: false,
+        validate: oath_label_ok,
     }
 }
 
@@ -61,17 +83,7 @@ pub fn oath_store_put<B: FlashStorageBackend>(
     label: &str,
     blob: &[u8],
 ) -> Result<(), OathStoreError> {
-    validate_v6_label(label).map_err(|_| OathStoreError::BadLabel)?;
-    if blob.len() > OATH_STORE_MAX_BYTES {
-        return Err(OathStoreError::TooLarge);
-    }
-    let key = oath6_key(label);
-    storage.store(&key, blob, &IGNORED_NONCE)?;
-    let back = storage.load(&key)?;
-    if back != blob {
-        let _ = storage.delete(&key);
-        return Err(OathStoreError::Storage);
-    }
+    oath_ns().put(storage, label, blob)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathPut, label);
     Ok(())
 }
@@ -81,9 +93,7 @@ pub fn oath_store_get<B: FlashStorageBackend>(
     storage: &SecureStorage<B>,
     label: &str,
 ) -> Result<Vec<u8>, OathStoreError> {
-    validate_v6_label(label).map_err(|_| OathStoreError::BadLabel)?;
-    let key = oath6_key(label);
-    let blob = storage.load(&key)?;
+    let blob = oath_ns().get(storage, label)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathCode, label);
     Ok(blob)
 }
@@ -93,12 +103,7 @@ pub fn oath_store_delete<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,
     label: &str,
 ) -> Result<(), OathStoreError> {
-    validate_v6_label(label).map_err(|_| OathStoreError::BadLabel)?;
-    let key = oath6_key(label);
-    if !storage.exists(&key) {
-        return Err(OathStoreError::NotFound);
-    }
-    storage.delete(&key)?;
+    oath_ns().delete(storage, label)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathDelete, label);
     Ok(())
 }

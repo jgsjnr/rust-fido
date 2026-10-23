@@ -1058,3 +1058,73 @@ mod rolling_tests {
         assert_eq!(m.state(), ProximityState::Locked);
     }
 }
+
+// ---------------------------------------------------------------------------
+// T8 FreeRTOS: amostra e gaps do scheduler (sem fabricar valores).
+//
+// - `freertos_tick_sample` = `None` sempre (sensor RSSI HW ausente no
+//   scheduler: `EXTERNAL_BLOCKED: RssiSensor`; fail-closed, nunca zero).
+//   Quando o sensor existir, o gate `authorize_proximity_sample(bonded,
+//   usb)` decide entre a leitura real e `None` (ver
+//   `prox_sched::tick_with_sample` no `main.rs`).
+// - `FreertosTrustGap` reexportado aqui para o dominio de proximidade;
+//   o ponto canonico de trava e `TrustFacade::confirm_lock` (nao chamar
+//   `ProximityMonitor::confirm_lock` direto no caminho FreeRTOS).
+//
+// FAIL-SAFE / POWER-LOSS: K_prox em NVS cifrada; queda entre delete/save
+// (rekey/release/recovery) => ausente no boot => sem adv ate novo
+// pareamento (fail-closed). Envelope com tamanho errado => `Corrupted`.
+// Rollover (ctr=u32::MAX) exige rekey antes de avancar (nunca wrap).
+// ---------------------------------------------------------------------------
+
+/// Gaps do small loop FreeRTOS no dominio de proximidade (canonico em `binding`).
+pub use crate::binding::FreertosTrustGap;
+
+/// Amostra RSSI do tick FreeRTOS: sempre `None` (fail-closed).
+///
+/// Sensor HW ausente no scheduler (`EXTERNAL_BLOCKED: RssiSensor`); `None`
+/// conta como fraco no `update` (tende a travar). Nunca retorna zero
+/// (zero seria sinal bom falso). R14 HW-first: leitura real so via
+/// `tick_with_sample` com valor do radio.
+pub fn freertos_tick_sample() -> Option<i16> {
+    None
+}
+
+/// Gaps ainda abertos no small loop FreeRTOS (delega ao canonico).
+pub fn freertos_open_gaps() -> [FreertosTrustGap; 7] {
+    FreertosTrustGap::freertos_open_gaps()
+}
+
+#[cfg(test)]
+mod proximity_freertos_tests {
+    use super::*;
+    use crate::persistence::{MockFlashBackend, SecureStorage};
+
+    #[test]
+    fn tick_sample_fail_closed_nunca_zero() {
+        assert_eq!(freertos_tick_sample(), None);
+        let mut m = ProximityMonitor::new(ProximityConfig::default());
+        let st = m.update(freertos_tick_sample(), 10);
+        assert_eq!(st, ProximityState::Away);
+    }
+
+    #[test]
+    fn gaps_reexportados_iguais_ao_canonico() {
+        assert_eq!(
+            freertos_open_gaps().len(),
+            FreertosTrustGap::freertos_open_gaps().len()
+        );
+        assert!(freertos_open_gaps().contains(&FreertosTrustGap::RssiSensor));
+    }
+
+    #[test]
+    fn k_prox_queda_entre_delete_e_save_sem_adv() {
+        let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
+        let mut rng = rand_core::OsRng;
+        let k = rekey_proximity(&mut st, &mut rng).expect("rekey ok");
+        assert_eq!(load_proximity_key(&st).expect("load ok"), k);
+        delete_proximity_key(&mut st).expect("delete ok");
+        assert!(load_proximity_key(&st).is_err());
+        assert!(!proximity_adv_allowed(true, true, true, false, false));
+    }
+}

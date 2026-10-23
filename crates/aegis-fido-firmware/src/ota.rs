@@ -369,6 +369,125 @@ fn verify_signature(_pubkey: &[u8; 32], _message: &[u8], _signature: &[u8; 64]) 
     false
 }
 
+/// T6/A4 injected OTA key source moves OTA pubkeys out of the dispatcher.
+///
+/// R12 selectable build: the dispatcher only calls
+/// OtaKeyProvider active_pubkey_for_build with no cfg test-mode branch,
+/// so no key module is hard coded in main. Lab versus release is selected
+/// at compile time by the test-mode Cargo feature.
+/// R13 stub only: release default is zeros fail-closed. VerifyingKey
+/// from_bytes rejects zeros, so every FINISH denies until the factory
+/// programs the real release key with a manual supervised procedure outside
+/// the automated loop. Reflash keeps working with no lock and no brick.
+/// R14 hardware first: verification uses ed25519-dalek VerifyingKey over the
+/// key read via EfuseManager eFuse BLOCK7 and BLOCK8 salt path in main
+/// ota_provisioned. Emulation exists only under cfg test or host RamEfuse.
+/// R7 test-mode gated: the lab key exists only under feature test-mode.
+/// Lab key compiled only under feature = "test-mode" gate.
+/// CI-GREP TEST-HOOK lab marker lives on the gated const below. scripts check-release-clean proves
+/// absence in the release artifact.
+/// The Idle Staged Verified Applying Committed machine plus rollback snapshot
+/// is untouched. This provider only selects the pubkey fed into verify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OtaKeyProvider {
+    test_mode: bool,
+}
+
+impl OtaKeyProvider {
+    /// Release pubkey: zeros fail-closed (R13). Never provisioned by default.
+    pub const RELEASE_PUBKEY: [u8; 32] = [0u8; 32];
+    /// Lab Ed25519 pubkey for e2e OTA, test-mode only (R7).
+    /// CI-GREP TEST-HOOK marker TEST-OTA-KEY.
+    /// Private half lives outside the repo. Release uses zeros fail-closed.
+    #[cfg(feature = "test-mode")]
+    pub const LAB_PUBKEY: [u8; 32] = [
+        0x65, 0x6f, 0x07, 0x2a, 0x6f, 0xfa, 0xc5, 0x02, 0xdf, 0xee, 0x5a, 0x28, 0x40, 0x12, 0x4c,
+        0x9a, 0xde, 0x27, 0x80, 0xdc, 0x15, 0x2b, 0xad, 0xc8, 0x98, 0xdf, 0x7e, 0x6b, 0x03, 0xf6,
+        0x7d, 0x82,
+    ];
+
+    /// Release provider: always zeros fail-closed.
+    pub const fn release() -> Self {
+        Self { test_mode: false }
+    }
+
+    /// Lab provider: only compiled with feature test-mode.
+    #[cfg(feature = "test-mode")]
+    pub const fn lab() -> Self {
+        Self { test_mode: true }
+    }
+
+    /// Active pubkey for this provider instance.
+    /// With test-mode built, a lab provider returns LAB_PUBKEY.
+    /// Every other combination returns zeros fail-closed, including a
+    /// lab-flagged instance in a release build.
+    pub fn active_pubkey(&self) -> [u8; 32] {
+        #[cfg(feature = "test-mode")]
+        {
+            if self.test_mode {
+                return Self::LAB_PUBKEY;
+            }
+        }
+        #[cfg(not(feature = "test-mode"))]
+        let _ = self.test_mode;
+        Self::RELEASE_PUBKEY
+    }
+
+    /// Build-selected pubkey for the dispatcher (no cfg in main, R12).
+    /// Test-mode builds return the lab key, release builds return zeros.
+    pub fn active_pubkey_for_build() -> [u8; 32] {
+        #[cfg(feature = "test-mode")]
+        {
+            Self::LAB_PUBKEY
+        }
+        #[cfg(not(feature = "test-mode"))]
+        {
+            Self::RELEASE_PUBKEY
+        }
+    }
+
+    /// True when the given pubkey is the fail-closed zeros key.
+    pub fn is_denied(pubkey: &[u8; 32]) -> bool {
+        pubkey == &Self::RELEASE_PUBKEY
+    }
+}
+
+#[cfg(test)]
+mod ota_key_provider_tests {
+    use super::*;
+
+    #[test]
+    fn release_provider_is_fail_closed() {
+        let p = OtaKeyProvider::release();
+        assert_eq!(p.active_pubkey(), [0u8; 32]);
+        assert_eq!(p.active_pubkey(), OtaKeyProvider::RELEASE_PUBKEY);
+        assert!(OtaKeyProvider::is_denied(&p.active_pubkey()));
+        assert!(!OtaKeyProvider::is_denied(&[0x11u8; 32]));
+    }
+
+    #[cfg(not(feature = "test-mode"))]
+    #[test]
+    fn build_pubkey_is_zeros_without_test_mode() {
+        assert_eq!(OtaKeyProvider::active_pubkey_for_build(), [0u8; 32]);
+        let injected = OtaKeyProvider { test_mode: true };
+        assert_eq!(injected.active_pubkey(), [0u8; 32]);
+        assert!(OtaKeyProvider::is_denied(&injected.active_pubkey()));
+    }
+
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn lab_provider_only_with_test_mode() {
+        let lab = OtaKeyProvider::lab();
+        assert_eq!(lab.active_pubkey(), OtaKeyProvider::LAB_PUBKEY);
+        assert_ne!(lab.active_pubkey(), [0u8; 32]);
+        assert!(!OtaKeyProvider::is_denied(&lab.active_pubkey()));
+        assert_eq!(
+            OtaKeyProvider::active_pubkey_for_build(),
+            OtaKeyProvider::LAB_PUBKEY
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

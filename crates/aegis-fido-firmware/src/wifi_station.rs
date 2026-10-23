@@ -298,6 +298,9 @@ pub fn esp_sta_ip() -> [u8; 4] {
 //
 // - Save/clear das credenciais station: binding + UP + PIN.
 // - Ordem canonica: binding -> UP -> PIN. Sem binding a NVS fica intacta.
+// ---------------------------------------------------------------------------
+// T10 — re-export da fachada net-wifi (politica vive em `wifi_ap.rs`;
+// aqui so o atalho de station + teste de fallback).
 
 /// Barreira de binding para `/wifi/creds` (CONFIG).
 /// Release exige vinculo; teste faz bypass com ltrace (so UP+PIN).

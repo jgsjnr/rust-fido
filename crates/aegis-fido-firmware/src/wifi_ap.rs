@@ -7,6 +7,17 @@
 //! - HTTP minimo: `POST /ctap`, `POST /config/wifi`, `GET /oath/code?account=`.
 //! - TOTP GERADO NO DEVICE: so o codigo 6-8 digitos sai, nunca o secret.
 //! - Keys nunca saem do device.
+//!
+//! LIMITE CONHECIDO (sem TLS): o AP e puro (`WPA2` + envelope `AES-GCM`);
+//! nao ha `TLS` no `POST /ctap` nem no mgmt HTTP. Confidencialidade do
+//! payload depende do envelope (`AEGN` v`0x01`, nonce 12 B unico, tag 16 B)
+//! e do WPA2 do AP. Captura de radio ainda expoe metadados (rota/tamanho).
+//! Por isso o boundary [`validate_ctap_envelope_for_request`] vincula
+//! AAD `rota/op/nonce` ANTES de delegar o conteudo ao `CtapService`:
+//! rota != `/ctap` rejeita, `op` precisa casar com o byte-op do envelope,
+//! nonce zero ou repetido (replay) rejeita. Sem `burn`/provisionamento
+//! aqui (R13 stub-only); TRNG/AES vao pelo trait existente (R14 HW-first).
+//! Coex de radio: `USB > WiFi > BLE` (USB veta o AP, BLE pareando muteia).
 
 extern crate alloc;
 
@@ -232,6 +243,7 @@ pub fn change_ap_password<B: FlashStorageBackend>(
 
 /// Valida envelope `POST /ctap` (mesmo `SecureStorage`: magic AEGN+versao).
 /// Retorna tamanho do ciphertext quando valido (delega conteudo ao CtapService).
+/// NOTA: sem vinculo rota/op/nonce — prefira [`validate_ctap_envelope_for_request`].
 pub fn validate_ctap_envelope(envelope: &[u8]) -> Result<usize, WifiApError> {
     if envelope.len() < 4 + 1 + 12 + 16 {
         return Err(WifiApError::InvalidEnvelope);
@@ -240,6 +252,68 @@ pub fn validate_ctap_envelope(envelope: &[u8]) -> Result<usize, WifiApError> {
         return Err(WifiApError::InvalidEnvelope);
     }
     Ok(envelope.len() - (4 + 1 + 12))
+}
+
+/// Rota HTTP CTAP vinculada como AAD (AP puro, sem TLS — ver limite no topo).
+pub const CTAP_HTTP_ROUTE: &str = "/ctap";
+/// Tamanho do nonce do envelope (12 B, TRNG via trait existente — R14 HW-first).
+pub const CTAP_ENVELOPE_NONCE_LEN: usize = 12;
+/// Offset do byte-op dentro do envelope (apos magic 4 + ver 1 + nonce 12).
+pub const CTAP_ENVELOPE_OP_OFFSET: usize = 4 + 1 + CTAP_ENVELOPE_NONCE_LEN;
+
+/// Extrai o nonce 12 B do envelope (quando o layout basico e valido).
+pub fn ctap_envelope_nonce(envelope: &[u8]) -> Result<[u8; 12], WifiApError> {
+    validate_ctap_envelope(envelope)?;
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&envelope[5..5 + CTAP_ENVELOPE_NONCE_LEN]);
+    Ok(nonce)
+}
+
+/// Boundary endurecido `POST /ctap`: vincula AAD `rota/op/nonce`.
+///
+/// `route` precisa ser exatamente [`CTAP_HTTP_ROUTE`] (cross-rota rejeita).
+/// `op` precisa casar com o byte-op do envelope (`envelope[OP_OFFSET]`);
+/// o conteudo descriptografado e revalidado pelo `CtapService`.
+/// `prev_nonce` quando `Some` com nonce igual ao anterior = replay, rejeita;
+/// nonce todo-zero tambem rejeita (TRNG nunca emite zero — R14).
+/// Sem TLS (limite documentado no topo); sem `burn`/provisionamento (R13).
+pub fn validate_ctap_envelope_for_request(
+    envelope: &[u8],
+    route: &str,
+    op: u8,
+    prev_nonce: Option<[u8; 12]>,
+) -> Result<usize, WifiApError> {
+    if route != CTAP_HTTP_ROUTE {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    let ct_len = validate_ctap_envelope(envelope)?;
+    if ct_len < 1 + 16 {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    if envelope[CTAP_ENVELOPE_OP_OFFSET] != op {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&envelope[5..5 + CTAP_ENVELOPE_NONCE_LEN]);
+    if nonce == [0u8; 12] {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    if let Some(prev) = prev_nonce {
+        // Comparacao em tempo-constante: evita oraculo de replay por timing.
+        let mut diff = 0u8;
+        for i in 0..12 {
+            diff |= nonce[i] ^ prev[i];
+        }
+        if diff == 0 {
+            return Err(WifiApError::InvalidEnvelope);
+        }
+    }
+    Ok(ct_len)
+}
+
+/// Coex `USB > WiFi > BLE`: USB ativo veta o AP (chamador aplica antes de `update`).
+pub fn wifi_ap_coex_allowed(usb_active: bool) -> bool {
+    !usb_active
 }
 
 /// Extrai `account` de `GET /oath/code?account=<nome>`.
@@ -440,6 +514,557 @@ pub fn handle_get_oath_code_bound(
     handle_get_oath_code(account, secrets, unix_seconds, presence_confirmed)
 }
 
+// ---------------------------------------------------------------------------
+// T10 — fachada net-wifi (replica padrao NimBLE: politica pura + radio C
+// atras de trait; `no_std`, sem unwrap, R6 zero, R7 gated via `ltrace!`).
+//
+// - `WifiNet<R>`: `ap_start/stop`, `station_join`, `mdns_announce`.
+//   AP so em pareamento/menu; station+mDNS so fora de pareamento;
+//   mDNS exige station up (fallback AP caso contrario).
+// - `HttpConfig` + `HttpConfigService`: `POST /ctap` (AAD rota/op/nonce
+//   preservado), `POST /config/wifi`, `GET /oath/code`.
+// - Radio C atras de [`WifiRadioBackend`] (esp_* existentes viram impl);
+//   sem feature `wifi` tudo vira [`WifiNetError::NotCompiled`].
+// - R12/R13/R14: sem `burn`/provisionamento aqui; TRNG/AES pelo trait
+//   existente; envelope validado antes de delegar conteudo.
+// ---------------------------------------------------------------------------
+
+use crate::mdns::MdnsManager;
+use crate::wifi_station::{WifiStationError, WifiStationManager};
+
+/// Erro tipado da fachada (sem panics; R6 zero).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WifiNetError {
+    /// Feature `wifi` desligada (sem radio compilado).
+    NotCompiled,
+    /// AP fora de pareamento/menu.
+    ApNotAllowed,
+    /// Station em pareamento ou sem credenciais.
+    StationNotAllowed,
+    /// mDNS em pareamento ou sem station up.
+    MdnsNotAllowed,
+    /// Radio C recusou (`rc` negativo do backend).
+    Radio(i32),
+    /// Erro do AP/HTTP.
+    Ap(WifiApError),
+    /// Erro da station.
+    Station(WifiStationError),
+}
+
+impl core::fmt::Display for WifiNetError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotCompiled => write!(f, "wifi not compiled"),
+            Self::ApNotAllowed => write!(f, "ap allowed only in pairing/menu"),
+            Self::StationNotAllowed => write!(f, "station outside pairing with creds"),
+            Self::MdnsNotAllowed => write!(f, "mdns outside pairing with station up"),
+            Self::Radio(rc) => write!(f, "wifi radio error ({})", rc),
+            Self::Ap(e) => write!(f, "ap: {}", e),
+            Self::Station(e) => write!(f, "station: {}", e),
+        }
+    }
+}
+
+impl From<WifiApError> for WifiNetError {
+    fn from(e: WifiApError) -> Self {
+        Self::Ap(e)
+    }
+}
+
+impl From<WifiStationError> for WifiNetError {
+    fn from(e: WifiStationError) -> Self {
+        Self::Station(e)
+    }
+}
+
+/// Radio C atras de trait (replica `ble_nimble.rs`: `extern "C"` manual vira
+/// impl; politica 100% host-testavel via backend fake nos testes).
+pub trait WifiRadioBackend {
+    /// Liga o AP real (`0` ok, negativo = erro do C).
+    fn ap_start(ssid: &str, pass: &str) -> i32;
+    /// Desliga o AP (`0` ok).
+    fn ap_stop() -> i32;
+    /// Conecta a station (`0` ok, nao bloqueia).
+    fn sta_start(ssid: &str, pass: &str) -> i32;
+    /// Desconecta a station (`0` ok).
+    fn sta_stop() -> i32;
+    /// Liga o responder mDNS (`host` sem `.local`; `0` ok).
+    fn mdns_start(host: &str) -> i32;
+    /// Desliga o responder (`0` ok).
+    fn mdns_stop() -> i32;
+    /// Power-down total do radio (`0` ok).
+    fn wifi_off() -> i32;
+}
+
+/// Backend real: delega aos `esp_*` existentes (C `aegis_wifi` no device,
+/// shims inertes no host).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RealWifiRadio;
+
+impl WifiRadioBackend for RealWifiRadio {
+    fn ap_start(ssid: &str, pass: &str) -> i32 {
+        esp_ap_start(ssid, pass)
+    }
+    fn ap_stop() -> i32 {
+        esp_ap_stop()
+    }
+    fn sta_start(ssid: &str, pass: &str) -> i32 {
+        crate::wifi_station::esp_sta_start(ssid, pass)
+    }
+    fn sta_stop() -> i32 {
+        crate::wifi_station::esp_sta_stop()
+    }
+    fn mdns_start(host: &str) -> i32 {
+        crate::mdns::esp_mdns_start(host)
+    }
+    fn mdns_stop() -> i32 {
+        crate::mdns::esp_mdns_stop()
+    }
+    fn wifi_off() -> i32 {
+        esp_wifi_off()
+    }
+}
+
+/// HTTP mgmt atras de trait: `POST /ctap`, `POST /config/wifi`,
+/// `GET /oath/code` (gates binding->UP->PIN preservados).
+pub trait HttpConfigService {
+    /// `POST /ctap`: valida AAD rota/op/nonce e retorna tamanho do ct.
+    /// `prev_nonce`: ultimo nonce aceito (`Some` + igual = replay, rejeita).
+    fn post_ctap(
+        &mut self,
+        envelope: &[u8],
+        route: &str,
+        op: u8,
+        prev_nonce: Option<[u8; 12]>,
+    ) -> Result<usize, WifiApError>;
+    /// `POST /config/wifi`: binding + UP + PIN, senha em NVS cifrada.
+    fn post_config_wifi<B: FlashStorageBackend>(
+        &mut self,
+        storage: &mut SecureStorage<B>,
+        new_password: &str,
+        binding_ok: bool,
+        pin_authenticated: bool,
+        presence_confirmed: bool,
+    ) -> Result<(), WifiApError>;
+    /// `GET /oath/code`: so USO (binding ignorado de proposito), so codigo.
+    fn get_oath_code(
+        &self,
+        account: &str,
+        secrets: &[(&str, &[u8], OathAlgorithm, u8)],
+        unix_seconds: u64,
+        presence_confirmed: bool,
+    ) -> Result<TotpResponse, WifiApError>;
+}
+
+/// Estado do servico HTTP (guarda ultimo nonce p/ anti-replay local).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HttpConfig {
+    last_nonce: Option<[u8; 12]>,
+}
+
+impl HttpConfig {
+    /// Cria zerado (nenhum nonce aceito ainda).
+    pub fn new() -> Self {
+        Self { last_nonce: None }
+    }
+
+    /// Ultimo nonce aceito (para o chamador persistir entre polls).
+    pub fn last_nonce(&self) -> Option<[u8; 12]> {
+        self.last_nonce
+    }
+}
+
+impl Default for HttpConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HttpConfigService for HttpConfig {
+    fn post_ctap(
+        &mut self,
+        envelope: &[u8],
+        route: &str,
+        op: u8,
+        prev_nonce: Option<[u8; 12]>,
+    ) -> Result<usize, WifiApError> {
+        // Ordem canonica: prev explicito vence; senao usa o nonce local.
+        let prev = prev_nonce.or(self.last_nonce);
+        let ct_len = validate_ctap_envelope_for_request(envelope, route, op, prev)?;
+        let nonce = ctap_envelope_nonce(envelope)?;
+        self.last_nonce = Some(nonce);
+        Ok(ct_len)
+    }
+
+    fn post_config_wifi<B: FlashStorageBackend>(
+        &mut self,
+        storage: &mut SecureStorage<B>,
+        new_password: &str,
+        binding_ok: bool,
+        pin_authenticated: bool,
+        presence_confirmed: bool,
+    ) -> Result<(), WifiApError> {
+        change_ap_password_bound(
+            storage,
+            new_password,
+            binding_ok,
+            pin_authenticated,
+            presence_confirmed,
+        )
+    }
+
+    fn get_oath_code(
+        &self,
+        account: &str,
+        secrets: &[(&str, &[u8], OathAlgorithm, u8)],
+        unix_seconds: u64,
+        presence_confirmed: bool,
+    ) -> Result<TotpResponse, WifiApError> {
+        // USO: sem vinculo (compat com `handle_get_oath_code_bound`).
+        handle_get_oath_code_bound(account, secrets, unix_seconds, false, presence_confirmed)
+    }
+}
+
+/// Fachada net-wifi: politicas AP/station/mDNS + radio atras de trait.
+///
+/// - `ap_start`: SO pareamento/menu (`pairing_open || menu_request`),
+///   senha da NVS cifrada (via `resolve_ap_password` no chamador).
+/// - `station_join`: SO fora de pareamento com credenciais.
+/// - `mdns_announce`: SO fora de pareamento com station up; em pareamento
+///   ou sem station o chamador cai no fallback AP.
+/// - Sem feature `wifi`: tudo retorna [`WifiNetError::NotCompiled`].
+#[derive(Debug)]
+pub struct WifiNet<R: WifiRadioBackend> {
+    ap: WifiApManager,
+    sta: WifiStationManager,
+    mdns: MdnsManager,
+    _radio: core::marker::PhantomData<R>,
+}
+
+impl<R: WifiRadioBackend> WifiNet<R> {
+    /// Cria com tudo desligado.
+    pub fn new() -> Self {
+        Self {
+            ap: WifiApManager::new(),
+            sta: WifiStationManager::new(),
+            mdns: MdnsManager::new(),
+            _radio: core::marker::PhantomData,
+        }
+    }
+
+    /// Acesso aos gerentes (poll/decisao no chamador, ex. `main.rs`).
+    pub fn ap(&self) -> &WifiApManager {
+        &self.ap
+    }
+    /// Acesso a station.
+    pub fn sta(&self) -> &WifiStationManager {
+        &self.sta
+    }
+    /// Acesso ao mDNS.
+    pub fn mdns(&self) -> &MdnsManager {
+        &self.mdns
+    }
+
+    /// Liga o AP (janela/menu). `pass`: senha resolvida da NVS (`None` =
+    /// rede aberta no bootstrap curto). Atualiza o `WifiApManager`.
+    #[allow(clippy::needless_return)]
+    pub fn ap_start(
+        &mut self,
+        pairing_open: bool,
+        menu_request: bool,
+        now_ms: u64,
+        ssid: &str,
+        pass: Option<&str>,
+    ) -> Result<(), WifiNetError> {
+        #[cfg(not(feature = "wifi"))]
+        {
+            let _ = (pairing_open, menu_request, now_ms, ssid, pass);
+            return Err(WifiNetError::NotCompiled);
+        }
+        #[cfg(feature = "wifi")]
+        {
+            if !(pairing_open || menu_request) {
+                return Err(WifiNetError::ApNotAllowed);
+            }
+            self.ap.update(true, false, now_ms);
+            let pw = pass.unwrap_or("");
+            let rc = R::ap_start(ssid, pw);
+            if rc != 0 {
+                return Err(WifiNetError::Radio(rc));
+            }
+            crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "wifi-net");
+            Ok(())
+        }
+    }
+
+    /// Desliga o AP (apos config/timeout; idempotente).
+    #[allow(clippy::needless_return)]
+    pub fn ap_stop(&mut self) -> Result<(), WifiNetError> {
+        #[cfg(not(feature = "wifi"))]
+        {
+            return Err(WifiNetError::NotCompiled);
+        }
+        #[cfg(feature = "wifi")]
+        {
+            self.ap.shutdown_after_config();
+            let rc = R::ap_stop();
+            if rc != 0 {
+                return Err(WifiNetError::Radio(rc));
+            }
+            Ok(())
+        }
+    }
+
+    /// Conecta a station SO fora de pareamento e com credenciais.
+    #[allow(clippy::needless_return)]
+    pub fn station_join(
+        &mut self,
+        pairing_open: bool,
+        has_credentials: bool,
+        now_ms: u64,
+        ssid: &str,
+        pass: &str,
+    ) -> Result<(), WifiNetError> {
+        #[cfg(not(feature = "wifi"))]
+        {
+            let _ = (pairing_open, has_credentials, now_ms, ssid, pass);
+            return Err(WifiNetError::NotCompiled);
+        }
+        #[cfg(feature = "wifi")]
+        {
+            if pairing_open || !has_credentials {
+                return Err(WifiNetError::StationNotAllowed);
+            }
+            self.sta.update(false, true, now_ms);
+            let rc = R::sta_start(ssid, pass);
+            if rc != 0 {
+                return Err(WifiNetError::Radio(rc));
+            }
+            Ok(())
+        }
+    }
+
+    /// Anuncia mDNS SO fora de pareamento com station up; senão o chamador
+    /// usa o fallback AP. `host`: sem `.local` (ex. `aegiskey-00af`).
+    #[allow(clippy::needless_return)]
+    pub fn mdns_announce(
+        &mut self,
+        pairing_open: bool,
+        station_up: bool,
+        host: &str,
+    ) -> Result<(), WifiNetError> {
+        #[cfg(not(feature = "wifi"))]
+        {
+            let _ = (pairing_open, station_up, host);
+            return Err(WifiNetError::NotCompiled);
+        }
+        #[cfg(feature = "wifi")]
+        {
+            if pairing_open || !station_up {
+                return Err(WifiNetError::MdnsNotAllowed);
+            }
+            self.mdns.update(false, true);
+            let rc = R::mdns_start(host);
+            if rc != 0 {
+                return Err(WifiNetError::Radio(rc));
+            }
+            Ok(())
+        }
+    }
+
+    /// Power-down total (AP off + station off; bateria).
+    #[allow(clippy::needless_return)]
+    pub fn off(&mut self) -> Result<(), WifiNetError> {
+        #[cfg(not(feature = "wifi"))]
+        {
+            return Err(WifiNetError::NotCompiled);
+        }
+        #[cfg(feature = "wifi")]
+        {
+            self.ap.shutdown_after_config();
+            self.sta.disconnect();
+            self.mdns.shutdown();
+            let rc = R::wifi_off();
+            if rc != 0 {
+                return Err(WifiNetError::Radio(rc));
+            }
+            Ok(())
+        }
+    }
+}
+
+impl<R: WifiRadioBackend> Default for WifiNet<R> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod net_wifi_tests {
+    use super::*;
+    use crate::persistence::MockFlashBackend;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct FakeRadio;
+    impl WifiRadioBackend for FakeRadio {
+        fn ap_start(_s: &str, _p: &str) -> i32 {
+            0
+        }
+        fn ap_stop() -> i32 {
+            0
+        }
+        fn sta_start(_s: &str, _p: &str) -> i32 {
+            0
+        }
+        fn sta_stop() -> i32 {
+            0
+        }
+        fn mdns_start(_h: &str) -> i32 {
+            0
+        }
+        fn mdns_stop() -> i32 {
+            0
+        }
+        fn wifi_off() -> i32 {
+            0
+        }
+    }
+
+    fn test_storage() -> SecureStorage<MockFlashBackend> {
+        SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])
+    }
+
+    fn ctap_env(op: u8, nonce: [u8; 12]) -> alloc::vec::Vec<u8> {
+        let mut v = alloc::vec::Vec::new();
+        v.extend_from_slice(&[0x41, 0x45, 0x47, 0x4E, 0x01]);
+        v.extend_from_slice(&nonce);
+        v.push(op);
+        v.extend_from_slice(&[0x55u8; 19]);
+        v.extend_from_slice(&[0u8; 16]);
+        v
+    }
+
+    #[test]
+    fn http_config_preserva_aad_rota_op_nonce() {
+        let mut h = HttpConfig::new();
+        let nonce = [0x01u8; 12];
+        let env = ctap_env(0x09, nonce);
+        assert!(h.post_ctap(&env, "/ctap", 0x09, None).is_ok());
+        assert_eq!(h.last_nonce(), Some(nonce));
+        // Rota errada / op divergente / replay: rejeita (sem regredir AAD).
+        assert_eq!(
+            h.post_ctap(&env, "/config/wifi", 0x09, None),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        assert_eq!(
+            h.post_ctap(&env, "/ctap", 0x0A, None),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        assert_eq!(
+            h.post_ctap(&env, "/ctap", 0x09, Some(nonce)),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        // Nonce zerado: rejeita.
+        let zero = ctap_env(0x09, [0u8; 12]);
+        assert_eq!(
+            h.post_ctap(&zero, "/ctap", 0x09, None),
+            Err(WifiApError::InvalidEnvelope)
+        );
+    }
+
+    #[test]
+    fn http_config_wifi_e_oath_atras_do_trait() {
+        let mut h = HttpConfig::new();
+        let mut st = test_storage();
+        // POST /config/wifi: sem binding+auth rejeita sem tocar na NVS.
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(
+                h.post_config_wifi(&mut st, "nova-senha-123", false, false, false),
+                Err(WifiApError::Unauthorized)
+            );
+        } else {
+            assert_eq!(
+                h.post_config_wifi(&mut st, "nova-senha-123", false, false, false),
+                Err(WifiApError::NeedBinding)
+            );
+        }
+        // GET /oath/code: so codigo, sem secret, exige UP.
+        let secret = b"12345678901234567890";
+        let secrets: &[(&str, &[u8], OathAlgorithm, u8)] =
+            &[("GitHub:alice", secret, OathAlgorithm::Sha1, 6)];
+        assert_eq!(
+            h.get_oath_code("GitHub:alice", secrets, 59, false),
+            Err(WifiApError::Unauthorized)
+        );
+        let r = h
+            .get_oath_code("GitHub:alice", secrets, 59, true)
+            .expect("totp");
+        assert_eq!(r.code, "287082");
+    }
+
+    #[cfg(feature = "wifi")]
+    #[test]
+    fn wifi_net_gates_ap_station_mdns() {
+        let mut n = WifiNet::<FakeRadio>::new();
+        // AP fora de pareamento/menu: rejeita.
+        assert_eq!(
+            n.ap_start(false, false, 0, "AegisKey-00AF", None),
+            Err(WifiNetError::ApNotAllowed)
+        );
+        // AP em pareamento: ok.
+        n.ap_start(true, false, 1000, "AegisKey-00AF", Some("senha-segura-123"))
+            .expect("ap ok");
+        assert!(n.ap().is_active(1000));
+        n.ap_stop().expect("stop ok");
+        assert!(!n.ap().is_active(1000));
+        // Station em pareamento ou sem creds: rejeita.
+        assert_eq!(
+            n.station_join(true, true, 2000, "Casa-5G", "senha-segura-123"),
+            Err(WifiNetError::StationNotAllowed)
+        );
+        assert_eq!(
+            n.station_join(false, false, 2000, "Casa-5G", "senha-segura-123"),
+            Err(WifiNetError::StationNotAllowed)
+        );
+        n.station_join(false, true, 2000, "Casa-5G", "senha-segura-123")
+            .expect("sta ok");
+        // mDNS em pareamento ou sem station: fallback (rejeita).
+        assert_eq!(
+            n.mdns_announce(true, true, "aegiskey-00af"),
+            Err(WifiNetError::MdnsNotAllowed)
+        );
+        assert_eq!(
+            n.mdns_announce(false, false, "aegiskey-00af"),
+            Err(WifiNetError::MdnsNotAllowed)
+        );
+        n.mdns_announce(false, true, "aegiskey-00af")
+            .expect("mdns ok");
+        assert!(n.mdns().is_active());
+        n.off().expect("off ok");
+        assert!(!n.mdns().is_active());
+    }
+
+    #[cfg(not(feature = "wifi"))]
+    #[test]
+    fn wifi_net_off_sem_feature() {
+        let mut n = WifiNet::<FakeRadio>::new();
+        assert_eq!(
+            n.ap_start(true, false, 0, "AegisKey-00AF", None),
+            Err(WifiNetError::NotCompiled)
+        );
+        assert_eq!(n.ap_stop(), Err(WifiNetError::NotCompiled));
+        assert_eq!(
+            n.station_join(false, true, 0, "s", "p"),
+            Err(WifiNetError::NotCompiled)
+        );
+        assert_eq!(
+            n.mdns_announce(false, true, "aegiskey-00af"),
+            Err(WifiNetError::NotCompiled)
+        );
+        assert_eq!(n.off(), Err(WifiNetError::NotCompiled));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,6 +1156,55 @@ mod tests {
             validate_ctap_envelope(&bad),
             Err(WifiApError::InvalidEnvelope)
         );
+    }
+
+    #[test]
+    fn ctap_envelope_bound_binds_route_op_nonce() {
+        // Envelope com nonce nao-zero e op 0x09.
+        let mut nonce = [0x11u8; 12];
+        nonce[0] = 0x01;
+        let mut env = Vec::new();
+        env.extend_from_slice(&[0x41, 0x45, 0x47, 0x4E, 0x01]);
+        env.extend_from_slice(&nonce);
+        env.push(0x09);
+        env.extend_from_slice(&[0x55u8; 19]);
+        env.extend_from_slice(&[0u8; 16]);
+        // Rota/op/nonce corretos: ok.
+        assert!(validate_ctap_envelope_for_request(&env, "/ctap", 0x09, None).is_ok());
+        // Rota errada: rejeita (cross-rota).
+        assert_eq!(
+            validate_ctap_envelope_for_request(&env, "/config/wifi", 0x09, None),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        // Op divergente: rejeita.
+        assert_eq!(
+            validate_ctap_envelope_for_request(&env, "/ctap", 0x0A, None),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        // Replay (nonce repetido): rejeita.
+        assert_eq!(
+            validate_ctap_envelope_for_request(&env, "/ctap", 0x09, Some(nonce)),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        // Nonce zero: rejeita.
+        let mut zero = Vec::new();
+        zero.extend_from_slice(&[0x41, 0x45, 0x47, 0x4E, 0x01]);
+        zero.extend_from_slice(&[0u8; 12]);
+        zero.extend_from_slice(&[0x09u8; 20]);
+        zero.extend_from_slice(&[0u8; 16]);
+        assert_eq!(
+            validate_ctap_envelope_for_request(&zero, "/ctap", 0x09, None),
+            Err(WifiApError::InvalidEnvelope)
+        );
+        // Legacy sem AAD continua aceitando (compat), nonce extraivel.
+        assert!(validate_ctap_envelope(&env).is_ok());
+        assert_eq!(ctap_envelope_nonce(&env).expect("nonce"), nonce);
+    }
+
+    #[test]
+    fn coex_usb_veta_wifi() {
+        assert!(!wifi_ap_coex_allowed(true));
+        assert!(wifi_ap_coex_allowed(false));
     }
 
     #[test]

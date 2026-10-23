@@ -127,6 +127,30 @@ impl OtpTyper {
         }
     }
 
+    /// Queues an OATH code for typing (T9: digits only, fail-closed).
+    ///
+    /// Only 6-8 ASCII digits are accepted (RFC 6238/4226 code surface);
+    /// anything else leaves the queue empty (no partial typing, caller
+    /// shows an error instead of typing a prefix). Secret bytes never
+    /// reach this layer — only the already-computed `code` string.
+    pub fn queue_code_only(&mut self, code: &str, append_enter: bool) {
+        self.queue.clear();
+        self.current_index = 0;
+        self.in_release_phase = false;
+        self.current_delay_ticks = 0;
+        if !(6..=8).contains(&code.len()) || !code.bytes().all(|b| b.is_ascii_digit()) {
+            return;
+        }
+        for ch in code.chars() {
+            if let Some((mod_key, keycode)) = ascii_to_keycode(ch) {
+                self.queue.push((mod_key, keycode));
+            }
+        }
+        if append_enter {
+            self.queue.push((MOD_NONE, KEY_ENTER));
+        }
+    }
+
     /// Returns `true` if there are still keystrokes to type.
     pub fn is_active(&self) -> bool {
         self.current_index < self.queue.len()
@@ -231,5 +255,28 @@ mod tests {
         assert!(is_valid_modhex("cbdefghijklnrtuv"));
         assert!(!is_valid_modhex("cbdefghijklnrtuvw")); // 'w' is not modhex
         assert!(!is_valid_modhex("123456"));
+    }
+
+    #[test]
+    fn code_only_typer_accepts_6_to_8_digits_and_rejects_rest() {
+        let mut typer = OtpTyper::new();
+        typer.queue_code_only("287082", false);
+        assert!(typer.is_active());
+        assert_eq!(typer.drain_all_reports().len(), 12);
+        // 8 digits + enter = 9 keys x press/release.
+        typer.queue_code_only("46119246", true);
+        assert_eq!(typer.drain_all_reports().len(), 18);
+        // Fail-closed: secret bytes / alpha / short / long leave queue empty.
+        for bad in [
+            "",
+            "12345",
+            "123456789",
+            "28a082",
+            "abcdefgh",
+            "12345678901234567890",
+        ] {
+            typer.queue_code_only(bad, true);
+            assert!(!typer.is_active(), "typed partial for {bad:?}");
+        }
     }
 }

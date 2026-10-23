@@ -1,4 +1,4 @@
-use crate::ctap::cbor::encode_cbor_value;
+use crate::ctap::cbor::{canonicalize_value, encode_cbor_value};
 use crate::ctap::status_code::CtapError;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -46,12 +46,12 @@ impl AuthenticatorInfo {
         ];
         map.push((Value::Integer(1.into()), Value::Array(versions)));
 
-        // 2: extensions: ["credProtect", "hmac-secret", "credBlobs", "largeBlobKey", "minPinLength", "pinComplexity", "uvm", "thirdPartyPayment"]
+        // 2: extensions: ["credProtect", "hmac-secret", "credBlob", "largeBlobs", "minPinLength", "pinComplexity", "uvm", "thirdPartyPayment"]
         let extensions = vec![
             Value::Text(String::from("credProtect")),
             Value::Text(String::from("hmac-secret")),
-            Value::Text(String::from("credBlobs")),
-            Value::Text(String::from("largeBlobKey")),
+            Value::Text(String::from("credBlob")),
+            Value::Text(String::from("largeBlobs")),
             Value::Text(String::from("minPinLength")),
             Value::Text(String::from("pinComplexity")),
             Value::Text(String::from("uvm")),
@@ -159,13 +159,16 @@ impl AuthenticatorInfo {
         // 15: maxCredBlobLength: 64
         map.push((Value::Integer(15.into()), Value::Integer(64.into())));
 
-        // 19: remainingDiscoverableCredentials
+        // 0x13 (19): certifications: empty map (id -> version)
+        map.push((Value::Integer(19.into()), Value::Map(Vec::new())));
+
+        // 0x14 (20): remainingDiscoverableCredentials
         map.push((
-            Value::Integer(19.into()),
+            Value::Integer(20.into()),
             Value::Integer((config.remaining_resident_credentials as i64).into()),
         ));
 
-        Value::Map(map)
+        canonicalize_value(&Value::Map(map))
     }
 
     pub fn handle_get_info(config: &AuthenticatorInfoConfig) -> Result<Vec<u8>, CtapError> {

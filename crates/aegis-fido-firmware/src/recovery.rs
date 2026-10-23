@@ -391,3 +391,87 @@ mod tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// T8 RecoveryPolicy: namespace da politica de recovery para a TrustFacade.
+//
+// Delega para as funcoes livres deste modulo (NVS via `SecureStorage`
+// injetado, sem dono interno). `no_std` compativel: sem alloc, sem I/O.
+//
+// FAIL-SAFE / POWER-LOSS: parcial hash/salt/retries => nao provisionado ou
+// `Corrupted`, nega fechado; decremento de retry e conservador (tende a
+// travar); `Locked` sai com `factory_reset` fisico (R13, sem trava
+// permanente). Sem bloqueio: sem loops, sem impacto no TWDT.
+// ---------------------------------------------------------------------------
+
+/// Politica de recovery (zero-sized; NVS injetada por chamada).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RecoveryPolicy;
+
+impl RecoveryPolicy {
+    /// Define o PIN (exige UP; 4-6 digitos ASCII; NVS injetada).
+    pub fn set<B: FlashStorageBackend>(
+        storage: &mut SecureStorage<B>,
+        pin: &str,
+        presence_confirmed: bool,
+    ) -> Result<(), RecoveryError> {
+        set_recovery_pin(storage, pin, presence_confirmed)
+    }
+
+    /// Verifica o PIN (UP exigido; 1 tentativa consumida por erro).
+    pub fn verify<B: FlashStorageBackend>(
+        storage: &mut SecureStorage<B>,
+        pin: &str,
+        presence_confirmed: bool,
+    ) -> Result<(), RecoveryError> {
+        verify_recovery_pin(storage, pin, presence_confirmed)
+    }
+
+    /// Resgate: UP + PIN certo => wipe do vinculo (re-claim liberado).
+    pub fn unlock<B: FlashStorageBackend>(
+        storage: &mut SecureStorage<B>,
+        binding: &mut BindingManager,
+        pin: &str,
+        presence_confirmed: bool,
+    ) -> Result<(), RecoveryError> {
+        recovery_unlock(storage, binding, pin, presence_confirmed)
+    }
+
+    /// Apaga o PIN (troca de dono com wipe completo).
+    pub fn wipe<B: FlashStorageBackend>(storage: &mut SecureStorage<B>) {
+        wipe_recovery_pin(storage);
+    }
+}
+
+#[cfg(test)]
+mod recovery_policy_tests {
+    use super::*;
+    use crate::persistence::MockFlashBackend;
+
+    fn policy_storage() -> SecureStorage<MockFlashBackend> {
+        SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])
+    }
+
+    #[test]
+    fn policy_delega_para_funcoes_canonical() {
+        let mut st = policy_storage();
+        RecoveryPolicy::set(&mut st, "9876", true).expect("set ok");
+        assert!(is_provisioned(&st));
+        RecoveryPolicy::verify(&mut st, "9876", true).expect("verify ok");
+        assert_eq!(retries_remaining(&st), RECOVERY_MAX_RETRIES);
+        let mut m = BindingManager::new();
+        RecoveryPolicy::unlock(&mut st, &mut m, "9876", true).expect("unlock ok");
+        assert!(!m.is_claimed());
+        RecoveryPolicy::wipe(&mut st);
+        assert!(!is_provisioned(&st));
+    }
+
+    #[test]
+    fn partial_pin_denies_closed() {
+        let mut st = policy_storage();
+        st.store(RECOVERY_HASH_NVS_KEY, &[0u8; RECOVERY_HASH_LEN], &[0u8; 12])
+            .expect("queda: so hash gravado");
+        assert!(!is_provisioned(&st));
+        assert!(RecoveryPolicy::verify(&mut st, "1234", true).is_err());
+    }
+}

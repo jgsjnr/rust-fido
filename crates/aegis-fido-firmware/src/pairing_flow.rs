@@ -83,3 +83,32 @@ mod tests {
         assert_eq!(TOTP_HOLD_MIN_MS, 2000);
     }
 }
+
+// ---------------------------------------------------------------------------
+// T8: hold para a TrustFacade (5 s vence TOTP; TOTP so em [2 s,5 s)).
+//
+// FAIL-SAFE / POWER-LOSS: classificacao pura de RAM; reset => hold
+// zerado (exige segurar de novo: fail-closed).
+// ---------------------------------------------------------------------------
+
+/// `true` quando o hold autoriza o `claim` (pareamento pronto).
+///
+/// `PairingReady` (hold >= 5 s) vence sempre; TOTP ou `None` nao autorizam.
+/// `pairing_open` suprime o TOTP (mesma regra de `classify_hold`).
+pub fn trust_hold_allows_binding(held_ms: u64, pairing_open: bool) -> bool {
+    classify_hold(held_ms, pairing_open) == HoldAction::PairingReady
+}
+
+#[cfg(test)]
+mod pairing_flow_trust_tests {
+    use super::*;
+
+    #[test]
+    fn hold_5s_autoriza_totp_nao() {
+        assert!(trust_hold_allows_binding(5000, false));
+        assert!(trust_hold_allows_binding(9000, true));
+        assert!(!trust_hold_allows_binding(2000, false));
+        assert!(!trust_hold_allows_binding(4999, false));
+        assert!(!trust_hold_allows_binding(100, false));
+    }
+}

@@ -164,6 +164,12 @@ pub fn mdns_bare_hostname(host: &str) -> &str {
     host.strip_suffix(MDNS_SUFFIX).unwrap_or(host)
 }
 
+/// T10 — politica de fallback do mDNS: anuncia SO fora de pareamento com
+/// station up; em pareamento ou sem station o chamador usa o fallback AP.
+pub fn mdns_fallback_to_ap(pairing_open: bool, station_up: bool) -> bool {
+    pairing_open || !station_up
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,5 +232,13 @@ mod tests {
         assert!(m.is_active());
         m.update(false, false);
         assert!(!m.is_active());
+    }
+
+    #[test]
+    fn mdns_fallback_ap_em_pareamento_ou_sem_station() {
+        assert!(mdns_fallback_to_ap(true, true));
+        assert!(mdns_fallback_to_ap(true, false));
+        assert!(mdns_fallback_to_ap(false, false));
+        assert!(!mdns_fallback_to_ap(false, true));
     }
 }

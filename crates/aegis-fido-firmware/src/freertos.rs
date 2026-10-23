@@ -14,6 +14,45 @@
 //! código roda sobre `std::thread` + canal limitado, preservando a semântica
 //! de fila/event-group para testes de regressão.
 //!
+//!
+//! ## Endurecimento T12-parte-A (sem depender da TrustFacade da T8)
+//!
+//! - **TWDT por task:** cada `spawn_*` subscreve ([`PerTaskWatchdog`]) no
+//!   inicio e alimenta por iteracao. No device `esp_task_wdt_add`/`reset`;
+//!   no host no-op contavel via [`PerTaskWatchdog::feed_count`].
+//! - **Shutdown triplo:** [`FreeRtosScheduler::request_stop`] arma os tres
+//!   sinais: flag `stop` + bit [`EVT_SHUTDOWN`] + evento
+//!   [`FirmwareEvent::Shutdown`] na fila (com despejo do item mais antigo
+//!   se cheia, sem perder o `Shutdown`). As tarefas saem quando
+//!   [`FreeRtosScheduler::is_stop_requested`] e `true` (flag **OU** bit);
+//!   o dispatcher drena ate `Shutdown` via
+//!   [`FreeRtosScheduler::drain_for_shutdown`].
+//! - **Fila cheia fail-closed:** [`FreeRtosQueue::send`] nunca bloqueia nem
+//!   faz panic; cheia = `false` (mapeado a [`TaskOutcome::Dropped`]).
+//!   Nenhum gate de seguranca sofre bypass no descarte: o host retenta
+//!   (CTAPHID) e o latch UP so e consumido no roteamento com resposta.
+//! - **Timeouts sem busy-loop:** todo idle usa [`task_delay_ms`]
+//!   (`vTaskDelay` no device, `sleep` no host); [`FreeRtosQueue::receive`]
+//!   e [`EventGroup::wait_bits`] usam `Condvar::wait_timeout`, nunca spin.
+//!   `join` nativo cede com atraso de 10 ms por poll.
+//!
+//! ## Gaps T8 (ExternallyBlocked, sem fiacao nesta lane)
+//!
+//! A fiacao da TrustFacade (T8) NAO vive aqui por escopo: este modulo nao
+//! importa `TrustFacade` e nao fabrica sensor (RSSI/MAC/chave nunca
+//! inventados; ausente = fail-closed). Onde faltar fiacao, o status e
+//! `ExternallyBlocked`; o canonico vive em
+//! `crate::binding::FreertosTrustGap::freertos_open_gaps` (7 gaps).
+//! Espelho documental (sem dependencia de tipo) em
+//! [`FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED`].
+//!
+//! Notas de conformidade: R12 mutavel (compila com/sem feature `freertos`);
+//! R13 stub-only (host sem efeito HW, sem panic); R14 HW-first
+//! (`vTaskDelay`/`xTaskCreatePinnedToCore` no device pelo caminho existente,
+//! `sleep`/`thread` so no host); R6 sem panics novos (so `expect` em
+//! mutex/condvar ja existentes + `spawn`); R7 gated (so `log`, sem
+//! segredos). Sem flash/COM7: validacao e host
+//! (`cargo test -p aegis-fido-firmware freertos`).
 //! Fiação típica (ver `main.rs`, feature `freertos`):
 //! ```ignore
 //! let sched = freertos::FreeRtosScheduler::new(32);
@@ -46,6 +85,29 @@ pub const TICK_MS: u64 = 10;
 pub const CTAPHID_PACKET_SIZE: usize = 64;
 /// Profundidade padrão da fila de eventos firmware.
 pub const DEFAULT_QUEUE_DEPTH: usize = 32;
+/// Poll idle da tarefa USB/pacote em ms (sem busy-loop: idle cede via `task_delay_ms`).
+pub const USB_POLL_MS: u64 = 5;
+/// Poll do `join` nativo e do dreno de shutdown em ms (cede o nucleo, nunca spin).
+pub const SHUTDOWN_POLL_MS: u64 = 10;
+/// Timeout padrao do dreno ate `Shutdown` em ms.
+pub const SHUTDOWN_DRAIN_DEFAULT_MS: u64 = 500;
+/// Espelho documental dos 7 gaps T8 ainda abertos no small loop FreeRTOS.
+///
+/// Sem dependencia de tipo da TrustFacade (T12-parte-A nao depende da T8):
+/// cada nome espelha uma variante de
+/// `crate::binding::FreertosTrustGap` (ver `reason()` la para a peca exata).
+/// Status de cada um: `ExternallyBlocked` ate a T8 fiar (BLE/GATT, sensor
+/// RSSI HW, NVS `prox_k`, `sync_trust_claimed`, sessao PIN, dispatch
+/// `0xFFFD`, coex WiFi). Nunca fabricar valores: ausente = fail-closed.
+pub const FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED: [&str; 7] = [
+    "BleDispatch",
+    "RssiSensor",
+    "NvsProxK",
+    "BindingWire",
+    "PinSession",
+    "GattDispatch",
+    "WifiCoex",
+];
 
 /// Bits do EventGroup (espelham `xEventGroupSetBits`).
 pub const EVT_USB_RX: u32 = 1 << 0;
@@ -193,6 +255,13 @@ impl<T> FreeRtosQueue<T> {
     }
 
     /// Envia sem bloquear; `false` = cheia (descarte fail-closed, sem panic).
+    ///
+    /// Fail-closed documentado: cheia nunca bloqueia a produtora (o TWDT nao
+    /// estoura), nunca faz panic e nunca entrega parcial; o evento e
+    /// descartado inteiro e o host retenta (mapeado a `TaskOutcome::Dropped`
+    /// no consumo). Latch UP e gates CTAP so mudam no roteamento com
+    /// resposta, nunca no descarte. Excecao: `FirmwareEvent::Shutdown` usa
+    /// `request_stop`/`drain_for_shutdown` e nunca se perde (despejo + retry).
     pub fn send(&self, item: T) -> bool {
         let mut q = self.inner.lock().expect("queue mutex");
         if q.len() >= self.capacity {
@@ -944,10 +1013,14 @@ impl FreeRtosScheduler {
         }
     }
 
-    /// Pede parada cooperativa (seta flag + bit de shutdown).
+    /// Pede parada cooperativa: shutdown triplo (flag + bit + dreno).
     ///
-    /// O `Shutdown` nunca é perdido: se a fila estiver cheia, drena o item
-    /// mais antigo e retenta uma vez.
+    /// Arma `stop` e [`EVT_SHUTDOWN`]; enfileira [`FirmwareEvent::Shutdown`]
+    /// para o dispatcher (`drain_for_shutdown`). Se a fila estiver cheia,
+    /// despeja o item mais antigo e retenta uma vez: o `Shutdown` nunca se
+    /// perde (o despejo descarta dado retryable, nunca gate de seguranca).
+    /// Tarefas observam via `is_stop_requested` (flag OU bit); sem busy-loop.
+    ///
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
         self.events.set_bits(EVT_SHUTDOWN);
@@ -957,7 +1030,45 @@ impl FreeRtosScheduler {
         }
     }
 
-    /// Tarefa USB: drena `poll_64()` a cada 5 ms e enfileira pacotes.
+    /// `true` se o desligamento triplo foi pedido (flag `stop` OU bit `EVT_SHUTDOWN`).
+    ///
+    /// Observabilidade dupla: cobre `request_stop` completo e armado parcial
+    /// (sinal remanescente). Usado por todas as tarefas a cada iteracao.
+    pub fn is_stop_requested(&self) -> bool {
+        Self::stop_requested(&self.stop, &self.events)
+    }
+
+    /// Predicado compartilhado host/device do shutdown triplo.
+    ///
+    /// `&Arc<_>` sofre deref para o inner: aceita clones das tarefas e o
+    /// `ctx` nativo sem alocar. Sem bloqueio, sem panic novo.
+    pub fn stop_requested(stop: &AtomicBool, events: &EventGroup) -> bool {
+        stop.load(Ordering::SeqCst) || events.get() & EVT_SHUTDOWN != 0
+    }
+
+    /// Drena a fila ate `Shutdown` (terceira perna do shutdown triplo).
+    ///
+    /// Consome e descarta eventos pre-shutdown ate ver
+    /// [`FirmwareEvent::Shutdown`] ou `timeout_ms` expirar. Espera com
+    /// `receive(Some(SHUTDOWN_POLL_MS))` (nunca spin). Retorna `true` se o
+    /// `Shutdown` foi observado. Chamado apos `request_stop` pelo dispatcher.
+    pub fn drain_for_shutdown(&self, timeout_ms: u64) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            if self.queue.receive(Some(SHUTDOWN_POLL_MS)) == Some(FirmwareEvent::Shutdown) {
+                return true;
+            }
+        }
+    }
+
+    /// Tarefa USB: drena `poll_64()` a cada `USB_POLL_MS` e enfileira pacotes.
+    ///
+    /// TWDT alimentado por iteracao; fila cheia = descarte fail-closed
+    /// (`TaskOutcome::Dropped`, host reenvia); saida via `stop_requested`
+    /// (flag OU `EVT_SHUTDOWN`); idle sempre com `task_delay_ms`, sem spin.
     pub fn spawn_usb_task(
         &self,
         mut poll_64: impl FnMut() -> Option<[u8; CTAPHID_PACKET_SIZE]> + Send + 'static,
@@ -971,7 +1082,7 @@ impl FreeRtosScheduler {
             .spawn(move || {
                 let twdt = PerTaskWatchdog::subscribe_current_task();
                 let mut drained = 0usize;
-                while !stop.load(Ordering::SeqCst) {
+                while !Self::stop_requested(&stop, &events) {
                     twdt.feed_current_task();
                     if let Some(ev) = usb_task_step(poll_64()) {
                         drained += 1;
@@ -1006,7 +1117,7 @@ impl FreeRtosScheduler {
             .spawn(move || {
                 let twdt = PerTaskWatchdog::subscribe_current_task();
                 let mut drained = 0usize;
-                while !stop.load(Ordering::SeqCst) {
+                while !Self::stop_requested(&stop, &events) {
                     twdt.feed_current_task();
                     if let Some(ev) = packet_task_step(poll()) {
                         drained += 1;
@@ -1038,7 +1149,7 @@ impl FreeRtosScheduler {
             .spawn(move || {
                 let twdt = PerTaskWatchdog::subscribe_current_task();
                 let mut presses = 0usize;
-                while !stop.load(Ordering::SeqCst) {
+                while !Self::stop_requested(&stop, &events) {
                     twdt.feed_current_task();
                     let boot = poll_boot();
                     let key = poll_key();
@@ -1066,7 +1177,9 @@ impl FreeRtosScheduler {
                 let twdt = PerTaskWatchdog::subscribe_current_task();
                 let mut watchdog = Watchdog::new(300);
                 let mut tick: u64 = 0;
-                while housekeeping_step(tick, &mut watchdog, &stop) != TaskOutcome::Stop {
+                while !Self::stop_requested(&stop, &events)
+                    && housekeeping_step(tick, &mut watchdog, &stop) != TaskOutcome::Stop
+                {
                     twdt.feed_current_task();
                     if tick.is_multiple_of(100) {
                         events.set_bits(EVT_TICK_10MS);
@@ -1244,7 +1357,7 @@ unsafe extern "C" fn usb_task_native_entry(param: *mut core::ffi::c_void) {
         TaskConfig::usb().priority
     );
     let mut drained = 0usize;
-    while !ctx.stop.load(Ordering::SeqCst) {
+    while !FreeRtosScheduler::stop_requested(&ctx.stop, &ctx.events) {
         twdt.feed_current_task();
         if let Some(ev) = usb_task_step((ctx.poll_64)()) {
             drained += 1;
@@ -1287,7 +1400,7 @@ unsafe extern "C" fn packet_task_native_entry(param: *mut core::ffi::c_void) {
         TaskConfig::usb().priority
     );
     let mut drained = 0usize;
-    while !ctx.stop.load(Ordering::SeqCst) {
+    while !FreeRtosScheduler::stop_requested(&ctx.stop, &ctx.events) {
         twdt.feed_current_task();
         if let Some(ev) = packet_task_step((ctx.poll)()) {
             drained += 1;
@@ -1324,7 +1437,7 @@ unsafe extern "C" fn button_task_native_entry(param: *mut core::ffi::c_void) {
         TaskConfig::button().priority
     );
     let mut presses = 0usize;
-    while !ctx.stop.load(Ordering::SeqCst) {
+    while !FreeRtosScheduler::stop_requested(&ctx.stop, &ctx.events) {
         twdt.feed_current_task();
         let boot = (ctx.poll_boot)();
         let key = (ctx.poll_key)();
@@ -1365,7 +1478,9 @@ unsafe extern "C" fn housekeeping_task_native_entry(param: *mut core::ffi::c_voi
     );
     let mut watchdog = Watchdog::new(300);
     let mut tick: u64 = 0;
-    while housekeeping_step(tick, &mut watchdog, &ctx.stop) != TaskOutcome::Stop {
+    while !FreeRtosScheduler::stop_requested(&ctx.stop, &ctx.events)
+        && housekeeping_step(tick, &mut watchdog, &ctx.stop) != TaskOutcome::Stop
+    {
         twdt.feed_current_task();
         if tick.is_multiple_of(100) {
             ctx.events.set_bits(EVT_TICK_10MS);
@@ -2109,5 +2224,96 @@ mod tests {
         assert!(!out.consumed_up, "latch não deve ser consumido na negação");
         assert_eq!(out.responses.len(), 1);
         assert_eq!(out.responses[0][7], 0x05);
+    }
+
+    #[test]
+    fn shutdown_triplo_bit_sozinho_para_as_tarefas() {
+        // So o bit (sem flag): tarefas observam via stop_requested.
+        let sched = FreeRtosScheduler::new(8);
+        assert!(!sched.is_stop_requested());
+        sched.events.set_bits(EVT_SHUTDOWN);
+        assert!(sched.is_stop_requested());
+        assert!(FreeRtosScheduler::stop_requested(
+            &sched.stop,
+            &sched.events
+        ));
+        // So a flag (sem bit): tambem conta como pedido.
+        let sched2 = FreeRtosScheduler::new(8);
+        sched2.stop.store(true, Ordering::SeqCst);
+        assert!(sched2.is_stop_requested());
+    }
+
+    #[test]
+    fn shutdown_triplo_tasks_saem_por_bit_ou_flag() {
+        // Bit sozinho derruba tarefa USB ociosa.
+        let sched = FreeRtosScheduler::new(8);
+        let h = sched.spawn_usb_task(|| None);
+        sched.events.set_bits(EVT_SHUTDOWN);
+        let drained = h.join().expect("usb join");
+        assert_eq!(drained, 0);
+        // Flag sozinha tambem derruba (sem bit).
+        let sched2 = FreeRtosScheduler::new(8);
+        let h2 = sched2.spawn_button_task(|| false, || false);
+        sched2.stop.store(true, Ordering::SeqCst);
+        let presses = h2.join().expect("button join");
+        assert_eq!(presses, 0);
+    }
+
+    #[test]
+    fn drain_for_shutdown_encontra_shutdown_e_timeout_sem_busy_loop() {
+        let sched = FreeRtosScheduler::new(4);
+        sched.request_stop();
+        let t0 = std::time::Instant::now();
+        assert!(sched.drain_for_shutdown(SHUTDOWN_DRAIN_DEFAULT_MS));
+        assert!(t0.elapsed() < Duration::from_secs(2));
+        // Sem Shutdown: timeout limitado, sem spin.
+        let sched2 = FreeRtosScheduler::new(4);
+        let t1 = std::time::Instant::now();
+        assert!(!sched2.drain_for_shutdown(50));
+        let el = t1.elapsed();
+        assert!(el >= Duration::from_millis(30), "dreno voltou cedo: {el:?}");
+        assert!(el < Duration::from_secs(2), "dreno demorou (spin?): {el:?}");
+    }
+
+    #[test]
+    fn fila_cheia_fail_closed_sem_bypass() {
+        // Cheia = false (Dropped), sem panic; nada e roteado no descarte.
+        let sched = FreeRtosScheduler::new(1);
+        assert!(sched.queue.send(FirmwareEvent::Tick10ms(1)));
+        let outcome = if sched.queue.send(FirmwareEvent::Tick10ms(2)) {
+            TaskOutcome::Handled
+        } else {
+            TaskOutcome::Dropped
+        };
+        assert_eq!(outcome, TaskOutcome::Dropped);
+        // O Shutdown triplo nunca se perde mesmo com fila cheia.
+        sched.request_stop();
+        assert!(sched.is_stop_requested());
+        assert!(sched.drain_for_shutdown(SHUTDOWN_DRAIN_DEFAULT_MS));
+    }
+
+    #[test]
+    fn gaps_t8_espelhados_como_externally_blocked() {
+        // Espelho documental dos 7 gaps canonicos (sem importar TrustFacade:
+        // T12-parte-A nao depende da T8; fiacao ausente = ExternallyBlocked).
+        assert_eq!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.len(), 7);
+        for g in FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED {
+            assert!(!g.is_empty());
+        }
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"BleDispatch"));
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"RssiSensor"));
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"NvsProxK"));
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"BindingWire"));
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"PinSession"));
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"GattDispatch"));
+        assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"WifiCoex"));
+    }
+
+    #[test]
+    fn usb_poll_e_shutdown_poll_cedem_sem_busy_loop() {
+        // Constantes de cessao: idle sempre via vTaskDelay/sleep, nunca spin.
+        const _: () = assert!(USB_POLL_MS >= 1);
+        const _: () = assert!(SHUTDOWN_POLL_MS >= 1);
+        task_delay_ms(USB_POLL_MS.min(2));
     }
 }

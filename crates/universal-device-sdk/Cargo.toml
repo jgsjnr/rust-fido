@@ -1,0 +1,25 @@
+[package]
+name = "universal-device-sdk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "universal_device_sdk"
+crate-type = ["rlib"]
+
+[dependencies]
+sha3 = { workspace = true, optional = true }
+ripemd = { workspace = true, optional = true }
+bech32 = { workspace = true, optional = true }
+bs58 = { workspace = true, optional = true }
+
+[features]
+default = ["fido", "hardwallet", "secmon"]
+fido = []
+hardwallet = ["dep:sha3", "dep:ripemd", "dep:bech32", "dep:bs58"]
+secmon = []
+# Lab-only: never in `default`; without it there is no test surface at all.
+test-mode = []

@@ -4,7 +4,9 @@
 //! - Quota: `DeviceConfig::max_vault_slots` enforced via encrypted `vault/index`
 //!   CBOR label list (whole-vault `seal_to_blob` is export-only, not here).
 //! - Verify-after-write on put (readback compare, like migrations/oath_store).
-//! - Reuses `SecureStorage` store/load/delete; no new crypto, no eFuse burn.
+//! - T5: delega ao `NamespacedStore` (`persistence`) — prefixo + quota +
+//!   verify-after-write num ponto único. Envelope AEGN v1, fail-closed e
+//!   bytes preservados (sem cripto nova; `vault/index` nunca apagado em falha).
 //! - Zeroize after use; typed errors, no panics, no stringly errors.
 //! - `no_std`-compatible (alloc only, like oath_store).
 
@@ -12,15 +14,14 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use zeroize::Zeroize;
-
-use ciborium::value::Value;
 
 use crate::config::{DeviceConfig, MAX_LABEL_BYTES};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 use crate::migrations::vault_v7::VAULT_LIVE_PREFIX;
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
+use crate::persistence::{
+    FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
+};
 
 /// Max blob bytes per vault slot (envelope budget, like OATH).
 pub const VAULT_STORE_MAX_BYTES: usize = 512;
@@ -28,8 +29,6 @@ pub const VAULT_STORE_MAX_BYTES: usize = 512;
 pub const VAULT_INDEX_KEY: &str = "vault/index";
 /// Reserved label (collides with the quota index key).
 const VAULT_INDEX_LABEL: &str = "index";
-/// Nonce placeholder (ignored, TRNG inside `store`).
-const IGNORED_NONCE: [u8; 12] = [0u8; 12];
 
 /// Typed vault_store failure (no panics, no stringly errors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,11 +57,14 @@ impl core::fmt::Display for VaultStoreError {
     }
 }
 
-impl From<StorageError> for VaultStoreError {
-    fn from(e: StorageError) -> Self {
+impl From<NamespacedStoreError> for VaultStoreError {
+    fn from(e: NamespacedStoreError) -> Self {
         match e {
-            StorageError::KeyNotFound => Self::NotFound,
-            _ => Self::Storage,
+            NamespacedStoreError::BadLabel => Self::BadLabel,
+            NamespacedStoreError::TooLarge => Self::TooLarge,
+            NamespacedStoreError::QuotaExceeded => Self::QuotaExceeded,
+            NamespacedStoreError::NotFound => Self::NotFound,
+            NamespacedStoreError::Storage => Self::Storage,
         }
     }
 }
@@ -80,72 +82,35 @@ pub fn validate_vault_label(label: &str) -> Result<(), VaultStoreError> {
     Ok(())
 }
 
+/// Gate do label vault como predicado do namespace.
+fn vault_label_ok(label: &str) -> bool {
+    validate_vault_label(label).is_ok()
+}
+
+/// Namespace `vault/` com quota da config (caminho de put: conta quota).
+fn vault_ns_write(max_slots: usize) -> NamespacedStore {
+    NamespacedStore {
+        prefix: VAULT_LIVE_PREFIX,
+        max_bytes: Some(VAULT_STORE_MAX_BYTES),
+        quota_index_key: Some(VAULT_INDEX_KEY),
+        max_slots,
+        delete_absent_ok: false,
+        strict_index_reads: true,
+        validate: vault_label_ok,
+    }
+}
+
+/// Namespace `vault/` p/ get/delete/union (quota só como chave de índice;
+/// contagem irrelevante nesses caminhos — fail-closed preservado).
+fn vault_ns_read() -> NamespacedStore {
+    vault_ns_write(0)
+}
+
 /// NVS key `vault/<label>` (live prefix shared with the v7 migration).
 pub fn vault_key(label: &str) -> String {
     let mut s = String::from(VAULT_LIVE_PREFIX);
     s.push_str(label);
     s
-}
-
-/// Decodes the encrypted `vault/index` CBOR label list (absent = empty).
-fn load_index<B: FlashStorageBackend>(
-    storage: &SecureStorage<B>,
-) -> Result<Vec<String>, VaultStoreError> {
-    let mut bytes = match storage.load(VAULT_INDEX_KEY) {
-        Ok(b) => b,
-        Err(StorageError::KeyNotFound) => return Ok(Vec::new()),
-        Err(_) => return Err(VaultStoreError::Storage),
-    };
-    let res = decode_index(&bytes);
-    bytes.zeroize();
-    res
-}
-
-/// Encodes and stores the `vault/index` CBOR label list with verify-after-write.
-///
-/// Fail-closed (M2): on verify mismatch the index is NEVER deleted (deleting
-/// would reset quota and fail open). Returns `Storage`; the caller rolls back
-/// only its own data slot.
-fn save_index<B: FlashStorageBackend>(
-    storage: &mut SecureStorage<B>,
-    labels: &[String],
-) -> Result<(), VaultStoreError> {
-    let mut plain = encode_index(labels)?;
-    let res = (|| -> Result<(), VaultStoreError> {
-        storage.store(VAULT_INDEX_KEY, &plain, &IGNORED_NONCE)?;
-        let mut back = storage.load(VAULT_INDEX_KEY)?;
-        let ok = back.as_slice() == plain.as_slice();
-        back.zeroize();
-        if !ok {
-            return Err(VaultStoreError::Storage);
-        }
-        Ok(())
-    })();
-    plain.zeroize();
-    res
-}
-
-/// Encodes labels as a CBOR array of text (quota index plaintext).
-fn encode_index(labels: &[String]) -> Result<Vec<u8>, VaultStoreError> {
-    let items: Vec<Value> = labels.iter().map(|s| Value::Text(s.clone())).collect();
-    let mut buf = Vec::new();
-    ciborium::into_writer(&Value::Array(items), &mut buf).map_err(|_| VaultStoreError::Storage)?;
-    Ok(buf)
-}
-
-/// Decodes a CBOR array of text back into labels.
-fn decode_index(bytes: &[u8]) -> Result<Vec<String>, VaultStoreError> {
-    let value: Value = ciborium::from_reader(bytes).map_err(|_| VaultStoreError::Storage)?;
-    match value {
-        Value::Array(items) => items
-            .into_iter()
-            .map(|item| match item {
-                Value::Text(s) => Ok(s),
-                _ => Err(VaultStoreError::Storage),
-            })
-            .collect(),
-        _ => Err(VaultStoreError::Storage),
-    }
 }
 
 /// Adds labels to the quota index (union, no truncation, no quota check).
@@ -154,21 +119,12 @@ fn decode_index(bytes: &[u8]) -> Result<Vec<String>, VaultStoreError> {
 /// migration unions the existing index with migrated labels so quota counts
 /// migrated slots. The union may exceed `max_vault_slots`; future puts then
 /// fail closed with `QuotaExceeded` until deletes. Verify-after-write via
-/// `save_index`.
+/// the shared `NamespacedStore` index path.
 pub fn vault_index_union_add<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,
     new_labels: &[String],
 ) -> Result<(), VaultStoreError> {
-    for label in new_labels {
-        validate_vault_label(label)?;
-    }
-    let mut index = load_index(storage)?;
-    for label in new_labels {
-        if !index.iter().any(|l| l == label) {
-            index.push(label.clone());
-        }
-    }
-    save_index(storage, &index)
+    Ok(vault_ns_read().index_union_add(storage, new_labels)?)
 }
 
 /// Stores blob at `vault/<label>` with verify-after-write; new labels consume
@@ -179,31 +135,7 @@ pub fn vault_store_put<B: FlashStorageBackend>(
     label: &str,
     blob: &[u8],
 ) -> Result<(), VaultStoreError> {
-    validate_vault_label(label)?;
-    if blob.len() > VAULT_STORE_MAX_BYTES {
-        return Err(VaultStoreError::TooLarge);
-    }
-    let mut index = load_index(storage)?;
-    let known = index.iter().any(|l| l.as_str() == label);
-    if !known && index.len() >= cfg.max_vault_slots {
-        return Err(VaultStoreError::QuotaExceeded);
-    }
-    let key = vault_key(label);
-    storage.store(&key, blob, &IGNORED_NONCE)?;
-    let mut back = storage.load(&key)?;
-    let ok = back.as_slice() == blob;
-    back.zeroize();
-    if !ok {
-        let _ = storage.delete(&key);
-        return Err(VaultStoreError::Storage);
-    }
-    if !known {
-        index.push(String::from(label));
-        if save_index(storage, &index).is_err() {
-            let _ = storage.delete(&key);
-            return Err(VaultStoreError::Storage);
-        }
-    }
+    vault_ns_write(cfg.max_vault_slots).put(storage, label, blob)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathPut, label);
     Ok(())
 }
@@ -215,10 +147,7 @@ pub fn vault_store_get<B: FlashStorageBackend>(
     storage: &SecureStorage<B>,
     label: &str,
 ) -> Result<Vec<u8>, VaultStoreError> {
-    validate_vault_label(label)?;
-    let _ = load_index(storage)?;
-    let key = vault_key(label);
-    let blob = storage.load(&key)?;
+    let blob = vault_ns_read().get(storage, label)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathCode, label);
     Ok(blob)
 }
@@ -231,15 +160,7 @@ pub fn vault_store_delete<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,
     label: &str,
 ) -> Result<(), VaultStoreError> {
-    validate_vault_label(label)?;
-    let mut index = load_index(storage)?;
-    let key = vault_key(label);
-    if !storage.exists(&key) {
-        return Err(VaultStoreError::NotFound);
-    }
-    storage.delete(&key)?;
-    index.retain(|l| l.as_str() != label);
-    save_index(storage, &index)?;
+    vault_ns_read().delete(storage, label)?;
     crate::ltrace!(LtCat::Oath, LtEvt::OathDelete, label);
     Ok(())
 }
@@ -247,8 +168,11 @@ pub fn vault_store_delete<B: FlashStorageBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::MockFlashBackend;
+    use crate::persistence::{MockFlashBackend, StorageError};
     use alloc::vec;
+
+    /// Nonce placeholder (ignored, TRNG inside `store`).
+    const IGNORED_NONCE: [u8; 12] = [0u8; 12];
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])

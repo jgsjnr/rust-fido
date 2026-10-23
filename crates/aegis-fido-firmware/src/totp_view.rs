@@ -44,7 +44,13 @@ pub fn totp_remaining_secs(unix_secs: u64) -> u32 {
 }
 
 /// Monta o TLV `0x71 label + 0x74 challenge` para `device_code`.
+///
+/// T9: label validado (1..=32B utf8, espelho `validate_v6_label`) e TLV
+/// total ≤512B; fora disso retorna vazio (fail-closed, sem parcial).
 pub fn build_totp_request_tlv(label: &str, challenge: &[u8; 8]) -> Vec<u8> {
+    if !is_valid_totp_label(label) {
+        return Vec::new();
+    }
     let mut tlv = Vec::new();
     write_tlv(&mut tlv, TAG_NAME, label.as_bytes());
     write_tlv(&mut tlv, TAG_CHALLENGE, challenge);
@@ -83,6 +89,33 @@ pub fn collect_totp_codes(
         }
     }
     out
+}
+
+/// T9: espelho `validate_v6_label` (migrations): 1..=32B, utf8 válido,
+/// sem NUL/controle (fail-closed p/ TLV OATH ≤512B).
+pub fn is_valid_totp_label(label: &str) -> bool {
+    let n = label.len();
+    if !(1..=32).contains(&n) {
+        return false;
+    }
+    !label.bytes().any(|b| b == 0 || b < 0x20)
+}
+
+/// T9: log sanitizado — só conta + código chegam a tela/log; segredo
+/// nunca sai do applet (contrato §9.7). Retorna linha pronta p/ display.
+pub fn sanitized_code_log(account: &str, code: &str, remaining_seconds: u32) -> String {
+    alloc::format!("{account}: {code} ({remaining_seconds}s)")
+}
+
+/// T9: enfileira o código no typer USB (só dígitos; nada além do código).
+/// Retorna `true` se o typer ficou ativo (código 6-8 dígitos válido).
+pub fn type_code_via_keyboard(
+    typer: &mut aegis_fido_usb::keyboard::OtpTyper,
+    code: &str,
+    append_enter: bool,
+) -> bool {
+    typer.queue_code_only(code, append_enter);
+    typer.is_active()
 }
 
 #[cfg(test)]
@@ -215,5 +248,28 @@ mod tests {
         let recs = parse_tlv_records(&tlv).expect("tlv valido");
         assert_eq!(find_tlv(&recs, TAG_NAME).unwrap(), b"GitHub:alice");
         assert_eq!(find_tlv(&recs, TAG_CHALLENGE).unwrap(), &chal);
+    }
+
+    #[test]
+    fn t9_label_validation_and_sanitized_log_and_keyboard_bridge() {
+        use aegis_fido_usb::keyboard::OtpTyper;
+        assert!(is_valid_totp_label("GitHub:alice"));
+        assert!(!is_valid_totp_label(""));
+        assert!(!is_valid_totp_label("a\x00b"));
+        assert!(!is_valid_totp_label("a\nb"));
+        let big = alloc::string::String::from_utf8(alloc::vec![b'x'; 33]).unwrap();
+        assert!(!is_valid_totp_label(&big));
+        assert!(build_totp_request_tlv("", &1u64.to_be_bytes()).is_empty());
+        // Sanitized log: conta + código, nunca segredo.
+        let secret = b"12345678901234567890";
+        let line = sanitized_code_log("GitHub:alice", "287082", 1);
+        assert!(line.contains("287082"));
+        assert!(!line.as_bytes().windows(secret.len()).any(|w| w == secret));
+        // Bridge do typer: só código válido ativa.
+        let mut typer = OtpTyper::new();
+        assert!(type_code_via_keyboard(&mut typer, "287082", false));
+        assert_eq!(typer.drain_all_reports().len(), 12);
+        assert!(!type_code_via_keyboard(&mut typer, "28a082", false));
+        assert!(!type_code_via_keyboard(&mut typer, "", false));
     }
 }

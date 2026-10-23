@@ -2,6 +2,41 @@
 //!
 //! Compliant with FIDO2 / CTAP 2.1, 2.2 and 2.3 specifications.
 //! 100% Native Rust implementation.
+//!
+//! # Security contract (§3C hardening)
+//!
+//! - Link is **plaintext by design** (no AAD, no per-packet encryption at
+//!   the CTAPHID framing layer). Cable possession is the binding for USB:
+//!   `NEED_BINDING` (vendor status `0x05`) is **never** emitted on the USB
+//!   CTAPHID path; binding/pairing ceremonies live on BLE/serial-vendor
+//!   dispatch, not in framing.
+//! - Confidentiality for secrets comes from upper layers: ClientPIN v1/v2
+//!   P-256 ECDH (`ClientPinState`: `getKeyAgreement` → shared secret →
+//!   `pin_token`, attempt counters/retries, `pinUvAuth` sessions) and the
+//!   vault `seal`/`open` envelope, whose AAD is preserved end-to-end (framer
+//!   never strips, pads, or re-keys payload bytes).
+//! - Framing: fixed 64 B packets (`PACKET_SIZE`), reassembly cap
+//!   `MAX_MSG_LEN` = 7609 B (`57 + 128 * 59`, **without AAD**). Overruns are
+//!   fail-closed: INIT `BCNT > MAX_MSG_LEN` is rejected with
+//!   `ERR_INVALID_LEN`, `try_frame_message` returns `None`, and
+//!   `frame_message` panics instead of silently truncating (R13 stub-only:
+//!   no retry/backoff logic in the framer).
+//! - Out of app contract (lateral surfaces, documented not implemented
+//!   here): keyboard OTP output, CCID/PIV APDU handling, OTA opcodes
+//!   `0x30-0x34` (`UNMAPPED` — rejected with `ERR_INVALID_CMD` by callers,
+//!   never dispatched by this crate).
+//!
+//! # Portability (R13/R14) / quality (R6/R7)
+//!
+//! - R13 stub-only: framer/deframer only; no USB PHY, no timers, no I/O.
+//! - R14 HW-first: real USB PHY / serial C code sits **behind** the
+//!   [`crate::transport::Transport`] trait (`send`/`recv`/`poll`); this
+//!   module is the portable core the trait delegates to.
+//! - R6 zero warnings: `no_std`-friendly (`alloc` only for reassembly), no
+//!   panics on the wire path except the programmer-error `frame_message`
+//!   overrun guard (use `try_frame_message` when fallible framing is needed).
+//! - R7 test-mode gated: no test hooks in this crate; device-side test
+//!   commands live behind `test-mode` in firmware only.
 
 use core::fmt;
 
@@ -25,6 +60,22 @@ pub const CONT_PAYLOAD_SIZE: usize = PACKET_SIZE - CONT_HEADER_SIZE;
 /// Maximum possible message length in CTAPHID protocol:
 /// 57 + (128 * 59) = 7609 bytes.
 pub const MAX_MSG_LEN: usize = INIT_PAYLOAD_SIZE + (128 * CONT_PAYLOAD_SIZE);
+
+/// Maximum CONT follow-up packets per message (spec cap: 128).
+pub const MAX_CONT_PACKETS: usize = 128;
+
+/// First/last vendor OTA opcodes: lateral surface, UNMAPPED in the app contract.
+///
+/// Documented only — this crate never dispatches them; callers reject with
+/// `ERR_INVALID_CMD`.
+pub const VENDOR_OTA_FIRST: u8 = 0x30;
+/// Last vendor OTA opcode (see [`VENDOR_OTA_FIRST`]).
+pub const VENDOR_OTA_LAST: u8 = 0x34;
+
+/// `true` for the UNMAPPED OTA window `0x30-0x34` (outside the app contract).
+pub fn is_unmapped_ota_op(op: u8) -> bool {
+    (VENDOR_OTA_FIRST..=VENDOR_OTA_LAST).contains(&op)
+}
 
 /// CTAPHID Broadcast Channel ID.
 pub const BROADCAST_CID: u32 = 0xFFFF_FFFF;
@@ -392,7 +443,24 @@ pub struct CtapHidFramer;
 
 impl CtapHidFramer {
     /// Encodes a full CTAPHID response message into a sequence of 64-byte USB packets.
+    ///
+    /// Fail-closed on overrun: panics when `payload.len() > MAX_MSG_LEN`
+    /// (never silently truncates; use [`Self::try_frame_message`] for a
+    /// fallible variant). The panic is a programmer error, never a wire
+    /// input: inbound overruns are rejected with `ERR_INVALID_LEN`.
     pub fn frame_message(cid: u32, cmd: u8, payload: &[u8]) -> Vec<[u8; PACKET_SIZE]> {
+        Self::try_frame_message(cid, cmd, payload)
+            .expect("CTAPHID payload exceeds MAX_MSG_LEN (7609), refusing silent truncate")
+    }
+
+    /// Fallible framing: `None` when `payload.len() > MAX_MSG_LEN`.
+    ///
+    /// Byte-identical to [`Self::frame_message`] on success (INIT + up to
+    /// 128 CONT packets, no AAD added/stripped).
+    pub fn try_frame_message(cid: u32, cmd: u8, payload: &[u8]) -> Option<Vec<[u8; PACKET_SIZE]>> {
+        if payload.len() > MAX_MSG_LEN {
+            return None;
+        }
         let total_len = payload.len();
         let mut packets = Vec::new();
 
@@ -423,7 +491,8 @@ impl CtapHidFramer {
             seq = seq.wrapping_add(1);
         }
 
-        packets
+        debug_assert!(packets.len() <= 1 + MAX_CONT_PACKETS);
+        Some(packets)
     }
 
     /// Generates a 64-byte INIT response packet.
@@ -602,5 +671,41 @@ mod tests {
         // Send next packet after 3500ms (> 3000ms timeout)
         let err = mgr.process_packet(&packets[1], 4501).unwrap_err();
         assert_eq!(err.code, ERR_MSG_TIMEOUT);
+    }
+
+    #[test]
+    fn test_overrun_fail_closed_no_silent_truncate() {
+        // Framing side: over MAX_MSG_LEN refuses instead of truncating.
+        let big = vec![0xAAu8; MAX_MSG_LEN + 1];
+        assert!(CtapHidFramer::try_frame_message(0x01020304, CMD_CBOR, &big).is_none());
+        // Exact cap still frames (1 INIT + 128 CONT).
+        let cap = vec![0xBBu8; MAX_MSG_LEN];
+        let pkts = CtapHidFramer::try_frame_message(0x01020304, CMD_CBOR, &cap)
+            .expect("cap-size payload must frame");
+        assert_eq!(pkts.len(), 1 + MAX_CONT_PACKETS);
+
+        // Wire side: INIT BCNT overrun rejected with ERR_INVALID_LEN.
+        let mut raw = [0u8; PACKET_SIZE];
+        raw[0..4].copy_from_slice(&0x01020304u32.to_be_bytes());
+        raw[4] = CMD_CBOR;
+        raw[5..7].copy_from_slice(&((MAX_MSG_LEN as u16).wrapping_add(1)).to_be_bytes());
+        let err = CtapHidManager::parse_raw_packet(&raw).unwrap_err();
+        assert_eq!(err.code, ERR_INVALID_LEN);
+    }
+
+    #[test]
+    #[should_panic(expected = "refusing silent truncate")]
+    fn test_frame_message_panics_on_overrun() {
+        let big = vec![0u8; MAX_MSG_LEN + 1];
+        let _ = CtapHidFramer::frame_message(0x01020304, CMD_CBOR, &big);
+    }
+
+    #[test]
+    fn test_ota_window_unmapped() {
+        assert!(is_unmapped_ota_op(VENDOR_OTA_FIRST));
+        assert!(is_unmapped_ota_op(VENDOR_OTA_LAST));
+        assert!(is_unmapped_ota_op(0x32));
+        assert!(!is_unmapped_ota_op(CMD_CBOR));
+        assert!(!is_unmapped_ota_op(0x20));
     }
 }

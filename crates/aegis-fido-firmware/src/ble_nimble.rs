@@ -10,9 +10,18 @@
 //!   (NimBLE via `esp-idf-sys`, mesmo padrão do `aegis_usb.c`), chamado por
 //!   `extern "C"` manual. No host, os `esp_*` são shims inertes (sem rádio).
 //!
-//! Contrato (congelado, `docs/ble-protocol.md` §1-§4 + §11):
+//! Contrato (congelado, `docs/ble-protocol.md` §1-§4 + §11 + audit §3B):
 //! - Serviço `0xFFFD`; `FFF1` write → `control_write`; `FFF2` notify;
-//!   `FFF3` read len; `FFF4` read/write revisão `0x01`.
+//!   `FFF3` read len; `FFF4` read/write revisão `0x01` (congelada).
+//! - Fragmentos FFF1 dependem de bonding + cifra link-layer (NimBLE
+//!   `ble_store`); SEM cifra app-layer (limite declarado — link aberto
+//!   expõe bytes no ar; gates binding→UP→PIN + `NEED_BINDING` 0x05 valem
+//!   acima do link, nunca como substituto da cifra).
+//! - Gates: binding → UP → PIN (ordem canônica, R6/R7); USO (LIST/CODE)
+//!   exige só UP físico; PING `0x81` também exige UP por operação
+//!   (latch single-shot: o chamador consome e limpa por operação).
+//! - `notify_frame` fail-closed: exceder `CONTROL_POINT_LENGTH` (512)
+//!   retorna `[op, 0x04]` sem vazar prefixo truncado (R13/R14).
 //! - Advertising com UUID de serviço + flag de pareamento SOMENTE em modo
 //!   pareamento (`PairingBle` com janela aberta). Fora disso: rádio mudo
 //!   (privacidade + bateria).
@@ -245,14 +254,28 @@ impl Default for BleStartGate {
 
 /// Moldura de resposta FFF2 notify: `[opcode, status, payload...]`.
 ///
-/// `status`: `0x00` OK ou `BleGattError::to_vendor_status`. Carga limitada
-/// a `CONTROL_POINT_LENGTH` (trunca o excedente, sem erro).
+/// `status`: `0x00` OK ou `BleGattError::to_vendor_status`.
+///
+/// Limite fail-closed (§3B): carga limitada a `CONTROL_POINT_LENGTH`.
+/// Se `payload` exceder o teto, NENHUM byte de payload é emitido — retorna
+/// `[opcode, 0x04]` (falha genérica, sem retry §9.6) em vez de truncar
+/// silenciosamente. Truncar corromperia CBOR/CTAP sem sinalizar erro;
+/// falhar fechado preserva R13/R14 (integridade do envelope).
+///
+/// Segurança de transporte (limite declarado): fragmentos FFF1/notify FFF2
+/// dependem EXCLUSIVAMENTE do bonding/cifra link-layer do NimBLE
+/// (`ble_store` em NVS). Não há cifra app-layer neste transporte — um link
+/// não-bonded expõe bytes no ar. Gates (binding→UP→PIN, `NEED_BINDING`
+/// 0x05) continuam obrigatórios acima do link.
 pub fn notify_frame(opcode: u8, status: u8, payload: &[u8]) -> Vec<u8> {
-    let take = payload.len().min(CONTROL_POINT_LENGTH);
-    let mut out = Vec::with_capacity(2 + take);
+    if payload.len() > CONTROL_POINT_LENGTH {
+        // Fail-closed: nunca vaza prefixo truncado como se fosse OK.
+        return alloc::vec![opcode, 0x04];
+    }
+    let mut out = Vec::with_capacity(2 + payload.len());
     out.push(opcode);
     out.push(status);
-    out.extend_from_slice(&payload[..take]);
+    out.extend_from_slice(payload);
     out
 }
 
@@ -723,10 +746,16 @@ mod tests {
     fn notify_frame_layout_e_teto() {
         let f = notify_frame(OP_PING, 0x00, b"abc");
         assert_eq!(f, [OP_PING, 0x00, b'a', b'b', b'c']);
+        // §3B fail-closed: excedente vira [op, 0x04] sem vazar prefixo truncado.
         let big = alloc::vec![0xAAu8; CONTROL_POINT_LENGTH + 100];
         let f2 = notify_frame(OP_MSG, 0x04, &big);
-        assert_eq!(f2.len(), 2 + CONTROL_POINT_LENGTH);
-        assert_eq!((f2[0], f2[1]), (OP_MSG, 0x04));
+        assert_eq!(f2, [OP_MSG, 0x04]);
+        // Teto exato ainda passa intacto.
+        let exact = alloc::vec![0xBBu8; CONTROL_POINT_LENGTH];
+        let f3 = notify_frame(OP_MSG, 0x00, &exact);
+        assert_eq!(f3.len(), 2 + CONTROL_POINT_LENGTH);
+        assert_eq!((f3[0], f3[1]), (OP_MSG, 0x00));
+        assert_eq!(&f3[2..], &exact[..]);
     }
 
     #[test]

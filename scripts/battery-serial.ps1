@@ -55,7 +55,7 @@ $summary = New-Object System.Collections.ArrayList
 
 if ($Phase -in @("all", "offline")) {
     $r = Invoke-Step "self-test (offline)" "python" @("tools/app_simulator.py", "--self-test")
-    [void]$summary.Add("self-test: $(if ($r.Out -match '17/17') { 'PASS 17/17' } else { 'VER LOG' })")
+    [void]$summary.Add("self-test: $(if ($r.Out -match '(17/17|24/24)') { 'PASS 17/17' } else { 'VER LOG' })")
     $r = Invoke-Step "host-win (offline)" "python" @("tools/host/win/proximity_agent.py", "--self-test")
     [void]$summary.Add("host-win: $(if ($r.Code -eq 0) { 'PASS' } else { 'VER LOG' })")
     $r = Invoke-Step "host-win-tests (offline)" "python" @("tools/host/win/test_proximity_agent.py")

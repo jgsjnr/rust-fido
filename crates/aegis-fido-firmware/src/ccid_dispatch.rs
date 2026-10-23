@@ -147,4 +147,29 @@ mod tests {
         assert_eq!((r[0], r[5], r[6]), (0x80, 0, 9));
         assert_ne!(r[7], 0x00);
     }
+
+    #[test]
+    fn t9_oath_fido_sobre_ccid_fora_de_escopo_6d00() {
+        use aegis_fido_usb::ccid::CommandApdu;
+        // OATH/FIDO sobre CCID = fora do escopo v1: 6D 00 honesto, sem mock.
+        let mut h = NoExtraApplets;
+        let oath = CommandApdu {
+            cla: 0,
+            ins: 0xA2,
+            p1: 0,
+            p2: 0,
+            data: Vec::new(),
+            le: None,
+        };
+        assert_eq!(h.handle_oath_apdu(&oath).to_bytes(), vec![0x6D, 0x00]);
+        let fido = CommandApdu {
+            cla: 0,
+            ins: 0x01,
+            p1: 0,
+            p2: 0,
+            data: Vec::new(),
+            le: None,
+        };
+        assert_eq!(h.handle_fido_apdu(&fido).to_bytes(), vec![0x6D, 0x00]);
+    }
 }

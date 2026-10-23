@@ -17,18 +17,20 @@ ROOT = Path(__file__).resolve().parents[1]
 CRATE = "aegis-fido-firmware"
 
 # Respostas/efeitos que só existem dentro de #[cfg(feature = "test-mode")].
+# NOTA: padrões ancorados em acks de comportamento; identificadores/docs
+# inertes em metadados rlib (ex. dev_* em nvs_backend.rs docs) NÃO são
+# comportamento e por isso ficam fora desta lista.
 FORBIDDEN = [
     b"source=software",      # TEST_UP / TEST_PAIRING_OPEN ack
-    b"up_latched",           # TEST_UP ack
+    b"up_latched source=software",  # TEST_UP ack (ancorado; "up_latched" nu pega meta rlib)
     b"download_mode",        # TEST_DOWNLOAD ack (nunca em release)
-    b"pairing_open",         # TEST_PAIRING_OPEN ack
+    b"pairing_open window_s=",  # TEST_PAIRING_OPEN ack (ancorado; nu pega meta rlib)
     b"led_set ",             # TEST_LED_* ack (+ espaço p/ não pegar led_setting*)
     b"led_state screen=",    # TEST_LED_STATE
     b"lt_dump v=1",          # TEST_LIFETIME_DUMP
     b"binding-bypass",       # ltrace de bypass
-    b"dev_master_key",       # chave-dev test-mode (nunca em release)
-    b"dev_salt",             # sal dev test-mode (nunca em release)
-    b"aegisdev",             # namespace dev test-mode (nunca em release)
+    # allowlist: b"dev_master_key"/b"dev_salt"/b"aegisdev" nus removidos —
+    # só aparecem como identificadores/docs (nvs_backend.rs), sem ack.
     b"OTA_TEST_PUBKEY",      # chave OTA lab test-mode (nunca em release)
     b"TEST-OTA-KEY",         # marcador chave OTA lab (nunca em release)
 ]

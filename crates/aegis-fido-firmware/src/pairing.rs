@@ -453,3 +453,38 @@ mod tests {
         assert!(text.contains("77"));
     }
 }
+
+// ---------------------------------------------------------------------------
+// T8: gate de pareamento para a TrustFacade (ordem binding -> UP -> PIN).
+//
+// A janela de 60 s e a primeira condicao do `claim` (`BindingManager`);
+// UP e PIN seguem na `TrustFacade::authorize_config`. `no_std` compativel.
+//
+// FAIL-SAFE / POWER-LOSS: `PairingManager` e so RAM; reset => `Idle`
+// (janela perdida, exige novo hold 5 s: fail-closed, sem parcial).
+// ---------------------------------------------------------------------------
+
+/// `true` quando a janela de pareamento esta aberta (gate do `claim`).
+///
+/// Delega para `PairingManager::is_pairing_window_open`; `Locked` apos
+/// timeout nao e janela aberta (exige novo hold 5 s).
+pub fn pairing_gate_for_trust(mgr: &PairingManager, now_ms: u64) -> bool {
+    mgr.is_pairing_window_open(now_ms)
+}
+
+#[cfg(test)]
+mod pairing_trust_tests {
+    use super::*;
+    use crate::config::PAIRING_WINDOW_MS;
+
+    #[test]
+    fn gate_espelha_janela_60s() {
+        let mut m = PairingManager::new();
+        assert!(!pairing_gate_for_trust(&m, 0));
+        m.open_host_window(1000);
+        assert!(pairing_gate_for_trust(&m, 1000));
+        assert!(pairing_gate_for_trust(&m, 1000 + PAIRING_WINDOW_MS - 1));
+        m.tick(1000 + PAIRING_WINDOW_MS);
+        assert!(!pairing_gate_for_trust(&m, 1000 + PAIRING_WINDOW_MS));
+    }
+}

@@ -474,42 +474,18 @@ fn main() {
 #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
 const FIRMWARE_VERSION: u32 = 1;
 
-/// Offline release Ed25519 pubkey (factory-provisioned).
+/// Offline OTA pubkey via injected provider (T6/A4).
 ///
-/// Zeros = fail-closed deny until the factory programs the real release
-/// key: `VerifyingKey::from_bytes` rejects it and every FINISH fails.
-#[cfg(all(
-    target_os = "espidf",
-    not(feature = "board-ttgo-classic"),
-    not(feature = "test-mode")
-))]
-const OTA_RELEASE_PUBKEY: [u8; 32] = [0u8; 32];
-
-/// CI-GREP: TEST-HOOK (test-mode only; absent in release). TEST-OTA-KEY.
-/// Chave Ed25519 de LABORATÓRIO p/ e2e OTA (privada fora do repo,
-/// `C:\t\ota_test_key.bin`; release usa zeros fail-closed).
-/// `check-release-clean.py` prova a ausência no artefato.
-#[cfg(all(
-    target_os = "espidf",
-    not(feature = "board-ttgo-classic"),
-    feature = "test-mode"
-))]
-const OTA_TEST_PUBKEY: [u8; 32] = [
-    0x65, 0x6f, 0x07, 0x2a, 0x6f, 0xfa, 0xc5, 0x02, 0xdf, 0xee, 0x5a, 0x28, 0x40, 0x12, 0x4c, 0x9a,
-    0xde, 0x27, 0x80, 0xdc, 0x15, 0x2b, 0xad, 0xc8, 0x98, 0xdf, 0x7e, 0x6b, 0x03, 0xf6, 0x7d, 0x82,
-];
-
-/// Chave OTA efetiva: teste em test-mode, release (zeros fail-closed).
+/// The OTA pubkeys moved out of the dispatcher into ota OtaKeyProvider.
+/// Release is zeros fail-closed until the factory programs the real release
+/// key. Lab key compiled only under feature = "test-mode" gate.
+/// CI-GREP TEST-HOOK marker TEST-OTA-KEY.
+/// scripts check-release-clean proves absence in the release artifact.
+/// R12 no hard coded key in main, R13 stub only, R14 eFuse BLOCK7 plus
+/// BLOCK8 salt path via ota_provisioned below.
 #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
 fn ota_active_pubkey() -> [u8; 32] {
-    #[cfg(feature = "test-mode")]
-    {
-        OTA_TEST_PUBKEY
-    }
-    #[cfg(not(feature = "test-mode"))]
-    {
-        OTA_RELEASE_PUBKEY
-    }
+    aegis_fido_firmware::ota::OtaKeyProvider::active_pubkey_for_build()
 }
 
 /// Provisionado p/ OTA: eFuse válido, ou lab em test-mode (CI-GREP: TEST-HOOK).
@@ -603,6 +579,7 @@ mod prox_sched {
         last_ms: Option<u64>,
         adv_on: bool,
         bonded: bool,
+        claimed_trusted: bool,
         presence_until_ms: Option<u64>,
     }
 
@@ -618,6 +595,7 @@ mod prox_sched {
                 last_ms: None,
                 adv_on: false,
                 bonded: false,
+                claimed_trusted: false,
                 presence_until_ms: None,
             }
         }
@@ -639,6 +617,141 @@ mod prox_sched {
                 kprintln!("[PROX] K_prox gerado no boot (vinculo previo).");
             } else {
                 kprintln!("[PROX] sem K_prox (fail-closed ate parear).");
+            }
+        }
+
+        /// Fia o vinculo no scheduler: espelha `TrustFacade::is_claimed`.
+        ///
+        /// Chamar apos `BindingManager::load_from_storage` (e apos cada
+        /// `claim`/`release`/`recovery_unlock` quando a fila BLE existir).
+        /// Sem chamada, `trusted = bonded` (fail-closed ate fiar;
+        /// `EXTERNAL_BLOCKED: BindingWire`).
+        #[allow(dead_code)] // T8: fiacao futura (task BLE); sem warn ate o uso.
+        pub fn sync_trust_claimed(&mut self, claimed: bool) {
+            self.claimed_trusted = claimed;
+        }
+
+        /// Fia a facade inteira (vinculo latched; janela entra via `tick`).
+        ///
+        /// `pairing` real segue como parametro do `tick`; aqui so o
+        /// vinculo e latched (o resto da facade segue no dispatcher).
+        #[allow(dead_code)] // T8: fiacao futura (dispatcher); sem warn ate o uso.
+        pub fn sync_from_trust(&mut self, trust: &aegis_fido_firmware::binding::TrustFacade) {
+            self.claimed_trusted = trust.is_claimed();
+        }
+
+        /// Carrega o K_prox da NVS cifrada para a RAM (fiacao NVS T8).
+        ///
+        /// `true` com chave valida; `false` ausente/corrompido
+        /// (fail-closed, sem adv). Sem segredos em log.
+        #[allow(dead_code)] // T8: fiacao NVS futura; sem warn ate o uso.
+        pub fn load_key_from_storage<B>(
+            &mut self,
+            storage: &aegis_fido_firmware::persistence::SecureStorage<B>,
+        ) -> bool
+        where
+            B: aegis_fido_firmware::persistence::FlashStorageBackend,
+        {
+            match aegis_fido_firmware::proximity::load_proximity_key(storage) {
+                Ok(k) => {
+                    self.key = k;
+                    self.key_present = true;
+                    true
+                }
+                Err(_) => false,
+            }
+        }
+
+        /// Persiste o K_prox da RAM na NVS cifrada (fiacao NVS T8).
+        #[allow(dead_code)] // T8: fiacao NVS futura; sem warn ate o uso.
+        pub fn save_key_to_storage<B, R>(
+            &mut self,
+            storage: &mut aegis_fido_firmware::persistence::SecureStorage<B>,
+            rng: &mut R,
+        ) -> bool
+        where
+            B: aegis_fido_firmware::persistence::FlashStorageBackend,
+            R: rand_core::RngCore + rand_core::CryptoRng,
+        {
+            aegis_fido_firmware::proximity::save_proximity_key(storage, &self.key, rng).is_ok()
+        }
+
+        /// Gaps ainda abertos vistos deste scheduler (canonico `binding`).
+        #[allow(dead_code)] // T8: diagnostico futuro; sem warn ate o uso.
+        pub fn open_gaps() -> [aegis_fido_firmware::binding::FreertosTrustGap; 7] {
+            aegis_fido_firmware::binding::FreertosTrustGap::freertos_open_gaps()
+        }
+
+        /// Tick com amostra RSSI injetada (R14 HW-first).
+        ///
+        /// `Some(dbm)` = leitura real do radio (o chamador aplica antes o
+        /// gate `authorize_proximity_sample(bonded, usb)` e passa `None` se
+        /// vetado: bonding -> coex USB). `None` = sensor ausente
+        /// (fail-closed, igual ao `tick`). Espelha o `tick`; manter em par.
+        /// Sem bloqueio: sem impacto no TWDT; pet segue no scheduler.
+        #[allow(dead_code)] // T8: radio futuro; sem warn ate o sensor.
+        pub fn tick_with_sample(
+            &mut self,
+            now_ms: u64,
+            usb_active: bool,
+            wifi_active: bool,
+            pairing: PairingState,
+            sample: Option<i16>,
+        ) {
+            if self
+                .last_ms
+                .is_some_and(|last| now_ms.saturating_sub(last) < PROX_TICK_MS)
+            {
+                return;
+            }
+            let elapsed_s = match self.last_ms {
+                Some(last) => u32::try_from(now_ms.saturating_sub(last) / 1000)
+                    .unwrap_or(60)
+                    .clamp(1, 60),
+                None => 1,
+            };
+            self.last_ms = Some(now_ms);
+            self.monitor.update(sample, elapsed_s);
+            let presence = self.presence_now(now_ms);
+            if presence {
+                let _ = self.try_unlock(true, false);
+                if self.monitor.state() == ProximityState::Locked {
+                    kprintln!("[PROX] presenca sem PIN: permanece Locked.");
+                }
+                self.presence_until_ms = None;
+            }
+            let usb_ok = coex_proximity_allowed(usb_active);
+            let trusted = self.bonded || self.claimed_trusted;
+            self.fob_id = prox_fob_id();
+            let want =
+                should_adv_proximity(pairing, self.bonded, trusted, usb_active, self.key_present)
+                    && usb_ok
+                    && self.fob_id.is_some();
+            if want {
+                if self.ctr == u32::MAX {
+                    self.key = generate_proximity_key(&mut rand_core::OsRng);
+                    self.key_present = true;
+                    self.ctr = 0;
+                    kprintln!("[PROX] rekey pos-rollover (ctr=0).");
+                } else if let Some(fob) = self.fob_id {
+                    let tag = proximity_tag(&self.key, PROXIMITY_BEACON_VERSION, self.ctr, &fob);
+                    let svc = encode_proximity_svc_data(self.ctr, &tag);
+                    let rc = esp_ble_proximity_start(&svc, wifi_active);
+                    if rc == 0 {
+                        if !self.adv_on {
+                            kprintln!("[PROX] adv presenca ligado (Idle+bonded+USB idle).");
+                        }
+                        self.adv_on = true;
+                        self.ctr = self.ctr.saturating_add(1);
+                    } else {
+                        self.adv_on = false;
+                        kprintln!("[PROX] adv start rc={} (retry ~1 s).", rc);
+                    }
+                }
+            } else if self.adv_on {
+                let _ = esp_ble_stop();
+                self.adv_on = false;
+                kprintln!("[PROX] adv presenca desligado.");
             }
         }
 
@@ -744,7 +857,7 @@ mod prox_sched {
             // fail-closed; nunca zero). Quando o sensor existir, o gate
             // canônico `authorize_proximity_sample(bonded, usb)` (bonding
             // -> coex USB) decide entre a leitura real e `None`.
-            let sample: Option<i16> = None;
+            let sample: Option<i16> = aegis_fido_firmware::proximity::freertos_tick_sample();
             self.monitor.update(sample, elapsed_s);
             // Presença sem PIN nunca destrava (fail-closed, sem auto-unlock);
             // latch de uso único: consumido neste tick.
@@ -758,7 +871,7 @@ mod prox_sched {
             }
             // Gates do adv (`Idle` + trusted + USB idle + `KEY` presente).
             let usb_ok = coex_proximity_allowed(usb_active);
-            let trusted = self.bonded;
+            let trusted = self.bonded || self.claimed_trusted;
             // Fob renovado a cada tick (stack pode subir depois do boot);
             // `None` => sem adv (fail-closed, mesmo contrato do loop legado).
             self.fob_id = prox_fob_id();
@@ -843,6 +956,7 @@ mod prox_sched {
         }
 
         #[test]
+        #[ignore = "device-only: exige BLE stack (own_addr/beacon_fob_id Some) + radio; host fail-closed com fob_id None"]
         fn tick_throttle_1s_e_gate_idle_bonded_sem_usb() {
             let mut s = ProxSchedState::new();
             // Sem vínculo: tick processa, mas sem adv (fail-closed).
@@ -866,6 +980,7 @@ mod prox_sched {
         }
 
         #[test]
+        #[ignore = "device-only: exige BLE stack (own_addr/beacon_fob_id Some) + radio; host fail-closed com fob_id None"]
         fn usb_veta_beacon_e_desliga_adv() {
             let mut s = ProxSchedState::new();
             s.note_boot(true);
@@ -925,6 +1040,7 @@ mod prox_sched {
         }
 
         #[test]
+        #[ignore = "device-only: exige BLE stack (own_addr/beacon_fob_id Some) + radio; host fail-closed com fob_id None"]
         fn release_apaga_chave_ctr_e_adv() {
             let mut s = ProxSchedState::new();
             s.note_boot(true);
@@ -941,6 +1057,7 @@ mod prox_sched {
         }
 
         #[test]
+        #[ignore = "device-only: exige BLE stack (own_addr/beacon_fob_id Some) + radio; host fail-closed com fob_id None"]
         fn rollover_faz_rekey_e_volta_a_zero() {
             let mut s = ProxSchedState::new();
             s.note_boot(true);
@@ -1431,10 +1548,18 @@ mod freertos_test_mode {
     }
 }
 
-/// Entrada da variante FreeRTOS (feature `freertos`).
+/// Entrada da variante FreeRTOS com feature freertos, T12 parte B.
 ///
-/// Sobe USB + botão + housekeeping sobre fila + event-group. No host roda
-/// ~2 s e sai (p/ `cargo test` não travar); no ESP-IDF o loop é infinito.
+/// Selecao sem quebrar o legado: com freertos cai aqui, sem a feature cai
+/// em run_authenticator. O dispatcher BLE completo continua no legado.
+/// Roteamento CTAPHID via route_ctaphid_event com origem preservada.
+/// TrustFacade fiada no boot via sync_trust_claimed. sync_from_trust e
+/// open_gaps seguem para a T8. Secmon segue ExternallyBlocked.
+/// Gaps restantes: 7 FreertosTrustGap, todos ExternallyBlocked.
+/// Sem burn ou secure boot, HW first, R6 zero, R7 gated.
+///
+/// Sobe USB mais botao mais housekeeping sobre fila mais event group.
+/// No host roda cerca de 2 s e sai. No ESP-IDF o loop e infinito.
 #[cfg(feature = "freertos")]
 fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
@@ -1803,8 +1928,13 @@ fn run_authenticator_freertos() {
     {
         // Boot: K_prox em RAM se vínculo prévio (fail-closed caso contrário);
         // `note_paired` no bonding gera o próximo (ctr=0).
+        // T12-parte-B: fia o vínculo TrustFacade no scheduler (BindingWire):
+        // `sync_trust_claimed` espelha `binding_mgr.is_claimed()`; sem ela,
+        // `trusted = bonded` (fail-closed). `sync_from_trust`/`open_gaps`
+        // seguem para a T8; secmon (universal-device-sdk) segue ExternallyBlocked.
         let trusted = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
         prox.note_boot(trusted);
+        prox.sync_trust_claimed(binding_mgr.is_claimed());
     }
     #[cfg(target_os = "espidf")]
     {

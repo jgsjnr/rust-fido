@@ -6,7 +6,9 @@
 //! cannot be recovered from the slot's COSE alg alone). Every key operation
 //! delegates; UP (generate/sign/list/address/get/public_cose) and UP+PIN
 //! (import/delete) gates are inherited from KeyManager — no gate logic here,
-//! no OTP path, no global lock. Labels are prefixed with [`WALLET_LABEL_PREFIX`]
+//! no OTP path, no global lock. Sem NVS aqui — RAM por desenho (sessão de
+//! boot; persistência no follow-up via `export/import_routing` +
+//! `wallet_slot_*`, envelope-por-slot). Labels are prefixed with [`WALLET_LABEL_PREFIX`]
 //! (B1 audit marker); overlong labels and out-of-range ids surface the
 //! KeyManager bounds as `BadEnvelope`. Import takes the caller-declared
 //! [`CoseAlgorithm`] and refuses (`BadEnvelope`, slot untouched) when it

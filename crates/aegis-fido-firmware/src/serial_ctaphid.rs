@@ -18,6 +18,34 @@
 //!   ([`authorize_vendor_op`]); the on-device executor stays follow-up
 //!   (status `0x04` on gate pass, exactly like BLE).
 //! - `no_std` compatible (`alloc` only).
+//!
+//! # Security contract (§3C hardening, serial side)
+//!
+//! - UART link is **plaintext by design**, same as USB: no AAD at framing;
+//!   possession of the serial cable is the physical binding. `NEED_BINDING`
+//!   is a **vendor-dispatch** status only (never a framing error) and is
+//!   never emitted on the pure USB CTAPHID path.
+//! - Secrets stay above framing: ClientPIN P-256 ECDH (`pin_token`, retry
+//!   counters, `pinUvAuth` sessions via `ClientPinState`) and vault
+//!   `seal`/`open` whose AAD is preserved byte-for-byte through
+//!   reassembly/framing (this router never pads, strips, or re-keys).
+//! - Framing cap is USB-identical: 64 B packets, `MAX_MSG_LEN` 7609 B, no
+//!   AAD. Overruns are fail-closed (`ERR_INVALID_LEN` on INIT `BCNT`
+//!   overrun, `try_frame_message → None` / `frame_message` panic on encode
+//!   overrun — never a silent truncate).
+//! - Out of app contract (documented, not dispatched here): keyboard OTP
+//!   output, CCID/PIV APDU transport, OTA opcodes `0x30-0x34` (`UNMAPPED`).
+//!
+//! # Portability / quality (R13/R14/R6/R7)
+//!
+//! - R13 stub-only: router + gate predicates only; real UART driver lives
+//!   behind a serial trait in board code (`main.rs`/HAL), not here.
+//! - R14 HW-first: framing core is the portable `aegis-fido-usb` crate
+//!   (see `Transport` trait); this module only adapts bytes ↔ manager.
+//! - R6 zero warnings: `no_std` + `alloc` only, no `std` imports.
+//! - R7 test-mode gated: `TEST_*` text/pairing hooks exist only under
+//!   `feature = "test-mode"` (`dispatch_serial_text_line`,
+//!   `dispatch_serial_pairing_line`); release builds answer `None`.
 
 extern crate alloc;
 
@@ -558,6 +586,30 @@ mod tests {
             panic!("expected complete message");
         }
         assert!(!router.has_pending());
+    }
+
+    #[test]
+    fn serial_overrun_fail_closed() {
+        use aegis_fido_usb::ctaphid::{CtapHidManager, ERR_INVALID_LEN, MAX_MSG_LEN};
+        // Encode side refuses overrun (no silent truncate).
+        let big = alloc::vec![0xAAu8; MAX_MSG_LEN + 1];
+        assert!(CtapHidFramer::try_frame_message(0x01020304, CMD_CBOR, &big).is_none());
+        // Wire side rejects overrun BCNT fail-closed through the router.
+        let mut raw = [0u8; PACKET_SIZE];
+        raw[0..4].copy_from_slice(&0x01020304u32.to_be_bytes());
+        raw[4] = CMD_CBOR;
+        raw[5..7].copy_from_slice(&((MAX_MSG_LEN as u16).wrapping_add(1)).to_be_bytes());
+        let mut router = SerialRouter::new();
+        assert_eq!(
+            router.feed(&raw, 1000),
+            SerialFeed::Error(CtapHidError::new(0x01020304, ERR_INVALID_LEN))
+        );
+        assert!(!router.has_pending());
+        // Direct manager parity: same INIT is ERR_INVALID_LEN.
+        assert_eq!(
+            CtapHidManager::parse_raw_packet(&raw).unwrap_err().code,
+            ERR_INVALID_LEN
+        );
     }
 
     #[test]
