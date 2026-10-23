@@ -10,13 +10,13 @@
 
 extern crate alloc;
 
-use alloc::string::String;
-use alloc::format;
-use aegis_fido_core::oath::{calculate_code, OathAlgorithm};
-use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
-use crate::persistence::{FlashStorageBackend, SecureStorage};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use aegis_fido_core::oath::{calculate_code, OathAlgorithm};
+use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
+use alloc::format;
+use alloc::string::String;
 
 /// Prefixo do AP.
 pub const WIFI_AP_PREFIX: &str = "AegisKey-";
@@ -28,6 +28,22 @@ pub const MIN_WIFI_PASS_LEN: usize = 8;
 pub const MAX_WIFI_PASS_LEN: usize = 63;
 /// Timeout do AP em ms (mesma janela de pareamento, 60s).
 pub const WIFI_AP_TIMEOUT_MS: u64 = 60_000;
+/// Maior bloco livre minimo p/ ligar o AP (32 KiB).
+///
+/// Abaixo dele o `esp_wifi_init` aborta o IDF por OOM em vez de retornar
+/// erro; o chamador pula `esp_ap_start` ("AP skip (heap curto)") sem contar
+/// tentativa. Mesmo limiar do C (`AEGIS_WIFI_MIN_HEAP_LARGEST`).
+pub const WIFI_AP_MIN_HEAP_LARGEST: usize = 32 * 1024;
+/// `true` quando ha bloco contiguo suficiente p/ tocar no driver WiFi.
+///
+/// Pura e host-testavel; sensor ausente (`None` no device) vira `false`
+/// (fail-closed, nunca zero inventado aqui: o chamador passa o valor lido).
+pub fn wifi_ap_start_allowed(largest_free: usize) -> bool {
+    largest_free >= WIFI_AP_MIN_HEAP_LARGEST
+}
+/// Codigo NO_MEM do backend C (`ensure_init` sem heap / `esp_wifi_init`
+/// recusado): terminal ate nova borda, sem retry.
+pub const WIFI_AP_RC_NO_MEM: i32 = -4;
 
 /// Erro tipado do AP/HTTP (sem panics).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,15 +108,18 @@ pub fn ap_ssid_for_serial(serial: &str) -> String {
         .chars()
         .rev()
         .collect();
-    let suffix = if tail.len() == 4 { tail } else { String::from("0001") };
+    let suffix = if tail.len() == 4 {
+        tail
+    } else {
+        String::from("0001")
+    };
     format!("{}{}", WIFI_AP_PREFIX, suffix)
 }
 
 /// Valida senha do AP (bounds WPA2).
 pub fn is_valid_wifi_password(pass: &str) -> bool {
     let len = pass.len();
-    (MIN_WIFI_PASS_LEN..=MAX_WIFI_PASS_LEN).contains(&len)
-        && pass.is_ascii()
+    (MIN_WIFI_PASS_LEN..=MAX_WIFI_PASS_LEN).contains(&len) && pass.is_ascii()
 }
 
 /// Gerente do AP (sem I/O; ESP liga o radio via `esp_ap_start`, componente C `aegis_wifi`).
@@ -172,11 +191,7 @@ pub enum ApPollAction {
 /// `ap_want` vem de `WifiApManager::is_active`; `ble_pairing_now` de
 /// `should_advertise` (BLE e WiFi sao mutuamente exclusivos no S3);
 /// `ap_active_cache` e o estado que o chamador acha que o radio tem.
-pub fn ap_poll_action(
-    ap_want: bool,
-    ble_pairing_now: bool,
-    ap_active_cache: bool,
-) -> ApPollAction {
+pub fn ap_poll_action(ap_want: bool, ble_pairing_now: bool, ap_active_cache: bool) -> ApPollAction {
     if ap_want && !ble_pairing_now {
         if ap_active_cache {
             ApPollAction::None
@@ -290,7 +305,13 @@ pub fn handle_get_oath_code(
     }
     for (name, secret, algo, digits) in secrets {
         if *name == account {
-            return Ok(totp_code_for_secret(account, secret, *algo, *digits, unix_seconds));
+            return Ok(totp_code_for_secret(
+                account,
+                secret,
+                *algo,
+                *digits,
+                unix_seconds,
+            ));
         }
     }
     Err(WifiApError::UnknownAccount)
@@ -367,7 +388,6 @@ pub fn resolve_ap_password(stored: Option<&[u8]>) -> Option<String> {
     Some(String::from(pass))
 }
 
-
 // Gates de binding para o HTTP mgmt (`binding.rs`).
 //
 // - `POST /config/wifi` (troca de senha): binding + UP + PIN.
@@ -422,9 +442,9 @@ pub fn handle_get_oath_code_bound(
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
     use super::*;
     use crate::persistence::MockFlashBackend;
+    use alloc::vec::Vec;
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])
@@ -501,10 +521,16 @@ mod tests {
         env.extend_from_slice(&[9u8; 20]);
         env.extend_from_slice(&[0u8; 16]);
         assert!(validate_ctap_envelope(&env).is_ok());
-        assert_eq!(validate_ctap_envelope(b"lixo"), Err(WifiApError::InvalidEnvelope));
+        assert_eq!(
+            validate_ctap_envelope(b"lixo"),
+            Err(WifiApError::InvalidEnvelope)
+        );
         let mut bad = env.clone();
         bad[0] ^= 0xFF;
-        assert_eq!(validate_ctap_envelope(&bad), Err(WifiApError::InvalidEnvelope));
+        assert_eq!(
+            validate_ctap_envelope(&bad),
+            Err(WifiApError::InvalidEnvelope)
+        );
     }
 
     #[test]
@@ -558,6 +584,42 @@ mod tests {
         assert_eq!(parse_oath_account_query("/oath/code"), None);
         assert_eq!(parse_oath_account_query("/oath/code?account="), None);
     }
+
+    #[test]
+    fn heap_guard_limiar_32kib() {
+        assert_eq!(WIFI_AP_MIN_HEAP_LARGEST, 32 * 1024);
+        assert!(!wifi_ap_start_allowed(0));
+        assert!(!wifi_ap_start_allowed(WIFI_AP_MIN_HEAP_LARGEST - 1));
+        assert!(wifi_ap_start_allowed(WIFI_AP_MIN_HEAP_LARGEST));
+        assert!(wifi_ap_start_allowed(WIFI_AP_MIN_HEAP_LARGEST + 1));
+    }
+
+    #[test]
+    fn close_cancela_ap_want_nunca_start_pos_close() {
+        // Janela aberta liga o want; close (shutdown_after_config) cancela:
+        // mesmo sem BLE pareando, o poll nunca pede Start depois do close.
+        let mut m = WifiApManager::new();
+        m.update(true, false, 1000);
+        assert!(m.is_active(1000));
+        assert_eq!(
+            super::ap_poll_action(m.is_active(1000), false, false),
+            super::ApPollAction::Start
+        );
+        // Close do pareamento: radio mudo no close.
+        m.shutdown_after_config();
+        assert!(!m.is_active(2000));
+        assert_ne!(
+            super::ap_poll_action(m.is_active(2000), false, false),
+            super::ApPollAction::Start
+        );
+        assert_eq!(
+            super::ap_poll_action(m.is_active(2000), false, false),
+            super::ApPollAction::None
+        );
+        // Com radio ligado, o close vira Stop uma vez, depois quieto.
+        assert_eq!(
+            super::ap_poll_action(m.is_active(2000), false, true),
+            super::ApPollAction::Stop
+        );
+    }
 }
-
-

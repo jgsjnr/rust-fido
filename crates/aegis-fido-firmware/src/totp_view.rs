@@ -176,7 +176,9 @@ mod tests {
         );
         let entries = collect_totp_codes(&mut applet, 59, true);
         assert_eq!(entries.len(), 1);
-        for banned in ["482 915", "720 184", "934 602", "482915", "720184", "934602"] {
+        for banned in [
+            "482 915", "720 184", "934 602", "482915", "720184", "934602",
+        ] {
             assert_ne!(entries[0].code, banned, "display recebeu literal!");
         }
         assert_eq!(entries[0].code, "287082");

@@ -7,9 +7,9 @@
 //! - SECP256K1 (Koblitz / ES256K, COSE alg -47) via `k256`
 //! - Ed25519 (EdDSA, COSE alg -8) via `ed25519-dalek`
 
-use alloc::vec::Vec;
-use alloc::string::String;
 use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use zeroize::Zeroize;
 
@@ -105,7 +105,10 @@ pub enum KeyPair {
 
 impl KeyPair {
     /// Generates a new cryptographic key pair using the specified algorithm and RNG.
-    pub fn generate<R: RngCore + CryptoRng>(alg: CoseAlgorithm, rng: &mut R) -> Result<Self, CryptoError> {
+    pub fn generate<R: RngCore + CryptoRng>(
+        alg: CoseAlgorithm,
+        rng: &mut R,
+    ) -> Result<Self, CryptoError> {
         match alg {
             CoseAlgorithm::ES256 => {
                 let sk = p256::ecdsa::SigningKey::random(rng);
@@ -305,9 +308,7 @@ impl PublicKey {
                 let y = pt.y().expect("valid y coordinate").to_vec();
                 CoseKey::secp256k1(x, y)
             }
-            Self::Ed25519(vk) => {
-                CoseKey::ed25519(vk.to_bytes().to_vec())
-            }
+            Self::Ed25519(vk) => CoseKey::ed25519(vk.to_bytes().to_vec()),
         }
     }
 
@@ -329,51 +330,49 @@ impl PublicKey {
 
     pub fn from_cose_key(cose: &CoseKey) -> Result<Self, CryptoError> {
         match cose {
-            CoseKey::Ec2 { alg, crv, x, y } => {
-                match (*alg, *crv) {
-                    (COSE_ALG_ES256, COSE_CRV_P256) => {
-                        let pt = p256::EncodedPoint::from_affine_coordinates(
-                            x.as_slice().into(),
-                            y.as_slice().into(),
-                            false,
-                        );
-                        let vk = p256::ecdsa::VerifyingKey::from_encoded_point(&pt)
-                            .map_err(|_| CryptoError::InvalidKeyLength)?;
-                        Ok(Self::P256(vk))
-                    }
-                    (COSE_ALG_ES384, COSE_CRV_P384) => {
-                        let pt = p384::EncodedPoint::from_affine_coordinates(
-                            x.as_slice().into(),
-                            y.as_slice().into(),
-                            false,
-                        );
-                        let vk = p384::ecdsa::VerifyingKey::from_encoded_point(&pt)
-                            .map_err(|_| CryptoError::InvalidKeyLength)?;
-                        Ok(Self::P384(vk))
-                    }
-                    (COSE_ALG_ES512, COSE_CRV_P521) => {
-                        let pt = p521::EncodedPoint::from_affine_coordinates(
-                            x.as_slice().into(),
-                            y.as_slice().into(),
-                            false,
-                        );
-                        let vk = p521::ecdsa::VerifyingKey::from_encoded_point(&pt)
-                            .map_err(|_| CryptoError::InvalidKeyLength)?;
-                        Ok(Self::P521(vk))
-                    }
-                    (COSE_ALG_ES256K, COSE_CRV_SECP256K1) => {
-                        let pt = k256::EncodedPoint::from_affine_coordinates(
-                            x.as_slice().into(),
-                            y.as_slice().into(),
-                            false,
-                        );
-                        let vk = k256::ecdsa::VerifyingKey::from_encoded_point(&pt)
-                            .map_err(|_| CryptoError::InvalidKeyLength)?;
-                        Ok(Self::K256(vk))
-                    }
-                    _ => Err(CryptoError::UnsupportedAlgorithm(*alg)),
+            CoseKey::Ec2 { alg, crv, x, y } => match (*alg, *crv) {
+                (COSE_ALG_ES256, COSE_CRV_P256) => {
+                    let pt = p256::EncodedPoint::from_affine_coordinates(
+                        x.as_slice().into(),
+                        y.as_slice().into(),
+                        false,
+                    );
+                    let vk = p256::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                        .map_err(|_| CryptoError::InvalidKeyLength)?;
+                    Ok(Self::P256(vk))
                 }
-            }
+                (COSE_ALG_ES384, COSE_CRV_P384) => {
+                    let pt = p384::EncodedPoint::from_affine_coordinates(
+                        x.as_slice().into(),
+                        y.as_slice().into(),
+                        false,
+                    );
+                    let vk = p384::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                        .map_err(|_| CryptoError::InvalidKeyLength)?;
+                    Ok(Self::P384(vk))
+                }
+                (COSE_ALG_ES512, COSE_CRV_P521) => {
+                    let pt = p521::EncodedPoint::from_affine_coordinates(
+                        x.as_slice().into(),
+                        y.as_slice().into(),
+                        false,
+                    );
+                    let vk = p521::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                        .map_err(|_| CryptoError::InvalidKeyLength)?;
+                    Ok(Self::P521(vk))
+                }
+                (COSE_ALG_ES256K, COSE_CRV_SECP256K1) => {
+                    let pt = k256::EncodedPoint::from_affine_coordinates(
+                        x.as_slice().into(),
+                        y.as_slice().into(),
+                        false,
+                    );
+                    let vk = k256::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                        .map_err(|_| CryptoError::InvalidKeyLength)?;
+                    Ok(Self::K256(vk))
+                }
+                _ => Err(CryptoError::UnsupportedAlgorithm(*alg)),
+            },
             CoseKey::Okp { alg, crv, x } => {
                 if *alg == COSE_ALG_EDDSA && *crv == COSE_CRV_ED25519 {
                     if x.len() != 32 {
@@ -448,7 +447,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_all_five_curves_lifecycle() {        let mut rng = rand::rngs::OsRng;
+    fn test_all_five_curves_lifecycle() {
+        let mut rng = rand::rngs::OsRng;
         let test_message = b"AegisKey FIDO2 Multi-Curve Cryptographic Assertion";
 
         let curves = [
@@ -461,8 +461,7 @@ mod tests {
 
         for &curve in &curves {
             // 1. Key pair generation
-            let kp = KeyPair::generate(curve, &mut rng)
-                .expect("KeyPair generation must succeed");
+            let kp = KeyPair::generate(curve, &mut rng).expect("KeyPair generation must succeed");
             assert_eq!(kp.algorithm(), curve);
 
             // 2. Public key derivation and COSE export
@@ -473,8 +472,8 @@ mod tests {
             assert!(!cose_cbor.is_empty());
 
             // 3. Re-import public key from CBOR
-            let imported_pub = PublicKey::from_cose_cbor(&cose_cbor)
-                .expect("Importing COSE CBOR must succeed");
+            let imported_pub =
+                PublicKey::from_cose_cbor(&cose_cbor).expect("Importing COSE CBOR must succeed");
             assert_eq!(imported_pub.algorithm(), curve);
 
             // 4. Digital signing
@@ -507,7 +506,9 @@ mod tests {
                 .expect("Re-importing private key must succeed");
             assert_eq!(reimported_kp.algorithm(), curve);
 
-            let sig2 = reimported_kp.sign(test_message).expect("Signing with re-imported key");
+            let sig2 = reimported_kp
+                .sign(test_message)
+                .expect("Signing with re-imported key");
             assert!(pubkey.verify(test_message, &sig2).is_ok());
         }
     }

@@ -8,7 +8,10 @@ use super::{AegisVault, VaultPasskey};
 #[derive(Debug)]
 pub struct VaultPolicy<CHAR>(pub CHAR);
 
-impl<CHAR> VaultPolicy<CHAR> where CHAR: AsRef<AegisVault> {
+impl<CHAR> VaultPolicy<CHAR>
+where
+    CHAR: AsRef<AegisVault>,
+{
     /// Creates a policy view.
     pub fn new(inner: CHAR) -> Self {
         Self(inner)

@@ -25,9 +25,9 @@ extern crate alloc;
 use rand_core::{CryptoRng, RngCore};
 use zeroize::Zeroize;
 
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 
 /// Chave NVS da pubkey SEC1 do app vinculado (65B, envelope AEGN).
 pub const BIND_PUB_NVS_KEY: &str = "app_bind_pub";
@@ -150,9 +150,7 @@ impl BindingError {
             | Self::BadPubkey => NEED_BINDING_STATUS,
             Self::PresenceRequired | Self::PairingRequired => VENDOR_STATUS_NEED_UP,
             Self::PinRequired => VENDOR_STATUS_NEED_PIN,
-            Self::AlreadyClaimed | Self::Corrupted | Self::Storage => {
-                VENDOR_STATUS_BAD_ENVELOPE
-            }
+            Self::AlreadyClaimed | Self::Corrupted | Self::Storage => VENDOR_STATUS_BAD_ENVELOPE,
         }
     }
 }
@@ -161,9 +159,7 @@ impl From<StorageError> for BindingError {
     fn from(e: StorageError) -> Self {
         match e {
             StorageError::KeyNotFound => Self::NotClaimed,
-            StorageError::CorruptedEnvelope | StorageError::DecryptionFailed => {
-                Self::Corrupted
-            }
+            StorageError::CorruptedEnvelope | StorageError::DecryptionFailed => Self::Corrupted,
             StorageError::FlashWriteError | StorageError::BufferOverflow => Self::Storage,
         }
     }
@@ -417,7 +413,8 @@ impl BindingManager {
         storage.store(BIND_ID_NVS_KEY, binding_id, &IGNORED_NONCE)?;
         let back_pub = storage.load(BIND_PUB_NVS_KEY)?;
         let back_id = storage.load(BIND_ID_NVS_KEY)?;
-        if back_pub.as_slice() != app_pub.as_slice() || back_id.as_slice() != binding_id.as_slice() {
+        if back_pub.as_slice() != app_pub.as_slice() || back_id.as_slice() != binding_id.as_slice()
+        {
             let _ = storage.delete(BIND_PUB_NVS_KEY);
             let _ = storage.delete(BIND_ID_NVS_KEY);
             return Err(BindingError::Storage);
@@ -516,8 +513,8 @@ fn verify_p256_sec1(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec::Vec;
     use crate::persistence::MockFlashBackend;
+    use alloc::vec::Vec;
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])
@@ -615,10 +612,7 @@ mod tests {
         // Prefixo errado.
         let mut bad = [0u8; BIND_PUB_LEN];
         bad[0] = 0x02;
-        assert_eq!(
-            m.claim(&bad, &id, true, true),
-            Err(BindingError::BadPubkey)
-        );
+        assert_eq!(m.claim(&bad, &id, true, true), Err(BindingError::BadPubkey));
         // 65B mas fora da curva.
         assert_eq!(
             m.claim(&[0x04u8; BIND_PUB_LEN], &id, true, true),
@@ -640,7 +634,8 @@ mod tests {
             sec1_holder = sec1;
             id_holder = [0x77u8; BIND_ID_LEN];
             let mut m = BindingManager::new();
-            m.claim(&sec1_holder, &id_holder, true, true).expect("claim");
+            m.claim(&sec1_holder, &id_holder, true, true)
+                .expect("claim");
             m.persist(&mut st).expect("persist");
         }
         let m1 = BindingManager::load_from_storage(&st).expect("reload");
@@ -846,10 +841,9 @@ mod tests {
     #[test]
     fn ble_vendor_gate_matrix_binding_up_pin() {
         use crate::ble_gatt::{
-            authorize_vendor_op, is_vendor_keys_oath_op, vendor_op_requires_pin,
-            BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE,
-            OP_KEY_LIST, OP_MSG, OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT,
-            OP_PING,
+            authorize_vendor_op, is_vendor_keys_oath_op, vendor_op_requires_pin, BleGattError,
+            OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_MSG,
+            OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PING,
         };
         // So 0x21/0x23/0x24/0x27 exigem PIN; resto vendor: so UP (+binding).
         assert!(vendor_op_requires_pin(OP_KEY_IMPORT_ENVELOPE));
@@ -932,7 +926,9 @@ mod tests {
 
     #[test]
     fn wifi_and_oath_bound_gates_require_binding_first() {
-        use crate::oath_store::{oath_store_delete_bound, oath_store_get_bound, oath_store_put_bound};
+        use crate::oath_store::{
+            oath_store_delete_bound, oath_store_get_bound, oath_store_put_bound,
+        };
         use crate::wifi_ap::{change_ap_password_bound, handle_get_oath_code_bound, WifiApError};
         use crate::wifi_station::{
             clear_station_credentials_bound, save_station_credentials_bound, WifiStationError,
@@ -960,20 +956,42 @@ mod tests {
         change_ap_password_bound(&mut st, "nova-senha-123", true, true, true).expect("ap ok");
         // Station (CONFIG): mesmo split release/teste.
         if bypass {
-            save_station_credentials_bound(&mut st, "Casa-5G", "senha-segura-123", false, true, true)
-                .expect("bypass station passa");
+            save_station_credentials_bound(
+                &mut st,
+                "Casa-5G",
+                "senha-segura-123",
+                false,
+                true,
+                true,
+            )
+            .expect("bypass station passa");
         } else {
             assert_eq!(
-                save_station_credentials_bound(&mut st, "Casa-5G", "senha-segura-123", false, true, true),
+                save_station_credentials_bound(
+                    &mut st,
+                    "Casa-5G",
+                    "senha-segura-123",
+                    false,
+                    true,
+                    true
+                ),
                 Err(WifiStationError::NeedBinding)
             );
             assert!(!st.exists(WIFI_STA_SSID_NVS_KEY));
             assert!(!st.exists(WIFI_STA_PASS_NVS_KEY));
-            save_station_credentials_bound(&mut st, "Casa-5G", "senha-segura-123", true, true, true)
-                .expect("station ok");
+            save_station_credentials_bound(
+                &mut st,
+                "Casa-5G",
+                "senha-segura-123",
+                true,
+                true,
+                true,
+            )
+            .expect("station ok");
         }
         if bypass {
-            clear_station_credentials_bound(&mut st, false, true, true).expect("bypass clear passa");
+            clear_station_credentials_bound(&mut st, false, true, true)
+                .expect("bypass clear passa");
         } else {
             assert_eq!(
                 clear_station_credentials_bound(&mut st, false, true, true),
@@ -983,7 +1001,8 @@ mod tests {
         }
         // OATH store PUT/DELETE (CONFIG): release exige vinculo; teste bypass.
         if bypass {
-            oath_store_put_bound(&mut st, "GitHub:alice", b"blob", false).expect("bypass put passa");
+            oath_store_put_bound(&mut st, "GitHub:alice", b"blob", false)
+                .expect("bypass put passa");
         } else {
             assert_eq!(
                 oath_store_put_bound(&mut st, "GitHub:alice", b"blob", false),
@@ -1015,7 +1034,8 @@ mod tests {
         let secret = b"12345678901234567890";
         let secrets: &[(&str, &[u8], OathAlgorithm, u8)] =
             &[("GitHub:alice", secret, OathAlgorithm::Sha1, 6)];
-        let r = handle_get_oath_code_bound("GitHub:alice", secrets, 59, false, true).expect("uso sem vinculo passa");
+        let r = handle_get_oath_code_bound("GitHub:alice", secrets, 59, false, true)
+            .expect("uso sem vinculo passa");
         assert_eq!(r.code, "287082");
         let r2 = handle_get_oath_code_bound("GitHub:alice", secrets, 59, true, true).expect("code");
         assert_eq!(r2.code, "287082");
@@ -1039,7 +1059,10 @@ mod tests {
         // Release: CONFIG sem vinculo nega NEED_BINDING 0x05.
         assert!(!binding_bypass_enabled());
         assert_eq!(require_bound_config(false), Err(BindingError::NotClaimed));
-        assert_eq!(require_bound_config(false).unwrap_err().to_vendor_status(), NEED_BINDING_STATUS);
+        assert_eq!(
+            require_bound_config(false).unwrap_err().to_vendor_status(),
+            NEED_BINDING_STATUS
+        );
         require_bound_usage(false).expect("uso nunca exige vinculo");
         use crate::ble_gatt::{authorize_vendor_op, BleGattError, OP_KEY_DELETE};
         assert_eq!(
@@ -1051,7 +1074,9 @@ mod tests {
     #[test]
     fn usage_never_requires_binding_in_any_mode() {
         // USO (CODE/LIST) sem vinculo passa em release E teste; so UP.
-        use crate::ble_gatt::{authorize_vendor_op, BleGattError, OP_OATH_CODE, OP_OATH_LIST, OP_KEY_LIST};
+        use crate::ble_gatt::{
+            authorize_vendor_op, BleGattError, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_LIST,
+        };
         for op in [OP_OATH_CODE, OP_OATH_LIST, OP_KEY_LIST] {
             require_bound_usage(false).expect("uso passa");
             authorize_vendor_op(op, false, false, true).expect("uso sem vinculo passa");

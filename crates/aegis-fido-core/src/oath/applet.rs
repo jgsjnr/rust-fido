@@ -7,11 +7,13 @@ use rand_core::RngCore;
 use zeroize::Zeroize;
 
 use crate::crypto::hash::sha256;
-use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
 
-use super::crypto::{calculate_code, calculate_code_from_challenge, pbkdf2_sha1, verify_challenge_response};
+use super::crypto::{
+    calculate_code, calculate_code_from_challenge, pbkdf2_sha1, verify_challenge_response,
+};
 use super::presence::PresenceVerifier;
 use super::tlv::{find_tlv, parse_tlv_records, write_tlv};
 use super::types::*;
@@ -90,7 +92,14 @@ pub struct OathSlot {
 
 impl OathSlot {
     /// Cria slot validando bounds §9.3/§7.
-    pub fn new(label: String, hmac: OathAlgorithm, tipo: OathType, contador: u64, digits: u8, periodo: u32) -> Result<Self, &'static str> {
+    pub fn new(
+        label: String,
+        hmac: OathAlgorithm,
+        tipo: OathType,
+        contador: u64,
+        digits: u8,
+        periodo: u32,
+    ) -> Result<Self, &'static str> {
         let n = label.len();
         if !(MIN_OATH_LABEL_BYTES..=MAX_OATH_LABEL_BYTES).contains(&n) {
             return Err("bad label");
@@ -101,12 +110,26 @@ impl OathSlot {
         if periodo != OATH_PERIOD_SECS {
             return Err("bad periodo");
         }
-        Ok(Self { label, hmac, tipo, contador, digits, periodo })
+        Ok(Self {
+            label,
+            hmac,
+            tipo,
+            contador,
+            digits,
+            periodo,
+        })
     }
 
     /// Converte de `OathCredential` existente (preserva semantica `OathApplet`).
     pub fn from_credential(c: &OathCredential) -> Result<Self, &'static str> {
-        Self::new(c.name.clone(), c.algorithm, c.oath_type, c.counter, c.digits, OATH_PERIOD_SECS)
+        Self::new(
+            c.name.clone(),
+            c.algorithm,
+            c.oath_type,
+            c.counter,
+            c.digits,
+            OATH_PERIOD_SECS,
+        )
     }
 }
 
@@ -531,9 +554,12 @@ impl OathApplet {
                 write_tlv(&mut resp, TAG_TOUCH, &[]);
             } else {
                 let code = match cred.oath_type {
-                    OathType::Totp => {
-                        calculate_code_from_challenge(cred.algorithm, &cred.secret, challenge, cred.digits)
-                    }
+                    OathType::Totp => calculate_code_from_challenge(
+                        cred.algorithm,
+                        &cred.secret,
+                        challenge,
+                        cred.digits,
+                    ),
                     OathType::Hotp => {
                         // In CALCULATE ALL, HOTP codes are not auto-incremented
                         calculate_code(cred.algorithm, &cred.secret, cred.counter, cred.digits)
@@ -574,14 +600,12 @@ impl OathApplet {
         if request_tlv.len() > OATH_TLV_MAX_BYTES {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let records =
-            parse_tlv_records(request_tlv).map_err(|_| OathDeviceError::BadEnvelope)?;
+        let records = parse_tlv_records(request_tlv).map_err(|_| OathDeviceError::BadEnvelope)?;
         let name_bytes = find_tlv(&records, TAG_NAME).ok_or(OathDeviceError::BadEnvelope)?;
         if name_bytes.is_empty() || name_bytes.len() > MAX_OATH_LABEL_BYTES {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let name =
-            core::str::from_utf8(name_bytes).map_err(|_| OathDeviceError::BadEnvelope)?;
+        let name = core::str::from_utf8(name_bytes).map_err(|_| OathDeviceError::BadEnvelope)?;
         let key_bytes = find_tlv(&records, TAG_KEY).ok_or(OathDeviceError::BadEnvelope)?;
         if key_bytes.len() < 3 {
             return Err(OathDeviceError::BadEnvelope);
@@ -595,8 +619,7 @@ impl OathApplet {
         if secret.is_empty() {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let oath_type =
-            OathType::from_u8(type_algo & 0xF0).ok_or(OathDeviceError::BadEnvelope)?;
+        let oath_type = OathType::from_u8(type_algo & 0xF0).ok_or(OathDeviceError::BadEnvelope)?;
         let algorithm =
             OathAlgorithm::from_u8(type_algo & 0x0F).ok_or(OathDeviceError::BadEnvelope)?;
         let touch_required = match find_tlv(&records, TAG_PROPERTY) {
@@ -647,8 +670,7 @@ impl OathApplet {
         UpOnly.check_up(false, presence_confirmed)?;
         let mut out = Vec::new();
         for c in &self.credentials {
-            let s =
-                OathSlot::from_credential(c).map_err(|_| OathDeviceError::BadEnvelope)?;
+            let s = OathSlot::from_credential(c).map_err(|_| OathDeviceError::BadEnvelope)?;
             out.push(s);
         }
         Ok(out)
@@ -665,14 +687,12 @@ impl OathApplet {
         if request_tlv.len() > OATH_TLV_MAX_BYTES {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let records =
-            parse_tlv_records(request_tlv).map_err(|_| OathDeviceError::BadEnvelope)?;
+        let records = parse_tlv_records(request_tlv).map_err(|_| OathDeviceError::BadEnvelope)?;
         let name_bytes = find_tlv(&records, TAG_NAME).ok_or(OathDeviceError::BadEnvelope)?;
         if name_bytes.is_empty() || name_bytes.len() > MAX_OATH_LABEL_BYTES {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let name =
-            core::str::from_utf8(name_bytes).map_err(|_| OathDeviceError::BadEnvelope)?;
+        let name = core::str::from_utf8(name_bytes).map_err(|_| OathDeviceError::BadEnvelope)?;
         let cred = self
             .credentials
             .iter_mut()
@@ -683,8 +703,7 @@ impl OathApplet {
         }
         let code_u32 = match cred.oath_type {
             OathType::Totp => {
-                let chal =
-                    find_tlv(&records, TAG_CHALLENGE).ok_or(OathDeviceError::BadEnvelope)?;
+                let chal = find_tlv(&records, TAG_CHALLENGE).ok_or(OathDeviceError::BadEnvelope)?;
                 if chal.len() != 8 {
                     return Err(OathDeviceError::BadEnvelope);
                 }
@@ -720,14 +739,12 @@ impl OathApplet {
         if request_tlv.len() > OATH_TLV_MAX_BYTES {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let records =
-            parse_tlv_records(request_tlv).map_err(|_| OathDeviceError::BadEnvelope)?;
+        let records = parse_tlv_records(request_tlv).map_err(|_| OathDeviceError::BadEnvelope)?;
         let name_bytes = find_tlv(&records, TAG_NAME).ok_or(OathDeviceError::BadEnvelope)?;
         if name_bytes.is_empty() || name_bytes.len() > MAX_OATH_LABEL_BYTES {
             return Err(OathDeviceError::BadEnvelope);
         }
-        let name =
-            core::str::from_utf8(name_bytes).map_err(|_| OathDeviceError::BadEnvelope)?;
+        let name = core::str::from_utf8(name_bytes).map_err(|_| OathDeviceError::BadEnvelope)?;
         let pos = self
             .credentials
             .iter()
@@ -741,7 +758,8 @@ impl OathApplet {
 
     /// Exporta contadores HOTP (shape sign_count: magic+seq+n+entries+sum).
     /// So HOTP; entries = sha256(label) 32B + counter 8B BE. Monotonico.
-    pub fn export_hotp_counts(&self) -> Vec<u8> {        let mut entries: Vec<([u8; 32], u64)> = Vec::new();
+    pub fn export_hotp_counts(&self) -> Vec<u8> {
+        let mut entries: Vec<([u8; 32], u64)> = Vec::new();
         for c in &self.credentials {
             if c.oath_type == OathType::Hotp {
                 entries.push((sha256(c.name.as_bytes()), c.counter));
@@ -868,8 +886,8 @@ impl OathApplet {
             }
             let name = core::str::from_utf8(take_oath(&mut p, nlen)?)
                 .map_err(|_| OathDeviceError::BadEnvelope)?;
-            let tipo = OathType::from_u8(take_oath(&mut p, 1)?[0])
-                .ok_or(OathDeviceError::BadEnvelope)?;
+            let tipo =
+                OathType::from_u8(take_oath(&mut p, 1)?[0]).ok_or(OathDeviceError::BadEnvelope)?;
             let algo = OathAlgorithm::from_u8(take_oath(&mut p, 1)?[0])
                 .ok_or(OathDeviceError::BadEnvelope)?;
             let digits = take_oath(&mut p, 1)?[0];
@@ -880,8 +898,7 @@ impl OathApplet {
             let mut cb = [0u8; 8];
             cb.copy_from_slice(take_oath(&mut p, 8)?);
             let counter = u64::from_be_bytes(cb);
-            let slen =
-                u16::from_be_bytes(take_oath(&mut p, 2)?.try_into().unwrap()) as usize;
+            let slen = u16::from_be_bytes(take_oath(&mut p, 2)?.try_into().unwrap()) as usize;
             if slen == 0 || slen > 128 {
                 return Err(OathDeviceError::BadEnvelope);
             }
@@ -922,7 +939,9 @@ mod fase6_tests {
     use alloc::string::String;
     use alloc::vec;
 
-    fn lbl(s: &str) -> String { String::from(s) }
+    fn lbl(s: &str) -> String {
+        String::from(s)
+    }
 
     #[test]
     fn oath_state_roundtrip_e_rejeita_lixo() {
@@ -959,20 +978,68 @@ mod fase6_tests {
 
     #[test]
     fn oathslot_bounds_fase6() {
-        let ok = OathSlot::new(lbl("GitHub:alice"), OathAlgorithm::Sha1, OathType::Totp, 0, 6, OATH_PERIOD_SECS).unwrap();
+        let ok = OathSlot::new(
+            lbl("GitHub:alice"),
+            OathAlgorithm::Sha1,
+            OathType::Totp,
+            0,
+            6,
+            OATH_PERIOD_SECS,
+        )
+        .unwrap();
         assert_eq!(ok.digits, 6);
-        assert!(OathSlot::new(lbl(""), OathAlgorithm::Sha1, OathType::Totp, 0, 6, OATH_PERIOD_SECS).is_err());
+        assert!(OathSlot::new(
+            lbl(""),
+            OathAlgorithm::Sha1,
+            OathType::Totp,
+            0,
+            6,
+            OATH_PERIOD_SECS
+        )
+        .is_err());
         let big = String::from_utf8(vec![b'x'; MAX_OATH_LABEL_BYTES + 1]).unwrap();
-        assert!(OathSlot::new(big, OathAlgorithm::Sha1, OathType::Totp, 0, 6, OATH_PERIOD_SECS).is_err());
-        assert!(OathSlot::new(lbl("a"), OathAlgorithm::Sha1, OathType::Totp, 0, 5, OATH_PERIOD_SECS).is_err());
-        assert!(OathSlot::new(lbl("a"), OathAlgorithm::Sha1, OathType::Totp, 0, 9, OATH_PERIOD_SECS).is_err());
+        assert!(OathSlot::new(
+            big,
+            OathAlgorithm::Sha1,
+            OathType::Totp,
+            0,
+            6,
+            OATH_PERIOD_SECS
+        )
+        .is_err());
+        assert!(OathSlot::new(
+            lbl("a"),
+            OathAlgorithm::Sha1,
+            OathType::Totp,
+            0,
+            5,
+            OATH_PERIOD_SECS
+        )
+        .is_err());
+        assert!(OathSlot::new(
+            lbl("a"),
+            OathAlgorithm::Sha1,
+            OathType::Totp,
+            0,
+            9,
+            OATH_PERIOD_SECS
+        )
+        .is_err());
         assert!(OathSlot::new(lbl("a"), OathAlgorithm::Sha1, OathType::Totp, 0, 6, 60).is_err());
         assert_eq!(MAX_OATH_SLOTS, MAX_CREDENTIALS);
     }
 
     #[test]
     fn oathslot_from_credential_preserva() {
-        let c = OathCredential::new(lbl("TestService:alice"), vec![1, 2, 3], OathAlgorithm::Sha256, 7, OathType::Hotp, 41, false);
+        let c = OathCredential::new(
+            lbl("TestService:alice"),
+            vec![1, 2, 3],
+            OathAlgorithm::Sha256,
+            7,
+            OathType::Hotp,
+            41,
+            false,
+        );
         let s = OathSlot::from_credential(&c).unwrap();
         assert_eq!(s.label, "TestService:alice");
         assert_eq!(s.hmac, OathAlgorithm::Sha256);
@@ -1017,12 +1084,27 @@ mod fase6_tests {
     fn device_gates_fase6() {
         let mut ap = OathApplet::new();
         let put = put_totp("A:a", b"12345678901234567890");
-        assert_eq!(ap.device_put(&put, true, false), Err(OathDeviceError::NeedUp));
-        assert_eq!(ap.device_put(&put, false, true), Err(OathDeviceError::NeedPin));
+        assert_eq!(
+            ap.device_put(&put, true, false),
+            Err(OathDeviceError::NeedUp)
+        );
+        assert_eq!(
+            ap.device_put(&put, false, true),
+            Err(OathDeviceError::NeedPin)
+        );
         assert_eq!(ap.device_list(false, false), Err(OathDeviceError::NeedUp));
-        assert_eq!(ap.device_code(&name_only("A:a"), false, false), Err(OathDeviceError::NeedUp));
-        assert_eq!(ap.device_delete(&name_only("A:a"), false, true), Err(OathDeviceError::NeedPin));
-        assert_eq!(ap.device_delete(&name_only("A:a"), true, false), Err(OathDeviceError::NeedUp));
+        assert_eq!(
+            ap.device_code(&name_only("A:a"), false, false),
+            Err(OathDeviceError::NeedUp)
+        );
+        assert_eq!(
+            ap.device_delete(&name_only("A:a"), false, true),
+            Err(OathDeviceError::NeedPin)
+        );
+        assert_eq!(
+            ap.device_delete(&name_only("A:a"), true, false),
+            Err(OathDeviceError::NeedUp)
+        );
         assert_eq!(OathDeviceError::NeedUp.code(), 0x01);
         assert_eq!(OathDeviceError::NeedPin.code(), 0x02);
         assert_eq!(OathDeviceError::NoSlot.code(), 0x03);
@@ -1032,27 +1114,51 @@ mod fase6_tests {
     #[test]
     fn device_put_list_code_delete_roundtrip() {
         let mut ap = OathApplet::new();
-        ap.device_put(&put_totp("TestService:alice", b"12345678901234567890"), true, true).unwrap();
+        ap.device_put(
+            &put_totp("TestService:alice", b"12345678901234567890"),
+            true,
+            true,
+        )
+        .unwrap();
         let slots = ap.device_list(false, true).unwrap();
         assert_eq!(slots.len(), 1);
         assert_eq!(slots[0].label, "TestService:alice");
         assert_eq!(slots[0].digits, 6);
-        let r = ap.device_code(&code_totp("TestService:alice", &1u64.to_be_bytes()), false, true).unwrap();
+        let r = ap
+            .device_code(
+                &code_totp("TestService:alice", &1u64.to_be_bytes()),
+                false,
+                true,
+            )
+            .unwrap();
         assert_eq!(r.code, "287082");
         assert_eq!(r.digits, 6);
-        ap.device_delete(&name_only("TestService:alice"), true, true).unwrap();
+        ap.device_delete(&name_only("TestService:alice"), true, true)
+            .unwrap();
         assert!(ap.device_list(false, true).unwrap().is_empty());
-        assert_eq!(ap.device_code(&code_totp("TestService:alice", &1u64.to_be_bytes()), false, true), Err(OathDeviceError::NoSlot));
+        assert_eq!(
+            ap.device_code(
+                &code_totp("TestService:alice", &1u64.to_be_bytes()),
+                false,
+                true
+            ),
+            Err(OathDeviceError::NoSlot)
+        );
     }
 
     #[test]
     fn rfc4226_hotp_via_device_x10() {
         let mut ap = OathApplet::new();
         let secret = b"12345678901234567890";
-        ap.device_put(&put_hotp("HOTP:alice", secret, 0), true, true).unwrap();
-        let expected = [755224u32, 287082, 359152, 969429, 338314, 254676, 287922, 162583, 399871, 520489];
+        ap.device_put(&put_hotp("HOTP:alice", secret, 0), true, true)
+            .unwrap();
+        let expected = [
+            755224u32, 287082, 359152, 969429, 338314, 254676, 287922, 162583, 399871, 520489,
+        ];
         for (i, exp) in expected.iter().enumerate() {
-            let r = ap.device_code(&name_only("HOTP:alice"), false, true).unwrap();
+            let r = ap
+                .device_code(&name_only("HOTP:alice"), false, true)
+                .unwrap();
             let want = alloc::format!("{:06}", exp);
             assert_eq!(r.code, want, "HOTP mismatch at counter {}", i);
         }
@@ -1070,7 +1176,13 @@ mod fase6_tests {
         kv.extend_from_slice(s256);
         write_tlv(&mut t, TAG_KEY, &kv);
         ap.device_put(&t, true, true).unwrap();
-        let r = ap.device_code(&code_totp("TOTP256:alice", &1u64.to_be_bytes()), false, true).unwrap();
+        let r = ap
+            .device_code(
+                &code_totp("TOTP256:alice", &1u64.to_be_bytes()),
+                false,
+                true,
+            )
+            .unwrap();
         assert_eq!(r.code, "46119246");
         assert_eq!(r.digits, 8);
         let s512 = b"1234567890123456789012345678901234567890123456789012345678901234";
@@ -1080,39 +1192,73 @@ mod fase6_tests {
         kv2.extend_from_slice(s512);
         write_tlv(&mut t2, TAG_KEY, &kv2);
         ap.device_put(&t2, true, true).unwrap();
-        let r2 = ap.device_code(&code_totp("TOTP512:alice", &1u64.to_be_bytes()), false, true).unwrap();
+        let r2 = ap
+            .device_code(
+                &code_totp("TOTP512:alice", &1u64.to_be_bytes()),
+                false,
+                true,
+            )
+            .unwrap();
         assert_eq!(r2.code, "90693936");
     }
 
     #[test]
     fn device_rejects_bad_envelope() {
         let mut ap = OathApplet::new();
-        ap.device_put(&put_totp("B:b", b"12345678901234567890"), true, true).unwrap();
-        assert_eq!(ap.device_put(b"not-tlv-at-all\xff", true, true), Err(OathDeviceError::BadEnvelope));
-        assert_eq!(ap.device_put(&name_only(""), true, true), Err(OathDeviceError::BadEnvelope));
+        ap.device_put(&put_totp("B:b", b"12345678901234567890"), true, true)
+            .unwrap();
+        assert_eq!(
+            ap.device_put(b"not-tlv-at-all\xff", true, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
+        assert_eq!(
+            ap.device_put(&name_only(""), true, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
         let big = String::from_utf8(vec![b'x'; MAX_OATH_LABEL_BYTES + 1]).unwrap();
-        assert_eq!(ap.device_put(&name_only(&big), true, true), Err(OathDeviceError::BadEnvelope));
-        assert_eq!(ap.device_code(&code_totp("B:b", b"short"), false, true), Err(OathDeviceError::BadEnvelope));
-        assert_eq!(ap.device_code(&name_only("B:b"), false, true), Err(OathDeviceError::BadEnvelope));
+        assert_eq!(
+            ap.device_put(&name_only(&big), true, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
+        assert_eq!(
+            ap.device_code(&code_totp("B:b", b"short"), false, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
+        assert_eq!(
+            ap.device_code(&name_only("B:b"), false, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
         let mut bad_digits = Vec::new();
         write_tlv(&mut bad_digits, TAG_NAME, b"C:c");
         write_tlv(&mut bad_digits, TAG_KEY, &[0x21, 0x05, 0xAA]);
-        assert_eq!(ap.device_put(&bad_digits, true, true), Err(OathDeviceError::BadEnvelope));
+        assert_eq!(
+            ap.device_put(&bad_digits, true, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
         let mut oversize = vec![0x71u8; OATH_TLV_MAX_BYTES + 1];
         let _ = &mut oversize;
-        assert_eq!(ap.device_put(&oversize, true, true), Err(OathDeviceError::BadEnvelope));
-        assert_eq!(ap.device_code(&oversize, false, true), Err(OathDeviceError::BadEnvelope));
+        assert_eq!(
+            ap.device_put(&oversize, true, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
+        assert_eq!(
+            ap.device_code(&oversize, false, true),
+            Err(OathDeviceError::BadEnvelope)
+        );
     }
 
     #[test]
     fn device_no_leak_list_code() {
         let mut ap = OathApplet::new();
         let secret = b"12345678901234567890";
-        ap.device_put(&put_totp("GitHub:alice", secret), true, true).unwrap();
+        ap.device_put(&put_totp("GitHub:alice", secret), true, true)
+            .unwrap();
         let slots = ap.device_list(false, true).unwrap();
         let dbg = alloc::format!("{:?}", slots);
         assert!(!dbg.as_bytes().windows(secret.len()).any(|w| w == secret));
-        let r = ap.device_code(&code_totp("GitHub:alice", &1u64.to_be_bytes()), false, true).unwrap();
+        let r = ap
+            .device_code(&code_totp("GitHub:alice", &1u64.to_be_bytes()), false, true)
+            .unwrap();
         assert!(!r.code.as_bytes().windows(secret.len()).any(|w| w == secret));
         assert_eq!(r.code.len(), 6);
     }
@@ -1120,11 +1266,18 @@ mod fase6_tests {
     #[test]
     fn device_delete_wipes() {
         let mut ap = OathApplet::new();
-        ap.device_put(&put_totp("Del:me", b"12345678901234567890"), true, true).unwrap();
+        ap.device_put(&put_totp("Del:me", b"12345678901234567890"), true, true)
+            .unwrap();
         ap.device_delete(&name_only("Del:me"), true, true).unwrap();
         assert!(ap.device_list(false, true).unwrap().is_empty());
-        assert_eq!(ap.device_delete(&name_only("Del:me"), true, true), Err(OathDeviceError::NoSlot));
-        assert_eq!(ap.device_code(&code_totp("Del:me", &1u64.to_be_bytes()), false, true), Err(OathDeviceError::NoSlot));
+        assert_eq!(
+            ap.device_delete(&name_only("Del:me"), true, true),
+            Err(OathDeviceError::NoSlot)
+        );
+        assert_eq!(
+            ap.device_code(&code_totp("Del:me", &1u64.to_be_bytes()), false, true),
+            Err(OathDeviceError::NoSlot)
+        );
     }
 
     #[test]
@@ -1132,21 +1285,27 @@ mod fase6_tests {
         let mut ap = OathApplet::new();
         for i in 0..MAX_CREDENTIALS {
             let label = alloc::format!("L{}:u", i);
-            ap.device_put(&put_totp(&label, b"12345678901234567890"), true, true).unwrap();
+            ap.device_put(&put_totp(&label, b"12345678901234567890"), true, true)
+                .unwrap();
         }
         assert_eq!(ap.device_list(false, true).unwrap().len(), MAX_CREDENTIALS);
-        assert_eq!(ap.device_put(&put_totp("Extra:u", b"12345678901234567890"), true, true), Err(OathDeviceError::NoSlot));
+        assert_eq!(
+            ap.device_put(&put_totp("Extra:u", b"12345678901234567890"), true, true),
+            Err(OathDeviceError::NoSlot)
+        );
     }
 
     #[test]
     fn hotp_journal_monotonico() {
         let mut ap = OathApplet::new();
-        ap.device_put(&put_hotp("J:a", b"12345678901234567890", 0), true, true).unwrap();
+        ap.device_put(&put_hotp("J:a", b"12345678901234567890", 0), true, true)
+            .unwrap();
         ap.device_code(&name_only("J:a"), false, true).unwrap();
         ap.device_code(&name_only("J:a"), false, true).unwrap();
         let blob = ap.export_hotp_counts();
         let mut ap2 = OathApplet::new();
-        ap2.device_put(&put_hotp("J:a", b"12345678901234567890", 0), true, true).unwrap();
+        ap2.device_put(&put_hotp("J:a", b"12345678901234567890", 0), true, true)
+            .unwrap();
         ap2.import_hotp_counts(&blob).unwrap();
         assert_eq!(ap2.device_list(false, true).unwrap()[0].contador, 2);
         let low = ap2.export_hotp_counts();
@@ -1154,8 +1313,14 @@ mod fase6_tests {
         assert_eq!(ap.device_list(false, true).unwrap()[0].contador, 2);
         let mut bad = blob.clone();
         bad[0] ^= 0xFF;
-        assert_eq!(ap2.import_hotp_counts(&bad), Err(OathDeviceError::BadEnvelope));
-        assert_eq!(ap2.import_hotp_counts(b"short"), Err(OathDeviceError::BadEnvelope));
+        assert_eq!(
+            ap2.import_hotp_counts(&bad),
+            Err(OathDeviceError::BadEnvelope)
+        );
+        assert_eq!(
+            ap2.import_hotp_counts(b"short"),
+            Err(OathDeviceError::BadEnvelope)
+        );
     }
 
     #[test]
@@ -1167,8 +1332,14 @@ mod fase6_tests {
         kv.extend_from_slice(b"12345678901234567890");
         write_tlv(&mut t, TAG_KEY, &kv);
         ap.device_put(&t, true, true).unwrap();
-        let r = ap.device_code(&code_totp("Pad:alice", &1u64.to_be_bytes()), false, true).unwrap();
+        let r = ap
+            .device_code(&code_totp("Pad:alice", &1u64.to_be_bytes()), false, true)
+            .unwrap();
         assert_eq!(r.code.len(), 8);
         assert_eq!(r.code, "94287082");
-        assert_eq!(alloc::format!("{:0>width$}", 287082u32, width = 8), "00287082");
-    }}
+        assert_eq!(
+            alloc::format!("{:0>width$}", 287082u32, width = 8),
+            "00287082"
+        );
+    }
+}

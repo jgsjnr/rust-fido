@@ -626,9 +626,11 @@ mod tests {
     }
 
     /// secp256k1 generator G vectors (same as core known-answer tests).
-    const G_COMPRESSED_HEX: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+    const G_COMPRESSED_HEX: &str =
+        "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
     const G_UNCOMPRESSED_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
-    const ED_ZERO_PUB_HEX: &str = "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29";
+    const ED_ZERO_PUB_HEX: &str =
+        "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29";
 
     #[test]
     fn wallet_address_known_answers() {

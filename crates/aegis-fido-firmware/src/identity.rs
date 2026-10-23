@@ -27,8 +27,7 @@ pub const DEFAULT_MANUFACTURER: &str = "Aegis Security";
 pub const DEFAULT_PRODUCT: &str = "AegisKey S3 Authenticator";
 /// Default AAGUID bytes (current bytes `00..0F`).
 pub const DEFAULT_AAGUID: [u8; 16] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 ];
 /// Serial prefix enforced per-unit.
 pub const SERIAL_PREFIX: &str = "AEGIS-S3-";
@@ -163,11 +162,25 @@ mod tests {
     fn rejects_zero_vid_pid() {
         let base = DeviceIdentity::default();
         assert_eq!(
-            DeviceIdentity::new(0, base.pid, base.serial.clone(), base.manufacturer.clone(), base.product.clone(), base.aaguid),
+            DeviceIdentity::new(
+                0,
+                base.pid,
+                base.serial.clone(),
+                base.manufacturer.clone(),
+                base.product.clone(),
+                base.aaguid
+            ),
             Err(IdentityError::InvalidVidPid)
         );
         assert_eq!(
-            DeviceIdentity::new(base.vid, 0, base.serial.clone(), base.manufacturer.clone(), base.product.clone(), base.aaguid),
+            DeviceIdentity::new(
+                base.vid,
+                0,
+                base.serial.clone(),
+                base.manufacturer.clone(),
+                base.product.clone(),
+                base.aaguid
+            ),
             Err(IdentityError::InvalidVidPid)
         );
     }
@@ -176,11 +189,25 @@ mod tests {
     fn rejects_bad_serial() {
         let base = DeviceIdentity::default();
         assert_eq!(
-            DeviceIdentity::new(base.vid, base.pid, String::from("WRONG-0001"), base.manufacturer.clone(), base.product.clone(), base.aaguid),
+            DeviceIdentity::new(
+                base.vid,
+                base.pid,
+                String::from("WRONG-0001"),
+                base.manufacturer.clone(),
+                base.product.clone(),
+                base.aaguid
+            ),
             Err(IdentityError::InvalidSerial)
         );
         assert_eq!(
-            DeviceIdentity::new(base.vid, base.pid, String::from("AEGIS-S3-"), base.manufacturer.clone(), base.product.clone(), base.aaguid),
+            DeviceIdentity::new(
+                base.vid,
+                base.pid,
+                String::from("AEGIS-S3-"),
+                base.manufacturer.clone(),
+                base.product.clone(),
+                base.aaguid
+            ),
             Err(IdentityError::InvalidSerial)
         );
     }
@@ -189,7 +216,14 @@ mod tests {
     fn rejects_zero_aaguid() {
         let base = DeviceIdentity::default();
         assert_eq!(
-            DeviceIdentity::new(base.vid, base.pid, base.serial.clone(), base.manufacturer.clone(), base.product.clone(), [0u8; 16]),
+            DeviceIdentity::new(
+                base.vid,
+                base.pid,
+                base.serial.clone(),
+                base.manufacturer.clone(),
+                base.product.clone(),
+                [0u8; 16]
+            ),
             Err(IdentityError::InvalidAaguid)
         );
     }
@@ -202,7 +236,10 @@ mod tests {
             String::from("AEGIS-S3-00AF"),
             String::from("Aegis Security"),
             String::from("AegisKey S3 Authenticator"),
-            [0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f],
+            [
+                0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+                0x1e, 0x1f,
+            ],
         )
         .expect("per-unit valid");
         assert_eq!(id.serial, "AEGIS-S3-00AF");

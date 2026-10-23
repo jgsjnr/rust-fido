@@ -8,10 +8,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from proximity_agent import ProximityDecider, run_loop
 from proximity_agent import (
+    RollingCodeVerifier,
+    _device_adv_payload,
     _device_rssi,
     _match_bonded_device,
     _normalize_ble_address,
     make_polling_source,
+    parse_proximity_payload,
+    verify_proximity_tag,
+    _ccm_tag,
+    _fob_id_bytes,
 )
 
 
@@ -145,10 +151,25 @@ class TestBondedBackend(unittest.TestCase):
         self.assertTrue(callable(src))
 
     def test_make_polling_source_returns_rssi_for_bonded_device(self):
-        bonded = FakeDevice("AA:BB:CC:DD:EE:FF", rssi=-70)
+        import struct as _st
+
+        def _pay(ctr):
+            return bytes([0x01]) + _st.pack("<I", ctr) + b"\x00\x00\x00\x00"
+
+        bonded = FakeDevice(
+            "AA:BB:CC:DD:EE:FF",
+            rssi=-70,
+            metadata={
+                "service_data": {
+                    "0000fffe-0000-1000-8000-00805f9a34fb": _pay(1)
+                }
+            },
+        )
         stranger = FakeDevice("AA:BB:CC:DD:EE:00", rssi=-40)
         src = make_polling_source(
-            "aa:bb:cc:dd:ee:ff", scanner=lambda: [stranger, bonded]
+            "aa:bb:cc:dd:ee:ff",
+            scanner=lambda: [stranger, bonded],
+            verifier=RollingCodeVerifier(tag_fn=lambda c, t: True),
         )
         self.assertEqual(src(), -70)
 
@@ -186,6 +207,186 @@ class TestBondedBackend(unittest.TestCase):
         )
         self.assertEqual(outcome, "locked")
         self.assertEqual(len(calls), 1)
+
+
+class TestRollingCode(unittest.TestCase):
+    def _pay(self, ctr, ver=0x01, tag=b"\x00\x00\x00\x00"):
+        import struct
+
+        return bytes([ver]) + struct.pack("<I", ctr) + bytes(tag)
+
+    def test_parse_valid_payload_le(self):
+        self.assertEqual(
+            parse_proximity_payload(self._pay(7)), (0x01, 7, b"\x00\x00\x00\x00")
+        )
+
+    def test_parse_rejects_bad_length(self):
+        self.assertIsNone(parse_proximity_payload(b"short"))
+        self.assertIsNone(parse_proximity_payload(None))
+        self.assertIsNone(parse_proximity_payload(self._pay(1) + b"\x00"))
+
+    def test_verifier_accepts_increasing_ctr(self):
+        v = RollingCodeVerifier(tag_fn=lambda c, t: True)
+        self.assertTrue(v.verify(self._pay(1)))
+        self.assertTrue(v.verify(self._pay(2)))
+        self.assertEqual(v.last_reason, "Ok")
+
+    def test_verifier_rejects_replay_fail_closed(self):
+        v = RollingCodeVerifier(tag_fn=lambda c, t: True)
+        self.assertTrue(v.verify(self._pay(5)))
+        self.assertFalse(v.verify(self._pay(5)))
+        self.assertEqual(v.last_reason, "Replay")
+        self.assertFalse(v.verify(self._pay(4)))
+
+    def test_verifier_rejects_unknown_ver_unsupported(self):
+        v = RollingCodeVerifier(tag_fn=lambda c, t: True)
+        self.assertFalse(v.verify(self._pay(3, ver=0x02)))
+        self.assertEqual(v.last_reason, "Unsupported")
+
+    def test_verifier_rejects_missing_sample_unavailable(self):
+        v = RollingCodeVerifier(tag_fn=lambda c, t: True)
+        self.assertFalse(v.verify(None))
+        self.assertEqual(v.last_reason, "Unavailable")
+
+    def test_verifier_rejects_bad_tag_fail_closed(self):
+        v = RollingCodeVerifier(tag_fn=lambda c, t: False)
+        self.assertFalse(v.verify(self._pay(1)))
+        self.assertEqual(v.last_reason, "BadTag")
+
+    def test_verifier_big_jump_reverify_conservative(self):
+        import proximity_agent as pa
+
+        v = RollingCodeVerifier(tag_fn=lambda c, t: True)
+        self.assertTrue(v.verify(self._pay(10)))
+        self.assertFalse(v.verify(self._pay(10 + pa.PROXIMITY_MAX_CTR_JUMP + 1)))
+        self.assertEqual(v.last_reason, "Reverify")
+        self.assertEqual(v.last_ctr, 10)  # nao avancou nesse tick
+        self.assertTrue(v.verify(self._pay(11)))  # proximo tick reavalia
+
+    def test_poll_returns_none_on_replay_fail_closed(self):
+        from types import SimpleNamespace as NS
+
+        payload = self._pay(9)
+        dev = NS(
+            address="AA:BB:CC:DD:EE:FF",
+            rssi=-60,
+            metadata={
+                "service_data": {
+                    "0000fffe-0000-1000-8000-00805f9a34fb": payload
+                }
+            },
+        )
+        verifier = RollingCodeVerifier(tag_fn=lambda c, t: True)
+        src = make_polling_source(
+            "AA:BB:CC:DD:EE:FF", scanner=lambda: [dev], verifier=verifier
+        )
+        self.assertEqual(src(), -60)  # primeiro ctr aceito (NEAR)
+        self.assertIsNone(src())  # replay do mesmo ctr => AWAY fail-closed
+
+    def test_poll_returns_none_when_rssi_missing(self):
+        from types import SimpleNamespace as NS
+
+        src = make_polling_source(
+            "AA:BB:CC:DD:EE:FF",
+            scanner=lambda: [NS(address="AA:BB:CC:DD:EE:FF", metadata={})],
+            verifier=RollingCodeVerifier(tag_fn=lambda c, t: True),
+        )
+        self.assertIsNone(src())
+
+    def test_poll_returns_none_without_fffe_sample(self):
+        from types import SimpleNamespace as NS
+
+        src = make_polling_source(
+            "AA:BB:CC:DD:EE:FF",
+            scanner=lambda: [
+                NS(address="AA:BB:CC:DD:EE:FF", rssi=-60, metadata={})
+            ],
+            verifier=RollingCodeVerifier(tag_fn=lambda c, t: True),
+        )
+        self.assertIsNone(src())  # Unavailable fail-closed
+
+    def test_adv_payload_ignores_fffd(self):
+        from types import SimpleNamespace as NS
+
+        dev = NS(
+            address="AA:BB:CC:DD:EE:FF",
+            rssi=-60,
+            metadata={
+                "service_data": {
+                    "0000fffd-0000-1000-8000-00805f9a34fb": self._pay(1)
+                }
+            },
+        )
+        self.assertIsNone(_device_adv_payload(dev))
+
+    def test_adv_payload_from_service_data_fffe(self):
+        from types import SimpleNamespace as NS
+
+        payload = self._pay(3)
+        dev = NS(
+            address="AA:BB:CC:DD:EE:FF",
+            rssi=-60,
+            metadata={"service_data": {"0000fffe-0000-1000-8000-00805f9a34fb": payload}},
+        )
+        self.assertEqual(_device_adv_payload(dev), payload)
+
+    def test_bleak_scan_missing_dep_raises_fail_closed(self):
+        import proximity_agent as pa
+
+        real = sys.modules.get("bleak")
+        sys.modules["bleak"] = None  # force ImportError path
+        try:
+            with self.assertRaises(OSError):
+                pa._bleak_scan("AA:BB:CC:DD:EE:FF")
+        finally:
+            if real is not None:
+                sys.modules["bleak"] = real
+            else:
+                del sys.modules["bleak"]
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+class TestFirmwareTagVector(unittest.TestCase):
+    def test_fob_id_bytes_mac(self):
+        import proximity_agent as pa
+
+        self.assertEqual(pa._fob_id_bytes("AA:BB:CC:DD:EE:FF"), bytes([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]))
+        self.assertEqual(pa._fob_id_bytes("aa:bb:cc:dd:ee:ff"), bytes([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]))
+        with self.assertRaises(OSError):
+            pa._fob_id_bytes("not-a-mac")
+        with self.assertRaises(OSError):
+            pa._fob_id_bytes("AA:BB:CC:DD:EE")
+
+    def test_ccm_tag_real_vector_ctr7(self):
+        import proximity_agent as pa
+
+        key = bytes([0x42]) * 16
+        fob = pa._fob_id_bytes("AA:BB:CC:DD:EE:FF")
+        tag = pa._ccm_tag(key, 0x01, 7, fob)
+        self.assertEqual(len(tag), 4)
+        self.assertEqual(tag, pa._ccm_tag(key, 0x01, 7, fob))  # deterministico
+        self.assertNotEqual(tag, pa._ccm_tag(key, 0x01, 8, fob))
+        self.assertTrue(pa.verify_proximity_tag(7, tag, key, fob))
+        self.assertFalse(pa.verify_proximity_tag(7, b"\x00\x00\x00\x00", key, fob))
+        self.assertFalse(pa.verify_proximity_tag(8, tag, key, fob))
+        self.assertFalse(pa.verify_proximity_tag(7, tag, key, pa._fob_id_bytes("AA:BB:CC:DD:EE:00")))
+        self.assertFalse(pa.verify_proximity_tag(7, tag, None, fob))  # sem chave => fail-closed
+        self.assertFalse(pa.verify_proximity_tag(7, tag, key, None))  # sem fob => fail-closed
+
+    def test_verifier_real_key_and_fob(self):
+        import proximity_agent as pa
+
+        key = bytes([0x42]) * 16
+        fob = "AA:BB:CC:DD:EE:FF"
+        tag = pa._ccm_tag(key, 0x01, 7, pa._fob_id_bytes(fob))
+        payload = bytes([0x01]) + int(7).to_bytes(4, "little") + bytes(tag)
+        v = pa.RollingCodeVerifier(key=key, fob_id=fob)
+        self.assertTrue(v.verify(payload))
+        self.assertEqual(v.last_reason, "Ok")
+        self.assertFalse(v.verify(payload))  # replay
+        self.assertEqual(v.last_reason, "Replay")
 
 
 if __name__ == "__main__":

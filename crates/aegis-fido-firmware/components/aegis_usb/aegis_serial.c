@@ -40,6 +40,12 @@ esp_err_t aegis_serial_init(void) {
     }
 
     err = uart_driver_install(SERIAL_UART_PORT, SERIAL_RX_BUF_SIZE, SERIAL_RX_BUF_SIZE, 0, NULL, 0);
+    if (err == ESP_ERR_INVALID_STATE) {
+        // Console primario no UART0 (ESP_CONSOLE_UART_DEFAULT) ja instalou
+        // o driver antes do app_main; compartilha sem reinstalar (o fio de
+        // teste CTAPHID 115200 segue no mesmo UART0, sem roubar o console).
+        err = ESP_OK;
+    }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to install UART driver: %d", err);
         return err;

@@ -27,10 +27,10 @@
 //!   TODOs de Security Object/Discovery/SAN-UPN documentados lá).
 
 use super::ccid::{
-    AID_PIV, CommandApdu, ResponseApdu, PIV_TAG_CCC, PIV_TAG_CHUID, PIV_TAG_X509_CERT,
-    SW_AUTH_BLOCKED, SW_CONDITIONS_NOT_SATISFIED, SW_INS_NOT_SUPPORTED, SW_NOT_FOUND,
-    SW_REFERENCED_DATA_NOT_FOUND, SW_SECURITY_STATUS_NOT_SATISFIED, SW_UNKNOWN_ERROR,
-    SW_WRONG_DATA, SW_WRONG_LENGTH, SW_WRONG_P1P2, sw_retries_left,
+    sw_retries_left, CommandApdu, ResponseApdu, AID_PIV, PIV_TAG_CCC, PIV_TAG_CHUID,
+    PIV_TAG_X509_CERT, SW_AUTH_BLOCKED, SW_CONDITIONS_NOT_SATISFIED, SW_INS_NOT_SUPPORTED,
+    SW_NOT_FOUND, SW_REFERENCED_DATA_NOT_FOUND, SW_SECURITY_STATUS_NOT_SATISFIED, SW_UNKNOWN_ERROR,
+    SW_WRONG_DATA, SW_WRONG_LENGTH, SW_WRONG_P1P2,
 };
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
@@ -105,7 +105,7 @@ pub enum PivSlot {
     /// `9C` Digital Signature.
     Sign9C,
     /// `9D` Key Management.
-   Mgmt9D,
+    Mgmt9D,
     /// `9E` Card Authentication.
     Card9E,
 }
@@ -307,8 +307,12 @@ fn write_credential<S: PivRecordStore>(
         store
             .store_record(retries_key, &retries)
             .map_err(|_| PivPinError::Storage)?;
-        let back_hash = store.load_record(hash_key).map_err(|_| PivPinError::Storage)?;
-        let back_salt = store.load_record(salt_key).map_err(|_| PivPinError::Storage)?;
+        let back_hash = store
+            .load_record(hash_key)
+            .map_err(|_| PivPinError::Storage)?;
+        let back_salt = store
+            .load_record(salt_key)
+            .map_err(|_| PivPinError::Storage)?;
         let back_ret = store
             .load_record(retries_key)
             .map_err(|_| PivPinError::Storage)?;
@@ -349,9 +353,7 @@ pub fn provision_pin_with_rng<S: PivRecordStore, R: RngCore + CryptoRng>(
     if !is_valid_piv_puk(new_puk) {
         return Err(PivPinError::BadPuk);
     }
-    if store.load_record(PIV_NVS_PIN_HASH).is_ok()
-        || store.load_record(PIV_NVS_PUK_HASH).is_ok()
-    {
+    if store.load_record(PIV_NVS_PIN_HASH).is_ok() || store.load_record(PIV_NVS_PUK_HASH).is_ok() {
         return Err(PivPinError::AlreadyProvisioned);
     }
     if let Err(e) = write_credential(
@@ -542,7 +544,11 @@ impl PivApplet {
     /// (persistido contra queda, devolve `63 CX`); a tentativa que zera devolve
     /// `63 C0` e dali em diante `69 83` (exige PUK). Virgem = `6A 88`.
     /// Tamanho inválido = `67 00` sem consumir. Persist falhou = `6F 00` fechado.
-    fn handle_verify<S: PivRecordStore>(&mut self, apdu: &CommandApdu, store: &mut S) -> ResponseApdu {
+    fn handle_verify<S: PivRecordStore>(
+        &mut self,
+        apdu: &CommandApdu,
+        store: &mut S,
+    ) -> ResponseApdu {
         if apdu.p1 != 0x00 || apdu.p2 != P2_PIN {
             return ResponseApdu::status(SW_WRONG_P1P2);
         }
@@ -569,7 +575,10 @@ impl PivApplet {
             return ResponseApdu::status(SW_WRONG_LENGTH);
         }
         if secret_matches_piv(&salt, &expected, &apdu.data) {
-            if store.store_record(PIV_NVS_PIN_RETRIES, &[PIV_PIN_MAX_RETRIES]).is_err() {
+            if store
+                .store_record(PIV_NVS_PIN_RETRIES, &[PIV_PIN_MAX_RETRIES])
+                .is_err()
+            {
                 self.pin_verified = false;
                 return ResponseApdu::status(SW_UNKNOWN_ERROR);
             }
@@ -711,7 +720,14 @@ impl PivApplet {
         {
             return ResponseApdu::status(SW_WRONG_LENGTH);
         }
-        if load_triple(store, PIV_NVS_PIN_SALT, PIV_NVS_PIN_HASH, PIV_NVS_PIN_RETRIES).is_err() {
+        if load_triple(
+            store,
+            PIV_NVS_PIN_SALT,
+            PIV_NVS_PIN_HASH,
+            PIV_NVS_PIN_RETRIES,
+        )
+        .is_err()
+        {
             return ResponseApdu::status(SW_REFERENCED_DATA_NOT_FOUND);
         }
         let (salt, expected, retries) = match load_triple_or_fail(
@@ -811,9 +827,7 @@ impl PivApplet {
                 self.last_slot = slot.key_ref();
                 ResponseApdu::ok(tlv(&[0x7F, 0x49], &pubkey))
             }
-            Err(PivCryptoError::Unavailable) => {
-                ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED)
-            }
+            Err(PivCryptoError::Unavailable) => ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED),
             Err(PivCryptoError::BadAlg) => ResponseApdu::status(SW_WRONG_DATA),
             Err(PivCryptoError::Failed) => ResponseApdu::status(SW_UNKNOWN_ERROR),
         }
@@ -847,9 +861,7 @@ impl PivApplet {
                 self.last_slot = slot.key_ref();
                 ResponseApdu::ok(tlv(&[0x7C], &tlv(&[0x82], &resp)))
             }
-            Err(PivCryptoError::Unavailable) => {
-                ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED)
-            }
+            Err(PivCryptoError::Unavailable) => ResponseApdu::status(SW_CONDITIONS_NOT_SATISFIED),
             Err(PivCryptoError::BadAlg) => ResponseApdu::status(SW_WRONG_DATA),
             Err(PivCryptoError::Failed) => ResponseApdu::status(SW_UNKNOWN_ERROR),
         }
@@ -987,8 +999,16 @@ fn rewrite_credential<S: PivRecordStore>(
     max_retries: u8,
 ) -> Result<(), ResponseApdu> {
     let mut rng = rand_core::OsRng;
-    if write_credential(store, salt_key, hash_key, retries_key, new_secret, &mut rng, max_retries)
-        .is_err()
+    if write_credential(
+        store,
+        salt_key,
+        hash_key,
+        retries_key,
+        new_secret,
+        &mut rng,
+        max_retries,
+    )
+    .is_err()
     {
         wipe_pin_records(store);
         return Err(ResponseApdu::status(SW_UNKNOWN_ERROR));
@@ -1397,12 +1417,12 @@ mod secure_tests {
         }
 
         fn provision(&mut self) {
-            provision_pin_with_rng(&mut self.store, &mut self.rng, PIN, PUK)
-                .expect("provision ok");
+            provision_pin_with_rng(&mut self.store, &mut self.rng, PIN, PUK).expect("provision ok");
         }
 
         fn run(&mut self, apdu: &CommandApdu) -> ResponseApdu {
-            self.applet.handle_store(apdu, &mut self.store, &mut self.crypto)
+            self.applet
+                .handle_store(apdu, &mut self.store, &mut self.crypto)
         }
     }
 
@@ -1453,7 +1473,12 @@ mod secure_tests {
     }
 
     fn auth_apdu(slot: u8, challenge: &[u8]) -> CommandApdu {
-        let mut data = vec![0x7C, (challenge.len() + 2) as u8, 0x81, challenge.len() as u8];
+        let mut data = vec![
+            0x7C,
+            (challenge.len() + 2) as u8,
+            0x81,
+            challenge.len() as u8,
+        ];
         data.extend_from_slice(challenge);
         CommandApdu {
             cla: 0x00,
@@ -1583,7 +1608,9 @@ mod secure_tests {
     #[test]
     fn should_match_nist_verify_vector_encoding() {
         // Arrange: vetor NIST SP 800-73 (VERIFY `00 20 00 80 06 <PIN>`)
-        let raw = [0x00, 0x20, 0x00, 0x80, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36];
+        let raw = [
+            0x00, 0x20, 0x00, 0x80, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+        ];
         let apdu = CommandApdu::parse(&raw).expect("vetor NIST parseia");
         let mut h = Harness::new();
         h.select();
@@ -1910,7 +1937,9 @@ mod secure_tests {
         let mut no_backend = NoBackend;
 
         // Act: firmware ainda sem backend cripto = fail-closed
-        let resp = h.applet.handle_store(&generate_apdu(PIV_SLOT_9A), &mut h.store, &mut no_backend);
+        let resp =
+            h.applet
+                .handle_store(&generate_apdu(PIV_SLOT_9A), &mut h.store, &mut no_backend);
 
         // Assert
         assert_eq!(
@@ -2019,7 +2048,11 @@ mod secure_tests {
         let mut no_backend = NoBackend;
 
         // Act
-        let resp = h.applet.handle_store(&auth_apdu(PIV_SLOT_9A, &[0x01]), &mut h.store, &mut no_backend);
+        let resp = h.applet.handle_store(
+            &auth_apdu(PIV_SLOT_9A, &[0x01]),
+            &mut h.store,
+            &mut no_backend,
+        );
 
         // Assert
         assert_eq!(
@@ -2159,7 +2192,10 @@ mod secure_tests {
             let _ = h.run(&verify_apdu(b"000000"));
         }
         assert_eq!(
-            (h.run(&verify_apdu(NEW_PIN)).sw1, h.run(&verify_apdu(NEW_PIN)).sw2),
+            (
+                h.run(&verify_apdu(NEW_PIN)).sw1,
+                h.run(&verify_apdu(NEW_PIN)).sw2
+            ),
             SW_AUTH_BLOCKED
         );
         let mut unb = NEW_PUK.to_vec();

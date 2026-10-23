@@ -1,7 +1,7 @@
-use alloc::vec::Vec;
-use ciborium::value::Value;
 use crate::ctap::cbor::encode_cbor_value;
 use crate::ctap::status_code::CtapError;
+use alloc::vec::Vec;
+use ciborium::value::Value;
 
 pub const RESET_BOOT_WINDOW_SECONDS: u64 = 10;
 

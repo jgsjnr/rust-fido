@@ -49,18 +49,16 @@ fn oath_status(e: OathDeviceError) -> u8 {
 }
 
 /// Persiste o estado; `false` se o save falhar (chamador faz rollback).
-fn save_keys<B: FlashStorageBackend>(
-    storage: &mut SecureStorage<B>,
-    keys: &KeyManager,
-) -> bool {
-    storage.store(NVS_KEYS_SLOTS, &keys.export_state(), &[0u8; 12]).is_ok()
+fn save_keys<B: FlashStorageBackend>(storage: &mut SecureStorage<B>, keys: &KeyManager) -> bool {
+    storage
+        .store(NVS_KEYS_SLOTS, &keys.export_state(), &[0u8; 12])
+        .is_ok()
 }
 
-fn save_oath<B: FlashStorageBackend>(
-    storage: &mut SecureStorage<B>,
-    oath: &OathApplet,
-) -> bool {
-    storage.store(NVS_KEYS_OATH, &oath.export_state(), &[0u8; 12]).is_ok()
+fn save_oath<B: FlashStorageBackend>(storage: &mut SecureStorage<B>, oath: &OathApplet) -> bool {
+    storage
+        .store(NVS_KEYS_OATH, &oath.export_state(), &[0u8; 12])
+        .is_ok()
 }
 
 /// Persiste o estado PIN (F3): hash + retries. Sessão pinUvAuth é RAM
@@ -73,7 +71,10 @@ pub fn save_pin_state<B: FlashStorageBackend>(
         Some(h) => storage.store(NVS_PIN_HASH, &h, &[0u8; 12]).is_ok(),
         None => storage.delete(NVS_PIN_HASH).is_ok(),
     };
-    hash_ok && storage.store(NVS_PIN_RETRIES, &[pin.pin_retries], &[0u8; 12]).is_ok()
+    hash_ok
+        && storage
+            .store(NVS_PIN_RETRIES, &[pin.pin_retries], &[0u8; 12])
+            .is_ok()
 }
 
 /// Carrega o PIN no boot (ausente = padrão; corrompido = padrão + `false`).
@@ -162,7 +163,10 @@ where
             return (BleGattError::NeedBinding.to_vendor_status(), Vec::new());
         }
         if !up {
-            return (BleGattError::PresenceRequired.to_vendor_status(), Vec::new());
+            return (
+                BleGattError::PresenceRequired.to_vendor_status(),
+                Vec::new(),
+            );
         }
         return exec_piv_enroll(storage, payload);
     }
@@ -363,23 +367,34 @@ mod tests {
     }
 
     #[test]
-    fn pin_state_roundtrip_e_ausente_e_padrao() {        let mut st = test_storage();
+    fn pin_state_roundtrip_e_ausente_e_padrao() {
+        let mut st = test_storage();
         let mut pin = ClientPinState::default();
         // Ausente: padrão (sem PIN, 8 retries), ok=true.
         assert!(load_pin_state(&st, &mut pin));
         assert_eq!(pin.pin_hash, None);
         assert_eq!(pin.pin_retries, 8);
         // Salva hash+retries e recarrega.
-        let pin_set = ClientPinState { pin_hash: Some([0xABu8; 16]), pin_retries: 5, ..Default::default() };
+        let pin_set = ClientPinState {
+            pin_hash: Some([0xABu8; 16]),
+            pin_retries: 5,
+            ..Default::default()
+        };
         assert!(save_pin_state(&mut st, &pin_set));
         let mut pin2 = ClientPinState::default();
         assert!(load_pin_state(&st, &mut pin2));
         assert_eq!(pin2.pin_hash, Some([0xABu8; 16]));
         assert_eq!(pin2.pin_retries, 5);
         // Limpa hash (reset): volta a None.
-        let pin_clear = ClientPinState { pin_hash: None, ..Default::default() };
+        let pin_clear = ClientPinState {
+            pin_hash: None,
+            ..Default::default()
+        };
         assert!(save_pin_state(&mut st, &pin_clear));
-        let mut pin3 = ClientPinState { pin_hash: Some([0u8; 16]), ..Default::default() };
+        let mut pin3 = ClientPinState {
+            pin_hash: Some([0u8; 16]),
+            ..Default::default()
+        };
         assert!(load_pin_state(&st, &mut pin3));
         assert_eq!(pin3.pin_hash, None);
     }
@@ -429,7 +444,13 @@ mod tests {
         let mut st = test_storage();
         let req = enroll_req(b"123456", b"12345678");
         assert_eq!(exec_enroll(&mut st, &req, true, false).0, 0x01);
-        assert_eq!(exec_enroll(&mut st, &req, false, true).0, 0x05);
+        if crate::binding::binding_bypass_enabled() {
+            // test-mode: bypass de vínculo documentado (binding.rs); sem
+            // vínculo mas com UP, o enroll prossegue e provisiona (0x00).
+            assert_eq!(exec_enroll(&mut st, &req, false, true).0, 0x00);
+        } else {
+            assert_eq!(exec_enroll(&mut st, &req, false, true).0, 0x05);
+        }
     }
 
     #[test]
@@ -437,8 +458,102 @@ mod tests {
         let mut st = test_storage();
         // pin_len mente / puk curto / vazio.
         assert_eq!(exec_enroll(&mut st, &[8, 1, 2, 3], true, true).0, 0x04);
-        assert_eq!(exec_enroll(&mut st, &enroll_req(b"123", b"12345678"), true, true).0, 0x04);
-        assert_eq!(exec_enroll(&mut st, &enroll_req(b"123456", b"1234"), true, true).0, 0x04);
+        assert_eq!(
+            exec_enroll(&mut st, &enroll_req(b"123", b"12345678"), true, true).0,
+            0x04
+        );
+        assert_eq!(
+            exec_enroll(&mut st, &enroll_req(b"123456", b"1234"), true, true).0,
+            0x04
+        );
         assert_eq!(exec_enroll(&mut st, &[], true, true).0, 0x04);
+    }
+
+    /// Device-side T13: 8 slots "e2e-t1"/ES256 + GEN do 9º via
+    /// `exec_vendor_op` → `0x00`, com estado final de 534 B.
+    /// FALHA com o teto antigo de 512 B (save → `BufferOverflow` → `0x04`);
+    /// passa com o teto 4096 (prova de que 512 era insuficiente).
+    #[test]
+    fn gen_nono_slot_apos_oito_e2e_t1_agora_passa() {
+        let mut st = test_storage();
+        let mut keys = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut rng = rand_core::OsRng;
+        for slot in 0..8u8 {
+            let mut payload = Vec::new();
+            write_tlv(&mut payload, TAG_SLOT, &[slot]);
+            write_tlv(&mut payload, TAG_LABEL, b"e2e-t1");
+            let (status, _) = exec_vendor_op(
+                &mut keys,
+                &mut oath,
+                &mut st,
+                OP_KEY_GEN_ONDEVICE,
+                &payload,
+                true,
+                false,
+                true,
+                0,
+                &mut rng,
+            );
+            assert_eq!(status, 0x00, "GEN slot {slot}");
+        }
+        // GEN do 9º slot pelo executor (gate binding + UP, sem PIN).
+        let mut payload = Vec::new();
+        write_tlv(&mut payload, TAG_SLOT, &[8]);
+        write_tlv(&mut payload, TAG_LABEL, b"e2e-t1");
+        let (status, _) = exec_vendor_op(
+            &mut keys,
+            &mut oath,
+            &mut st,
+            OP_KEY_GEN_ONDEVICE,
+            &payload,
+            true,
+            false,
+            true,
+            0,
+            &mut rng,
+        );
+        assert_eq!(status, 0x00, "GEN 9o slot via executor");
+        // 3 B header + 9 × (21 fixos + 6 label + 32 segredo ES256) = 534 B.
+        let blob = keys.export_state();
+        assert_eq!(blob.len(), 534);
+        // Load/import roundtrip via NVS.
+        let mut keys2 = KeyManager::new();
+        let mut oath2 = OathApplet::new();
+        assert!(load_states(&st, &mut keys2, &mut oath2));
+        assert_eq!(keys2.export_state(), blob);
+        assert_eq!(keys2.len(), 9);
+    }
+
+    /// Pior caso: 32 slots ES512 (segredo 66 B) + label de 32 B →
+    /// export de `3 + 32×(21+32+66) = 3811` B, com save/load/import ok.
+    /// FALHA com o teto antigo de 512 B; passa com o teto 4096.
+    #[test]
+    fn trinta_e_dois_slots_pior_caso_es512_label32_roundtrip() {
+        use alloc::string::ToString;
+        let mut st = test_storage();
+        let mut keys = KeyManager::new();
+        let mut rng = rand_core::OsRng;
+        let label32 = "0123456789abcdef0123456789abcdef".to_string();
+        assert_eq!(label32.len(), 32);
+        for slot in 0..32u8 {
+            keys.generate(
+                slot,
+                CoseAlgorithm::ES512,
+                label32.clone(),
+                KEY_USE_SIGN | KEY_USE_AUTH,
+                0,
+                true,
+                &mut rng,
+            )
+            .expect("GEN ES512");
+        }
+        let blob = keys.export_state();
+        assert_eq!(blob.len(), 3811);
+        assert!(save_keys(&mut st, &keys), "save do pior caso");
+        let mut keys2 = KeyManager::new();
+        assert!(load_states(&st, &mut keys2, &mut OathApplet::new()));
+        assert_eq!(keys2.export_state(), blob);
+        assert_eq!(keys2.len(), 32);
     }
 }

@@ -1,0 +1,8 @@
+# AegisKey S3 Partition Table — board física COM14 (flash 2 MB)
+# Derivada de partitions.csv (16 MB); app com pilha CTAPHID real tem ~1.45 MB,
+# então factory de 1.5 MB (storage NVS de 448 KB é suficiente: só slots/chaves).
+# Name,   Type, SubType, Offset,   Size,
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0x180000,
+storage,  data, nvs,     0x190000, 0x070000,

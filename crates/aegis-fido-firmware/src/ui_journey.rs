@@ -8,12 +8,12 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use crate::config::{PAIRING_WINDOW_MS, VAULT_AUTO_CLEAR_SECS};
 use crate::display::UiScreen;
 use crate::led::{Color, LedEffect};
 use crate::totp_view::NO_ACCOUNTS_MSG;
 use alloc::format;
+use alloc::string::String;
 
 /// WAVE8 — timeouts da jornada (ms, mesma base monotonica do `tick`).
 /// Pareamento expira como o AP/BLE (60s); `Busy` (CTAP) expira em 30s.
@@ -144,8 +144,7 @@ impl UiJourney {
                 let remaining = expires_ms
                     .saturating_sub(now_ms)
                     .div_ceil(1000)
-                    .min(JOURNEY_TOTP_PERIOD_SECS as u64)
-                    as u32;
+                    .min(JOURNEY_TOTP_PERIOD_SECS as u64) as u32;
                 UiScreen::TotpCode {
                     label: account.clone(),
                     code: code.clone(),
@@ -303,10 +302,7 @@ mod tests {
     #[test]
     fn wave8_timeouts_match_config() {
         assert_eq!(JOURNEY_PAIRING_TIMEOUT_MS, 60_000);
-        assert_eq!(
-            JOURNEY_PAIRING_TIMEOUT_MS,
-            crate::config::PAIRING_WINDOW_MS
-        );
+        assert_eq!(JOURNEY_PAIRING_TIMEOUT_MS, crate::config::PAIRING_WINDOW_MS);
         assert_eq!(JOURNEY_BUSY_TIMEOUT_MS, 30_000);
         assert_eq!(VAULT_AUTO_CLEAR_SECS, 15);
         assert_eq!(JOURNEY_TOTP_PERIOD_SECS, 30);

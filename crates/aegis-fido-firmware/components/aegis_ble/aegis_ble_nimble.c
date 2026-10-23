@@ -9,8 +9,10 @@
  * examples/bluetooth/nimble/bleprph (host NimBLE + FreeRTOS):
  *   nvs_flash -> nimble_port_init (controller+HCI+host internos)
  *   -> ble_hs_cfg (sync/reset/store_status, sm JustWorks+bonding)
- *   -> ble_store_config_init -> gatts_count/add -> gap device name
- *   -> nimble_port_freertos_init.
+ *   -> ble_store_config_init -> gap device name -> gatts_count/add
+ *   -> nimble_port_freertos_init (o host publica o banco via ble_hs_start
+ *   no sync; NUNCA chamar ble_gatts_start() direto — duplo start realoca
+ *   o pool ATT e derruba em LoadProhibited).
  * NAO chamar esp_nimble_hci_init() separado: no IDF v5 ele ja vive dentro
  * de nimble_port_init()/esp_nimble_init(); a chamada avulsa falha com
  * ESP_FAIL (rc=-1 em loop) e quebra a coexistencia WiFi/BLE no S3.
@@ -25,7 +27,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_bt.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -72,6 +76,19 @@ void ble_store_config_init(void);
 static uint8_t s_inited = 0;
 static uint8_t s_synced = 0;
 static uint8_t s_advertising = 0;
+/* Fix preinit robusto (fail-closed, sem crash): máquina de estado do init.
+ * `s_init_failed` + `s_init_rc` congelam o primeiro erro parcial e impedem
+ * re-executar controller/HCI por cima (reentrância vazava heap até
+ * `LoadProhibited EXCVADDR=0`). `s_init_in_progress` barra reentrância
+ * concorrente (preinit/start simultâneos). Qualquer falha retorna rc != 0
+ * com log; nunca panic/abort.
+ * Ordem vs AP WiFi (S3+coex): PENDENTE de prova no device. Este C NÃO derruba
+ * o AP aqui; se o AP ligado for o gatilho do EXCVADDR=0 pós-`phy_init`, o
+ * chamador (Rust `run_authenticator_freertos`) deve serializar o preinit
+ * antes de qualquer AP start. Sem chute de ordem no C: guarda + erro limpo. */
+static uint8_t s_init_in_progress = 0;
+static uint8_t s_init_failed = 0;
+static int s_init_rc = 0;
 static uint8_t s_own_addr_type = BLE_OWN_ADDR_PUBLIC;
 
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -159,6 +176,9 @@ chr_access(uint16_t conn_handle, uint16_t attr_handle,
     int rc;
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (ctxt->om == NULL) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
         if (attr_handle == s_fff1_handle) {
             /* FFF1: 1 fragmento pendente por vez (backpressure). */
             taskENTER_CRITICAL(&s_lock);
@@ -196,6 +216,9 @@ chr_access(uint16_t conn_handle, uint16_t attr_handle,
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        if (ctxt->om == NULL) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
         if (attr_handle == s_fff2_handle) {
             rc = os_mbuf_append(ctxt->om, &s_status, 1);
             return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -224,7 +247,13 @@ static void
 register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
 {
     (void)arg;
+    if (ctxt == NULL) {
+        return;
+    }
     if (ctxt->op != BLE_GATT_REGISTER_OP_CHR) {
+        return;
+    }
+    if (ctxt->chr.chr_def == NULL || ctxt->chr.chr_def->uuid == NULL) {
         return;
     }
     uint16_t u16 = ble_uuid_u16(ctxt->chr.chr_def->uuid);
@@ -252,6 +281,32 @@ start_adv_raw(int pairing_flag, int coex_slow)
                             (uint8_t)((AEGIS_BLE_SVC_UUID16 >> 8) & 0xFF),
                             pairing_flag ? 0x01 : 0x00 };
     int rc;
+    int active_antes;
+    int stop_rc;
+    int active_depois;
+    int set_fields_rc;
+
+    /* Stop-before-start INCONDICIONAL (lane root-cause, evidência de fio):
+     * o stop condicionado a `ble_gap_adv_active()` (host) nunca executava
+     * no fio (WARN nunca aparecia, stop sempre pulado) e o controller
+     * recusava o primeiro set virgem com 0x07 (rc=519). O stop aqui NÃO
+     * usa active p/ decidir — active_antes/depois + stop_rc são só
+     * discriminante de log. Delay 20 ms só se houve stop real
+     * (stop_rc==0), p/ não atrasar o set virgem nem colidir com o
+     * `GAP procedure initiated: stop advertising` interno do host no sync.
+     * NÃO mexer em BT_CTRL_BLE_MAX_ACT sem o discriminante active=0/0 +
+     * 519 persistente. Parada mútua FFFD↔FFFE: este stop também derruba
+     * resíduo do adv 0xFFFE antes de programar o 0xFFFD. */
+    active_antes = ble_gap_adv_active();
+    stop_rc = ble_gap_adv_stop();
+    active_depois = ble_gap_adv_active();
+    ESP_LOGW(TAG, "adv pre-stop stop_rc=%d active_antes=%d active_depois=%d s_advertising=%d",
+             stop_rc, active_antes, active_depois, (int)s_advertising);
+    if (stop_rc == 0) {
+        s_advertising = 0;
+        vTaskDelay(pdMS_TO_TICKS(20));
+        active_depois = ble_gap_adv_active();
+    }
 
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
@@ -265,8 +320,10 @@ start_adv_raw(int pairing_flag, int coex_slow)
     fields.name_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
+    set_fields_rc = rc;
     if (rc != 0) {
-        ESP_LOGE(TAG, "adv_set_fields rc=%d", rc);
+        ESP_LOGE(TAG, "adv_set_fields rc=%d stop_rc=%d active_antes=%d active_depois=%d",
+                 rc, stop_rc, active_antes, active_depois);
         return rc;
     }
 
@@ -281,8 +338,19 @@ start_adv_raw(int pairing_flag, int coex_slow)
         params.itvl_max = AEGIS_ADV_ITVL_NORMAL_MAX;
     }
 
+    ESP_LOGI(TAG, "adv pre-start active=%d own=%d itvl=%d/%d set_fields_rc=%d",
+             ble_gap_adv_active(), (int)s_own_addr_type,
+             (int)params.itvl_min, (int)params.itvl_max, set_fields_rc);
     rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER,
                            &params, gap_event, NULL);
+    if (rc == 519) {
+        /* HCI Memory Capacity Exceeded com controller inativo: instancia
+         * residual recusada pelo controller. O Rust registra EV_ADV_NOMEM e
+         * NAO consome as 3 tentativas do gate (backoff ate nova borda). */
+        ESP_LOGE(TAG, "adv_start rc=519 NOMEM (residual recusado; sem retry cego) stop_rc=%d active_antes=%d active_depois=%d",
+                 stop_rc, active_antes, active_depois);
+        return rc;
+    }
     if (rc != 0) {
         ESP_LOGE(TAG, "adv_start rc=%d", rc);
         return rc;
@@ -296,6 +364,9 @@ static int
 gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
+    if (event == NULL) {
+        return 0;
+    }
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
@@ -389,6 +460,55 @@ static int ensure_init(void)
     if (s_inited) {
         return 0;
     }
+    if (s_init_failed) {
+        /* Tentativa parcial anterior: nunca re-execute controller/HCI por
+         * cima (reentrância/retry derrubava em LoadProhibited). Fail-closed. */
+        return s_init_rc;
+    }
+    if (s_init_in_progress) {
+        ESP_LOGE(TAG, "init reentrante (preinit/start concorrentes)");
+        return -11;
+    }
+    s_init_in_progress = 1;
+    /* Snapshot de heap p/ a prova no device (TEST_BLE_PREINIT): o `Malloc
+     * failed` do controller (`BLE assert emi.c:164` -> Interrupt WDT) é
+     * fragmentação/falta de bloco contíguo DMA/DRAM, não vazamento. Ref:
+     * IDF v5.3.1 `nimble_port.c:168` (`nimble_port_init` = controller_init
+     * + enable(BLE) + host); o `esp_bt_controller_mem_release(CLASSIC_BT)`
+     * interno lá é `#if CONFIG_IDF_TARGET_ESP32` — no S3 (BLE-only por HW)
+     * não há Classic p/ liberar, o fix é footprint (sdkconfig) + heap
+     * fresco, não mem_release manual (não reintroduzir).
+     *
+     * Pinpoint do `hci inits failed` (build B8D47E, heap 35K/26K intacto):
+     * `nimble_port_init` (nimble_port.c) imprime `controller init failed`,
+     * `controller enable failed` ou `hci inits failed`+`nimble host init
+     * failed` conforme a etapa. Com `BT controller compile version` visível
+     * e sem `controller enable failed`, init+enable(BLE) passaram; o ESP_FAIL
+     * vem de `esp_nimble_hci_init` (esp_nimble_hci.c), que só tem 3 retornos
+     * de falha: `ble_buf_alloc` (6 callocs heap INTERNAL|8BIT, maior chunk =
+     * MSYS_2 24x320 ~= 8 KiB), `esp_vhci_host_register_callback` (ESP_FAIL
+     * se controller != ENABLED) e `xSemaphoreCreateBinary` (desprezível com
+     * 35K livres). Os knobs slimmed (ACL 8 / EVT 10 / DISCARD 4 / MSYS_1 12
+     * / GATT_PROCS 2 / BONDS 1 / CCCDs 4 / BLE_MAX_ACT 1) estão todos dentro
+     * dos ranges do Kconfig (BLE_MAX_ACT 1..10; host sem range = só tamanho
+     * de pool, sem mínimo de init; MSYS_1 12 É o default do path S3
+     * `!SOC_ESP_NIMBLE_CONTROLLER`), logo nenhum viola piso de init — sem
+     * chute de config aqui. O `internal maior` abaixo + `ctrl_status` no
+     * erro desempatam em 1 run no device: status != 2 => VHCI; status == 2
+     * (ENABLED) + internal maior < ~8K => NO_MEM no ble_buf_alloc;
+     * status == 2 + internal folgado => recusa ROM do VHCI (callback obsoleto
+     * de init parcial anterior no mesmo boot). Ref IDF v5.3.1:
+     * `bt/host/nimble/nimble/porting/nimble/src/nimble_port.c`
+     * (`esp_nimble_init`, `nimble_port_init`), `bt/host/nimble/esp-hci/src/
+     * esp_nimble_hci.c` (`esp_nimble_hci_init`, `ble_buf_alloc` em
+     * `nimble/nimble/transport/src/transport.c`), `bt/controller/esp32c3/
+     * bt.c` (`esp_vhci_host_register_callback`), `bt/porting/mem/
+     * os_msys_init.c`, `bt/host/nimble/Kconfig.in` (ranges). */
+    ESP_LOGI(TAG, "preinit heap livre %u maior bloco %u (internal livre %u maior %u)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -404,9 +524,18 @@ static int ensure_init(void)
      * ESP_FAIL (-1) em loop. NAO reintroduzir. */
     err = nimble_port_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nimble_port_init: %s (heap livre %lu)",
-                 esp_err_to_name(err), (unsigned long)esp_get_free_heap_size());
-        return -2;
+        /* Desempate do `hci inits failed` em 1 run (ver comentário acima):
+         * ctrl_status 0=IDLE, 1=INITED, 2=ENABLED (esp_bt.h). */
+        ESP_LOGE(TAG, "nimble_port_init: %s (heap livre %u maior bloco %u internal maior %u ctrl_status=%d)",
+                 esp_err_to_name(err),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (int)esp_bt_controller_get_status());
+        s_init_rc = -2;
+        s_init_failed = 1;
+        s_init_in_progress = 0;
+        return s_init_rc;
     }
 
     ble_hs_cfg.reset_cb = on_reset;
@@ -430,32 +559,46 @@ static int ensure_init(void)
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
-    int rc = ble_gatts_count_cfg(s_svcs);
+    /* Ordem do exemplo oficial bleprph: device name ANTES do count/add.
+     * NAO chamar ble_gatts_start() aqui: o host publica o banco via
+     * ble_hs_start no sync (stage2). A chamada direta duplicava o start e
+     * no 2o ble_att_svr_start() realocava o pool sem limpar a lista ->
+     * 0 servicos + loop CCCD com ha_uuid NULL -> LoadProhibited. */
+    int rc = ble_svc_gap_device_name_set(AEGIS_BLE_NAME);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "gap_name rc=%d", rc);
+        s_init_rc = -5;
+        s_init_failed = 1;
+        s_init_in_progress = 0;
+        return s_init_rc;
+    }
+
+    rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_count rc=%d", rc);
-        return -3;
+        s_init_rc = -3;
+        s_init_failed = 1;
+        s_init_in_progress = 0;
+        return s_init_rc;
     }
     rc = ble_gatts_add_svcs(s_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "gatts_add rc=%d", rc);
-        return -4;
+        s_init_rc = -4;
+        s_init_failed = 1;
+        s_init_in_progress = 0;
+        return s_init_rc;
     }
-    /* Publica o banco ATT: sem start, centrals descobrem zero serviços. */
-    rc = ble_gatts_start();
-    if (rc != 0) {
-        ESP_LOGE(TAG, "gatts_start rc=%d", rc);
-        return -8;
-    }
-    rc = ble_svc_gap_device_name_set(AEGIS_BLE_NAME);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "gap_name rc=%d", rc);
-        return -5;
-    }
-
+    /* O host publica o banco ATT via ble_hs_start no sync; sem start direto
+     * aqui (ver comentario acima). Segue p/ nimble_port_freertos_init. */
     nimble_port_freertos_init(host_task);
 
     s_inited = 1;
-    ESP_LOGI(TAG, "nimble init ok (0xFFFD, bonding NVS)");
+    s_init_rc = 0;
+    s_init_in_progress = 0;
+    ESP_LOGI(TAG, "nimble init ok (0xFFFD, bonding NVS) heap livre %u maior bloco %u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
     return 0;
 }
 
@@ -573,6 +716,10 @@ start_proximity_adv_raw(const uint8_t *svc_data_11, int coex_slow)
     struct ble_hs_adv_fields fields;
     struct ble_gap_adv_params params;
     int rc;
+    int active_antes;
+    int stop_rc;
+    int active_depois;
+    int set_fields_rc;
 
     if (svc_data_11 == NULL) {
         return -1;
@@ -583,6 +730,22 @@ start_proximity_adv_raw(const uint8_t *svc_data_11, int coex_slow)
     }
     if (svc_data_11[2] != 0x01) {
         return -1; /* VER suportada: 0x01 */
+    }
+
+    /* Parada mútua FFFD↔FFFE (armadilha latente): mesmo stop-before-start
+     * INCONDICIONAL do `start_adv_raw`. O adv 0xFFFD e o 0xFFFE usam a
+     * mesma instância única do controller; trocar de um p/ o outro sem
+     * stop prévio deixa resíduo e o próximo start cai em 519. Active só
+     * discrimina no log; delay 20 ms só se houve stop real. */
+    active_antes = ble_gap_adv_active();
+    stop_rc = ble_gap_adv_stop();
+    active_depois = ble_gap_adv_active();
+    ESP_LOGW(TAG, "prox pre-stop stop_rc=%d active_antes=%d active_depois=%d s_advertising=%d",
+             stop_rc, active_antes, active_depois, (int)s_advertising);
+    if (stop_rc == 0) {
+        s_advertising = 0;
+        vTaskDelay(pdMS_TO_TICKS(20));
+        active_depois = ble_gap_adv_active();
     }
 
     memset(&fields, 0, sizeof(fields));
@@ -597,8 +760,10 @@ start_proximity_adv_raw(const uint8_t *svc_data_11, int coex_slow)
     fields.name_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
+    set_fields_rc = rc;
     if (rc != 0) {
-        ESP_LOGE(TAG, "prox_adv_set_fields rc=%d", rc);
+        ESP_LOGE(TAG, "prox_adv_set_fields rc=%d stop_rc=%d active_antes=%d active_depois=%d",
+                 rc, stop_rc, active_antes, active_depois);
         return rc;
     }
 
@@ -613,10 +778,19 @@ start_proximity_adv_raw(const uint8_t *svc_data_11, int coex_slow)
         params.itvl_max = AEGIS_ADV_ITVL_NORMAL_MAX;
     }
 
+    ESP_LOGI(TAG, "prox pre-start active=%d own=%d itvl=%d/%d set_fields_rc=%d",
+             ble_gap_adv_active(), (int)s_own_addr_type,
+             (int)params.itvl_min, (int)params.itvl_max, set_fields_rc);
     rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER,
                            &params, gap_event, NULL);
+    if (rc == 519) {
+        ESP_LOGE(TAG, "prox_adv_start rc=519 NOMEM (residual recusado; sem retry cego) stop_rc=%d active_antes=%d active_depois=%d",
+                 stop_rc, active_antes, active_depois);
+        return rc;
+    }
     if (rc != 0) {
-        ESP_LOGE(TAG, "prox_adv_start rc=%d", rc);
+        ESP_LOGE(TAG, "prox_adv_start rc=%d stop_rc=%d active_antes=%d active_depois=%d",
+                 rc, stop_rc, active_antes, active_depois);
         return rc;
     }
     s_advertising = 1;

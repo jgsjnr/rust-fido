@@ -13,9 +13,7 @@ extern crate alloc;
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::credential::{KEY_USE_AUTH, KEY_USE_SIGN};
 use aegis_fido_core::crypto::curves::CoseAlgorithm;
-use aegis_fido_usb::piv::{
-    PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError,
-};
+use aegis_fido_usb::piv::{PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError};
 use alloc::vec::Vec;
 
 use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
@@ -109,7 +107,15 @@ impl PivKeyBackend for PivFwBackend<'_> {
         let mut rng = rand_core::OsRng;
         // Presença: applet já exigiu PIN verificado (documentado no módulo).
         self.keys
-            .generate(id, cose, piv_label(slot).into(), KEY_USE_SIGN | KEY_USE_AUTH, self.created, true, &mut rng)
+            .generate(
+                id,
+                cose,
+                piv_label(slot).into(),
+                KEY_USE_SIGN | KEY_USE_AUTH,
+                self.created,
+                true,
+                &mut rng,
+            )
             .map_err(|_| PivCryptoError::Failed)?;
         let raw = self
             .keys
@@ -180,9 +186,7 @@ fn read_der_len(b: &[u8]) -> Option<(usize, usize)> {
     } else if first == 0x81 {
         Some((*b.get(1)? as usize, 2))
     } else if first == 0x82 {
-        Some(
-            (((*b.get(1)? as usize) << 8) | (*b.get(2)? as usize), 3),
-        )
+        Some((((*b.get(1)? as usize) << 8) | (*b.get(2)? as usize), 3))
     } else {
         None
     }
@@ -226,7 +230,8 @@ mod tests {
         let mut st = test_storage();
         let mut s = PivNvsStore::new(&mut st);
         assert_eq!(s.load_record("piv_pin_hash"), Err(PivStoreError::NotFound));
-        s.store_record("piv_pin_hash", b"h".repeat(16).as_slice()).expect("store");
+        s.store_record("piv_pin_hash", b"h".repeat(16).as_slice())
+            .expect("store");
         assert_eq!(s.load_record("piv_pin_hash").expect("load").len(), 16);
         s.delete_record("piv_pin_hash").expect("delete");
         s.delete_record("piv_pin_hash").expect("re-delete ok");
@@ -255,8 +260,14 @@ mod tests {
         let der = raw_to_der(&resp);
         assert!(vk.verify(chal, &der).is_ok());
         // RSA indisponível; slot duplicado falha sem sobrescrever.
-        assert_eq!(be.generate(PivSlot::Auth9A, 0x11).unwrap_err(), PivCryptoError::Failed);
-        assert_eq!(be.generate(PivSlot::Sign9C, 0x06).unwrap_err(), PivCryptoError::BadAlg);
+        assert_eq!(
+            be.generate(PivSlot::Auth9A, 0x11).unwrap_err(),
+            PivCryptoError::Failed
+        );
+        assert_eq!(
+            be.generate(PivSlot::Sign9C, 0x06).unwrap_err(),
+            PivCryptoError::BadAlg
+        );
     }
 
     /// R||S cru → DER (só p/ teste; inverso de `der_to_raw`).
@@ -265,7 +276,10 @@ mod tests {
         let n = raw.len() / 2;
         fn enc(v: &[u8]) -> Vec<u8> {
             let t = {
-                let i = v.iter().position(|b| *b != 0).unwrap_or(v.len().saturating_sub(1));
+                let i = v
+                    .iter()
+                    .position(|b| *b != 0)
+                    .unwrap_or(v.len().saturating_sub(1));
                 &v[i..]
             };
             let t: &[u8] = if t.is_empty() { &[0u8] } else { t };
@@ -293,11 +307,8 @@ mod tests {
         assert!(der_to_raw(b"\x30\x03\x02\x01\x01", 32).is_none());
         // DER real P-256 (70-72B) deve dar 64B.
         let mut rng = rand_core::OsRng;
-        let kp = aegis_fido_core::crypto::curves::KeyPair::generate(
-            CoseAlgorithm::ES256,
-            &mut rng,
-        )
-        .expect("kp");
+        let kp = aegis_fido_core::crypto::curves::KeyPair::generate(CoseAlgorithm::ES256, &mut rng)
+            .expect("kp");
         let der = kp.sign(b"m").expect("sign");
         let raw = der_to_raw(&der, 32).expect("raw");
         assert_eq!(raw.len(), 64);

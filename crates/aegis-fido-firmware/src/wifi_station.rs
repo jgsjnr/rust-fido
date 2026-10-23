@@ -6,10 +6,10 @@
 //! - Station SO fora de pareamento; durante pareamento usa fallback AP.
 //! - Nucleo sem I/O; ESP liga o radio via `start_station_esp`.
 
-use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
-use crate::persistence::{FlashStorageBackend, SecureStorage};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use aegis_fido_core::policy::{PolicyError, UpAndPin, UpPolicy};
 
 /// Chave NVS do SSID da station (envelope AES-GCM).
 pub const WIFI_STA_SSID_NVS_KEY: &str = "wifi_sta_ssid";
@@ -139,7 +139,9 @@ pub struct WifiStationManager {
 impl WifiStationManager {
     /// Cria desligada.
     pub fn new() -> Self {
-        Self { state: WifiStationState::Off }
+        Self {
+            state: WifiStationState::Off,
+        }
     }
 
     /// Estado atual.
@@ -292,7 +294,6 @@ pub fn esp_sta_ip() -> [u8; 4] {
     [0, 0, 0, 0]
 }
 
-
 // Gates de binding para `/wifi/creds` (`binding.rs`).
 //
 // - Save/clear das credenciais station: binding + UP + PIN.
@@ -321,7 +322,13 @@ pub fn save_station_credentials_bound<B: FlashStorageBackend>(
     presence_confirmed: bool,
 ) -> Result<(), WifiStationError> {
     require_bound_station(binding_ok)?;
-    save_station_credentials(storage, ssid, password, pin_authenticated, presence_confirmed)
+    save_station_credentials(
+        storage,
+        ssid,
+        password,
+        pin_authenticated,
+        presence_confirmed,
+    )
 }
 
 /// Apaga credenciais da station com binding: binding + UP + PIN.
@@ -374,7 +381,8 @@ mod tests {
             save_station_credentials(&mut st, "Casa-5G", "curta", true, true),
             Err(WifiStationError::InvalidPassword)
         );
-        save_station_credentials(&mut st, "Casa-5G", "senha-segura-123", true, true).expect("save ok");
+        save_station_credentials(&mut st, "Casa-5G", "senha-segura-123", true, true)
+            .expect("save ok");
         assert!(has_station_credentials(&st));
         assert_eq!(st.load(WIFI_STA_SSID_NVS_KEY).expect("ssid"), b"Casa-5G");
     }

@@ -8,12 +8,11 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use p256::ecdsa::{SigningKey, signature::Signer};
+use p256::ecdsa::{signature::Signer, SigningKey};
 
 /// Official AAGUID for AegisKey S3 Authenticator
 pub const AEGISKEY_AAGUID: [u8; 16] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 ];
 
 /// DER-encoded X.509 v3 Batch Attestation Certificate for AegisKey S3 Authenticator
@@ -53,10 +52,8 @@ pub const AEGIS_ATTESTATION_CERT_DER: &[u8] = &[
 
 /// Attestation Private Key (P-256 scalar)
 const ATTESTATION_PRIVATE_KEY_BYTES: [u8; 32] = [
-    0xae, 0x61, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0xae, 0x61, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ];
 
 /// Signs an attestation statement over (authData || clientDataHash) using the batch attestation key.
@@ -72,7 +69,7 @@ pub fn sign_batch_attestation(to_sign: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p256::ecdsa::{VerifyingKey, signature::Verifier};
+    use p256::ecdsa::{signature::Verifier, VerifyingKey};
 
     #[test]
     fn test_aegis_batch_attestation_signature() {
@@ -85,8 +82,10 @@ mod tests {
         let sig = p256::ecdsa::DerSignature::from_bytes(&sig_bytes).unwrap();
         assert!(verifying_key.verify(msg, &sig).is_ok());
 
-        assert_eq!(AEGISKEY_AAGUID, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+        assert_eq!(
+            AEGISKEY_AAGUID,
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        );
         assert_eq!(AEGIS_ATTESTATION_CERT_DER.len(), 491);
     }
 }
-

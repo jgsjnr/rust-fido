@@ -93,8 +93,7 @@ where
         let cap = self.buf.as_ref().len();
         let remain = cap.saturating_sub(self.len);
         let take = remain.min(s.len());
-        self.buf.as_mut()[self.len..self.len + take]
-            .copy_from_slice(&s.as_bytes()[..take]);
+        self.buf.as_mut()[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
         self.len = self.len.saturating_add(take);
         Ok(())
     }

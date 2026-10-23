@@ -92,9 +92,7 @@ pub fn migrate_vault_v7<B: FlashStorageBackend>(
         if let Err(e) = vault_index_union_add(storage, &done) {
             cleanup_partial(storage, &done);
             return Err(match e {
-                crate::vault_store::VaultStoreError::BadLabel => {
-                    MigrationError::LegacyUnreadable
-                }
+                crate::vault_store::VaultStoreError::BadLabel => MigrationError::LegacyUnreadable,
                 _ => MigrationError::Storage(StorageError::FlashWriteError),
             });
         }
@@ -202,7 +200,11 @@ mod tests {
         assert!(!rep.already_migrated);
         assert!(is_migrated_v7(&st));
         for key in ["legacy1", "legacy2"] {
-            let expected: &[u8] = if key == "legacy1" { b"secret-one" } else { b"secret-two" };
+            let expected: &[u8] = if key == "legacy1" {
+                b"secret-one"
+            } else {
+                b"secret-two"
+            };
             let mut live = String::from(VAULT_LIVE_PREFIX);
             live.push_str(key);
             let mut a = String::from(VAULT_A_PREFIX);
@@ -268,7 +270,11 @@ mod tests {
         fn read_raw(&self, key: &str) -> Result<Vec<u8>, crate::persistence::StorageError> {
             self.inner.read_raw(key)
         }
-        fn write_raw(&mut self, key: &str, data: &[u8]) -> Result<(), crate::persistence::StorageError> {
+        fn write_raw(
+            &mut self,
+            key: &str,
+            data: &[u8],
+        ) -> Result<(), crate::persistence::StorageError> {
             if key == self.fail_key {
                 return Err(crate::persistence::StorageError::FlashWriteError);
             }
@@ -295,7 +301,12 @@ mod tests {
         assert!(res.is_err());
         assert!(!is_migrated_v7(&st));
         assert!(!st.exists(MIGRATION_VAULT_V7_KEY));
-        for prefix in [VAULT_LIVE_PREFIX, VAULT_A_PREFIX, VAULT_B_PREFIX, VAULT_BACKUP_PREFIX] {
+        for prefix in [
+            VAULT_LIVE_PREFIX,
+            VAULT_A_PREFIX,
+            VAULT_B_PREFIX,
+            VAULT_BACKUP_PREFIX,
+        ] {
             let mut s1 = String::from(prefix);
             s1.push_str("k1");
             let mut s2 = String::from(prefix);

@@ -39,6 +39,9 @@ pub const EV_WALLET: u8 = 0x0D;
 pub const EV_RESCUE: u8 = 0x0E;
 pub const EV_OTA: u8 = 0x0F;
 pub const EV_ERR: u8 = 0x10;
+/// ADV recusado por falta de memoria no controller (rc=519 HCI
+/// Memory Capacity Exceeded com instancia residual). Nao consome retry.
+pub const EV_ADV_NOMEM: u8 = 0x11;
 
 /// Capacidade do anel (16 B/entrada -> 1 KiB de RAM).
 pub const FW_LOG_CAP: usize = 64;

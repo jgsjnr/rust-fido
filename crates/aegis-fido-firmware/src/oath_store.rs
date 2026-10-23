@@ -9,10 +9,10 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::migrations::keys_oath_v6::{oath6_key, validate_v6_label};
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::migrations::keys_oath_v6::{oath6_key, validate_v6_label};
+use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 
 /// Limite do blob OATH por slot (9.3 TLV total <=512B).
 pub const OATH_STORE_MAX_BYTES: usize = 512;
@@ -102,7 +102,6 @@ pub fn oath_store_delete<B: FlashStorageBackend>(
     crate::ltrace!(LtCat::Oath, LtEvt::OathDelete, label);
     Ok(())
 }
-
 
 // Gates de binding para OATH PUT/DELETE/LIST/CODE (`binding.rs`).
 //

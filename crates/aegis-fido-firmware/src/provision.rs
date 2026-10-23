@@ -10,6 +10,7 @@
 //!   TRNG-ephemeral keys via `OsRng` (dev-only, never hardcoded, never committed).
 //! - Segredos nunca no repo: nenhum `0x5A`/`0xA5`/serial fixo neste arquivo.
 
+#[cfg(not(target_os = "espidf"))]
 use rand_core::RngCore;
 
 use crate::efuse::{EfuseManager, EfuseStorage, EFUSE_KEY_LEN};
@@ -54,8 +55,12 @@ pub fn is_provisioned<S: EfuseStorage>(mgr: &EfuseManager<S>) -> bool {
 pub fn load_device_keys<S: EfuseStorage>(
     mgr: &EfuseManager<S>,
 ) -> Result<DeviceKeys, ProvisionError> {
-    let master = mgr.get_master_key().map_err(|_| ProvisionError::EfuseFault)?;
-    let salt = mgr.get_device_salt().map_err(|_| ProvisionError::EfuseFault)?;
+    let master = mgr
+        .get_master_key()
+        .map_err(|_| ProvisionError::EfuseFault)?;
+    let salt = mgr
+        .get_device_salt()
+        .map_err(|_| ProvisionError::EfuseFault)?;
     if is_all_zero(&master) || is_all_zero(&salt) {
         return fallback_or_error();
     }

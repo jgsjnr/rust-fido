@@ -14,8 +14,14 @@ pub mod presence;
 pub mod tlv;
 pub mod types;
 
-pub use applet::{OathApplet, OathCodeResult, OathDeviceError, OathSlot, APPLET_VERSION, HOTP_JOURNAL_MAGIC, HOTP_JOURNAL_MAX_ENTRIES, MAX_CREDENTIALS, MAX_OATH_DIGITS, MAX_OATH_LABEL_BYTES, MAX_OATH_SLOTS, MIN_OATH_DIGITS, MIN_OATH_LABEL_BYTES, OATH_PERIOD_SECS, OATH_TLV_MAX_BYTES};
-pub use crypto::{calculate_code, calculate_code_from_challenge, compute_hmac, pbkdf2_sha1, truncate_digest};
+pub use applet::{
+    OathApplet, OathCodeResult, OathDeviceError, OathSlot, APPLET_VERSION, HOTP_JOURNAL_MAGIC,
+    HOTP_JOURNAL_MAX_ENTRIES, MAX_CREDENTIALS, MAX_OATH_DIGITS, MAX_OATH_LABEL_BYTES,
+    MAX_OATH_SLOTS, MIN_OATH_DIGITS, MIN_OATH_LABEL_BYTES, OATH_PERIOD_SECS, OATH_TLV_MAX_BYTES,
+};
+pub use crypto::{
+    calculate_code, calculate_code_from_challenge, compute_hmac, pbkdf2_sha1, truncate_digest,
+};
 pub use presence::{
     AlwaysPresentVerifier, Gpio0TouchVerifier, MockPresenceVerifier, NeverPresentVerifier,
     PresenceError, PresenceVerifier,
@@ -29,9 +35,9 @@ pub type OathEngine = OathApplet;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand_core::OsRng;
     use alloc::vec;
     use alloc::vec::Vec;
+    use rand_core::OsRng;
 
     #[test]
     fn test_ykoath_select() {
@@ -48,7 +54,10 @@ mod tests {
         let records = parse_tlv_records(&resp).unwrap();
         assert_eq!(find_tlv(&records, TAG_VERSION).unwrap(), &APPLET_VERSION);
         assert_eq!(find_tlv(&records, TAG_NAME).unwrap(), &applet.salt);
-        assert_eq!(find_tlv(&records, TAG_ALGORITHM).unwrap(), &[0x01, 0x02, 0x03]);
+        assert_eq!(
+            find_tlv(&records, TAG_ALGORITHM).unwrap(),
+            &[0x01, 0x02, 0x03]
+        );
     }
 
     #[test]
@@ -108,12 +117,21 @@ mod tests {
         // 5. CALCULATE ALL
         let mut calc_all_data = Vec::new();
         write_tlv(&mut calc_all_data, TAG_CHALLENGE, &challenge);
-        let mut calc_all_apdu = vec![0x00, INS_CALCULATE_ALL, 0x00, 0x01, calc_all_data.len() as u8];
+        let mut calc_all_apdu = vec![
+            0x00,
+            INS_CALCULATE_ALL,
+            0x00,
+            0x01,
+            calc_all_data.len() as u8,
+        ];
         calc_all_apdu.extend_from_slice(&calc_all_data);
         let (calc_all_resp, sw) = applet.handle_apdu(&calc_all_apdu, &mut rng, &mut presence);
         assert_eq!(sw, SW_SUCCESS);
         let all_records = parse_tlv_records(&calc_all_resp).unwrap();
-        assert_eq!(find_tlv(&all_records, TAG_NAME).unwrap(), b"TestService:alice");
+        assert_eq!(
+            find_tlv(&all_records, TAG_NAME).unwrap(),
+            b"TestService:alice"
+        );
         let all_trunc = find_tlv(&all_records, TAG_TRUNCATED_RESPONSE).unwrap();
         let all_code = u32::from_be_bytes([all_trunc[1], all_trunc[2], all_trunc[3], all_trunc[4]]);
         assert_eq!(all_code, 287082);

@@ -10,14 +10,7 @@ use alloc::vec::Vec;
 extern "C" {
     fn aegis_display_init() -> esp_idf_sys::esp_err_t;
     fn aegis_display_set_backlight(on: bool);
-    fn aegis_display_flush(
-        x1: u16,
-        y1: u16,
-        x2: u16,
-        y2: u16,
-        pixels: *const u16,
-        count: u32,
-    );
+    fn aegis_display_flush(x1: u16, y1: u16, x2: u16, y2: u16, pixels: *const u16, count: u32);
 }
 
 /// ST7789 Display Controller Configuration
@@ -68,6 +61,9 @@ impl St7789Display {
     /// Initializes SPI Bus, GPIOs and ST7789 Controller
     pub fn init_hardware(&mut self) -> Result<(), &'static str> {
         #[cfg(target_os = "espidf")]
+        // SAFETY: `aegis_display_init` takes no pointers and only programs the
+        // board SPI/GPIO block; the return is checked against `ESP_OK` before
+        // marking the driver initialized.
         unsafe {
             let ret = aegis_display_init();
             if ret != esp_idf_sys::ESP_OK {
@@ -84,6 +80,8 @@ impl St7789Display {
         let _ = on;
         #[cfg(target_os = "espidf")]
         if self.is_initialized {
+            // SAFETY: `aegis_display_set_backlight` takes only a bool (no
+            // pointers) and is only reached after successful `init_hardware`.
             unsafe {
                 aegis_display_set_backlight(on);
             }
@@ -102,6 +100,9 @@ impl St7789Display {
         }
 
         #[cfg(target_os = "espidf")]
+        // SAFETY: `be` is a live `Vec<u16>` for the whole synchronous FFI call
+        // and `be.as_ptr()`/`be.len()` stay in sync; slice ranges come from
+        // clamped band math (`y0..y0 + h` within `DISPLAY_HEIGHT`).
         unsafe {
             use super::ui::{DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH};
             use embedded_graphics::prelude::IntoStorage;
@@ -144,6 +145,9 @@ impl St7789Display {
             return Err("Display not initialized");
         }
         #[cfg(target_os = "espidf")]
+        // SAFETY: `band`/`be` are live for the whole synchronous FFI call and
+        // `be.as_ptr()`/`be.len()` stay in sync; the flushed window
+        // (`y0..y0 + h`) is clamped to `DISPLAY_HEIGHT` by the loop.
         unsafe {
             use super::ui::{
                 AegisUiRenderer, DisplayBand, DISPLAY_BAND_HEIGHT, DISPLAY_HEIGHT, DISPLAY_WIDTH,
@@ -160,7 +164,11 @@ impl St7789Display {
                 band.set_window(y0, h);
                 AegisUiRenderer::render(screen, &mut band);
                 be.clear();
-                be.extend(band.pixels.iter().map(|px| (*px).into_storage().swap_bytes()));
+                be.extend(
+                    band.pixels
+                        .iter()
+                        .map(|px| (*px).into_storage().swap_bytes()),
+                );
                 aegis_display_flush(
                     0,
                     y0 as u16,

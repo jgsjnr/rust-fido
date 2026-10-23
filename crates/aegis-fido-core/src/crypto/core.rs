@@ -5,10 +5,14 @@
 //! the `CryptoCore` marker for L2 audit boundaries (CBOR/USB/frames preserved).
 
 pub use super::aead::{aes_256_gcm_decrypt, aes_256_gcm_encrypt, open_blob, seal_blob, AeadError};
-pub use super::cose::{CoseKey, COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512};
+pub use super::cose::{
+    CoseKey, COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512,
+};
 pub use super::ecdh::EcdhKeyAgreement;
 pub use super::hash::{hkdf_sha256, hmac_sha256, sha256, sha512};
-pub use super::kdf::{evaluate_prf, hkdf_expand, hkdf_extract, hkdf_sha256 as kdf_hkdf_sha256, KdfError};
+pub use super::kdf::{
+    evaluate_prf, hkdf_expand, hkdf_extract, hkdf_sha256 as kdf_hkdf_sha256, KdfError,
+};
 
 /// Pure cryptographic core marker.
 ///

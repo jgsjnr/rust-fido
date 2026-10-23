@@ -132,7 +132,11 @@ impl CtapHidError {
 
 impl fmt::Display for CtapHidError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CTAPHID Error(CID: 0x{:08X}, Code: 0x{:02X})", self.cid, self.code)
+        write!(
+            f,
+            "CTAPHID Error(CID: 0x{:08X}, Code: 0x{:02X})",
+            self.cid, self.code
+        )
     }
 }
 
@@ -542,7 +546,12 @@ mod tests {
 
         let parsed = CtapHidManager::parse_raw_packet(&init_resp).unwrap();
         match parsed {
-            RawPacket::Init { cid, cmd, total_len, payload } => {
+            RawPacket::Init {
+                cid,
+                cmd,
+                total_len,
+                payload,
+            } => {
                 assert_eq!(cid, BROADCAST_CID);
                 assert_eq!(cmd, CMD_INIT);
                 assert_eq!(total_len, 17);

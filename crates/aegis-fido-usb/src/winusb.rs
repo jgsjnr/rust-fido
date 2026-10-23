@@ -121,7 +121,9 @@ pub fn build_challenge_payload_msg(challenge: &[u8; WINUSB_CHALLENGE_LEN]) -> Wi
 }
 
 /// Extrai o challenge 32B de um `WinUsbMessage` (valida cmd + tamanho).
-pub fn parse_challenge_payload(msg: &WinUsbMessage) -> Result<[u8; WINUSB_CHALLENGE_LEN], &'static str> {
+pub fn parse_challenge_payload(
+    msg: &WinUsbMessage,
+) -> Result<[u8; WINUSB_CHALLENGE_LEN], &'static str> {
     if msg.cmd != CMD_CHALLENGE {
         return Err("Invalid WinUSB challenge command");
     }

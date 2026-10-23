@@ -166,6 +166,10 @@ pub fn adv_intervals(wifi_active: bool) -> (u16, u16) {
 pub const BLE_START_BACKOFF_MS: u64 = 5000;
 /// Desiste após N falhas até a próxima borda de `want` (janela reaberta).
 pub const BLE_START_MAX_TRIES: u32 = 3;
+/// HCI Memory Capacity Exceeded (0x200 `BLE_HS_EOS` base | 0x07): controller
+/// recusa o adv com instancia residual (`s_advertising=0` nosso vs controller
+/// anunciando). Nao consome retry do gate (backoff ate nova borda).
+pub const BLE_ADV_RC_NOMEM: i32 = 519;
 
 /// Gate de tentativas do `esp_ble_start` (F5/D08).
 ///
@@ -206,9 +210,7 @@ impl BleStartGate {
         if self.fails >= BLE_START_MAX_TRIES {
             return false;
         }
-        if self.last_try_ms != 0
-            && now_ms.saturating_sub(self.last_try_ms) < BLE_START_BACKOFF_MS
-        {
+        if self.last_try_ms != 0 && now_ms.saturating_sub(self.last_try_ms) < BLE_START_BACKOFF_MS {
             return false;
         }
         self.last_try_ms = now_ms;
@@ -222,6 +224,16 @@ impl BleStartGate {
         } else {
             self.fails = self.fails.saturating_add(1);
         }
+    }
+
+    /// Registra rc=519 (NOMEM residual): NAO consome as 3 tentativas.
+    ///
+    /// O controller recusou com instancia residual; retry cego so repete a
+    /// recusa. Mantem `fails` intacto (backoff de 5 s via `last_try_ms` ja
+    /// registrado em `allow`); o Rust loga `EV_ADV_NOMEM` e aguarda a proxima
+    /// borda/janela em vez de esgotar o gate.
+    pub fn on_nomem(&mut self) {
+        // Intencionalmente sem tocar em `fails`: 519 nao e falha contavel.
     }
 }
 
@@ -395,7 +407,11 @@ pub fn esp_ble_conn_active() -> bool {
 pub fn own_addr() -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let rc = unsafe { aegis_ble_own_addr(out.as_mut_ptr()) };
-    if rc == 0 { Some(out) } else { None }
+    if rc == 0 {
+        Some(out)
+    } else {
+        None
+    }
 }
 
 // Shims inertes no host (sem rádio; política testada por unidade).
@@ -431,7 +447,6 @@ pub fn esp_ble_conn_active() -> bool {
 pub fn own_addr() -> Option<[u8; 6]> {
     None
 }
-
 
 // ---------------------------------------------------------------------------
 // Wave2: anuncio de presenca 0xFFFE (rolling-code), separado do GATT 0xFFFD.
@@ -574,6 +589,30 @@ mod tests {
     }
 
     #[test]
+    fn rc_519_nao_consome_retry_do_gate() {
+        assert_eq!(BLE_ADV_RC_NOMEM, 519);
+        let mut g = BleStartGate::new();
+        // Borda tenta; 519 (NOMEM residual) nao conta como falha.
+        assert!(g.allow(true, 1000));
+        g.on_nomem();
+        // Backoff de 5 s segue valendo (last_try ja registrado), mas o gate
+        // nao esgotou: apos o backoff ainda tenta (fails intacto).
+        assert!(!g.allow(true, 2000));
+        assert!(g.allow(true, 6000));
+        // Duas falhas reais depois: ainda restam tentativas (519 nao gastou).
+        g.on_result(false);
+        assert!(!g.allow(true, 6500));
+        assert!(g.allow(true, 11000));
+        g.on_result(false);
+        assert!(g.allow(true, 16000));
+        g.on_result(false);
+        // So agora (3 falhas reais) o gate fecha ate nova borda.
+        assert!(!g.allow(true, 21000));
+        assert!(!g.allow(false, 22000));
+        assert!(g.allow(true, 23000));
+    }
+
+    #[test]
     fn adv_payload_carrega_uuid_e_cabe_em_31b() {
         for pairing in [false, true] {
             let p = encode_adv_payload(pairing);
@@ -655,7 +694,10 @@ mod tests {
         assert!(b.complete_pairing(true, LONG_PRESS_MS + 10));
         assert!(b.is_bonded());
         assert_eq!(b.state(), PairingState::Idle);
-        assert!(!should_advertise(&b, LONG_PRESS_MS + 10 + PAIRING_WINDOW_MS));
+        assert!(!should_advertise(
+            &b,
+            LONG_PRESS_MS + 10 + PAIRING_WINDOW_MS
+        ));
         assert!(should_advertise_reconnect(b.state(), true));
         // Fora de Idle (ex.: Locked): sem anúncio de reconexão.
         b.lock();
@@ -785,8 +827,8 @@ mod proximity_tests {
     use super::*;
     use crate::ble_gatt::PROXIMITY_SERVICE_UUID;
     use crate::proximity::{
-        PROXIMITY_BEACON_SVC_UUID16, PROXIMITY_BEACON_TAG_LEN, PROXIMITY_BEACON_VERSION,
         encode_proximity_svc_data, proximity_adv_allowed, proximity_tag,
+        PROXIMITY_BEACON_SVC_UUID16, PROXIMITY_BEACON_TAG_LEN, PROXIMITY_BEACON_VERSION,
     };
 
     fn tag_for(ctr: u32) -> [u8; PROXIMITY_BEACON_TAG_LEN] {
@@ -837,12 +879,48 @@ mod proximity_tests {
     #[test]
     fn presence_adv_needs_bonded_idle_trusted_no_usb_and_key() {
         use crate::pairing::PairingState;
-        assert!(should_adv_proximity(PairingState::Idle, true, true, false, true));
-        assert!(!should_adv_proximity(PairingState::Idle, false, true, false, true));
-        assert!(!should_adv_proximity(PairingState::Locked, true, true, false, true));
-        assert!(!should_adv_proximity(PairingState::Idle, true, false, false, true));
-        assert!(!should_adv_proximity(PairingState::Idle, true, true, true, true));
-        assert!(!should_adv_proximity(PairingState::Idle, true, true, false, false));
+        assert!(should_adv_proximity(
+            PairingState::Idle,
+            true,
+            true,
+            false,
+            true
+        ));
+        assert!(!should_adv_proximity(
+            PairingState::Idle,
+            false,
+            true,
+            false,
+            true
+        ));
+        assert!(!should_adv_proximity(
+            PairingState::Locked,
+            true,
+            true,
+            false,
+            true
+        ));
+        assert!(!should_adv_proximity(
+            PairingState::Idle,
+            true,
+            false,
+            false,
+            true
+        ));
+        assert!(!should_adv_proximity(
+            PairingState::Idle,
+            true,
+            true,
+            true,
+            true
+        ));
+        assert!(!should_adv_proximity(
+            PairingState::Idle,
+            true,
+            true,
+            false,
+            false
+        ));
         assert_eq!(
             should_adv_proximity(PairingState::Idle, true, true, false, true),
             proximity_adv_allowed(true, true, true, false, true)
@@ -853,7 +931,10 @@ mod proximity_tests {
     fn presence_intervals_follow_wifi_coex() {
         assert_eq!(proximity_adv_intervals(false), adv_intervals(false));
         assert_eq!(proximity_adv_intervals(true), adv_intervals(true));
-        assert_ne!(proximity_adv_intervals(false), proximity_adv_intervals(true));
+        assert_ne!(
+            proximity_adv_intervals(false),
+            proximity_adv_intervals(true)
+        );
     }
 
     #[test]

@@ -73,8 +73,14 @@ mod tests {
 
     #[test]
     fn should_map_each_network_to_its_cose_algorithm() {
-        assert_eq!(CryptoNetwork::Bitcoin.cose_algorithm(), CoseAlgorithm::ES256K);
-        assert_eq!(CryptoNetwork::EthereumEvm.cose_algorithm(), CoseAlgorithm::ES256K);
+        assert_eq!(
+            CryptoNetwork::Bitcoin.cose_algorithm(),
+            CoseAlgorithm::ES256K
+        );
+        assert_eq!(
+            CryptoNetwork::EthereumEvm.cose_algorithm(),
+            CoseAlgorithm::ES256K
+        );
         assert_eq!(CryptoNetwork::Solana.cose_algorithm(), CoseAlgorithm::EdDSA);
     }
 

@@ -99,8 +99,7 @@ impl WalletStore {
         let mut i = 0;
         while i < bytes.len() {
             let slot_id = bytes[i];
-            let network =
-                CryptoNetwork::from_u8(bytes[i + 1]).ok_or(WalletError::BadEnvelope)?;
+            let network = CryptoNetwork::from_u8(bytes[i + 1]).ok_or(WalletError::BadEnvelope)?;
             if (slot_id as usize) >= MAX_KEY_SLOTS {
                 return Err(WalletError::BadEnvelope);
             }
@@ -138,8 +137,7 @@ impl WalletStore {
             .ok_or(WalletError::NoSlot)?;
         let network = self.network_of(slot_id)?;
         let cose = self.manager.public_cose(slot_id, presence_confirmed)?;
-        let pubkey =
-            PublicKey::from_cose_cbor(&cose).map_err(|_| WalletError::BadEnvelope)?;
+        let pubkey = PublicKey::from_cose_cbor(&cose).map_err(|_| WalletError::BadEnvelope)?;
         let address = address_for_public_key(&pubkey, network)?;
         Ok(WalletRecord {
             slot_id,
@@ -231,20 +229,12 @@ impl WalletStore {
     }
 
     /// GET (gate UP, inherited): metadata record with derived address.
-    pub fn get(
-        &self,
-        slot_id: u8,
-        presence_confirmed: bool,
-    ) -> Result<WalletRecord, WalletError> {
+    pub fn get(&self, slot_id: u8, presence_confirmed: bool) -> Result<WalletRecord, WalletError> {
         self.record_for(slot_id, presence_confirmed)
     }
 
     /// ADDRESS (gate UP, inherited): derived address for one slot.
-    pub fn address(
-        &self,
-        slot_id: u8,
-        presence_confirmed: bool,
-    ) -> Result<String, WalletError> {
+    pub fn address(&self, slot_id: u8, presence_confirmed: bool) -> Result<String, WalletError> {
         Ok(self.record_for(slot_id, presence_confirmed)?.address)
     }
 
@@ -336,7 +326,15 @@ mod tests {
         let mut rng = rand::rngs::OsRng;
         let mut foreign = KeyManager::new();
         foreign
-            .generate(0, CoseAlgorithm::ES256, String::from("fido"), KEY_USE_SIGN, 0, true, &mut rng)
+            .generate(
+                0,
+                CoseAlgorithm::ES256,
+                String::from("fido"),
+                KEY_USE_SIGN,
+                0,
+                true,
+                &mut rng,
+            )
             .unwrap();
         let mut store = btc_store();
         for id in 0..3u8 {
@@ -369,10 +367,7 @@ mod tests {
         store
             .generate(CryptoNetwork::Bitcoin, 0, "x", 0, true, &mut rng)
             .unwrap();
-        assert_eq!(
-            store.sign(0, MSG, false).unwrap_err(),
-            WalletError::NeedUp
-        );
+        assert_eq!(store.sign(0, MSG, false).unwrap_err(), WalletError::NeedUp);
         assert_eq!(
             store.public_cose(0, false).unwrap_err(),
             WalletError::NeedUp
@@ -390,18 +385,51 @@ mod tests {
         let mut store = WalletStore::new();
         assert_eq!(
             store
-                .import(CryptoNetwork::Solana, CoseAlgorithm::EdDSA, 0, "s", 0, &env, PIN, false, true, &vault)
+                .import(
+                    CryptoNetwork::Solana,
+                    CoseAlgorithm::EdDSA,
+                    0,
+                    "s",
+                    0,
+                    &env,
+                    PIN,
+                    false,
+                    true,
+                    &vault
+                )
                 .unwrap_err(),
             WalletError::NeedUp
         );
         assert_eq!(
             store
-                .import(CryptoNetwork::Solana, CoseAlgorithm::EdDSA, 0, "s", 0, &env, PIN, true, false, &vault)
+                .import(
+                    CryptoNetwork::Solana,
+                    CoseAlgorithm::EdDSA,
+                    0,
+                    "s",
+                    0,
+                    &env,
+                    PIN,
+                    true,
+                    false,
+                    &vault
+                )
                 .unwrap_err(),
             WalletError::NeedPin
         );
         store
-            .import(CryptoNetwork::Solana, CoseAlgorithm::EdDSA, 0, "s", 0, &env, PIN, true, true, &vault)
+            .import(
+                CryptoNetwork::Solana,
+                CoseAlgorithm::EdDSA,
+                0,
+                "s",
+                0,
+                &env,
+                PIN,
+                true,
+                true,
+                &vault,
+            )
             .unwrap();
         assert_eq!(
             store.delete(0, true, false).unwrap_err(),
@@ -424,7 +452,18 @@ mod tests {
         let mut store = WalletStore::new();
         assert_eq!(
             store
-                .import(CryptoNetwork::Solana, CoseAlgorithm::EdDSA, 0, "s", 0, &env, b"wrong-pin", true, true, &vault)
+                .import(
+                    CryptoNetwork::Solana,
+                    CoseAlgorithm::EdDSA,
+                    0,
+                    "s",
+                    0,
+                    &env,
+                    b"wrong-pin",
+                    true,
+                    true,
+                    &vault
+                )
                 .unwrap_err(),
             WalletError::BadEnvelope
         );
@@ -432,12 +471,34 @@ mod tests {
         tampered[20] ^= 0x55;
         assert_eq!(
             store
-                .import(CryptoNetwork::Solana, CoseAlgorithm::EdDSA, 1, "t", 0, &tampered, PIN, true, true, &vault)
+                .import(
+                    CryptoNetwork::Solana,
+                    CoseAlgorithm::EdDSA,
+                    1,
+                    "t",
+                    0,
+                    &tampered,
+                    PIN,
+                    true,
+                    true,
+                    &vault
+                )
                 .unwrap_err(),
             WalletError::BadEnvelope
         );
         let rec = store
-            .import(CryptoNetwork::Solana, CoseAlgorithm::EdDSA, 2, "s", 0, &env, PIN, true, true, &vault)
+            .import(
+                CryptoNetwork::Solana,
+                CoseAlgorithm::EdDSA,
+                2,
+                "s",
+                0,
+                &env,
+                PIN,
+                true,
+                true,
+                &vault,
+            )
             .unwrap();
         assert_eq!(rec.slot_id, 2);
         assert_eq!(rec.network, CryptoNetwork::Solana);
@@ -445,7 +506,18 @@ mod tests {
         // Declared alg disagreeing with the network stores nothing.
         assert_eq!(
             store
-                .import(CryptoNetwork::Bitcoin, CoseAlgorithm::EdDSA, 3, "b", 0, &env, PIN, true, true, &vault)
+                .import(
+                    CryptoNetwork::Bitcoin,
+                    CoseAlgorithm::EdDSA,
+                    3,
+                    "b",
+                    0,
+                    &env,
+                    PIN,
+                    true,
+                    true,
+                    &vault
+                )
                 .unwrap_err(),
             WalletError::BadEnvelope
         );
@@ -571,10 +643,7 @@ mod tests {
             alloc::vec![255, 0x03],
             alloc::vec![1, 0x02, 1, 0x03],
         ] {
-            assert_eq!(
-                store.import_routing(&bad),
-                Err(WalletError::BadEnvelope)
-            );
+            assert_eq!(store.import_routing(&bad), Err(WalletError::BadEnvelope));
             assert_eq!(store.export_routing(), good);
         }
     }

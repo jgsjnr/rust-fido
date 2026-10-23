@@ -365,13 +365,17 @@ def _t04(c):
 
 
 def _t05(c):
+    # Setup afirma up_pending=0 + touch=0 (dispatcher `touch_latched`
+    # visível via TEST_LED_STATE): sem latch obsoleto, 0x01 é determinístico
+    # salvo toque físico no BOOT mid-phase (fora do controle de software).
     st, _ = c.msg(bytes([OP["KEY_LIST"]]))
     c.check("T05", "KEY_LIST sem UP barra", st, 0x01)
 
 
 def _t06(c):
-    # Sem UP e sem janela: pairing barra primeiro (0x05). Se der 0x01, uma
-    # janela residual ainda está aberta (placa não reseta; ver fw-log).
+    # Setup limpo (TEST_PAIRING_CLOSE) fecha janela residual de sessão
+    # anterior: sem UP e sem janela o gate pairing barra primeiro (0x05),
+    # determinístico — não mais tolerante a 0x01.
     st, _ = c.msg(bytes([OP["WALLET_GEN"], 0x01, 0x01, 0x00]))
     if st == 0x05:
         c.rec("T06", "WALLET_GEN sem UP/janela barra", "pass", "0x05")
@@ -381,8 +385,9 @@ def _t06(c):
 
 
 def _t06b(c):
-    # Com UP mas sem janela: pairing/bind barra (0x05). TLV inválido de
-    # propósito: mesmo com janela aberta por engano, não cria nada.
+    # Setup limpo (TEST_PAIRING_CLOSE): com UP mas sem janela o gate
+    # pairing/bind barra (0x05), determinístico. TLV inválido de propósito:
+    # mesmo com janela aberta por engano, não cria nada.
     st, _ = c.msg_up(bytes([OP["WALLET_GEN"], 0x01, 0x01, 0x00]))
     c.check("T06b", "WALLET_GEN com UP sem janela barra", st, 0x05)
 
@@ -445,7 +450,9 @@ def _t07c(c):
 
 def _t13(c):
     # F2: GEN executa de verdade (0x00 + eco slot/label). Rotaciona 5..9
-    # (NVS persiste entre boots agora).
+    # (NVS persiste entre boots agora). Janela reaberta aqui: a fase toda
+    # não cabe nos 60 s do T11 quando o fio está lento (resync).
+    c.pairing()
     st, body, used = 0x03, b"", None
     for slot in (5, 6, 7, 8, 9):
         req = (tlv(0x01, bytes([slot])) + tlv(0x02, E2E_LABEL)
@@ -492,6 +499,8 @@ E2E_OATH_SECRET = bytes(range(20))
 
 
 def _t15(c):
+    # Janela reaberta (fase lenta estoura os 60 s do T11; ver _t13).
+    c.pairing()
     put = tlv(0x71, E2E_OATH) + tlv(0x73, bytes([0x11, 0x06]) + E2E_OATH_SECRET)
     st, body = c.msg_up(bytes([OP["OATH_PUT"]]) + put)
     # PUT é privilegiada (UP+PIN): sem PIN na sessão, o certo é 0x02.
@@ -587,6 +596,8 @@ def _t18(c):
 def _t19(c):
     # A placa NÃO reseta ao abrir (SerialLink sem DTR): WalletStore (RAM)
     # persiste entre rodadas; roda slots 6..9 até achar um livre.
+    # Janela reaberta (fase lenta estoura os 60 s do T11; ver _t13).
+    c.pairing()
     addr1 = b""
     used = None
     st = 0x03
@@ -606,6 +617,8 @@ def _t19(c):
 
 
 def _t20(c):
+    # Janela reaberta (fase lenta estoura os 60 s do T11; ver _t13).
+    c.pairing()
     slot = getattr(c, "ctx_slot", None)
     if slot is None:
         # Sem T19 na mesma sessão: só prova que LIST responde 0x00.
@@ -632,6 +645,8 @@ def _t21(c):
 
 
 def _t22(c):
+    # Janela reaberta (fase lenta estoura os 60 s do T11; ver _t13).
+    c.pairing()
     bad = tlv(0x01, bytes([E2E_SLOT_BADNET])) + tlv(0x02, b"e2e-bad") + tlv(0x08, bytes([0x09]))
     st, _ = c.msg_up(bytes([OP["WALLET_GEN"]]) + bad)
     c.check("T22", "WALLET rede invalida barra", st, 0x04)
@@ -982,6 +997,59 @@ PHASES = {
 }
 
 
+def _setup_clean(c):
+    """SETUP determinístico: fecha janela residual de sessão anterior.
+
+    A placa não reseta ao reabrir a serial: uma janela de 60 s aberta por
+    sonda anterior (GEN/fase base) ainda vale e faz T06 ver 0x01 em vez de
+    0x05. Fecha via TEST_PAIRING_CLOSE (host + teste) e afirma ambos os
+    latches limpos via TEST_LED_STATE (leitura sem efeito colateral):
+    `up_pending` (latch 1x do TEST_UP) e `touch` (flag do dispatcher
+    `touch_latched`, que é o que o gate CTAP realmente consome). Retorna
+    False para abortar a fase (firmware sem o hook).
+    """
+    try:
+        txt = c.s.send_text_line("TEST_PAIRING_CLOSE", timeout_s=5.0,
+                                 until=b"pairing_closed")
+    except (OSError, TimeoutError, ValueError) as e:
+        c.rec("SETUP", "fecha janela residual", "fail",
+              "firmware sem TEST_PAIRING_CLOSE (%s)" % str(e)[:60])
+        return False
+    if "pairing_closed" not in txt or "source=software" not in txt:
+        c.rec("SETUP", "fecha janela residual", "fail",
+              "firmware sem TEST_PAIRING_CLOSE")
+        return False
+    try:
+        led = c.s.send_text_line("TEST_LED_STATE", timeout_s=5.0, until=b"led_state")
+    except (OSError, TimeoutError, ValueError) as e:
+        c.rec("SETUP", "latch limpo", "div",
+              "led_state ilegível (%s); segue fase" % str(e)[:60])
+        return True
+    def _dirty(s):
+        return ("up_pending=1" in s) or ("touch=1" in s)
+    if _dirty(led):
+        end = time.monotonic() + 3.0
+        while time.monotonic() < end:
+            time.sleep(0.5)
+            try:
+                led = c.s.send_text_line("TEST_LED_STATE", timeout_s=5.0,
+                                         until=b"led_state")
+            except (OSError, TimeoutError, ValueError):
+                break
+            if not _dirty(led):
+                break
+    up = "up_pending=1" in led
+    touch = "touch=1" in led
+    if up or touch:
+        c.rec("SETUP", "latch limpo", "div",
+              "latch persistiu up_pending=%d touch=%d (segue fase)"
+              % (up, touch))
+    else:
+        c.rec("SETUP", "janela fechada + latch limpo", "pass",
+              "pairing_closed + up_pending=0 touch=0")
+    return True
+
+
 def append_md(results, phase):
     now = datetime.datetime.now().strftime("%d/%m %H:%M")
     lines = ["", "### %s — phase=%s" % (now, phase)]
@@ -1041,7 +1109,11 @@ def main():
                 print("em --only isolado, rode: --phase pairing e veja T19+T21 juntos.")
         else:
             ids = PHASES[args.phase]
-            if args.phase in ("destructive", "wipe"):
+            # Setup determinístico (fase completa, nunca --only): fecha janela
+            # residual de sessão anterior antes do primeiro teste.
+            if not _setup_clean(c):
+                ids = []
+            if args.phase in ("destructive", "wipe") and ids:
                 # Janela fresca p/ a fase toda (gates pairing).
                 try:
                     _t11(c)
@@ -1049,8 +1121,8 @@ def main():
                     c.rec("T11", "abrir janela", "fail", str(e)[:100])
                     ids = []
             for tid in ids:
-                if tid == "T11":
-                    continue  # já aberta acima (destructive)
+                if tid == "T11" and args.phase in ("destructive", "wipe"):
+                    continue  # janela já aberta acima; pairing/all-safe executam T11
                 try:
                     REG[tid][0](c)
                 except (OSError, TimeoutError, ValueError) as e:

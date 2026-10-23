@@ -41,8 +41,8 @@ impl Transport for CtapHidManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::ctaphid::{CMD_CBOR, CMD_MSG};
+    use super::*;
 
     #[test]
     fn transport_send_recv_roundtrip() {

@@ -19,9 +19,9 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::binding::BindingManager;
-use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 
 /// Tamanho minimo do PIN de recovery (digitos ASCII).
 pub const RECOVERY_PIN_MIN_LEN: usize = 4;

@@ -10,10 +10,10 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-use aegis_fido_core::policy::{PolicyError, UpOnly, UpPolicy};
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use aegis_fido_core::policy::{PolicyError, UpOnly, UpPolicy};
+use alloc::vec::Vec;
 
 /// UUID16 do servico GATT (congelado para o app Android).
 pub const BLE_SERVICE_UUID: u16 = 0xFFFD;
@@ -303,9 +303,7 @@ impl BleReassembler {
         // rejeita como busy (chamador deve CANCEL primeiro).
         if fragment.len() >= 3 {
             let maybe_op = fragment[0];
-            if (maybe_op == OP_PING || maybe_op == OP_MSG)
-                && self.buf.len() < self.expected_len
-            {
+            if (maybe_op == OP_PING || maybe_op == OP_MSG) && self.buf.len() < self.expected_len {
                 // Ambiguidade resolvida como colisao apenas se parecer header novo:
                 // trata como colisao quando o buffer parcial nao avancou neste feed.
                 // Para manter determinismo no stub, so rejeita se fragmento
@@ -322,7 +320,11 @@ impl BleReassembler {
             }
         }
         // Apende como continuacao (1B seq + dados ou dados puros).
-        let data = if fragment.len() > 1 { &fragment[1..] } else { fragment };
+        let data = if fragment.len() > 1 {
+            &fragment[1..]
+        } else {
+            fragment
+        };
         if self.buf.len() + data.len() > self.expected_len {
             return Err(BleGattError::Overflow);
         }
@@ -467,7 +469,6 @@ impl Default for BleGattServer {
         Self::new()
     }
 }
-
 
 // Gates de binding para ops vendor Fase6 (§9.4 + `binding.rs`).
 //
@@ -657,7 +658,8 @@ pub fn dispatch_bind_verify(
     op: u8,
     payload_hash: &[u8; crate::binding::BIND_PAYLOAD_HASH_LEN],
 ) -> Result<(), BleGattError> {
-    if !is_vendor_keys_oath_op(op) && !is_bind_mgmt_op(op) && op != crate::binding::BIND_OP_RELEASE {
+    if !is_vendor_keys_oath_op(op) && !is_bind_mgmt_op(op) && op != crate::binding::BIND_OP_RELEASE
+    {
         return Err(BleGattError::InvalidOpcode);
     }
     binding
@@ -805,7 +807,10 @@ mod tests {
             assert_ne!(op, 0x2E);
             assert!(!(0x30..=0x34).contains(&op));
         }
-        assert_eq!((OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR), (0x35, 0x36, 0x37));
+        assert_eq!(
+            (OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR),
+            (0x35, 0x36, 0x37)
+        );
         assert!(!is_wallet_op(0x20));
         assert!(!is_wallet_op(0x2F));
         assert!(!is_wallet_op(0x34));
@@ -814,10 +819,19 @@ mod tests {
     #[test]
     fn wallet_gate_order_binding_then_up() {
         // Ordem canônica: binding -> UP (app alheio sempre vê NEED_BINDING).
-        assert_eq!(
-            authorize_wallet_op(OP_WALLET_GEN, false, false),
-            Err(BleGattError::NeedBinding)
-        );
+        // Com test-mode o bypass de vínculo documentado (binding.rs) pula a
+        // primeira barreira e o gate cai para UP — mesma ordem, sem vínculo.
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(
+                authorize_wallet_op(OP_WALLET_GEN, false, false),
+                Err(BleGattError::PresenceRequired)
+            );
+        } else {
+            assert_eq!(
+                authorize_wallet_op(OP_WALLET_GEN, false, false),
+                Err(BleGattError::NeedBinding)
+            );
+        }
         assert_eq!(
             authorize_wallet_op(OP_WALLET_LIST, true, false),
             Err(BleGattError::PresenceRequired)
@@ -879,7 +893,16 @@ mod tests {
     fn fase6_vendor_ops_reservados() {
         assert_eq!(VENDOR_OP_MIN, 0x20);
         assert_eq!(VENDOR_OP_MAX, 0x27);
-        for op in [OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_KEY_DELETE, OP_OATH_PUT, OP_OATH_LIST, OP_OATH_CODE, OP_OATH_DELETE] {
+        for op in [
+            OP_KEY_GEN_ONDEVICE,
+            OP_KEY_IMPORT_ENVELOPE,
+            OP_KEY_LIST,
+            OP_KEY_DELETE,
+            OP_OATH_PUT,
+            OP_OATH_LIST,
+            OP_OATH_CODE,
+            OP_OATH_DELETE,
+        ] {
             assert!(is_vendor_keys_oath_op(op));
             assert!(op != OP_PING && op != OP_MSG && op != OP_CANCEL);
         }
@@ -893,7 +916,14 @@ mod tests {
     #[test]
     fn bind_mgmt_ops_reservados_sem_colisao() {
         // 0x28-0x2D fora de 0x20-0x27 e CTAP-BLE (0x81/0x83/0xBE), revisao intacta.
-        for op in [OP_BIND_CLAIM, OP_BIND_CHALLENGE, OP_BIND_VERIFY, OP_BIND_RELEASE, OP_RECOVERY_SET, OP_RECOVERY_UNLOCK] {
+        for op in [
+            OP_BIND_CLAIM,
+            OP_BIND_CHALLENGE,
+            OP_BIND_VERIFY,
+            OP_BIND_RELEASE,
+            OP_RECOVERY_SET,
+            OP_RECOVERY_UNLOCK,
+        ] {
             assert!(is_bind_mgmt_op(op));
             assert!(!is_vendor_keys_oath_op(op));
             assert!(op != OP_PING && op != OP_MSG && op != OP_CANCEL);
@@ -957,7 +987,7 @@ mod tests {
 
     #[test]
     fn dispatch_claim_challenge_release_roundtrip() {
-        use crate::binding::{BIND_ID_LEN, BIND_PUB_LEN, BindingManager};
+        use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
         use crate::persistence::{MockFlashBackend, SecureStorage};
         let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
         let mut m = BindingManager::new();
@@ -1013,7 +1043,7 @@ mod tests {
 
     #[test]
     fn dispatch_recovery_set_unlock_via_gatt() {
-        use crate::binding::{BIND_ID_LEN, BIND_PUB_LEN, BindingManager};
+        use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
         use crate::persistence::{MockFlashBackend, SecureStorage};
         let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
         let mut m = BindingManager::new();
@@ -1021,7 +1051,8 @@ mod tests {
         let pt = sk.verifying_key().to_encoded_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
-        m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true).expect("claim");
+        m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true)
+            .expect("claim");
         m.persist(&mut st).expect("persist");
         // SET exige UP e PIN valido.
         assert_eq!(
@@ -1046,7 +1077,12 @@ mod tests {
         assert!(!is_fido_service_uuid(PROXIMITY_SERVICE_UUID));
         assert!(is_proximity_service_uuid(PROXIMITY_SERVICE_UUID));
         assert!(!is_proximity_service_uuid(0xFFFD));
-        for ch in [CHAR_CONTROL_UUID, CHAR_STATUS_UUID, CHAR_LEN_UUID, CHAR_REVISION_UUID] {
+        for ch in [
+            CHAR_CONTROL_UUID,
+            CHAR_STATUS_UUID,
+            CHAR_LEN_UUID,
+            CHAR_REVISION_UUID,
+        ] {
             assert_ne!(PROXIMITY_SERVICE_UUID, ch);
         }
         assert_eq!(GATT_REVISION, 0x01);
@@ -1101,4 +1137,3 @@ mod tests {
         );
     }
 }
-

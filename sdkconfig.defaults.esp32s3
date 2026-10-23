@@ -1,6 +1,11 @@
 # Etapa B - BLE real via NimBLE no S3 (BLE-only; Bluedroid OFF p/ RAM).
 # Lido pelo esp-idf-sys a partir do workspace root. Padrao oficial IDF v5.3.1
 # examples/bluetooth/nimble/bleprph_wifi_coex.
+# Defesa em profundidade contra estouro de stack da main no boot: o health-check
+# AES/NVS saiu da main pré-yield e o envelope foi p/ heap, mas a main segue
+# crítica (~116 B livres no build com hang vs ~25 KiB nos bons). 64 KiB cabem
+# folgados na SRAM do S3 (512 KiB) e dão margem p/ HKDF/AES/display no boot.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=65536
 CONFIG_BT_ENABLED=y
 CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
 CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n
@@ -9,4 +14,51 @@ CONFIG_BT_BLUEDROID_ENABLED=n
 CONFIG_BT_NIMBLE_ENABLED=y
 # 1 central por vez (chave de pareamento; menos RAM).
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# --- BLE footprint S3 (preinit `Malloc failed` -> `BLE assert emi.c:164`) ---
+# Causa: `nimble_port_init` (controller_enable + host) aloca ~30-40 KiB
+# contíguos em DRAM/heap DMA no heap já fragmentado do boot FreeRTOS lazy
+# (TinyUSB+serial+3 tasks 8 KiB + DisplayBuffer ~153 KiB + storage/NVS antes
+# do preinit sob demanda via TEST_BLE_PREINIT). Ref IDF v5.3.1:
+# `bt/host/nimble/nimble/porting/nimble/src/nimble_port.c:168-173`
+# (`nimble_port_init`; o `esp_bt_controller_mem_release(CLASSIC_BT)` lá é
+# guard `#if CONFIG_IDF_TARGET_ESP32` — no S3 não há Classic-BT p/ liberar,
+# S3 é BLE-only por hardware), `bt/controller/esp32c3/Kconfig.in`
+# (`BT_CTRL_*`; `BTDM_CTRL_MODE_*` acima é ESP32-only e ignorado no S3 —
+# mantido por histórico), `bt/host/nimble/Kconfig.in` (defaults citados).
+# Perfil: periférico 1-conexão, sem scan/central, MTU 256, 1 notify (FFF2).
+# Cada knob cita default e economia; nada de número mágico.
+# Controller: 3 atividades BLE (default 6; 3 = 1 adv legacy + scan_rsp + margem coex; cada instância ~828 B).
+CONFIG_BT_CTRL_BLE_MAX_ACT=3
+# NimBLE host: 1 bond (default 3; 1 central por vez, paridade com MAX_CONNECTIONS).
+CONFIG_BT_NIMBLE_MAX_BONDS=1
+# NimBLE host: 4 CCCDs (default 8; GATT tem 1 notify FFF2 -> 1 CCCD/bond + margem).
+CONFIG_BT_NIMBLE_MAX_CCCDS=4
+# Transporte HCI: 8 buffers ACL (default 24; 1 conn, MTU 256, notify pequeno).
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=8
+# Transporte HCI: 10 eventos alta-prioridade (default 30; periférico-only, sem scan).
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=10
+# Transporte HCI: 4 eventos descartáveis (default 8; só p/ adv reports — não escaneamos).
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_DISCARD_COUNT=4
+# GATT: 2 procedimentos cliente (default 4; somos periférico, sem client procs; margem).
+CONFIG_BT_NIMBLE_GATT_MAX_PROCS=2
+# MSYS_1: 12 blocos (default 24 no controller ESP; prepare-write/resp pequenas, FFF1 256 B = 2 blocos).
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=12
+# USB-OTG (TinyUSB) dono único do PHY interno (GPIO19 D-/GPIO20 D+):
+# console primário no UART0 (JTAGSerial desativado) p/ não reclamar o
+# mesmo PHY — com o default S3 (console USB_SERIAL_JTAG), o
+# `tinyusb_driver_install` falha (`LoadProhibited` no dump do descritor).
+# Ref: ESP-IDF `usb-otg-console.rst` (PHY interno compartilhado USJ/OTG;
+# troca por software via `usb_serial_jtag_ll_phy_enable_external`) +
+# `stdio.rst` (console primário/secundário) + `Kconfig`
+# (`ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED` quando primário OU secundário
+# usa USJ). Secundário NONE p/ o USJ não ficar reivindicado. CTAPHID
+# serial segue na UART0 115200 (mesmo fio de teste).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG is not set
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_TINYUSB=y
+CONFIG_TINYUSB_HID_COUNT=1
+CONFIG_TINYUSB_NO_DEFAULT_TASK=n
+CONFIG_TINYUSB_TASK_STACK_SIZE=4096
+CONFIG_TINYUSB_TASK_PRIORITY=5
 
