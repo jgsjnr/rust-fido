@@ -1,7 +1,10 @@
 # Estado final — firmware FreeRTOS test-mode serial (ESP32-S3)
 
-Fechamento 23/10/2026: firmware `98D386E0` no ar, NVS preservada,
-proveniencia `C:\t\aegis-app-a7a17691.bin`.
+Fechamento 23/10/2026 (radio fechado): firmware `98D386E0` no ar, NVS preservada,
+proveniencia `C:\t\aegis-app-a7a17691.bin`. Radio provado no ar no build
+`0217C145`; USB-OTG reativado provado no build `201F3D41`. Commits
+`e9ad603` (firmware verde) / `bf81701` (BLE over-air) / `c527ec2`
+(doc bateria 14:01).
 
 Variante: `crates/aegis-fido-firmware`, features `board-devkitc,freertos,proximity`,
 target `xtensa-esp32s3-espidf`. Transporte validado: CTAPHID sobre serial
@@ -12,8 +15,20 @@ UART0 + linhas `TEST_*` (test-mode). Placa trabalho: MAC `3c:84:27:c7:17:78`.
 Fonte: `tools/e2e_user_test.py` via `scripts/battery-serial.ps1`, estado
 retomavel em `docs/teste-ponta-a-ponta.md`.
 
-Bateria final full 23/10
-(log `C:\t\battery-serial-20261023-112330.log`):
+Bateria final 23/10
+(log `C:\t\battery-serial-20261023-140103.log`):
+
+- `offline`: `tools/app_simulator.py --self-test` 17/17.
+- `host-win`: PASS; `host-win-tests`: 34 OK.
+- `base`: 12/0/0.
+- `all-safe`: 26/1/0 — zero FAIL; unico DIVERGENTE T13 `0x03`
+  (slots 5-9 ocupados, fail-closed correto; com slot livre da `0x00`,
+  provado pos-wipe — ver "O que esta pronto" e "O que falta").
+- `bench`: 6/0/0.
+- T05 `0x01`, T06 `0x05`, T06b `0x05` — todos PASS.
+
+Bateria intermedia full 23/10
+(log `C:\t\battery-serial-20261023-112330.log`), superada:
 
 - `offline`: `tools/app_simulator.py --self-test` 17/17.
 - `host-win`: PASS; `host-win-tests`: 34 OK.
@@ -88,40 +103,66 @@ Bateria anterior pos-fix do gate de pareamento
   checkout acidental — com teste de regressao), `TEST_PAIRING_CLOSE` +
   setup limpo (janela+latch, touch= no `LED_STATE`), gate vendor ao vivo,
   gate BLE atras de preinit.
+- USB-OTG reativado (commit `e9ad603`, antes do fechamento do radio):
+  console no UART0 + secundario NONE + TinyUSB; build `201F3D41`
+  enumerou HID FIDO + CCID (VID 303A/PID AE61) com serial UART0
+  intacta; bateria verde na epoca.
+- Display stub cfg-gated (`has-display`): DevKitC sem LCD poupa
+  ~106 KiB heap; LED independente intacto; validado nas 3 configs +
+  boot no device (heap 194K livres). Commit `e9ad603`.
+- BLE over-air FIM-A-FIM no build `0217C145` (commit `bf81701`):
+  preinit `rc=0` idempotente (maquina de estado + null-guards; duplo
+  `gatts_start` removido — era o LoadProhibited); `adv on` em janela;
+  scan achou `AegisKey` -30dBm; GATT 0xFFFD via bleak (descoberta
+  FFF1-FFF4, GetInfo `83000104` -> `8301` sem UP -> `8300` + 251 B
+  GetInfo com UP, sem bonding); close mudo (shutdown AP + guarda heap
+  32K, sem OOM/abort). Stop-before-start + 519 sem retry +
+  `EV_ADV_NOMEM`; bump MAX_ACT 1->3 provou o adv.
+- Wipe executado e provado: backup 16 MiB antes; `destructive` pass +
+  `wipe` pass + `all-safe` 27/0/0 de confirmacao com T13 `0x00`
+  slot=5. T13 `0x03` na bateria 14:01 era slots 5-9 ocupados
+  (fail-closed correto); com slot livre da `0x00`.
 
 ## Limitacoes conhecidas (por desenho nesta variante)
 
-- USB-OTG nativo (TinyUSB) DESLIGADO: `tinyusb_driver_install` da
-  `LoadProhibited` no HW durante o dump do descritor (o legado em QEMU
-  nunca exercitou o periferico real). CTAPHID segue 100% pela serial.
-  Ver comentario em `src/main.rs` ("USB-OTG nativo (TinyUSB): DESLIGADO").
-  Sem root-cause confirmado no HW; reativacao apos diagnostico dedicado.
-  Sem eFuse/secure/NVS tocados pelo gap.
-- BLE sem validacao no ar: init preguicoso (lazy) — `esp_ble_preinit` no
-  boot trava neste HW (`LoadProhibited` no `esp_intr_alloc` do controller,
-  em investigacao); boot segue sem BLE (`[INIT] BLE init lazy ...`),
-  preinit sob demanda via `TEST_BLE_PREINIT`, advertising ligado por gate
-  no loop (`esp_ble_start` -> `ensure_init`). Contrato de fio congelado em
-  `docs/ble-protocol.md`; radio real (`aegis_ble_nimble.c`, GATT 0xFFFD,
-  bonding NVS) documentado em `docs/ble-nimble.md`, pendente de prova fim
-  a fim no ar (scan, bond, walk-away).
+- USB-OTG nativo (TinyUSB): RESOLVIDO — reativado (build `201F3D41`:
+  HID FIDO + CCID, VID 303A/PID AE61, serial UART0 intacta). Texto
+  anterior que dizia DESLIGADO (`tinyusb_driver_install`
+  LoadProhibited no dump do descritor) fica como historico; causa
+  tratada na reativacao (console UART0 + secundario NONE + TinyUSB).
+- BLE: VALIDADO NO AR (build `0217C145`, commit `bf81701`) — preinit
+  `rc=0` idempotente, `adv on` em janela, scan `AegisKey` -30dBm,
+  GATT 0xFFFD via bleak, close mudo sem OOM/abort. Texto anterior
+  ("sem validacao no ar", `LoadProhibited` no `esp_intr_alloc`,
+  duplo `gatts_start`) fica como historico; root-cause era o duplo
+  `gatts_start`, removido. Contrato de fio em `docs/ble-protocol.md`;
+  radio (`aegis_ble_nimble.c`, GATT 0xFFFD, bonding NVS) em
+  `docs/ble-nimble.md`. Resta over-air com presença fisica: bonding
+  + walk-away/RSSI + fob (ver "O que falta").
 
 ## O que falta (pendente / nao feito)
 
-1. `destructive`/`wipe` com slots ocupados ainda valido (fases
-   destrutivas executadas antes com PIN `1234`; `wipe` nunca executou por
-   falha de handshake na epoca). Nunca automaticos; exigem `-Force` +
+1. `destructive`/`wipe`: FEITO E PROVADO (backup 16 MiB antes;
+   `destructive` pass + `wipe` pass + `all-safe` 27/0/0 de confirmacao
+   com T13 `0x00` slot=5). Nunca automaticos; exigem `-Force` +
    `--confirm` (`--confirm-release` p/ wipe) + ordem explicita do usuario.
-2. BLE fim-a-fim no ar (over-the-air): scan `AegisKey` na janela, bond
-   JustWorks + UP, walk-away lock-only, USB ativo veta anuncio. Hoje so
-   politica host-testavel + shims + gate atras de preinit.
-3. USB reativar pos-root-cause: diagnosticar `tinyusb_driver_install`
-   no HW real, depois repetir U1-U3 (`docs/teste-ponta-a-ponta.md`).
-4. Commit do WIP: decisao do usuario.
-5. T05/T13 estriteza do harness: RESOLVIDO na bateria final full 23/10
+2. BLE over-air restante (exige presenca fisica do usuario): bonding
+   over-air + walk-away/RSSI + fob. Base provada fim-a-fim no build
+   `0217C145` (preinit `rc=0`, adv, scan, GATT 0xFFFD, close mudo).
+   Hoje so politica host-testavel + shims + gate atras de preinit para
+   o que falta.
+3. USB reativar pos-root-cause: FEITO (build `201F3D41`: HID FIDO +
+   CCID, VID 303A/PID AE61, serial UART0 intacta). Repetir U1-U3
+   (`docs/teste-ponta-a-ponta.md`) quando o usuario quiser.
+4. Commit do WIP: FEITO — `e9ad603` / `bf81701` / `c527ec2` no ramo
+   `feat/freertos-rust` (worktree limpa).
+5. T05/T13 estriteza do harness: RESOLVIDO na bateria full 23/10
    (T05 `0x01`, T06 `0x05`, T06b `0x05`, T13 `0x00` slot=9, todos PASS;
-   zero FAIL, zero divergente). Item anterior com `BadEnvelope`/latch
-   residual superado pelos fixes de gate, setup limpo e teto key_slots.
+   zero FAIL, zero divergente). Na bateria 14:01 o unico divergente e
+   T13 `0x03` com slots 5-9 ocupados (fail-closed correto; com slot
+   livre da `0x00`, provado pos-wipe).
+6. Pendentes menores com usuario: par USB truncado cosmetico no log;
+   `clippy --features freertos` com 1 unused import pre-existente.
 
 ## Como reproduzir
 
