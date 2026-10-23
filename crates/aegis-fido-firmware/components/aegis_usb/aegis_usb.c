@@ -218,6 +218,12 @@ esp_err_t aegis_usb_init(void) {
         .vbus_monitor_io = -1
     };
 
+    // NOTE: do NOT wrap `tinyusb_driver_install` in vTaskSuspendAll()/
+    // xTaskResumeAll(): the install blocks internally on a queue, and a
+    // suspended scheduler with ticksToWait != 0 asserts (queue.c). The IDF
+    // `TinyUSB: TinyUSB Driver installed` line may interleave bytes on
+    // UART0 (cosmetic only; enumeration proves function; Rust `[INIT]`
+    // line serialization still holds).
     esp_err_t err = tinyusb_driver_install(&tusb_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "tinyusb_driver_install failed: 0x%x", err);

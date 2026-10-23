@@ -1441,8 +1441,10 @@ fn run_authenticator_freertos() {
     use aegis_fido_firmware::button::ButtonInput;
     #[cfg(target_os = "espidf")]
     use aegis_fido_firmware::freertos::route_ctaphid_event;
+    #[cfg(target_os = "espidf")]
+    use aegis_fido_firmware::freertos::SerialVendorCtx;
     use aegis_fido_firmware::freertos::{
-        FirmwareEvent, FreeRtosScheduler, PacketOrigin, SerialVendorCtx, DEFAULT_QUEUE_DEPTH,
+        FirmwareEvent, FreeRtosScheduler, PacketOrigin, DEFAULT_QUEUE_DEPTH,
     };
     kprintln!("[FREERTOS] AegisKey FreeRTOS variant booting (usb+button+housekeeping).");
     // Sem isto, `log::*` (incl. `log_boot_info`) cai no vazio no device:
@@ -1469,32 +1471,41 @@ fn run_authenticator_freertos() {
     // `tinyusb_driver_install` falha (`LoadProhibited` no dump do
     // descritor). USB soma como transporte; a serial (UART0 115200)
     // segue intacta p/ CTAPHID + TEST_*.
+    // Ordem funcional inalterada: USB primeiro, serial em seguida (a serial
+    // é requisito do `aegis_serial_pop_packet`/`read_chunk`; ver abaixo).
+    // Os anúncios saem SÓ depois da serial pronta, via `log::*` (mesmo lock
+    // do `ESP_LOG` do C sob `EspLogger`): `kprintln!` (`esp_rom_printf`)
+    // furava o lock e intercalava byte-a-byte com a task TinyUSB no UART0
+    // (`AegisUSB: TinyUSB2…` truncado). Sem mutex novo, sem tocar no TinyUSB.
     #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
-    {
+    let usb_init_rc: esp_idf_sys::esp_err_t = {
         // SAFETY: sem ponteiros; só instala o driver TinyUSB e lê o retorno.
-        let rc = unsafe { aegis_usb_init() };
-        if rc == esp_idf_sys::ESP_OK {
-            kprintln!("[INIT] TinyUSB FIDO2 HID online (USB-OTG D+/D- 19/20).");
-        } else {
-            kprintln!(
-                "[WARN] TinyUSB init rc=0x{:04X}; CTAPHID segue na serial.",
-                rc as i32
-            );
-        }
-    }
+        unsafe { aegis_usb_init() }
+    };
     // Serial CTAPHID UART (UART0 115200, diagnóstico + TEST_*): sem ela,
     // `aegis_serial_pop_packet`/`read_chunk` devolvem 0 para sempre
     // (`s_serial_initialized` do C). Igual ao boot legado.
     #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
-    {
+    let serial_init_rc: esp_idf_sys::esp_err_t = {
         // SAFETY: init idempotente do driver UART0; só lê o código de retorno.
-        let rc = unsafe { aegis_serial_init() };
-        if rc == esp_idf_sys::ESP_OK {
-            kprintln!("[INIT] Serial CTAPHID UART online (115200 8N1, framing = USB).");
+        unsafe { aegis_serial_init() }
+    };
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    {
+        if usb_init_rc == esp_idf_sys::ESP_OK {
+            log::info!("[INIT] TinyUSB FIDO2 HID online (USB-OTG D+/D- 19/20).");
         } else {
-            kprintln!(
+            log::warn!(
+                "[WARN] TinyUSB init rc=0x{:04X}; CTAPHID segue na serial.",
+                usb_init_rc as i32
+            );
+        }
+        if serial_init_rc == esp_idf_sys::ESP_OK {
+            log::info!("[INIT] Serial CTAPHID UART online (115200 8N1, framing = USB).");
+        } else {
+            log::warn!(
                 "[WARN] Serial CTAPHID UART init failed (rc={}); USB segue primário.",
-                rc as i32
+                serial_init_rc as i32
             );
         }
     }

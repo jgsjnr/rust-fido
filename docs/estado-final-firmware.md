@@ -6,6 +6,35 @@ proveniencia `C:\t\aegis-app-a7a17691.bin`. Radio provado no ar no build
 `e9ad603` (firmware verde) / `bf81701` (BLE over-air) / `c527ec2`
 (doc bateria 14:01).
 
+Adendo 23/10/2026 (pos-fechamento): firmware `C052540A` no ar (=
+logica do build verde + revert do incidente abaixo), NVS preservada,
+placa ONLINE + SAUDAVEL, USB montado. Bateria full verde em codigo
+equivalente (unico div T13-estado), GATT over-air provado, runbook
+fisico em `docs/bonding-walkaway.md`, tree a commitar. Historico
+acima preservado; o que segue e aditivo.
+
+## Incidente `vTaskSuspendAll` (build `C3C86A9E`) — revertido
+
+- Causa: secao critica (`vTaskSuspendAll` / `xTaskResumeAll`) em volta
+  do `tinyusb_driver_install` causou `assert xQueueSemaphoreTake` ->
+  boot-loop (27 reboots/20s).
+- Acao: revertido para init direto, com comentario no codigo explicando
+  o porquê (nao voltar a envolver o install do TinyUSB em secao
+  critica sem prova de ausencia de bloqueio).
+- Saida: build `C052540A` reflasheado; placa ONLINE + SAUDAVEL, USB
+  montado. `C052540A` = logica do build verde + revert; sem mudanca
+  funcional alem do revert.
+
+## Cosmetico UART0 — linha IDF do TinyUSB (CONHECIDO e aceito)
+
+- Linha IDF `TinyUSB: TinyUSB Driver installed` pode sair com bytes
+  intercalados no UART0 (task TinyUSB sem lock do `esp_log`).
+- Classificacao: COSMETICO CONHECIDO e aceito. Funcao provada por
+  enumeracao HID+CCID + linhas `[INIT]` Rust serializadas.
+- Licao registrada: nao tentar serializar de novo sem prova de
+  deadlock (a tentativa anterior via secao critica causou o
+  boot-loop acima).
+
 Variante: `crates/aegis-fido-firmware`, features `board-devkitc,freertos,proximity`,
 target `xtensa-esp32s3-espidf`. Transporte validado: CTAPHID sobre serial
 UART0 + linhas `TEST_*` (test-mode). Placa trabalho: MAC `3c:84:27:c7:17:78`.
@@ -163,6 +192,15 @@ Bateria anterior pos-fix do gate de pareamento
    livre da `0x00`, provado pos-wipe).
 6. Pendentes menores com usuario: par USB truncado cosmetico no log;
    `clippy --features freertos` com 1 unused import pre-existente.
+
+## Estado atual (build `C052540A` no ar)
+
+- Firmware `C052540A` no ar (= logica do build verde + revert do
+  incidente `vTaskSuspendAll`); NVS preservada.
+- Bateria full verde em codigo equivalente (unico div T13-estado).
+- GATT over-air provado; runbook fisico em
+  `docs/bonding-walkaway.md`.
+- Tree a commitar.
 
 ## Como reproduzir
 
