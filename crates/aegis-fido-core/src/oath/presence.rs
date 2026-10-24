@@ -14,7 +14,10 @@ pub trait PresenceVerifier {
     fn wait_for_presence(&mut self, timeout_ms: u32) -> Result<bool, PresenceError>;
 }
 
-/// Always present verifier (e.g., for automated test runs or test mode)
+/// TEST-ONLY: always returns present without touching hardware.
+/// Never construct outside `#[cfg(test)]`. Production uses
+/// `Gpio0TouchVerifier` (HW) or the `bool presence_confirmed` gate
+/// (`UpOnly`/`UpAndPin`); see `oath/applet.rs device_*`.
 pub struct AlwaysPresentVerifier;
 
 impl PresenceVerifier for AlwaysPresentVerifier {
@@ -27,7 +30,8 @@ impl PresenceVerifier for AlwaysPresentVerifier {
     }
 }
 
-/// Never present verifier (e.g., simulates user failing to touch within timeout)
+/// TEST-ONLY: simulates no touch / timeout.
+/// Never construct outside `#[cfg(test)]`.
 pub struct NeverPresentVerifier;
 
 impl PresenceVerifier for NeverPresentVerifier {
@@ -109,5 +113,23 @@ where
 
     fn wait_for_presence(&mut self, _timeout_ms: u32) -> Result<bool, PresenceError> {
         Ok((self.read_gpio0_pressed)())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_only_verifiers_bypass_hardware_stay_out_of_release() {
+        let mut always = AlwaysPresentVerifier;
+        assert_eq!(always.check_presence(), Ok(true));
+        assert_eq!(always.wait_for_presence(3000), Ok(true));
+        let mut never = NeverPresentVerifier;
+        assert_eq!(never.check_presence(), Ok(false));
+        assert_eq!(never.wait_for_presence(3000), Err(PresenceError::Timeout));
+        // Invariant: both types bypass real UP, so they must stay
+        // inside #[cfg(test)] call-sites only (audit 2026-10-24:
+        // zero production constructors in core/firmware/usb/sdk).
     }
 }

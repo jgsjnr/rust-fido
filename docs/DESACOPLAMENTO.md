@@ -33,19 +33,25 @@ ASCII puro, sem segredo em log, fail-closed com Err tipado, sem flash/COM7.
 
 ## 2. Restos reais ordenados (o que ainda e god / o que ja foi resolvido)
 
-1. run.rs god residual (4330 linhas, run.rs): loop FreeRTOS + dispatch BLE
-   completo (ble_dispatch_complete run.rs:164) + serial rescue/pairing +
-   beacon proximidade + OTA. Proximo split candidato: extrair
-   ble_dispatch_complete + serial handlers para dispatch dedicado. NAO fazer
-   nesta lane sem dono (outra lane e dona de codigo).
+1. run.rs god RESOLVIDO (D1-D4, lane modulos-novos): era 4330 linhas,
+   virou diretorio run/ (mod.rs 621 + ble_dispatch.rs + serial_io.rs +
+   run_loop_freertos.rs + run_loop_legacy.rs). Dispatch BLE com struct
+   propria no modulo; loops sao funcoes move-only com `use super::*`;
+   kprintln! herdado por escopo textual. Callers externos usam
+   `crate::run::{run_authenticator, run_authenticator_freertos}` (paths
+   preservados). Regra: novo codigo de loop entra no modulo do loop,
+   nunca de volta no mod.rs.
 2. dispatch hub antigo: DELETADO. Nao existe
    crates/aegis-fido-firmware/src/dispatch*.rs nesta lane (ls confirma so
    ccid_dispatch.rs como dispatch de transporte). Nao recriar hub generico;
    dispatch vive em serial_ctaphid.rs (dispatch_serial_vendor/wallet/rescue/
    bind_mgmt/text_line/pairing_line) + ble_gatt dispatch_bind_*.
-3. freertos_sched.rs god-candidato (1600 linhas): scheduler + filas + timers.
-   Candidato a proximo split (sched core vs route vs timers). freertos.rs
-   atual e so shim (67 linhas), nao recoloque logica nele.
+3. freertos_sched.rs slim (905 linhas; era 1600): fila em
+   freertos_queue.rs (NOVO) + nativo ESP-IDF em freertos_native.rs (NOVO,
+   so cfg espidf); sched guarda core + route. serial_text.rs (D5) e
+   proximity_crypto.rs (D6) extraidos com re-export de compat no dono.
+   freertos.rs continua so shim (re-export route+sched), nao recoloque
+   logica nele.
 4. openpgp->piv APDU: RESOLVIDO via apdu.rs compartilhado (ver secao 1).
    Qualquer novo comando APDU (oath/piv/openpgp) deve usar crate::apdu.
 5. Re-export cadeias: binding.rs reexporta TrustFacade/TrustTransport
