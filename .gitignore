@@ -25,3 +25,4 @@ app-android/.gradle/
 # END oh-my-opencode-slim worktrees
 
 *.apk
+*.idsig

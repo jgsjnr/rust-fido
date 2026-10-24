@@ -56,9 +56,9 @@ class PairingWizardRepositoryImpl(
                 transportType = ConnectionTransportType.BLE
             )
         }
-        return if (DebugHardwareChipMock.isDebugMode) {
+        return if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
             val mockBle = DebugHardwareChipMock.MOCK_BLE_CANDIDATE
-            if (realCandidates.none { it.id == mockBle.id }) {
+            if (mockBle != null && realCandidates.none { it.id == mockBle.id }) {
                 listOf(mockBle) + realCandidates
             } else {
                 realCandidates
@@ -88,7 +88,7 @@ class PairingWizardRepositoryImpl(
 
         when (transport) {
             ConnectionTransportType.BLE -> {
-                // Emite imediatamente candidatos conhecidos (bonded + mock) sem tela vazia
+                // Emite imediatamente candidatos conhecidos (bonded) sem tela vazia
                 val currentDevices = bleClient?.devices?.value ?: emptyList()
                 _discoveredCandidates.value = buildBleCandidates(currentDevices)
                 runCatching { bleClient?.startScan() }
@@ -106,21 +106,18 @@ class PairingWizardRepositoryImpl(
                         )
                     )
                 }
-                if (DebugHardwareChipMock.isDebugMode) {
-                    list.add(DebugHardwareChipMock.MOCK_USB_CANDIDATE)
+                if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                    DebugHardwareChipMock.MOCK_USB_CANDIDATE?.let { list.add(it) }
                 }
                 _discoveredCandidates.value = list
             }
             ConnectionTransportType.SIMULATOR -> {
-                _discoveredCandidates.value = listOf(
-                    if (DebugHardwareChipMock.isDebugMode) DebugHardwareChipMock.MOCK_SIMULATOR_CANDIDATE
-                    else DiscoveredKeyCandidate(
-                        id = "tcp:10.0.2.2:5678",
-                        name = "AegisKey Renode Simulator",
-                        signalRssi = -25,
-                        transportType = ConnectionTransportType.SIMULATOR
-                    )
-                )
+                if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                    val simCandidate = DebugHardwareChipMock.MOCK_SIMULATOR_CANDIDATE
+                    _discoveredCandidates.value = if (simCandidate != null) listOf(simCandidate) else emptyList()
+                } else {
+                    _discoveredCandidates.value = emptyList()
+                }
             }
         }
         Unit
@@ -134,37 +131,42 @@ class PairingWizardRepositoryImpl(
     }
 
     override suspend fun simulatePhysicalButtonHold5s(): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            return@withContext Result.failure(IllegalStateException("Simulação de botão físico indisponível em modo release"))
+        }
         _buttonHoldSimulatedOrDetected.value = true
         simulatedRenodeTransport.simulatePhysicalButtonHold5s()
     }
 
     override suspend fun simulatePhysicalButtonSingleTouch(): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            return@withContext Result.failure(IllegalStateException("Simulação de toque físico indisponível em modo release"))
+        }
         simulatedRenodeTransport.simulatePhysicalButtonSingleTouch()
     }
 
     override suspend fun connectToCandidate(candidate: DiscoveredKeyCandidate): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             currentCandidate = candidate
-            if (DebugHardwareChipMock.isMockCandidate(candidate.id)) {
-                // Candidato Mock do Chip ESP32: conexão simulada instantânea
+            if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate.id)) {
+                // Candidato Mock do Chip ESP32: conexão simulada instantânea apenas se mocks estiverem ativos
                 Unit
             } else {
                 when (candidate.transportType) {
                     ConnectionTransportType.BLE -> {
-                        runCatching {
-                            bleClient?.ensureBonded(candidate.id)
-                            bleClient?.connect(candidate.id)
-                        }
+                        val client = bleClient ?: throw IllegalStateException("BLE Transport não disponível")
+                        client.ensureBonded(candidate.id)
+                        client.connect(candidate.id)
                     }
                     ConnectionTransportType.USB -> {
-                        runCatching {
-                            val device = usbCtaphid?.findDevice()
-                            if (device != null) {
-                                usbCtaphid?.requestPermission(device)
-                            }
-                        }
+                        val usb = usbCtaphid ?: throw IllegalStateException("USB Transport não disponível")
+                        val device = usb.findDevice() ?: throw IllegalStateException("Dispositivo USB AegisKey não encontrado")
+                        usb.requestPermission(device)
                     }
                     ConnectionTransportType.SIMULATOR -> {
+                        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                            throw IllegalStateException("Transporte simulado indisponível na versão de produção")
+                        }
                         simulatedRenodeTransport.connect(candidate.id)
                     }
                 }
@@ -193,23 +195,27 @@ class PairingWizardRepositoryImpl(
             val candidate = currentCandidate
             val transportType = candidate?.transportType ?: ConnectionTransportType.BLE
 
-            val rawResponse = if (DebugHardwareChipMock.isMockCandidate(candidate?.id)) {
-                // Eco imediato determinístico do chip físico simulado
+            val rawResponse = if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id)) {
+                // Eco imediato determinístico do chip físico simulado (apenas em DEBUG com mocks ativos)
                 byteArrayOf(0x28.toByte(), 0x00.toByte()) + bindingId
             } else {
-                val sendResult = runCatching {
-                    when (transportType) {
-                        ConnectionTransportType.SIMULATOR -> simulatedRenodeTransport.sendVendor(0x28, claimPayload)
-                        ConnectionTransportType.BLE -> bleClient?.sendVendor(0x28, claimPayload)
-                        ConnectionTransportType.USB -> simulatedRenodeTransport.sendVendor(0x28, claimPayload)
+                val sendResult = when (transportType) {
+                    ConnectionTransportType.SIMULATOR -> {
+                        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                            throw IllegalStateException("Transporte simulado indisponível na versão de produção")
+                        }
+                        simulatedRenodeTransport.sendVendor(0x28, claimPayload)
                     }
-                }.getOrNull()
-
-                sendResult ?: if (DebugHardwareChipMock.isDebugMode) {
-                    byteArrayOf(0x28.toByte(), 0x00.toByte()) + bindingId
-                } else {
-                    throw IllegalStateException("Hardware não respondeu ao comando de vínculo 0x28")
+                    ConnectionTransportType.BLE -> {
+                        val client = bleClient ?: throw IllegalStateException("BLE transport não disponível")
+                        client.sendVendor(0x28, claimPayload)
+                    }
+                    ConnectionTransportType.USB -> {
+                        simulatedRenodeTransport.sendVendor(0x28, claimPayload)
+                    }
                 }
+
+                sendResult ?: throw IllegalStateException("Hardware não respondeu ao comando de vínculo 0x28")
             }
 
             if (rawResponse.size < 2) {
@@ -233,7 +239,7 @@ class PairingWizardRepositoryImpl(
             val bindingIdHex = bindingId.joinToString("") { "%02X".format(it) }
             val displayName = keyAliasName.trim().ifEmpty {
                 when {
-                    DebugHardwareChipMock.isMockCandidate(candidate?.id) -> "AegisKey FIDO2 (Chip Debug)"
+                    DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id) -> "AegisKey FIDO2 (Chip Debug)"
                     transportType == ConnectionTransportType.SIMULATOR -> "AegisKey Virtual (Teste)"
                     else -> "AegisKey " + bindingIdHex.take(4)
                 }
@@ -242,7 +248,7 @@ class PairingWizardRepositoryImpl(
             val device = ConnectedKeyDevice(
                 id = UUID.randomUUID().toString(),
                 displayName = displayName,
-                hardwareAddressOrId = candidate?.id ?: (if (transportType == ConnectionTransportType.SIMULATOR) "tcp:10.0.2.2:5678" else bindingIdHex),
+                hardwareAddressOrId = candidate?.id ?: bindingIdHex,
                 bindingIdHex = bindingIdHex,
                 transportType = transportType,
                 isCurrentlyConnected = true,
@@ -250,8 +256,8 @@ class PairingWizardRepositoryImpl(
                 lastConnectedEpochMs = System.currentTimeMillis()
             )
 
-            // Em modo debug (ou simulador), injeta dados ricos e realistas simulando a NVS do chip
-            if (keysStore != null && (DebugHardwareChipMock.isDebugMode || transportType == ConnectionTransportType.SIMULATOR)) {
+            // Em modo debug com mocks ativos, injeta dados simulando a NVS do chip
+            if (keysStore != null && DebugHardwareChipMock.IS_MOCK_ENABLED) {
                 DebugHardwareChipMock.seedChipDataForKey(device.id, keysStore)
             }
 

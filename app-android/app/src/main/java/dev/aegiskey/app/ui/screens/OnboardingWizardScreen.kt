@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
 import dev.aegiskey.app.domain.model.OnboardingStep
@@ -334,14 +335,16 @@ private fun WelcomeTransportStepContent(
             onSelect = { onSelectTransport(ConnectionTransportType.USB) },
         )
 
-        TransportOptionCard(
-            title = "Simulador Virtual (Renode / Teste)",
-            description = "Permite testar funções mesmo sem ter a chave física.",
-            icon = Icons.Filled.Computer,
-            isSelected = selectedTransport == ConnectionTransportType.SIMULATOR,
-            badgeText = "Teste",
-            onSelect = { onSelectTransport(ConnectionTransportType.SIMULATOR) },
-        )
+        if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            TransportOptionCard(
+                title = "Simulador Virtual (Renode / Teste)",
+                description = "Permite testar funções mesmo sem ter a chave física.",
+                icon = Icons.Filled.Computer,
+                isSelected = selectedTransport == ConnectionTransportType.SIMULATOR,
+                badgeText = "Teste",
+                onSelect = { onSelectTransport(ConnectionTransportType.SIMULATOR) },
+            )
+        }
     }
 }
 
@@ -480,26 +483,32 @@ private fun DiscoverAndConnectStepContent(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "Verifique se o botão foi pressionado ou teste com a chave virtual.",
+                        text = if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                            "Verifique se o botão foi pressionado ou teste com a chave virtual."
+                        } else {
+                            "Verifique se o Bluetooth ou USB está ativo e o botão da chave foi pressionado."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    OutlinedButton(
-                        onClick = onUseSimulator,
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp),
-                    ) {
-                        Icon(imageVector = Icons.Filled.Computer, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Usar Simulador de Teste",
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                        OutlinedButton(
+                            onClick = onUseSimulator,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp),
+                        ) {
+                            Icon(imageVector = Icons.Filled.Computer, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Usar Simulador de Teste",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

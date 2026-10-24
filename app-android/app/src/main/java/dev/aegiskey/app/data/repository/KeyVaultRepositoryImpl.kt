@@ -145,7 +145,8 @@ class KeyVaultRepositoryImpl(
         runCatching {
             val req = VendorOps.writeTlv(VendorOps.TAG_SLOT, byteArrayOf(slotId.toByte()))
             val resp = sendVendor(VendorOps.OP_KEY_DELETE, req)
-            if (resp != null && resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
+                ?: throw IllegalStateException("Sem resposta da chave para exclusão de acesso")
+            if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
                 throw IllegalStateException("Erro ao excluir: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
             }
 
@@ -178,7 +179,7 @@ class KeyVaultRepositoryImpl(
             } else if (parsedPing != null) {
                 "Hardware Conectado · Firmware v${parsedPing.version} · Pânico: ${parsedPing.panicCount}"
             } else {
-                "Hardware Ativo · Comunicação normal"
+                throw IllegalStateException("Hardware AegisKey inacessível (sem resposta ao ping)")
             }
         }
     }

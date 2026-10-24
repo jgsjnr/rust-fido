@@ -205,6 +205,7 @@ class KeyVaultViewModel(
     }
 
     fun simulateTouchIfNeeded() {
+        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) return
         val currentKey = activeKey.value
         if (currentKey?.transportType == ConnectionTransportType.SIMULATOR) {
             viewModelScope.launch {
@@ -222,6 +223,7 @@ class KeyVaultViewModel(
     }
 
     fun injectExtraSampleForDebug() {
+        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) return
         val currentKey = activeKey.value ?: return
         if (keysStore != null) {
             DebugHardwareChipMock.injectExtraSample(currentKey.id, keysStore)

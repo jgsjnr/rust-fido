@@ -182,6 +182,7 @@ class TotpAuthenticatorViewModel(
     }
 
     fun injectExtraSampleForDebug() {
+        if (!DebugHardwareChipMock.IS_MOCK_ENABLED) return
         val currentKey = activeKey.value ?: return
         if (keysStore != null) {
             DebugHardwareChipMock.injectExtraSample(currentKey.id, keysStore)

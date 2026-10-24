@@ -50,6 +50,7 @@ import dev.aegiskey.app.BuildConfig
 /**
  * Painel recolhível de Hooks e Mocks de Hardware do Chip físico ESP32-S3.
  * Grade 2x3 compacta com botões de 36.dp e textos em linha única sem quebras.
+ * Disponível exclusivamente na compilação DEBUG.
  */
 @Composable
 fun DebugChipControlHooksCard(

@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 
 /**
@@ -72,33 +73,35 @@ fun AddTotpAccountDialogOrganism(
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                // Botão de preenchimento rápido
-                OutlinedButton(
-                    onClick = {
-                        issuer = "AegisKey Demo"
-                        accountName = "usuario@aegiskey.dev"
-                        secretOrUri = "JBSWY3DPEHPK3PXP"
-                    },
-                    enabled = !isLoading,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(34.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Preencher dados de teste",
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                // Botão de preenchimento rápido (somente em ambiente com mocks habilitados)
+                if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                    OutlinedButton(
+                        onClick = {
+                            issuer = "AegisKey Demo"
+                            accountName = "usuario@aegiskey.dev"
+                            secretOrUri = "JBSWY3DPEHPK3PXP"
+                        },
+                        enabled = !isLoading,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(34.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Preencher dados de teste",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
 

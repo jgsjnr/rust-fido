@@ -13,6 +13,7 @@ import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
+import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
 import dev.aegiskey.app.domain.model.SecurityToggles
 import dev.aegiskey.app.domain.usecase.GetAppStartDestinationUseCase
 import kotlinx.coroutines.CoroutineScope
@@ -298,5 +299,77 @@ class CleanJourneyArchitectureTest {
         // Reativa cores dinâmicas
         themeRepo.setDynamicColors(true)
         assertTrue(themeRepo.themePreference.value.useDynamicColors)
+    }
+
+    @Test
+    fun testRealHardware_failsClosedWhenUnreachable() = runTest {
+        val wizardRepo = PairingWizardRepositoryImpl(
+            bleClient = null,
+            usbCtaphid = null,
+            simulatedRenodeTransport = simulatedTransport,
+            securityService = securityService,
+            connectedKeysRepository = connectedKeysRepo,
+            scope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        // Candidato real Bluetooth que não existe/está inacessível
+        val realCandidate = DiscoveredKeyCandidate(
+            id = "C4:D3:E2:F1:00:11",
+            name = "AegisKey FIDO2 Real Hardware",
+            signalRssi = -60,
+            transportType = ConnectionTransportType.BLE
+        )
+
+        // Conectar deve falhar de forma honesta e fechada (fail-closed)
+        val connectResult = wizardRepo.connectToCandidate(realCandidate)
+        assertTrue("Conexão com hardware real ausente deve falhar de modo honesto", connectResult.isFailure)
+
+        // Vínculo biométrico deve falhar imediatamente sem respostas falsas
+        val bindResult = wizardRepo.performBiometricBinding("Chave Real Ausente", null)
+        assertTrue("Vínculo biométrico sem resposta do hardware deve falhar (fail-closed)", bindResult.isFailure)
+    }
+
+    @Test
+    fun testTotpAndVault_failClosedWhenHardwareOffline() = runTest {
+        // Chave real desconectada
+        val offlineKey = ConnectedKeyDevice(
+            id = "offline-key-001",
+            displayName = "Chave Offline",
+            hardwareAddressOrId = "ble:C4:D3:E2:F1:00:11",
+            bindingIdHex = "1122334455667788",
+            transportType = ConnectionTransportType.BLE,
+            isCurrentlyConnected = false,
+            firmwareRevision = 1,
+            lastConnectedEpochMs = System.currentTimeMillis()
+        )
+        connectedKeysRepo.addOrUpdateKey(offlineKey)
+
+        val vaultRepo = KeyVaultRepositoryImpl(
+            keysStore = keysStore,
+            bleClient = null, // offline
+            simulatedRenodeTransport = simulatedTransport,
+            connectedKeysRepository = connectedKeysRepo
+        )
+
+        // Health check de chave desconectada deve falhar honestamente
+        val healthResult = vaultRepo.runQuickHealthCheck("offline-key-001")
+        assertTrue("Health check em hardware offline deve falhar (fail-closed)", healthResult.isFailure)
+
+        val totpRepo = TotpRepositoryImpl(
+            keysStore = keysStore,
+            bleClient = null, // offline
+            simulatedRenodeTransport = simulatedTransport,
+            connectedKeysRepository = connectedKeysRepo
+        )
+
+        // Cadastro TOTP com chave offline deve falhar
+        val addResult = totpRepo.addAccount(
+            keyId = "offline-key-001",
+            issuer = "Service",
+            accountName = "user",
+            secretOrUri = "JBSWY3DPEHPK3PXP",
+            digits = 6
+        )
+        assertTrue("Cadastro TOTP em hardware offline deve falhar (fail-closed)", addResult.isFailure)
     }
 }

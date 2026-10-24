@@ -1,15 +1,11 @@
 package dev.aegiskey.app.data.debug
 
-import dev.aegiskey.app.BuildConfig
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.domain.model.AccessKeyType
-import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
-import dev.aegiskey.app.domain.model.SecurityToggles
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.domain.model.VaultKeyEntry
-import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,17 +16,15 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * Mock inteligente e realista do chip físico ESP32-S3 + ATECC608A.
- * Ativo EXCLUSIVAMENTE quando [BuildConfig.DEBUG] == true.
- *
- * Permite ao desenvolvedor ou usuário testar toda a jornada do aplicativo,
- * simulação de presença física, cálculo dinâmico de códigos TOTP e armazenamento do cofre
- * mesmo sem um dongle físico ou emulador Renode rodando.
+ * Compilado EXCLUSIVAMENTE no source set 'debug' (:app:assembleDebug).
+ * NÃO existe no pacote de release da aplicação real.
  */
 object DebugHardwareChipMock {
 
-    val isDebugMode: Boolean get() = BuildConfig.DEBUG
+    const val IS_MOCK_ENABLED: Boolean = true
+    val isDebugMode: Boolean get() = true
 
-    // Candidatos pré-configurados do chip simulado para cada transporte
+    // Candidatos pré-configurados do chip simulado para cada transporte em DEBUG
     val MOCK_BLE_CANDIDATE = DiscoveredKeyCandidate(
         id = "AA:BB:CC:AE:61:01",
         name = "AegisKey FIDO2 BLE (Chip Simulado)",
@@ -61,7 +55,7 @@ object DebugHardwareChipMock {
     private val _isChipConnected = MutableStateFlow(true)
     val isChipConnected: StateFlow<Boolean> = _isChipConnected.asStateFlow()
 
-    fun getCandidateForTransport(transport: ConnectionTransportType): DiscoveredKeyCandidate {
+    fun getCandidateForTransport(transport: ConnectionTransportType): DiscoveredKeyCandidate? {
         return when (transport) {
             ConnectionTransportType.BLE -> MOCK_BLE_CANDIDATE
             ConnectionTransportType.USB -> MOCK_USB_CANDIDATE
@@ -70,7 +64,7 @@ object DebugHardwareChipMock {
     }
 
     fun isMockCandidate(candidateId: String?): Boolean {
-        if (!isDebugMode || candidateId == null) return false
+        if (candidateId == null) return false
         return candidateId == MOCK_BLE_CANDIDATE.id ||
             candidateId == MOCK_USB_CANDIDATE.id ||
             candidateId == MOCK_SIMULATOR_CANDIDATE.id ||
@@ -97,11 +91,9 @@ object DebugHardwareChipMock {
 
     /**
      * Injeta dados ricos e realistas simulando a memória permanente NVS do chip
-     * para a chave recém-conectada.
+     * para a chave recém-conectada em ambiente de teste/debug.
      */
     fun seedChipDataForKey(keyId: String, store: EncryptedKeysStore) {
-        if (!isDebugMode) return
-
         // 1. Chaves de Cofre (Passkeys e Carteiras Web3)
         val sampleVault = listOf(
             VaultKeyEntry(
@@ -173,8 +165,6 @@ object DebugHardwareChipMock {
 
     /** Adiciona uma nova passkey e conta TOTP sob demanda pelo painel de debug. */
     fun injectExtraSample(keyId: String, store: EncryptedKeysStore) {
-        if (!isDebugMode) return
-
         val existingVault = store.loadVaultEntries(keyId)
         val nextSlot = (existingVault.maxOfOrNull { it.slotId } ?: -1) + 1
         val newVault = existingVault + VaultKeyEntry(

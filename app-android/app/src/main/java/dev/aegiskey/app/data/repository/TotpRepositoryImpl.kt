@@ -87,7 +87,7 @@ class TotpRepositoryImpl(
                     val code = if (secret != null) {
                         calculateTotpCode(secret, nowSeconds, 30, existing?.digits ?: 6)
                     } else {
-                        existing?.currentCode ?: "382910"
+                        existing?.currentCode ?: "------"
                     }
                     val formatted = formatTotpCode(code)
 
@@ -155,7 +155,8 @@ class TotpRepositoryImpl(
             )
 
             val resp = sendVendor(VendorOps.OP_OATH_PUT, req)
-            if (resp != null && resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
+                ?: throw IllegalStateException("Sem resposta da chave para cadastro TOTP")
+            if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
                 throw IllegalStateException("Chave rejeitou o cadastro TOTP: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
             }
 
@@ -195,7 +196,11 @@ class TotpRepositoryImpl(
             if (target != null) {
                 val compositeName = if (target.issuer.isNotBlank()) "${target.issuer}:${target.accountName}" else target.accountName
                 val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, compositeName.toByteArray(Charsets.UTF_8))
-                sendVendor(VendorOps.OP_OATH_DELETE, req)
+                val resp = sendVendor(VendorOps.OP_OATH_DELETE, req)
+                    ?: throw IllegalStateException("Sem resposta da chave para exclusão TOTP")
+                if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
+                    throw IllegalStateException("Chave rejeitou a exclusão TOTP: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                }
             }
 
             volatileSecrets.remove(accountId)

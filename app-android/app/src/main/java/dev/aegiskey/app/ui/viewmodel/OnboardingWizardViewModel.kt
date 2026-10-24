@@ -168,8 +168,8 @@ class OnboardingWizardViewModel(
             OnboardingStep.HOLD_PHYSICAL_BUTTON -> {
                 viewModelScope.launch {
                     val transport = _uiState.value.selectedTransport
-                    // Se for simulador ou emulador sem dongle, assegura que o hold seja simulado
-                    if (transport == ConnectionTransportType.SIMULATOR || !_uiState.value.buttonHoldDetected) {
+                    // Se for simulador ou emulador com mocks habilitados, simula o hold do botão
+                    if (DebugHardwareChipMock.IS_MOCK_ENABLED && (transport == ConnectionTransportType.SIMULATOR || !_uiState.value.buttonHoldDetected)) {
                         simulateButtonHoldUseCase()
                     }
                     _uiState.update {
@@ -188,10 +188,11 @@ class OnboardingWizardViewModel(
                     var candidate = _uiState.value.selectedCandidate
                         ?: _uiState.value.candidates.firstOrNull()
 
-                    // Emulador/Simulador ou Debug sem chave física real: provê candidato automático
-                    if (candidate == null && (transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode)) {
+                    // Emulador/Simulador ou Debug sem chave física real: provê candidato automático SOMENTE se mocks habilitados
+                    if (candidate == null && DebugHardwareChipMock.IS_MOCK_ENABLED && (transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode)) {
                         candidate = DebugHardwareChipMock.getCandidateForTransport(transport)
-                    } else if (candidate == null) {
+                    }
+                    if (candidate == null) {
                         // Se não encontrou nenhuma chave ainda, informa de modo amigável
                         _uiState.update {
                             it.copy(errorMessage = "Nenhuma chave selecionada. Escolha sua AegisKey na lista abaixo.")
@@ -201,7 +202,8 @@ class OnboardingWizardViewModel(
 
                     _uiState.update { it.copy(selectedCandidate = candidate, isConnecting = true, errorMessage = null) }
                     val connectResult = connectCandidateUseCase(candidate)
-                    if (connectResult.isSuccess || transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode) {
+                    val isMockCandidate = DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate.id)
+                    if (connectResult.isSuccess || isMockCandidate) {
                         stopDiscoveryUseCase()
                         _uiState.update {
                             it.copy(
@@ -222,8 +224,8 @@ class OnboardingWizardViewModel(
             }
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> {
                 viewModelScope.launch {
-                    val transport = _uiState.value.selectedTransport
-                    if (transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode) {
+                    val candidate = _uiState.value.selectedCandidate
+                    if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id)) {
                         simulateButtonSingleTouchUseCase()
                     }
                     _uiState.update {
