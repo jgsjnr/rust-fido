@@ -93,7 +93,7 @@ fn lab_provider_only_with_test_mode() {
 
 #[test]
 fn dispatcher_selects_key_via_for_build_without_cfg() {
-    let run = include_str!("../src/run.rs");
+    let run = include_str!("../src/run/mod.rs");
     // The single selection point: no hardcoded key material in the dispatcher.
     assert!(
         run.contains("OtaKeyProvider::active_pubkey_for_build()"),
