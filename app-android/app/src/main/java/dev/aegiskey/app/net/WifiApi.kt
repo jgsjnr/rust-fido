@@ -7,6 +7,17 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.cert.CertificateException
+import java.security.cert.X509Certificate
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLPeerUnverifiedException
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 /**
  * WiFi AP transport — mirrors firmware/src/wifi_ap.rs endpoints:
@@ -148,8 +159,15 @@ object WifiApi {
         return out
     }
 
-    private fun open(url: String, method: String, contentType: String): HttpURLConnection =
-        (URL(url).openConnection() as HttpURLConnection).apply {
+    private fun open(url: String, method: String, contentType: String): HttpURLConnection {
+        // Fail-closed: HTTPS sem pins instalados e negado aqui (o AP usa
+        // HTTP puro e passa direto; ver DevicePinning).
+        DevicePinning.guard(url)
+        val conn = URL(url).openConnection() as HttpURLConnection
+        // Pinning por-conexao (sem default global): nao afeta outros usos
+        // de TLS no processo. HostnameVerifier do sistema e mantido.
+        if (conn is HttpsURLConnection) conn.sslSocketFactory = DevicePinning.pinnedFactory()
+        return conn.apply {
             requestMethod = method
             setRequestProperty("Content-Type", contentType)
             connectTimeout = 8000
@@ -157,6 +175,7 @@ object WifiApi {
             doInput = true
             if (method == "POST") doOutput = true
         }
+    }
 
     private fun readOrThrow(conn: HttpURLConnection): ByteArray {
         val code = conn.responseCode
@@ -166,13 +185,82 @@ object WifiApi {
 }
 
 /**
- * TLS pinning hook (stub, fail-closed TODO).
- * The AEGN envelope is E2E (AES-256-GCM), so a hostile AP still cannot read
- * CTAP bytes; pinning hardens the transport. Before release: pin the device
- * certificate (burned at provisioning) and fail closed on mismatch.
+ * Pinning TLS real (SPKI SHA-256, fail-closed).
+ *
+ * O envelope AEGN ja e E2E (AES-256-GCM), entao um AP hostil nao le CTAP;
+ * o pinning endurece o transporte quando ha TLS. Uso:
+ * - [install] com os pins base64(SHA-256(SPKI)) gravados no provisioning;
+ *   sem pins, [guard] nega HTTPS (HTTP do AP passa direto).
+ * - [pinnedFactory] rende um SSLSocketFactory por-conexao (sem default
+ *   global): cadeia validada pelo trust do sistema + pin da folha.
+ * Qualquer mismatch = SSLPeerUnverifiedException (nunca fallback silencioso).
+ * Loga so contagem/evento, nunca pins, hosts ou corpos.
  */
 object DevicePinning {
-    fun install() {
-        // TODO(release): X509TrustManager pinned to the device cert; fail closed.
+    @Volatile
+    private var pins: Set<String>? = null
+
+    /** base64(32B) = 44 chars com `=` final. */
+    private val PIN_RE = Regex("[A-Za-z0-9+/]{43}=")
+
+    /**
+     * Instala os pins (base64 do SHA-256 do SPKI da folha). Forma rigida;
+     * vazio/formato ruim = IllegalArgumentException (nada instalado).
+     */
+    fun install(vararg sha256Base64Pins: String) {
+        require(sha256Base64Pins.isNotEmpty()) { "pins vazios" }
+        require(sha256Base64Pins.all { PIN_RE.matchEntire(it) != null }) {
+            "pin fora do formato base64(sha256)"
+        }
+        pins = sha256Base64Pins.toSet()
+        DeviceLog.append(DeviceLog.Category.WIFI, "pinning instalado pins=" + sha256Base64Pins.size)
+    }
+
+    fun isConfigured(): Boolean = pins != null
+
+    /** Rearma o estado negado (testes/dev); HTTPS volta a ser recusado. */
+    fun clearPins() {
+        pins = null
+        DeviceLog.append(DeviceLog.Category.WIFI, "pinning desinstalado")
+    }
+
+    /**
+     * Fail-closed p/ [WifiApi.open]: HTTPS exige pins instalados.
+     * HTTP (AP local) nao e pinado e passa direto.
+     */
+    fun guard(url: String) {
+        if (url.startsWith("https://") && pins == null) {
+            throw SecurityException("pinning não configurado (HTTPS negado)")
+        }
+    }
+
+    /** SocketFactory com trust do sistema + pin da folha (por-conexao). */
+    fun pinnedFactory(): SSLSocketFactory {
+        val want = pins ?: throw SecurityException("pinning não configurado (HTTPS negado)")
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+            .apply { init(null as KeyStore?) }
+        val system = tmf.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull()
+            ?: throw IllegalStateException("sem X509TrustManager")
+        val ctx = SSLContext.getInstance("TLS")
+            .apply { init(null, arrayOf(PinningTrustManager(system, want)), SecureRandom()) }
+        return ctx.socketFactory
+    }
+
+    private class PinningTrustManager(
+        private val delegate: X509TrustManager,
+        private val want: Set<String>,
+    ) : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) =
+            delegate.checkClientTrusted(chain, authType)
+
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+            delegate.checkServerTrusted(chain, authType)
+            val leaf = chain.firstOrNull() ?: throw CertificateException("cadeia vazia")
+            val spkiHash = MessageDigest.getInstance("SHA-256").digest(leaf.publicKey.encoded)
+            val pin = android.util.Base64.encodeToString(spkiHash, android.util.Base64.NO_WRAP)
+            if (!want.contains(pin)) throw SSLPeerUnverifiedException("pin mismatch")
+        }
+
+        override fun getAcceptedIssuers(): Array<X509Certificate> = delegate.acceptedIssuers
     }
 }

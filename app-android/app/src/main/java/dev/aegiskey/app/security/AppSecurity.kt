@@ -1,11 +1,15 @@
 package dev.aegiskey.app.security
 
 import android.content.Context
+import android.util.Base64
 import android.view.Window
 import android.view.WindowManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.aegiskey.app.log.DeviceLog
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import java.security.SecureRandom
 
 /**
  * App security primitives.
@@ -125,21 +129,93 @@ fun applyScreenshotProtection(window: Window) {
 }
 
 /**
- * Play Integrity hook (stub). Wire `com.google.android.play:integrity` here
- * before release; fail closed on verdict mismatch. Until enrolled this
- * returns [Result.Unavailable] and logs only the event name.
+ * Play Integrity real (sem stub): pede o token via
+ * `com.google.android.play:integrity` quando presente e o entrega opaco
+ * p/ verificacao no servidor. Fail-closed: sem Play, sem rede ou veredito
+ * negativo nunca viram sucesso — [Result.Unavailable]/[Result.Failed].
+ *
+ * Sem dependencia Gradle nova (build fora do escopo): acesso por reflexao,
+ * aceitando o pacote novo (`play.integrity`) e o legado
+ * (`play.core.integrity`). Sem Play no device = [Result.Unavailable].
+ * O token/nonce nunca entra em log (so o nome do evento, via SanitizedLog).
  */
 object PlayIntegrity {
     sealed interface Result {
+        /** Token opaco: so sai p/ o servidor verificar; nunca logado. */
+        data class Passed(val token: String) : Result
         data object Unavailable : Result
-        data object Passed : Result
         data class Failed(val code: String) : Result
     }
 
-    fun check(): Result {
+    private const val PKG_NEW = "com.google.android.play.integrity"
+    private const val PKG_LEGACY = "com.google.android.play.core.integrity"
+    private const val INTEGRITY_TIMEOUT_MS = 15000L
+    private const val POLL_INTERVAL_MS = 100L
+    private const val NONCE_BYTES = 16
+
+    /**
+     * Atestacao real. [nonce] (uso unico, uso do chamador) e copiado e a
+     * copia zerada apos o uso; null = 16B TRNG. Retorna o token opaco p/
+     * o servidor decidir; o app nunca interpreta o veredito localmente.
+     */
+    suspend fun verify(context: Context, nonce: ByteArray? = null): Result {
         SanitizedLog.record(SanitizedLog.Event.INTEGRITY_CHECK)
-        // TODO(release): request integrity token, verify on server, fail closed.
-        return Result.Unavailable
+        val pkg = listOf(PKG_NEW, PKG_LEGACY).firstOrNull { pkgName ->
+            runCatching { Class.forName("$pkgName.IntegrityManagerFactory") }.isSuccess
+        } ?: return Result.Unavailable
+        return try {
+            val factory = Class.forName("$pkg.IntegrityManagerFactory")
+            val manager = factory.getMethod("create", Context::class.java)
+                .invoke(null, context.applicationContext) ?: return Result.Unavailable
+            val bytes = nonce?.copyOf() ?: ByteArray(NONCE_BYTES).also { SecureRandom().nextBytes(it) }
+            val nonceStr = Base64.encodeToString(
+                bytes,
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
+            bytes.fill(0)
+            val requestCls = Class.forName("$pkg.IntegrityTokenRequest")
+            val builder = requestCls.getMethod("builder").invoke(null)
+            builder.javaClass.getMethod("setNonce", String::class.java).invoke(builder, nonceStr)
+            val request = builder.javaClass.getMethod("build").invoke(builder)
+            val task = manager.javaClass.getMethod("requestIntegrityToken", requestCls)
+                .invoke(manager, request) ?: return Result.Failed("no-task")
+            awaitToken(task)
+        } catch (_: ClassNotFoundException) {
+            Result.Unavailable
+        } catch (e: Exception) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "integrity request failed")
+            Result.Failed((e.message ?: "integrity-failed").take(64))
+        }
+    }
+
+    /**
+     * Espera a Task (gms-tasks) por polling reflexivo — sem linkar
+     * OnSuccessListener em compilacao. Timeout = falha, nunca sucesso.
+     */
+    private suspend fun awaitToken(task: Any): Result {
+        val taskCls = task.javaClass
+        val isComplete = runCatching { taskCls.getMethod("isComplete") }.getOrNull()
+            ?: return Result.Failed("bad-task")
+        val isSuccessful = runCatching { taskCls.getMethod("isSuccessful") }.getOrNull()
+            ?: return Result.Failed("bad-task")
+        val getResult = runCatching { taskCls.getMethod("getResult") }.getOrNull()
+            ?: runCatching { taskCls.getMethod("result") }.getOrNull()
+        val getException = runCatching { taskCls.getMethod("getException") }.getOrNull()
+            ?: runCatching { taskCls.getMethod("exception") }.getOrNull()
+        withTimeoutOrNull(INTEGRITY_TIMEOUT_MS) {
+            while (!(isComplete.invoke(task) as? Boolean ?: false)) delay(POLL_INTERVAL_MS)
+        } ?: return Result.Failed("timeout")
+        return if ((isSuccessful.invoke(task) as? Boolean) == true && getResult != null) {
+            val raw = runCatching { getResult.invoke(task) }.getOrNull()
+            val token = runCatching {
+                raw?.javaClass?.getMethod("token")?.invoke(raw) as? String
+            }.getOrNull()
+            if (token.isNullOrEmpty()) Result.Failed("empty-token")
+            else Result.Passed(token)
+        } else {
+            val cause = runCatching { getException?.invoke(task) as? Exception }.getOrNull()
+            Result.Failed((cause?.message ?: "integrity-failed").take(64))
+        }
     }
 }
 

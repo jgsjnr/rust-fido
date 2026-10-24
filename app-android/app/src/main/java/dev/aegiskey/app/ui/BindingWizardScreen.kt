@@ -74,7 +74,7 @@ fun BindingWizardScreen(
                     message = "sem chave — volte e crie a chave"
                     return@launch
                 }
-                val req = BindingOps.claimRequest(pubkey, bindingId)
+                val req = BindingWire.claimPayload(pubkey, bindingId)
                 val raw = withContext(Dispatchers.IO) {
                     client.sendVendor(BindingOps.OP_BINDING_CLAIM, req)
                 }
@@ -85,7 +85,7 @@ fun BindingWizardScreen(
                 }
                 DeviceLog.append(DeviceLog.Category.PAIRING, "binding claim status=" + resp.status)
                 when {
-                    resp.status == VendorOps.STATUS_OK && BindingOps.echoMatches(resp.tlv, bindingId) -> {
+                    resp.status == VendorOps.STATUS_OK && BindingWire.echoMatches(resp.tlv, bindingId) -> {
                         BindingKey.saveBindingId(context, bindingId)
                         SanitizedLog.record(SanitizedLog.Event.BINDING_CLAIMED)
                         step = WizardStep.RECOVERY

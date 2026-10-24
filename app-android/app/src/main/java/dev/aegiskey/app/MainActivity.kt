@@ -48,6 +48,7 @@ import dev.aegiskey.app.ui.LogScreen
 import dev.aegiskey.app.ui.OnboardingScreen
 import dev.aegiskey.app.ui.PivScreen
 import dev.aegiskey.app.ui.RecoveryUnlockScreen
+import dev.aegiskey.app.ui.RescueScreen
 import dev.aegiskey.app.ui.ScanPairScreen
 import dev.aegiskey.app.ui.TestModeBanner
 import dev.aegiskey.app.ui.SectionTitle
@@ -117,7 +118,7 @@ fun AegisApp(client: AegisBleClient) {
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
                         "onboarding", "setup-usb", "setup-ble" -> "welcome"
-                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "wallet", "piv" -> "connect"
+                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "rescue", "wallet", "piv" -> "connect"
                         else -> current
                     }
                     for (dest in BOTTOM_DESTINATIONS) {
@@ -195,6 +196,7 @@ fun AegisApp(client: AegisBleClient) {
                 composable("transfer") { TransferOwnershipScreen(client, onDone = { nav.navigate("connect") }) }
                 composable("unbind") { UnbindGuideScreen(onDone = { nav.navigate("connect") }) }
                 composable("recovery") { RecoveryUnlockScreen(client, onReclaim = { nav.navigate("binding") }, onBack = { nav.navigate("connect") }) }
+                composable("rescue") { RescueScreen(client, onBack = { nav.navigate("connect") }) }
             }
         }
     }
@@ -266,6 +268,10 @@ private fun ConnectHub(nav: NavController, client: AegisBleClient) {
                 onClick = { nav.navigate("log") },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Log do dispositivo", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            OutlinedButton(
+                onClick = { nav.navigate("rescue") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Resgate: ping e diagnostico", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             FriendlyText(
                 text = "Dica nao-tecnica: segure o botao do dispositivo 5s para parear; confirme o codigo na tela BLE.",
                 maxLines = 4,

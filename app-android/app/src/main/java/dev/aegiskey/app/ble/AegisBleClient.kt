@@ -15,6 +15,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.ParcelUuid
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.log.DeviceLog
@@ -32,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 
 /**
  * BLE transport for GATT 0xFFFD (see docs/ble-protocol.md).
@@ -41,8 +43,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  * UP itself always comes from the device button (hold 5s); the app never
  * asserts presence, it only surfaces `STATUS_UP_NEEDED`.
  *
- * Legacy GATT callbacks are used deliberately: they work on API 31-34
- * without version branches. No PII is logged (see SanitizedLog).
+ * Version branches (minSdk 31 => only S+ branches exist; no pre-31 legacy):
+ * - API 33+ (Tiramisu): registerReceiver exige flag NOT_EXPORTED
+ *   (target 34 falha sem ela); GATT usa os overloads novos —
+ *   callbacks onCharacteristicRead/Changed com `value` inline e
+ *   BluetoothGatt.writeCharacteristic/writeDescriptor com valor inline.
+ * - API 31/32: mesmos caminhos via overloads/campos legados.
+ * Ambos os lados delegam aos mesmos handlers (sem duplicacao de logica).
+ * No PII is logged (see SanitizedLog).
  */
 @SuppressLint("MissingPermission") // UI layer holds BLUETOOTH_SCAN/CONNECT (A12+ runtime).
 class AegisBleClient(private val context: Context) {
@@ -80,6 +88,13 @@ class AegisBleClient(private val context: Context) {
         const val NEED_UP_POLL_INTERVAL_MS = 250L
         const val DEFAULT_MSG_TIMEOUT_MS = 15000L
         const val DEFAULT_VENDOR_TIMEOUT_MS = 25000L
+
+        /**
+         * Placeholder que [VendorOps.parseFwLog] sintetiza p/ TLV vazio.
+         * [fetchFwLog] normaliza p/ "" (autoridade vazia, sem prosa).
+         * Espelho do literal em VendorOps — comparar, nunca exibir.
+         */
+        private const val FW_LOG_EMPTY_PLACEHOLDER = "(log vazio — device recém-ligado?)"
     }
 
     /** Pronto para operar (pos-pareamento com FFF2 assinado). */
@@ -124,7 +139,7 @@ class AegisBleClient(private val context: Context) {
     private val bondReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
-            val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+            val device: BluetoothDevice? = bondedDeviceOf(intent)
             val bond = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
             _state.update { it.copy(bonded = device?.bondState == BluetoothDevice.BOND_BONDED || bond == BluetoothDevice.BOND_BONDED) }
             SanitizedLog.record(SanitizedLog.Event.BOND_CHANGED)
@@ -132,8 +147,27 @@ class AegisBleClient(private val context: Context) {
         }
     }
 
+    /** API 33+ exige o overload com Class; 31/32 usam o legado (minSdk 31). */
+    private fun bondedDeviceOf(intent: Intent): BluetoothDevice? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+        }
+
+    /** API 33+ (target 34) exige flag de exportacao; 31/32 usam o registro simples. */
+    private fun registerBondReceiver() {
+        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(bondReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(bondReceiver, filter)
+        }
+    }
+
     init {
-        context.registerReceiver(bondReceiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+        registerBondReceiver()
     }
 
     fun release() {
@@ -185,11 +219,18 @@ class AegisBleClient(private val context: Context) {
     // -- connect / bond ---------------------------------------------------------
 
     fun connect(address: String) {
-        val device = deviceCache[address] ?: adapter()?.getRemoteDevice(address) ?: return
+        val device = deviceCache[address]
+            ?: runCatching { adapter()?.getRemoteDevice(address) }.getOrNull()
+        if (device == null) {
+            _state.update { it.copy(connection = Connection.ERROR, error = "endereço inválido — volte e escaneie de novo") }
+            DeviceLog.append(DeviceLog.Category.BLE, "BLE connect refused (bad address)")
+            return
+        }
         deviceCache[address] = device
         _state.update { it.copy(connection = Connection.CONNECTING, error = null) }
         stopScan()
-        gatt = device.connectGatt(context, false, gattCallback)
+        // Transporte LE explicito (overload disponivel desde sempre; minSdk 31).
+        gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         DeviceLog.append(DeviceLog.Category.BLE, "BLE connect requested")
     }
 
@@ -239,20 +280,44 @@ class AegisBleClient(private val context: Context) {
             scope.launch { afterServices(g) }
         }
 
+        @Suppress("DEPRECATION")
         override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-            pendingRead?.complete(c.value ?: ByteArray(0))
+            completeRead(c.value)
+        }
+
+        /** API 33+: mesmo caminho do legado, valor inline. */
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+            completeRead(value)
+        }
+
+        private fun completeRead(value: ByteArray?) {
+            pendingRead?.complete(value ?: ByteArray(0))
             pendingRead = null
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            completeWrite(status)
+        }
+
+        private fun completeWrite(status: Int) {
             pendingWrite?.complete(status == BluetoothGatt.GATT_SUCCESS)
             pendingWrite = null
         }
 
+        @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
-            val bytes = c.value ?: return
-            if (c.uuid == BleContract.CHAR_STATUS && bytes.isNotEmpty()) {
-                val statusByte = bytes[0].toInt() and 0xFF
+            handleCharacteristicChanged(c.uuid, c.value)
+        }
+
+        /** API 33+: mesmo caminho do legado, valor inline. */
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
+            handleCharacteristicChanged(c.uuid, value)
+        }
+
+        private fun handleCharacteristicChanged(uuid: java.util.UUID, bytes: ByteArray?) {
+            val data = bytes ?: return
+            if (uuid == BleContract.CHAR_STATUS && data.isNotEmpty()) {
+                val statusByte = data[0].toInt() and 0xFF
                 _state.update { it.copy(status = statusByte) }
                 val statusLabel = BleContract.statusLabel(statusByte)
                 val kind = if (statusByte == BleContract.STATUS_PROCESSING) "keepalive" else "notify"
@@ -260,12 +325,16 @@ class AegisBleClient(private val context: Context) {
                 SanitizedLog.record(SanitizedLog.Event.STATUS_NOTIFY)
             } else {
                 synchronized(notifyBuffer) {
-                    bytes.forEach { notifyBuffer.add(it) }
+                    data.forEach { notifyBuffer.add(it) }
                 }
             }
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            completeSubscribe(status)
+        }
+
+        private fun completeSubscribe(status: Int) {
             pendingSubscribe?.complete(status == BluetoothGatt.GATT_SUCCESS)
             pendingSubscribe = null
         }
@@ -313,13 +382,24 @@ class AegisBleClient(private val context: Context) {
     }
 
     private suspend fun writeBytes(c: BluetoothGattCharacteristic?, bytes: ByteArray): Boolean {
-        if (c == null || gatt == null) return false
+        val g = gatt ?: return false
+        if (c == null) return false
         return ioLock.withLock {
             val gate = CompletableDeferred<Boolean>()
             pendingWrite = gate
-            c.value = bytes
-            c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            if (gatt?.writeCharacteristic(c) != true) {
+            // API 33+: escrita com valor inline; 31/32: campos legados.
+            val submitted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeCharacteristic(c, bytes, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) ==
+                    BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                c.value = bytes
+                @Suppress("DEPRECATION")
+                c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                @Suppress("DEPRECATION")
+                g.writeCharacteristic(c)
+            }
+            if (!submitted) {
                 pendingWrite = null
                 return false
             }
@@ -334,8 +414,17 @@ class AegisBleClient(private val context: Context) {
         return ioLock.withLock {
             val gate = CompletableDeferred<Boolean>()
             pendingSubscribe = gate
-            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            if (!g.writeDescriptor(cccd)) {
+            // API 33+: descritor com valor inline; 31/32: campo legado.
+            val submitted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
+                    BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION")
+                g.writeDescriptor(cccd)
+            }
+            if (!submitted) {
                 pendingSubscribe = null
                 return false
             }
@@ -452,19 +541,30 @@ class AegisBleClient(private val context: Context) {
     }
 
     /**
-     * Log real da firmware (0x38, ASCII sem PII). Firmware antiga sem a op
-     * cai em timeout/erro — tratado como falha amigável, nunca crash.
+     * Log real da firmware (0x38, ASCII sem PII). Sem fallback amigavel:
+     * - TLV vazio = dado de autoridade vazio (""): nunca prosa inventada.
+     * - Timeout/resposta ilegivel = falha (IOException), nunca sucesso
+     *   sintetico; a causa (firmware sem 0x38, link caido) fica no device,
+     *   o app so relata a ausencia.
+     * - Status do device propagado como autoridade (binding/UP/PIN/label).
      */
     suspend fun fetchFwLog(maxChars: Int = 4000): Result<String> {
         DeviceLog.append(DeviceLog.Category.BLE, "TX FFF1 0x38 fw-log")
         val raw = sendVendor(BleContract.OP_FW_LOG, ByteArray(0))
-            ?: return Result.failure(Exception("sem resposta — firmware antiga? atualize o device"))
+            ?: return Result.failure(IOException("fw-log sem resposta (0x38)"))
         val resp = VendorOps.parseResponse(raw)
-            ?: return Result.failure(Exception("resposta ilegível"))
+            ?: return Result.failure(IOException("fw-log resposta ilegível (0x38)"))
         return when (resp.status) {
-            VendorOps.STATUS_OK -> Result.success(VendorOps.parseFwLog(resp.tlv, maxChars))
-            VendorOps.STATUS_NEED_BINDING -> Result.failure(Exception("vincule o dispositivo primeiro"))
-            else -> Result.failure(Exception(VendorOps.statusLabel(resp.status) + " (0x" + String.format("%02X", resp.status) + ")"))
+            VendorOps.STATUS_OK -> {
+                if (resp.tlv.isEmpty()) {
+                    Result.success("")
+                } else {
+                    val text = VendorOps.parseFwLog(resp.tlv, maxChars)
+                    Result.success(if (text == FW_LOG_EMPTY_PLACEHOLDER) "" else text)
+                }
+            }
+            VendorOps.STATUS_NEED_BINDING -> Result.failure(SecurityException("vincule o dispositivo primeiro"))
+            else -> Result.failure(IOException(VendorOps.statusLabel(resp.status) + " (0x" + String.format("%02X", resp.status) + ")"))
         }
     }
 

@@ -13,15 +13,14 @@ import java.io.ByteArrayOutputStream
  * Firmware chunk opcode family 0x30 (matches firmware ota.rs, Task F):
  * [splitBinary] frames one CTAPHID message whose CMD byte is
  * (opBegin or 0x80); multi-chunk begin/data/end sequencing on top of
- * [pushImage] is Step-4 wiring, once Task F's chunk protocol lands.
+ * [pushImage] is owned by the staged session (OtaApi 0x30-0x34).
  *
- * WIRING TODO (Step-4 app wiring): UsbCtaphid.kt owns its UsbDeviceConnection
- * + endpoints privately and is deliberately untouched here. Wire-up options:
- *  (a) expose connection/endpoints from UsbCtaphid behind an OtaUsbTransport
- *      impl, or (b) implement OtaUsbTransport in the wiring layer by delegating
- *      write() to UsbDeviceConnection.bulkTransfer(epOut, packet, 64,
- *      WRITE_TIMEOUT_MS). Full CTAPHID INIT (negotiated CID) also belongs to
- *      that step; [DEFAULT_CID] mirrors UsbCtaphid's initial channel id.
+ * Step-4 wiring landed: [UsbCtaphid.CtaphidOtaTransport] exposes the open
+ * CTAPHID connection behind [OtaUsbTransport] (bulkTransfer 64B on the
+ * OUT/IN endpoints), and [UsbCtaphid.pushOtaImage] pushes via [pushImage].
+ * Full CTAPHID INIT (negotiated CID) stays out, like pingTest;
+ * [DEFAULT_CID] mirrors UsbCtaphid's initial channel id. 0x33 (COMMIT)
+ * has no path here by design (USB-only offline ritual, ver OtaApi).
  */
 interface OtaUsbTransport {
     fun write(packet: ByteArray): Boolean

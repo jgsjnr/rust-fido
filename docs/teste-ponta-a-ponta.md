@@ -1923,3 +1923,17 @@ Achados p/ pré-F6: (a) serial no fio = AEGIS-S3-0001, Rust diz 0002 (lado C nã
 - [PASS] B02b janela pareamento — aberta
 - [PASS] B03 MC [812ms] — 743B
 - [PASS] B04 GA [948ms] — 171B
+
+### 24/10 14:50 — phase=base
+- [PASS] SETUP janela fechada + latch limpo — pairing_closed + up_pending=0 touch=0
+- [PASS] T01 INIT aloca CID — cid=0x00010201
+- [PASS] T02 PING eco — eco=b'ping-e2e'
+- [PASS] T03 GetInfo — status=0x00 bytes=479
+- [PASS] T04 FW-LOG serial livre — status=0x00 linhas=2
+- [PASS] T05 KEY_LIST sem UP barra — 0x01
+- [PASS] T06 WALLET_GEN sem UP/janela barra — 0x05
+- [PASS] T06b WALLET_GEN com UP sem janela barra — 0x05
+- [PASS] T07 RESCUE lixo sem magic — 0x01
+- [PASS] T08 OTA-BEGIN sem janela nega — status=0x01 bytes=0
+- [PASS] T09 PIN getRetries — status=0x00 body=a2030804f4
+- [PASS] T10 BIND_CHALLENGE sem posse nega — status=0x05 (anotar)

@@ -2,16 +2,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- BLE runtime set (API 31+, minSdk 31 / target 34).
-         SCAN with neverForLocation: 0xFFFD service-UUID filter needs no
-         location and the app never derives physical location from BLE.
-         ACCESS_FINE/COARSE_LOCATION is therefore INTENTIONALLY ABSENT :
-         requesting it would imply location use the app does not perform
-         (scan sem location, CDM sem location). Do NOT add it.
-         CONNECT covers connectGatt/createBond/bondedDevices/GATT I/O.
-         NOT requested on purpose: BLUETOOTH_ADVERTISE (central only, never
-         peripheral), NEARBY_WIFI_DEVICES (no WifiManager scan : plain
-         HttpURLConnection to the AP IP), POST_NOTIFICATIONS (no
-         notifications / no foreground service). -->
+         Decisao de permissoes (revisada, fail-closed / menor privilegio):
+         - BLUETOOTH_SCAN (neverForLocation) + BLUETOOTH_CONNECT: pedidas.
+           Filtro 0xFFFD nao precisa de localizacao e o app nunca deriva
+           posicao fisica do BLE; CONNECT cobre connectGatt/createBond/
+           bondedDevices/GATT I/O.
+         - ACCESS_FINE/COARSE_LOCATION: AUSENTE de proposito. Com SCAN +
+           neverForLocation (API 31+) o scan nao usa localizacao; pedir
+           LOCATION implicaria um uso que o app nao faz.
+         - BLUETOOTH_ADVERTISE: AUSENTE de proposito. Central only (scan +
+           GATT cliente); o app nunca anuncia como periferico.
+         - POST_NOTIFICATIONS: AUSENTE de proposito. Sem foreground service
+           e sem notificacoes; nada ha para autorizar.
+         Ramificacoes de versao vivem no codigo (BlePermissions +
+         AegisBleClient): minSdk 31 => so existem ramos S+ (33+ p/ flags de
+         receiver e overloads GATT); nenhum ramo legado pre-31. Nao adicionar
+         permissoes sem uso real no transporte. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />

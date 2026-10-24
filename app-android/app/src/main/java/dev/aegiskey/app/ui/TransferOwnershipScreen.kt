@@ -81,7 +81,7 @@ fun TransferOwnershipScreen(client: AegisBleClient, onDone: () -> Unit) {
     }
 
     fun requestChallenge() {
-        val id = bindingId ?: run {
+        if (bindingId == null) {
             message = "este app nao e o dono — nada p/ transferir"
             return
         }
@@ -89,10 +89,10 @@ fun TransferOwnershipScreen(client: AegisBleClient, onDone: () -> Unit) {
             busy = true
             try {
                 val raw = withContext(Dispatchers.IO) {
-                    client.sendVendor(BindingOps.OP_BINDING_CHALLENGE, BindingOps.challengeRequest(id))
+                    client.sendVendor(BindingOps.OP_BINDING_CHALLENGE, BindingWire.challengePayload())
                 }
                 val resp = VendorOps.parseResponse(raw)
-                val challenge = resp?.let { BindingOps.parseChallenge(it.tlv) }
+                val challenge = resp?.let { BindingWire.parseChallenge(it.tlv) }
                 if (resp == null || challenge == null) {
                     message = resp?.let { BindingOps.statusLabel(it.status) }
                         ?: "sem resposta — toque no dispositivo e tente de novo"
@@ -135,7 +135,7 @@ fun TransferOwnershipScreen(client: AegisBleClient, onDone: () -> Unit) {
                     scope.launch {
                         busy = true
                         try {
-                            val req = BindingOps.releaseRequest(id, rawSig)
+                            val req = BindingWire.releasePayload(challenge, idHash, rawSig)
                             val raw = withContext(Dispatchers.IO) {
                                 client.sendVendor(BindingOps.OP_BINDING_RELEASE, req)
                             }

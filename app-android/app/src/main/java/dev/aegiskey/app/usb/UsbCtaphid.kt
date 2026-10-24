@@ -347,4 +347,55 @@ class UsbCtaphid(private val context: Context) {
                 false
             }
         }
+
+    // -- OTA transport (Step-4 wiring fechado) --------------------------------
+    //
+    // Transporte CTAPHID 64B para [OtaTransfer]: cada pacote de 64B de
+    // [OtaTransfer.splitBinary] (mensagem 0x30 com framing init/cont iguais
+    // ao [frameMessage]) e escrito via bulkTransfer no endpoint OUT; a
+    // resposta e lida no endpoint IN. App e so transporte: nunca ve chaves,
+    // nunca inventa bytes — tamanhos/opcodes vao so para o DeviceLog
+    // (ver [OtaTransfer]). CID inicial 0x01020304 espelha
+    // [OtaTransfer.DEFAULT_CID] e o channelId inicial desta classe; a
+    // negociacao CTAPHID INIT completa segue fora (igual ao pingTest).
+    //
+    // 0x33 (COMMIT) nao existe aqui por desenho: commit e ritual USB-only
+    // offline (release key + latch UP fisico) do bootloader/rollback, sem
+    // caminho em codigo (ver OtaApi).
+    inner class CtaphidOtaTransport : OtaUsbTransport {
+        override fun write(packet: ByteArray): Boolean {
+            val conn = connection
+            val outEp = epOut
+            if (conn == null || outEp == null) return false
+            if (packet.size != PACKET_SIZE) return false
+            return conn.bulkTransfer(outEp, packet, packet.size, WRITE_TIMEOUT_MS) == PACKET_SIZE
+        }
+
+        override fun read(timeoutMs: Int): ByteArray? {
+            val conn = connection
+            val inEp = epIn
+            if (conn == null || inEp == null) return null
+            val buf = ByteArray(PACKET_SIZE)
+            val n = conn.bulkTransfer(inEp, buf, buf.size, timeoutMs.coerceAtLeast(100))
+            if (n <= 0) return null
+            return buf.copyOf(n)
+        }
+    }
+
+    /** Transporte OTA sobre a conexao CTAPHID aberta (exige CONNECTED). */
+    fun otaTransport(): OtaUsbTransport = CtaphidOtaTransport()
+
+    /**
+     * Empurra [binary] via [OtaTransfer.pushImage] (fatia 0x30 em pacotes
+     * 64B, aborta no primeiro write-fail). Imagens vazias/oversize sao
+     * rejeitadas por [OtaTransfer.splitBinary] antes de qualquer write
+     * (IllegalArgumentException). Chamar com a conexao CONNECTED.
+     */
+    suspend fun pushOtaImage(
+        binary: ByteArray,
+        onProgress: ((sent: Int, total: Int) -> Unit)? = null,
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+            OtaTransfer.pushImage(otaTransport(), binary, onProgress)
+        }
 }
