@@ -3,6 +3,8 @@ package dev.aegiskey.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
+import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.system.SystemSecurityService
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
@@ -49,6 +51,7 @@ class TotpAuthenticatorViewModel(
     private val deleteTotpAccountUseCase: DeleteTotpAccountUseCase,
     private val tickTotpTimerUseCase: TickTotpTimerUseCase,
     private val securityService: SystemSecurityService,
+    private val keysStore: EncryptedKeysStore? = null
 ) : ViewModel() {
 
     val activeKey: StateFlow<ConnectedKeyDevice?> = getActiveKeyUseCase()
@@ -178,6 +181,15 @@ class TotpAuthenticatorViewModel(
         }
     }
 
+    fun injectExtraSampleForDebug() {
+        val currentKey = activeKey.value ?: return
+        if (keysStore != null) {
+            DebugHardwareChipMock.injectExtraSample(currentKey.id, keysStore)
+            refreshCodes()
+            _internalState.update { it.copy(feedbackMessage = "Novas contas do Chip Mock sincronizadas!") }
+        }
+    }
+
     companion object {
         fun provideFactory(container: AppContainer): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
@@ -191,6 +203,7 @@ class TotpAuthenticatorViewModel(
                         deleteTotpAccountUseCase = container.deleteTotpAccountUseCase,
                         tickTotpTimerUseCase = container.tickTotpTimerUseCase,
                         securityService = container.securityService,
+                        keysStore = container.keysStore
                     ) as T
                 }
             }

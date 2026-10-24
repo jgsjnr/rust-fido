@@ -48,6 +48,7 @@ import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
 import dev.aegiskey.app.domain.model.OnboardingStep
 import dev.aegiskey.app.ui.atomic.molecules.PhysicalButtonPromptCardMolecule
+import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.templates.WizardStepTemplate
 import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
 
@@ -175,6 +176,12 @@ fun OnboardingWizardScreen(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        DebugChipControlHooksCard(
+            onSimulateHold5s = { viewModel.simulateButtonHold5s() },
+            onSimulateTouch = { viewModel.simulateSingleButtonTouch() },
+        )
     }
 }
 

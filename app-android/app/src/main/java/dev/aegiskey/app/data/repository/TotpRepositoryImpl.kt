@@ -9,10 +9,13 @@ import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.TotpRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -24,7 +27,8 @@ class TotpRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
     private val bleClient: AegisBleClient? = null,
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
-    private val connectedKeysRepository: ConnectedKeysRepository
+    private val connectedKeysRepository: ConnectedKeysRepository,
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : TotpRepository {
 
     private val _accounts = MutableStateFlow<List<TotpAccountItem>>(emptyList())
@@ -42,6 +46,12 @@ class TotpRepositoryImpl(
             val list = keysStore.loadTotpAccounts(initialKeyId)
             _accounts.value = list
         }
+
+        connectedKeysRepository.activeKey.onEach { key ->
+            if (key != null) {
+                _accounts.value = keysStore.loadTotpAccounts(key.id)
+            }
+        }.launchIn(scope)
     }
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {

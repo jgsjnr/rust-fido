@@ -56,6 +56,7 @@ import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
 import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
 import dev.aegiskey.app.ui.atomic.molecules.VaultEntryCardMolecule
+import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.organisms.KeyGenerationDialogOrganism
 import dev.aegiskey.app.ui.atomic.organisms.VaultKeyType
 import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
@@ -314,6 +315,14 @@ fun KeyVaultHubScreen(
                         }
                     }
                 }
+            }
+
+            item {
+                DebugChipControlHooksCard(
+                    onSimulateTouch = { viewModel.simulateTouchIfNeeded() },
+                    onInjectSampleData = { viewModel.injectExtraSampleForDebug() },
+                    onSimulatePing = { viewModel.runHealthCheck() },
+                )
             }
 
             item {

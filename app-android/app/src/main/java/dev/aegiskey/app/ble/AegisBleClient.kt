@@ -197,7 +197,11 @@ class AegisBleClient(private val context: Context) {
     }
 
     fun startScan() {
-        val scanner = adapter()?.bluetoothLeScanner ?: return
+        val scanner = runCatching { adapter()?.bluetoothLeScanner }.getOrNull()
+        if (scanner == null) {
+            _state.update { it.copy(connection = Connection.IDLE, error = "Bluetooth indisponivel ou desligado") }
+            return
+        }
         _state.update { it.copy(connection = Connection.SCANNING, devices = emptyList(), error = null) }
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(BleContract.SERVICE_UUID))
@@ -205,9 +209,17 @@ class AegisBleClient(private val context: Context) {
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
-        scanner.startScan(listOf(filter), settings, scanCallback)
-        SanitizedLog.record(SanitizedLog.Event.SCAN_STARTED)
-        DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD started")
+        val scanResult = runCatching {
+            scanner.startScan(listOf(filter), settings, scanCallback)
+        }
+        if (scanResult.isSuccess) {
+            SanitizedLog.record(SanitizedLog.Event.SCAN_STARTED)
+            DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD started")
+        } else {
+            val err = scanResult.exceptionOrNull()
+            _state.update { it.copy(connection = Connection.IDLE, error = "Permissao Bluetooth necessaria ou radio desligado") }
+            DeviceLog.append(DeviceLog.Category.BLE, "scan failed: " + (err?.localizedMessage ?: "SecurityException"))
+        }
     }
 
     fun stopScan() {
@@ -230,18 +242,27 @@ class AegisBleClient(private val context: Context) {
         deviceCache[address] = device
         _state.update { it.copy(connection = Connection.CONNECTING, error = null) }
         stopScan()
-        // Transporte LE explicito (overload disponivel desde sempre; minSdk 31).
-        gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-        DeviceLog.append(DeviceLog.Category.BLE, "BLE connect requested")
+        val gattResult = runCatching {
+            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        }
+        if (gattResult.isSuccess) {
+            gatt = gattResult.getOrNull()
+            DeviceLog.append(DeviceLog.Category.BLE, "BLE connect requested")
+        } else {
+            _state.update { it.copy(connection = Connection.ERROR, error = "Permissao de conexao Bluetooth necessaria") }
+            DeviceLog.append(DeviceLog.Category.BLE, "connectGatt failed: " + (gattResult.exceptionOrNull()?.localizedMessage ?: "SecurityException"))
+        }
     }
 
     fun ensureBonded(address: String) {
-        deviceCache[address]?.let { device ->
-            if (device.bondState != BluetoothDevice.BOND_BONDED) {
-                DeviceLog.append(DeviceLog.Category.PAIRING, "bond solicitado")
-                device.createBond()
-            } else {
-                DeviceLog.append(DeviceLog.Category.PAIRING, "ja pareado")
+        runCatching {
+            deviceCache[address]?.let { device ->
+                if (device.bondState != BluetoothDevice.BOND_BONDED) {
+                    DeviceLog.append(DeviceLog.Category.PAIRING, "bond solicitado")
+                    device.createBond()
+                } else {
+                    DeviceLog.append(DeviceLog.Category.PAIRING, "ja pareado")
+                }
             }
         }
     }

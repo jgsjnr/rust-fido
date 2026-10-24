@@ -49,6 +49,7 @@ import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 import dev.aegiskey.app.ui.atomic.molecules.ConnectedKeyCardMolecule
+import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.viewmodel.ConnectedKeysViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -189,6 +190,12 @@ fun ConnectedKeysRepositoryScreen(
                     onDisconnectKey = {
                         keyToRemove = device
                     },
+                )
+            }
+
+            item {
+                DebugChipControlHooksCard(
+                    onResetAllKeys = { viewModel.resetAllKeysForDebug() },
                 )
             }
         }

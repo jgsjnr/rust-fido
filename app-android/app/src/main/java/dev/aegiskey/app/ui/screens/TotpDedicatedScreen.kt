@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.ui.atomic.molecules.TotpCodeCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.AddTotpAccountDialogOrganism
+import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.viewmodel.TotpAuthenticatorViewModel
 
 @Composable
@@ -183,6 +184,13 @@ fun TotpDedicatedScreen(
                     onDeleteAccount = {
                         accountToDelete = item
                     },
+                )
+            }
+
+            item {
+                DebugChipControlHooksCard(
+                    onInjectSampleData = { viewModel.injectExtraSampleForDebug() },
+                    onSimulatePing = { viewModel.refreshCodes() },
                 )
             }
 

@@ -3,6 +3,7 @@ package dev.aegiskey.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
@@ -167,14 +168,9 @@ class OnboardingWizardViewModel(
                     var candidate = _uiState.value.selectedCandidate
                         ?: _uiState.value.candidates.firstOrNull()
 
-                    // Emulador/Simulador sem chave física real: provê candidato automático
-                    if (candidate == null && transport == ConnectionTransportType.SIMULATOR) {
-                        candidate = DiscoveredKeyCandidate(
-                            id = "tcp:10.0.2.2:5678",
-                            name = "AegisKey Renode Simulator",
-                            signalRssi = -20,
-                            transportType = ConnectionTransportType.SIMULATOR
-                        )
+                    // Emulador/Simulador ou Debug sem chave física real: provê candidato automático
+                    if (candidate == null && (transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode)) {
+                        candidate = DebugHardwareChipMock.getCandidateForTransport(transport)
                     } else if (candidate == null) {
                         // Se não encontrou nenhuma chave ainda, informa de modo amigável
                         _uiState.update {
@@ -185,7 +181,7 @@ class OnboardingWizardViewModel(
 
                     _uiState.update { it.copy(selectedCandidate = candidate, isConnecting = true, errorMessage = null) }
                     val connectResult = connectCandidateUseCase(candidate)
-                    if (connectResult.isSuccess) {
+                    if (connectResult.isSuccess || transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode) {
                         stopDiscoveryUseCase()
                         _uiState.update {
                             it.copy(
@@ -195,23 +191,11 @@ class OnboardingWizardViewModel(
                             )
                         }
                     } else {
-                        // Se falhou ao conectar, e o usuário está testando ou em emulador, permite avançar se for simulador
-                        if (transport == ConnectionTransportType.SIMULATOR) {
-                            stopDiscoveryUseCase()
-                            _uiState.update {
-                                it.copy(
-                                    isConnecting = false,
-                                    currentStep = OnboardingStep.TOUCH_AND_BIOMETRIC_BIND,
-                                    errorMessage = null
-                                )
-                            }
-                        } else {
-                            _uiState.update {
-                                it.copy(
-                                    isConnecting = false,
-                                    errorMessage = "Não foi possível conectar à chave. Verifique se ela está ligada e próxima ao celular."
-                                )
-                            }
+                        _uiState.update {
+                            it.copy(
+                                isConnecting = false,
+                                errorMessage = "Não foi possível conectar à chave. Verifique se ela está ligada e próxima ao celular."
+                            )
                         }
                     }
                 }
@@ -219,7 +203,7 @@ class OnboardingWizardViewModel(
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> {
                 viewModelScope.launch {
                     val transport = _uiState.value.selectedTransport
-                    if (transport == ConnectionTransportType.SIMULATOR) {
+                    if (transport == ConnectionTransportType.SIMULATOR || DebugHardwareChipMock.isDebugMode) {
                         simulateButtonSingleTouchUseCase()
                     }
                     _uiState.update {

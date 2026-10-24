@@ -77,7 +77,8 @@ class AppContainer(val context: Context) {
             usbCtaphid = usbCtaphid,
             simulatedRenodeTransport = simulatedRenodeTransport,
             securityService = securityService,
-            connectedKeysRepository = connectedKeysRepository
+            connectedKeysRepository = connectedKeysRepository,
+            keysStore = keysStore
         )
     }
 

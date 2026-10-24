@@ -3,6 +3,8 @@ package dev.aegiskey.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
+import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.system.SystemSecurityService
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AccessKeyType
@@ -52,6 +54,7 @@ class KeyVaultViewModel(
     private val updateKeySecurityTogglesUseCase: UpdateKeySecurityTogglesUseCase,
     private val simulateButtonSingleTouchUseCase: SimulateButtonSingleTouchUseCase,
     private val securityService: SystemSecurityService,
+    private val keysStore: EncryptedKeysStore? = null,
 ) : ViewModel() {
 
     val activeKey: StateFlow<ConnectedKeyDevice?> = getActiveKeyUseCase()
@@ -218,6 +221,15 @@ class KeyVaultViewModel(
         }
     }
 
+    fun injectExtraSampleForDebug() {
+        val currentKey = activeKey.value ?: return
+        if (keysStore != null) {
+            DebugHardwareChipMock.injectExtraSample(currentKey.id, keysStore)
+            refreshVault()
+            _internalState.update { it.copy(userMessage = "Nova Passkey e conta TOTP injetadas pelo Chip Mock!") }
+        }
+    }
+
     companion object {
         fun provideFactory(container: AppContainer): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
@@ -233,6 +245,7 @@ class KeyVaultViewModel(
                         updateKeySecurityTogglesUseCase = container.updateKeySecurityTogglesUseCase,
                         simulateButtonSingleTouchUseCase = container.simulateButtonSingleTouchUseCase,
                         securityService = container.securityService,
+                        keysStore = container.keysStore,
                     ) as T
                 }
             }

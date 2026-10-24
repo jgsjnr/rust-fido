@@ -124,6 +124,20 @@ class ConnectedKeysViewModel(
         }
     }
 
+    fun resetAllKeysForDebug() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                connectedKeys.value.forEach {
+                    removeKeyUseCase(it.id)
+                }
+                _userFeedbackMessage.value = "Todas as chaves foram resetadas. Abrindo Onboarding..."
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     companion object {
         fun provideFactory(container: AppContainer): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

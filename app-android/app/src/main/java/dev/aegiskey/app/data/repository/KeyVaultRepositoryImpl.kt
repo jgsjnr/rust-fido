@@ -9,10 +9,13 @@ import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.KeyVaultRepository
 import dev.aegiskey.app.ui.RescueOps
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
@@ -20,7 +23,8 @@ class KeyVaultRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
     private val bleClient: AegisBleClient? = null,
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
-    private val connectedKeysRepository: ConnectedKeysRepository
+    private val connectedKeysRepository: ConnectedKeysRepository,
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : KeyVaultRepository {
 
     private val _vaultEntries = MutableStateFlow<List<VaultKeyEntry>>(emptyList())
@@ -31,6 +35,12 @@ class KeyVaultRepositoryImpl(
         if (initialKeyId != null) {
             _vaultEntries.value = keysStore.loadVaultEntries(initialKeyId)
         }
+
+        connectedKeysRepository.activeKey.onEach { key ->
+            if (key != null) {
+                _vaultEntries.value = keysStore.loadVaultEntries(key.id)
+            }
+        }.launchIn(scope)
     }
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {

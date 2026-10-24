@@ -24,3 +24,4 @@ app-android/.gradle/
 .slim/worktrees.json
 # END oh-my-opencode-slim worktrees
 
+*.apk
