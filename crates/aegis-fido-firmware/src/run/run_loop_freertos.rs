@@ -531,22 +531,14 @@ pub fn run_authenticator_freertos() {
                 if *b == b'\n' {
                     if let Ok(line) = core::str::from_utf8(&freertos_serial_line) {
                         // TEST_UP arma o latch SINCRONAMENTE aqui (o ack já
-                        // sai com latch válido). O Tick mantém o re-armo
-                        // idempotente via take_up (compat); sem isso, a
-                        // latência ack→tick comia a janela de 1,5 s e o MC
-                        // caía em 0x27 mesmo com UP "confirmado".
+                        // sai com latch válido). UP momentaneo: latch +
+                        // presença, SEM pairar. (Hold físico vem da borda
+                        // do botão; TEST nunca abre janela sozinho —
+                        // janelas de teste usam TEST_PAIRING_OPEN[_300].)
                         if line.trim() == "TEST_UP" {
                             touch_latched = true;
                             touch_expire_ms = freertos_now_ms.saturating_add(1500);
                             rescue_engine.set_user_presence(true);
-                            kprintln!(
-                                "[TEST] up hook paring={:?} t={}.",
-                                pairing_mgr.state(),
-                                freertos_now_ms
-                            );
-                            pairing_mgr.on_button_level(true, freertos_now_ms);
-                            kprintln!("[TEST] up applied paring={:?}.", pairing_mgr.state());
-                            boot_held_since_ms = Some(freertos_now_ms);
                             #[cfg(feature = "proximity")]
                             prox.note_presence(prox_now_ms);
                         }
@@ -929,6 +921,11 @@ pub fn run_authenticator_freertos() {
                     rescue_engine.set_user_presence(true);
                     pairing_mgr.on_button_level(true, freertos_now_ms);
                     boot_held_since_ms = Some(freertos_now_ms);
+                } else {
+                    // Borda de soltura: fecha o hold (sem timeout de parede;
+                    // borda explicita sobrevive a rajadas de tick).
+                    pairing_mgr.on_button_level(false, freertos_now_ms);
+                    boot_held_since_ms = None;
                 }
                 // KEY (GPIO 14) alterna as contas TOTP reais do device.
                 if key {
@@ -967,13 +964,16 @@ pub fn run_authenticator_freertos() {
                     touch_latched = false;
                     rescue_engine.set_user_presence(false);
                 }
-                // Nível do BOOT p/ hold (5s pareamento / 2s TOTP): o evento
-                // é borda; 300 ms sem repetição = solto.
-                if let Some(since) = boot_held_since_ms {
-                    if freertos_now_ms.saturating_sub(since) > 300 {
-                        boot_held_since_ms = None;
-                        pairing_mgr.on_button_level(false, freertos_now_ms);
-                    }
+                // Hold fisico por borda: o Tick reavalia o 5s enquanto Arming
+                // (a borda arma, o Tick completa). Sem timeout de parede:
+                // rajadas de tick matavam o Arming antes dos 5s e a janela
+                // nunca abria no hold fisico. Soltura e borda explicita
+                // no ButtonPress (acima); sem evento, sem mudanca.
+                if matches!(
+                    pairing_mgr.state(),
+                    crate::pairing::PairingState::Arming { .. }
+                ) {
+                    pairing_mgr.on_button_level(true, freertos_now_ms);
                 }
                 // Avança a janela TEST_PAIRING_OPEN[_300] (expira como o hold).
                 #[cfg(feature = "test-mode")]
@@ -1265,15 +1265,14 @@ pub fn run_authenticator_freertos() {
                     // driver TinyUSB; sem ponteiros, sem escrita.
                     let usb_active = unsafe { aegis_usb_is_mounted() };
                     // TEST_UP (test-mode): 1 UP software, consumo único
-                    // (latch 1,5 s via `note_presence` + latch 1x do CTAPHID
-                    // + presença p/ BLE/rescue).
+                    // (latch 1,5 s + presença p/ BLE/rescue). SEM pairar:
+                    // hold de teste nao abre janela (janelas de teste
+                    // usam TEST_PAIRING_OPEN[_300]).
                     #[cfg(feature = "test-mode")]
                     if freertos_test.take_up() {
                         touch_latched = true;
                         touch_expire_ms = prox_now_ms.saturating_add(1500);
                         rescue_engine.set_user_presence(true);
-                        pairing_mgr.on_button_level(true, prox_now_ms);
-                        boot_held_since_ms = Some(prox_now_ms);
                         prox.note_presence(prox_now_ms);
                         kprintln!("[TEST] UP via software CONFIRMED (latch 1x).");
                     }

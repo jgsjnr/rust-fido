@@ -260,11 +260,13 @@ unsafe extern "C" fn button_task_native_entry(param: *mut core::ffi::c_void) {
         TaskConfig::button().priority
     );
     let mut presses = 0usize;
+    // Borda explicita (sobe e desce); sem repeticao em hold.
+    let mut prev_levels = (false, false);
     while !FreeRtosScheduler::stop_requested(&ctx.stop, &ctx.events) {
         twdt.feed_current_task();
         let boot = (ctx.poll_boot)();
         let key = (ctx.poll_key)();
-        if let Some(ev) = button_task_step(boot, key) {
+        if let Some(ev) = button_task_step(&mut prev_levels, boot, key) {
             presses += 1;
             ctx.events.set_bits(EVT_BUTTON_UP);
             let _ = ctx.queue.send(ev);

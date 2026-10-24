@@ -213,16 +213,27 @@ pub fn packet_bytes(ev: &FirmwareEvent) -> Option<[u8; CTAPHID_PACKET_SIZE]> {
     }
 }
 
-/// Passo puro da tarefa de botão: borda de subida gera `ButtonPress`.
-pub fn button_task_step(boot_pressed: bool, key_pressed: bool) -> Option<FirmwareEvent> {
-    if boot_pressed || key_pressed {
-        Some(FirmwareEvent::ButtonPress {
-            boot: boot_pressed,
-            key: key_pressed,
-        })
-    } else {
-        None
+/// Passo puro da tarefa de botão: QUALQUER borda gera `ButtonPress`
+/// (sobe e desce; o nivel vai no evento). Nivel estavel nao gera nada.
+///
+/// Borda explicita em vez de nivel + timeout de parede: com ticks em
+/// rajada o timeout cortava o Arming antes dos 5s e a janela nunca
+/// abria no hold fisico. Soltura e evento proprio (fail-closed sem
+/// relogio): sem borda nao ha mudanca de estado.
+pub fn button_task_step(
+    prev: &mut (bool, bool),
+    boot_pressed: bool,
+    key_pressed: bool,
+) -> Option<FirmwareEvent> {
+    let cur = (boot_pressed, key_pressed);
+    if cur == *prev {
+        return None;
     }
+    *prev = cur;
+    Some(FirmwareEvent::ButtonPress {
+        boot: boot_pressed,
+        key: key_pressed,
+    })
 }
 
 /// Passo puro do housekeeping: alimenta o watchdog e emite tick.
@@ -614,11 +625,13 @@ impl FreeRtosScheduler {
             .spawn(move || {
                 let twdt = PerTaskWatchdog::subscribe_current_task();
                 let mut presses = 0usize;
+                // Borda explicita (sobe e desce); sem repeticao em hold.
+                let mut prev_levels = (false, false);
                 while !Self::stop_requested(&stop, &events) {
                     twdt.feed_current_task();
                     let boot = poll_boot();
                     let key = poll_key();
-                    if let Some(ev) = button_task_step(boot, key) {
+                    if let Some(ev) = button_task_step(&mut prev_levels, boot, key) {
                         presses += 1;
                         events.set_bits(EVT_BUTTON_UP);
                         let _ = queue.send(ev);
@@ -737,14 +750,41 @@ mod tests {
             usb_task_step(Some(pkt)),
             Some(FirmwareEvent::UsbPacket(pkt))
         );
-        assert_eq!(button_task_step(false, false), None);
+        // Borda: nivel estavel nao gera evento; soltura e evento proprio.
+        let mut prev = (false, false);
+        assert_eq!(button_task_step(&mut prev, false, false), None);
         assert_eq!(
-            button_task_step(true, false),
+            button_task_step(&mut prev, true, false),
             Some(FirmwareEvent::ButtonPress {
                 boot: true,
                 key: false
             })
         );
+        assert_eq!(button_task_step(&mut prev, true, false), None);
+        assert_eq!(
+            button_task_step(&mut prev, false, false),
+            Some(FirmwareEvent::ButtonPress {
+                boot: false,
+                key: false
+            })
+        );
+        assert_eq!(
+            button_task_step(&mut prev, false, true),
+            Some(FirmwareEvent::ButtonPress {
+                boot: false,
+                key: true
+            })
+        );
+        assert_eq!(button_task_step(&mut prev, false, true), None);
+        // Borda combinada tambem gera evento (nivel atual embutido).
+        assert_eq!(
+            button_task_step(&mut prev, true, true),
+            Some(FirmwareEvent::ButtonPress {
+                boot: true,
+                key: true
+            })
+        );
+        assert_eq!(button_task_step(&mut prev, true, true), None);
         let mut wd = Watchdog::new(300);
         let stop = AtomicBool::new(false);
         assert_eq!(housekeeping_step(7, &mut wd, &stop), TaskOutcome::Handled);
