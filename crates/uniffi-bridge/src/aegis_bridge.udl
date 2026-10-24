@@ -19,6 +19,8 @@ namespace aegis_bridge {
     string? oath_account_from_path(string path);
     [Throws=BridgeError] sequence<u8> app_lock_derive(sequence<u8> password, sequence<u8> salt);
     [Throws=BridgeError] string wallet_address(string network, string pubkey_hex);
+    string totp_format_display(string code);
+    [Throws=BridgeError] OtpAuthParsed otpauth_extract_label_and_secret(string input);
 };
 
 dictionary BleInfo {
@@ -39,6 +41,14 @@ dictionary OathCode {
     string account;
     string code;
     u32 remaining_seconds;
+};
+
+dictionary OtpAuthParsed {
+    string issuer;
+    string account_name;
+    string secret_base32;
+    u8 digits;
+    u32 period;
 };
 
 [Error]

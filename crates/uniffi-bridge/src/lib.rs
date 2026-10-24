@@ -158,6 +158,16 @@ pub struct OathCode {
     pub remaining_seconds: u32,
 }
 
+/// Parsed OATH OTPAuth input (URI or raw Base32 secret).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OtpAuthParsed {
+    pub issuer: String,
+    pub account_name: String,
+    pub secret_base32: String,
+    pub digits: u8,
+    pub period: u32,
+}
+
 /// Returns the frozen BLE constants (`docs/ble-protocol.md` section 1-2).
 pub fn ble_constants() -> BleInfo {
     BleInfo {
@@ -342,6 +352,18 @@ pub fn oath_remaining_seconds(unix_seconds: u64) -> u32 {
     30 - (unix_seconds % 30) as u32
 }
 
+/// Formats a 6..=8 digit numeric TOTP code for friendly display (e.g. "123456" -> "123 456", "12345678" -> "1234 5678").
+/// Preserves non-matching input as-is.
+pub fn totp_format_display(code: String) -> String {
+    let clean: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+    if oath_code_valid(clean.clone()) {
+        let mid = clean.len() / 2;
+        format!("{} {}", &clean[..mid], &clean[mid..])
+    } else {
+        code
+    }
+}
+
 /// PBKDF2-SHA1 iterations for the app lock verifier (mirrors YKOATH set_password).
 pub const APP_LOCK_PBKDF2_ITERATIONS: u32 = 1000;
 /// Minimum app-lock salt length in bytes.
@@ -451,6 +473,144 @@ pub fn oath_parse_response(json: String) -> Result<OathCode, BridgeError> {
         code,
         remaining_seconds,
     })
+}
+
+fn clean_base32_secret(raw: &str) -> Option<String> {
+    let clean: String = raw
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect();
+    let upper = clean.to_ascii_uppercase();
+    let unpadded = upper.trim_end_matches('=');
+    if unpadded.is_empty() {
+        return None;
+    }
+    if unpadded.chars().all(|c| matches!(c, 'A'..='Z' | '2'..='7')) {
+        Some(unpadded.to_string())
+    } else {
+        None
+    }
+}
+
+fn percent_decode(input: &str, plus_as_space: bool) -> String {
+    let mut bytes = Vec::with_capacity(input.len());
+    let b = input.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let (Some(hi), Some(lo)) = (
+                (b[i + 1] as char).to_digit(16),
+                (b[i + 2] as char).to_digit(16),
+            ) {
+                bytes.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        if plus_as_space && b[i] == b'+' {
+            bytes.push(b' ');
+        } else {
+            bytes.push(b[i]);
+        }
+        i += 1;
+    }
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// Safely parses an `otpauth://totp/...` URI or a raw Base32 secret string.
+///
+/// Trims whitespace, cleans spaces and hyphens from the Base32 secret, and converts to uppercase.
+/// On invalid URI or invalid Base32 secret, returns `Err(BridgeError::InvalidOath)`.
+pub fn otpauth_extract_label_and_secret(input: String) -> Result<OtpAuthParsed, BridgeError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(BridgeError::InvalidOath);
+    }
+
+    if trimmed.to_ascii_lowercase().starts_with("otpauth://") {
+        let rest = &trimmed[10..];
+        let (otp_type, after_type) = rest.split_once('/').ok_or(BridgeError::InvalidOath)?;
+        let otp_type_lower = otp_type.trim().to_ascii_lowercase();
+        if otp_type_lower != "totp" && otp_type_lower != "hotp" {
+            return Err(BridgeError::InvalidOath);
+        }
+
+        let after_type_trimmed = after_type.trim_start_matches('/');
+        let (raw_label, query_str) = match after_type_trimmed.split_once('?') {
+            Some((l, q)) => (l, q),
+            None => (after_type_trimmed, ""),
+        };
+
+        let decoded_label = percent_decode(raw_label, false);
+        let (lbl_issuer, lbl_account) = match decoded_label.split_once(':') {
+            Some((iss, acc)) => (iss.trim(), acc.trim()),
+            None => ("", decoded_label.trim()),
+        };
+
+        let mut query_issuer = String::new();
+        let mut raw_secret = String::new();
+        let mut digits: u8 = 6;
+        let mut period: u32 = 30;
+
+        for pair in query_str.split('&') {
+            if pair.is_empty() {
+                continue;
+            }
+            let (k, v) = match pair.split_once('=') {
+                Some((key, val)) => (key.trim().to_ascii_lowercase(), val.trim()),
+                None => (pair.trim().to_ascii_lowercase(), ""),
+            };
+            let decoded_val = percent_decode(v, true);
+            match k.as_str() {
+                "secret" => {
+                    raw_secret = decoded_val;
+                }
+                "issuer" => {
+                    query_issuer = decoded_val.trim().to_string();
+                }
+                "digits" => {
+                    if let Ok(d) = decoded_val.parse::<u8>() {
+                        if (6..=8).contains(&d) {
+                            digits = d;
+                        }
+                    }
+                }
+                "period" => {
+                    if let Ok(p) = decoded_val.parse::<u32>() {
+                        if p > 0 {
+                            period = p;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let secret_base32 = clean_base32_secret(&raw_secret).ok_or(BridgeError::InvalidOath)?;
+        let issuer = if !query_issuer.is_empty() {
+            query_issuer
+        } else {
+            lbl_issuer.to_string()
+        };
+        let account_name = lbl_account.to_string();
+
+        Ok(OtpAuthParsed {
+            issuer,
+            account_name,
+            secret_base32,
+            digits,
+            period,
+        })
+    } else {
+        let secret_base32 = clean_base32_secret(trimmed).ok_or(BridgeError::InvalidOath)?;
+        Ok(OtpAuthParsed {
+            issuer: String::new(),
+            account_name: String::new(),
+            secret_base32,
+            digits: 6,
+            period: 30,
+        })
+    }
 }
 
 /// Derives a wallet address from a public key (public computation only).
@@ -939,6 +1099,169 @@ mod tests {
         assert_eq!(
             wallet_address("bitcoin".to_string(), bad_prefix),
             Err(BridgeError::InvalidAddress)
+        );
+    }
+
+    #[test]
+    fn totp_format_display_formats_and_preserves() {
+        assert_eq!(totp_format_display("123456".to_string()), "123 456");
+        assert_eq!(totp_format_display("12345678".to_string()), "1234 5678");
+        assert_eq!(totp_format_display("1234567".to_string()), "123 4567");
+        assert_eq!(totp_format_display("  123456  ".to_string()), "123 456");
+        assert_eq!(totp_format_display("123 456".to_string()), "123 456");
+        assert_eq!(totp_format_display("1234 5678".to_string()), "1234 5678");
+        // Non-matching lengths and non-digits are preserved as-is.
+        assert_eq!(totp_format_display("12345".to_string()), "12345");
+        assert_eq!(totp_format_display("123456789".to_string()), "123456789");
+        assert_eq!(totp_format_display("123a56".to_string()), "123a56");
+        assert_eq!(totp_format_display("".to_string()), "");
+    }
+
+    #[test]
+    fn otpauth_extract_uri_success() {
+        // Standard URI with issuer prefix in label.
+        let parsed = otpauth_extract_label_and_secret(
+            "otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP".to_string(),
+        )
+        .unwrap();
+        assert_eq!(parsed.issuer, "GitHub");
+        assert_eq!(parsed.account_name, "alice");
+        assert_eq!(parsed.secret_base32, "JBSWY3DPEHPK3PXP");
+        assert_eq!(parsed.digits, 6);
+        assert_eq!(parsed.period, 30);
+
+        // URI with issuer parameter overriding or setting issuer, custom digits and period.
+        let parsed2 = otpauth_extract_label_and_secret(
+            "otpauth://totp/alice@example.com?secret=jbswy3dpehpk3pxp&issuer=Example&digits=8&period=60".to_string(),
+        ).unwrap();
+        assert_eq!(parsed2.issuer, "Example");
+        assert_eq!(parsed2.account_name, "alice@example.com");
+        assert_eq!(parsed2.secret_base32, "JBSWY3DPEHPK3PXP");
+        assert_eq!(parsed2.digits, 8);
+        assert_eq!(parsed2.period, 60);
+
+        // URL encoded label and query param.
+        let parsed3 = otpauth_extract_label_and_secret(
+            "otpauth://totp/Acme%20Corp:bob%2Btest@email.com?secret=JBSW%20Y3DP&issuer=Acme%20Corp".to_string(),
+        ).unwrap();
+        assert_eq!(parsed3.issuer, "Acme Corp");
+        assert_eq!(parsed3.account_name, "bob+test@email.com");
+        assert_eq!(parsed3.secret_base32, "JBSWY3DP");
+
+        // Label without colon.
+        let parsed4 = otpauth_extract_label_and_secret(
+            "otpauth://totp/SingleLabel?secret=JBSWY3DPEHPK3PXP".to_string(),
+        )
+        .unwrap();
+        assert_eq!(parsed4.issuer, "");
+        assert_eq!(parsed4.account_name, "SingleLabel");
+        assert_eq!(parsed4.secret_base32, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn otpauth_extract_raw_secret_success() {
+        // Pure Base32 string.
+        let p1 = otpauth_extract_label_and_secret("JBSWY3DPEHPK3PXP".to_string()).unwrap();
+        assert_eq!(p1.issuer, "");
+        assert_eq!(p1.account_name, "");
+        assert_eq!(p1.secret_base32, "JBSWY3DPEHPK3PXP");
+        assert_eq!(p1.digits, 6);
+        assert_eq!(p1.period, 30);
+
+        // Lowercase with spaces.
+        let p2 =
+            otpauth_extract_label_and_secret("  jbsw y3dp ehpk 3pxp  ".to_string()).unwrap();
+        assert_eq!(p2.secret_base32, "JBSWY3DPEHPK3PXP");
+
+        // With hyphens.
+        let p3 =
+            otpauth_extract_label_and_secret("JBSW-Y3DP-EHPK-3PXP".to_string()).unwrap();
+        assert_eq!(p3.secret_base32, "JBSWY3DPEHPK3PXP");
+
+        // With padding.
+        let p4 =
+            otpauth_extract_label_and_secret("JBSWY3DPEHPK3PXP===".to_string()).unwrap();
+        assert_eq!(p4.secret_base32, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn otpauth_extract_invalid_fails() {
+        assert_eq!(
+            otpauth_extract_label_and_secret("".to_string()),
+            Err(BridgeError::InvalidOath)
+        );
+        assert_eq!(
+            otpauth_extract_label_and_secret("   ".to_string()),
+            Err(BridgeError::InvalidOath)
+        );
+        // Invalid Base32 characters (8, 9, 0, 1).
+        assert_eq!(
+            otpauth_extract_label_and_secret("JBSWY3DP890".to_string()),
+            Err(BridgeError::InvalidOath)
+        );
+        // URI without secret.
+        assert_eq!(
+            otpauth_extract_label_and_secret("otpauth://totp/TestAccount".to_string()),
+            Err(BridgeError::InvalidOath)
+        );
+        // URI with invalid secret.
+        assert_eq!(
+            otpauth_extract_label_and_secret(
+                "otpauth://totp/TestAccount?secret=bad890".to_string()
+            ),
+            Err(BridgeError::InvalidOath)
+        );
+        // Unsupported schemes/types.
+        assert_eq!(
+            otpauth_extract_label_and_secret(
+                "ftp://totp/TestAccount?secret=JBSWY3DPEHPK3PXP".to_string()
+            ),
+            Err(BridgeError::InvalidOath)
+        );
+        assert_eq!(
+            otpauth_extract_label_and_secret(
+                "otpauth://unknown/TestAccount?secret=JBSWY3DPEHPK3PXP".to_string()
+            ),
+            Err(BridgeError::InvalidOath)
+        );
+    }
+
+    #[test]
+    fn ble_split_fragments_opcode_validation_matrix() {
+        // Must accept 0x81 (PING) and 0x83 (MSG).
+        assert!(ble_split_fragments(0x81, vec![1, 2, 3]).is_ok());
+        assert!(ble_split_fragments(0x83, vec![1, 2, 3]).is_ok());
+
+        // Must accept all bind-mgmt opcodes 0x28..=0x2D.
+        for op in 0x28..=0x2D {
+            assert!(
+                ble_split_fragments(op, vec![1, 2, 3]).is_ok(),
+                "opcode {:#04x} should be accepted",
+                op
+            );
+        }
+
+        // Must accept all OTA opcodes 0x30..=0x34.
+        for op in 0x30..=0x34 {
+            assert!(
+                ble_split_fragments(op, vec![1, 2, 3]).is_ok(),
+                "opcode {:#04x} should be accepted",
+                op
+            );
+        }
+
+        // Must reject 0x2E, 0x2F and 0xBE fail-closed.
+        assert_eq!(
+            ble_split_fragments(0x2E, vec![1]),
+            Err(BridgeError::InvalidOpcode)
+        );
+        assert_eq!(
+            ble_split_fragments(0x2F, vec![1]),
+            Err(BridgeError::InvalidOpcode)
+        );
+        assert_eq!(
+            ble_split_fragments(0xBE, vec![1]),
+            Err(BridgeError::InvalidOpcode)
         );
     }
 }

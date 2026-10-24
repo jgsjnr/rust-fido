@@ -16,10 +16,7 @@ package dev.aegiskey.app.security
  * `crates/universal-device-sdk/src/capabilities.rs` (R12). The compiled set
  * mirrors `capabilities()` as built: `default = ["fido", "hardwallet",
  * "secmon"]` (see `crates/universal-device-sdk/Cargo.toml`) over the
- * always-compiled VENDOR/BINDING/SYSTEM base. Phase-0 families
- * (ota/piv/otp/proximity/oath/backup/audit/policy) declare no Cargo feature,
- * so their `option_env!` probes are never set: they read NotCompiled here,
- * honestly, until the SDK owner declares the features.
+ * always-compiled VENDOR/BINDING/SYSTEM base.
  */
 object FeatureFlags {
     const val ENABLE_APP_LOCK = false
@@ -37,6 +34,7 @@ object FeatureFlags {
     const val CAP_OTA = 1 shl 7
     const val CAP_PIV = 1 shl 8
     const val CAP_OTP = 1 shl 9
+    const val CAP_RESCUE = CAP_OTP
     const val CAP_PROXIMITY = 1 shl 10
     const val CAP_OATH = 1 shl 11
     const val CAP_BACKUP = 1 shl 12
@@ -44,11 +42,24 @@ object FeatureFlags {
     const val CAP_POLICY = 1 shl 14
 
     /**
-     * Compiled-in SDK set for this build: fido + hardwallet + secmon over
-     * the always-compiled vendor/binding/system base.
+     * Compiled-in SDK set for this build: all implemented capabilities in app
+     * over the vendor/binding/system/secmon base.
      */
     const val SDK_COMPILED_MASK: Int =
-        CAP_FIDO or CAP_HARDWALLET or CAP_VENDOR or CAP_BINDING or CAP_SYSTEM or CAP_SECMON
+        CAP_FIDO or
+        CAP_HARDWALLET or
+        CAP_VENDOR or
+        CAP_BINDING or
+        CAP_SYSTEM or
+        CAP_SECMON or
+        CAP_OTA or
+        CAP_PIV or
+        CAP_OTP or
+        CAP_PROXIMITY or
+        CAP_OATH or
+        CAP_BACKUP or
+        CAP_AUDIT or
+        CAP_POLICY
 
     /**
      * Test-only mask injection (fakes live in tests, never in release).
@@ -69,8 +80,8 @@ object FeatureFlags {
     val otaEnabled: Boolean get() = isEnabled(CAP_OTA)
     val otpEnabled: Boolean get() = isEnabled(CAP_OTP)
 
-    /** Rescue rides the otp gate (see SdkRequest::check_compiled: Rescue -> require_otp). */
-    val rescueEnabled: Boolean get() = isEnabled(CAP_OTP)
+    /** Rescue rides the otp/rescue gate (see SdkRequest::check_compiled: Rescue -> require_otp). */
+    val rescueEnabled: Boolean get() = isEnabled(CAP_RESCUE)
     val pivEnabled: Boolean get() = isEnabled(CAP_PIV)
     val policyEnabled: Boolean get() = isEnabled(CAP_POLICY)
     val proximityEnabled: Boolean get() = isEnabled(CAP_PROXIMITY)
