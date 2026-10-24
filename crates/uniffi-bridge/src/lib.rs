@@ -36,7 +36,8 @@ pub const OP_CANCEL: u8 = 0xBE;
 pub const GATT_REVISION: u8 = 0x01;
 /// Max bytes per FFF1 write (conservative MTU-3).
 pub const MAX_FRAGMENT_BYTES: usize = 244;
-/// Reassemble cap (== envelope MAX-ESP).
+/// Reassemble cap for the BLE GATT control point (transport-only, frozen
+/// per `docs/ble-protocol.md`; NOT the `AEGN` envelope seal cap).
 pub const CONTROL_POINT_LENGTH: usize = 512;
 /// `AEGN` envelope magic.
 pub const ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E];
@@ -44,8 +45,16 @@ pub const ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E];
 pub const ENVELOPE_VERSION: u8 = 0x01;
 /// `MAGIC[4] | VER[1] | NONCE[12] | TAG[16]` floor (empty ciphertext).
 pub const MIN_ENVELOPE_LEN: usize = 33;
-/// Max plaintext accepted by seal (firmware `MAX_PLAINTEXT_BYTES`).
-pub const MAX_PLAINTEXT_BYTES: usize = 512;
+/// Max plaintext accepted by seal (mirrors firmware
+/// `crates/aegis-fido-firmware/src/persistence.rs::MAX_PLAINTEXT_BYTES` =
+/// 4096; envelope travels over WiFi `POST /ctap`, NOT the 512 B BLE
+/// GATT control point, so the BLE `CONTROL_POINT_LENGTH` cap below does
+/// not apply here. FFI/JNI-safe: worst-case envelope is
+/// `MAX_ENVELOPE_BYTES` (4129 B), one short-lived `Vec<u8>`).
+pub const MAX_PLAINTEXT_BYTES: usize = 4096;
+/// Max envelope bytes (`MAGIC[4] | VER[1] | NONCE[12] | pt | TAG[16]`),
+/// mirrors firmware `MAX_ENVELOPE_BYTES`.
+pub const MAX_ENVELOPE_BYTES: usize = 4 + 1 + 12 + MAX_PLAINTEXT_BYTES + 16;
 /// WiFi AP password bounds (WPA2, ASCII).
 pub const MIN_WIFI_PASS_LEN: usize = 8;
 /// WiFi AP password upper bound.
@@ -646,6 +655,32 @@ mod tests {
             wallet_address(" sol ".to_string(), ED_ZERO_PUB_HEX.to_string()).unwrap(),
             "4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS"
         );
+    }
+
+    #[test]
+    fn envelope_parity_with_firmware_limits() {
+        // Firmware: persistence.rs MAX_PLAINTEXT_BYTES = 4096,
+        // MAX_ENVELOPE_BYTES = 4 + 1 + 12 + 4096 + 16 = 4129.
+        assert_eq!(MAX_PLAINTEXT_BYTES, 4096);
+        assert_eq!(MAX_ENVELOPE_BYTES, 4129);
+        // Bridge seal must accept firmware-valid plaintext up to 4096
+        // (regression: old 512 cap rejected valid payloads).
+        let key = vec![0x42u8; 32];
+        let nonce = vec![0x11u8; 12];
+        let aad = b"Aegis-Vault-Header-v1".to_vec();
+        let max_pt = vec![0xABu8; MAX_PLAINTEXT_BYTES];
+        let env = envelope_seal(key.clone(), max_pt.clone(), aad.clone(), nonce).unwrap();
+        assert_eq!(env.len(), MAX_ENVELOPE_BYTES);
+        let back = envelope_open(key, env, aad).unwrap();
+        assert_eq!(back, max_pt);
+        // One byte over the firmware ceiling is rejected (fail-closed).
+        let over = vec![0xABu8; MAX_PLAINTEXT_BYTES + 1];
+        assert_eq!(
+            envelope_seal(vec![0x42u8; 32], over, vec![], vec![0x11u8; 12]),
+            Err(BridgeError::Overflow)
+        );
+        // BLE transport cap stays frozen at 512 (independent of seal cap).
+        assert_eq!(CONTROL_POINT_LENGTH, 512);
     }
 
     #[test]

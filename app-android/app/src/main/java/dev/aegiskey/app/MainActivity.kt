@@ -52,10 +52,13 @@ import dev.aegiskey.app.ui.ScanPairScreen
 import dev.aegiskey.app.ui.TestModeBanner
 import dev.aegiskey.app.ui.SectionTitle
 import dev.aegiskey.app.ui.SettingsScreen
+import dev.aegiskey.app.ui.SetupDeviceBleScreen
+import dev.aegiskey.app.ui.SetupDeviceUsbScreen
 import dev.aegiskey.app.ui.TransferOwnershipScreen
 import dev.aegiskey.app.ui.UnbindGuideScreen
 import dev.aegiskey.app.ui.UsbScreen
 import dev.aegiskey.app.ui.VaultScreen
+import dev.aegiskey.app.ui.WelcomeScreen
 import dev.aegiskey.app.ui.WalletScreen
 import dev.aegiskey.app.ui.WifiScreen
 
@@ -87,7 +90,7 @@ private data class Destination(val route: String, val label: String, val icon: I
  *   ou Modifier.padding(inner) + scroll).
  */
 private val BOTTOM_DESTINATIONS = listOf(
-    Destination("onboarding", "Inicio", Icons.Filled.Home),
+    Destination("welcome", "Inicio", Icons.Filled.Home),
     Destination("accounts", "Chaves", Icons.Filled.VpnKey),
     Destination("auth", "Auth", Icons.Filled.Fingerprint),
     Destination("vault", "Cofre", Icons.Filled.Lock),
@@ -113,6 +116,7 @@ fun AegisApp(client: AegisBleClient) {
                     val entry by nav.currentBackStackEntryAsState()
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
+                        "onboarding", "setup-usb", "setup-ble" -> "welcome"
                         "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "wallet", "piv" -> "connect"
                         else -> current
                     }
@@ -130,13 +134,38 @@ fun AegisApp(client: AegisBleClient) {
                             label = {
                                 Text(dest.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             },
-                            alwaysShowLabel = false,
+                            // Cofre sempre rotulado: o tab precisa ser achavel/tocavel
+                            // pelo nome ("Cofre") mesmo quando nao selecionado
+                            // (achado do smoke: tap por texto nao aterrissava no item).
+                            alwaysShowLabel = (dest.route == "vault"),
                         )
                     }
                 }
             }
         ) { inner ->
-            NavHost(nav, startDestination = "onboarding", Modifier.padding(inner)) {
+            NavHost(nav, startDestination = "welcome", Modifier.padding(inner)) {
+                composable("welcome") {
+                    WelcomeScreen(
+                        onUsb = { nav.navigate("setup-usb") },
+                        onBle = { nav.navigate("setup-ble") },
+                        onOpenVault = { nav.navigate("vault") },
+                        client = client,
+                    )
+                }
+                composable("setup-usb") {
+                    SetupDeviceUsbScreen(
+                        onDone = { nav.navigate("vault") },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("setup-ble") {
+                    SetupDeviceBleScreen(
+                        onDone = { nav.navigate("vault") },
+                        onBack = { nav.popBackStack() },
+                        onOpenScan = { nav.navigate("scan") },
+                        client = client,
+                    )
+                }
                 composable("onboarding") { OnboardingScreen(onStart = { nav.navigate("scan") }, onOpenKeys = { nav.navigate("accounts") }, onOpenVault = { nav.navigate("vault") }, onOpenLog = { nav.navigate("log") }, client = client) }
                 composable("scan") { ScanPairScreen(client, onOpenControl = { nav.navigate("control") }) }
                 composable("control") {

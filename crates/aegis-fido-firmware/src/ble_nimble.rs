@@ -437,14 +437,14 @@ pub fn own_addr() -> Option<[u8; 6]> {
     }
 }
 
-// Shims inertes no host (sem rádio; política testada por unidade).
+// Shims host (sem rádio): erro fail-closed, nunca 0=ok.
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_start(_pairing_open: bool, _wifi_active: bool) -> i32 {
-    0
+    -1
 }
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_stop() -> i32 {
-    0
+    -1
 }
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_poll_event() -> i32 {
@@ -452,11 +452,11 @@ pub fn esp_ble_poll_event() -> i32 {
 }
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_fetch_rx(_out: &mut [u8]) -> i32 {
-    0
+    -1
 }
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_notify(_data: &[u8]) -> i32 {
-    0
+    -1
 }
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_set_pending_len(_value: u16) {}
@@ -840,12 +840,12 @@ mod tests {
 
     #[test]
     fn host_shims_inertes() {
-        assert_eq!(esp_ble_start(true, false), 0);
-        assert_eq!(esp_ble_stop(), 0);
+        assert!(esp_ble_start(true, false) < 0);
+        assert!(esp_ble_stop() < 0);
         assert_eq!(esp_ble_poll_event(), BLE_EVT_NONE);
         let mut b = [0u8; 8];
-        assert_eq!(esp_ble_fetch_rx(&mut b), 0);
-        assert_eq!(esp_ble_notify(&[1, 2, 3]), 0);
+        assert!(esp_ble_fetch_rx(&mut b) < 0);
+        assert!(esp_ble_notify(&[1, 2, 3]) < 0);
         esp_ble_set_pending_len(7);
         assert!(!esp_ble_conn_active());
     }

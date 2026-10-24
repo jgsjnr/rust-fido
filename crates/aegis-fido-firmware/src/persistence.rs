@@ -476,8 +476,12 @@ pub use crate::nvs_backend::{
     OTA_STATUS_OK,
 };
 
-/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses PlatformFlashBackend.
-/// In-memory storage backend for unit testing and simulation.
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test/host-only; prod (device) usa
+/// `PlatformFlashBackend::Nvs`. Gated por `any(test, not(target_os =
+/// "espidf"))`: fora do device o fallback RAM segue compilando (host
+/// checks + testes); no device este símbolo nem existe.
+/// In-memory storage backend for unit testing and host-side simulation.
+#[cfg(any(test, not(target_os = "espidf")))]
 #[derive(Debug, Clone, Default)]
 pub struct MockFlashBackend {
     store: std::collections::HashMap<String, Vec<u8>>,
@@ -487,6 +491,7 @@ pub struct MockFlashBackend {
 /// (Nome antigo `RamFlashBackend` removido: mentia no device.)
 pub type PlatformFlashBackend = crate::nvs_backend::PlatformFlashBackend;
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl MockFlashBackend {
     pub fn new() -> Self {
         Self {
@@ -495,6 +500,7 @@ impl MockFlashBackend {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl FlashStorageBackend for MockFlashBackend {
     fn read_raw(&self, key: &str) -> Result<Vec<u8>, StorageError> {
         self.store
@@ -518,10 +524,12 @@ impl FlashStorageBackend for MockFlashBackend {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 trait OptionExt<T> {
     fn ok_to_end(self, err: StorageError) -> Result<T, StorageError>;
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl<T> OptionExt<T> for Option<T> {
     fn ok_to_end(self, err: StorageError) -> Result<T, StorageError> {
         self.ok_or(err)
