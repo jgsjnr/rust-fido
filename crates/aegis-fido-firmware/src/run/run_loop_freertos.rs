@@ -539,7 +539,13 @@ pub fn run_authenticator_freertos() {
                             touch_latched = true;
                             touch_expire_ms = freertos_now_ms.saturating_add(1500);
                             rescue_engine.set_user_presence(true);
+                            kprintln!(
+                                "[TEST] up hook paring={:?} t={}.",
+                                pairing_mgr.state(),
+                                freertos_now_ms
+                            );
                             pairing_mgr.on_button_level(true, freertos_now_ms);
+                            kprintln!("[TEST] up applied paring={:?}.", pairing_mgr.state());
                             boot_held_since_ms = Some(freertos_now_ms);
                             #[cfg(feature = "proximity")]
                             prox.note_presence(prox_now_ms);
