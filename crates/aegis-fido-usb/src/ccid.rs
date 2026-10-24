@@ -5,7 +5,7 @@
 //! 100% Native Rust implementation.
 //!
 //! PIV routing is wired through [`crate::piv::PivApplet`] owned by
-//! [`CcidTransport`]; SELECT PIV returns the shared `PIV_FCI` from `piv.rs`
+//! [`CcidTransport`]; SELECT PIV returns the shared `PIV_FCI` from `piv`
 //! (no inline duplicate).
 // TODO(Wave 2 E-B2/S-C1): zeroizar CommandApdu.data/ResponseApdu
 // (dados sensiveis em memoria; usar `zeroize` com `Zeroizing`/`Drop`).
