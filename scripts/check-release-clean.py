@@ -41,7 +41,6 @@ ALLOW_TEST_LITERAL = {
     "src/test_hooks.rs",
     "src/pairing.rs",
     "src/lifetime_trace.rs",
-    "src/main.rs",
 }
 
 
@@ -58,8 +57,18 @@ def main():
         print(out[-2000:])
         print("BUILD FALHOU")
         return 1
-    # Acha a rlib mais nova do crate.
-    libs = sorted((ROOT / "target" / "debug").glob("libaegis_fido_firmware*.rlib"),
+    # Acha a rlib mais nova do crate (target-dir pode estar fora do repo,
+    # cf. .cargo/config.toml `target-dir = "C:/t"`).
+    import os
+    import re
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or "")
+    if str(target_dir) in ("", ".") or not target_dir.is_dir():
+        m = re.search(r'target-dir\s*=\s*"([^"]+)"',
+                      (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
+        target_dir = Path(m.group(1)) if m else (ROOT / "target")
+    if not target_dir.is_dir():
+        target_dir = ROOT / "target"
+    libs = sorted((target_dir / "debug").glob("libaegis_fido_firmware*.rlib"),
                   key=lambda p: p.stat().st_mtime)
     if not libs:
         print("rlib não encontrada")

@@ -2,7 +2,9 @@
 //! 100% Native Rust Implementation for CTAPHID, CCID, Keyboard, WinUSB
 
 pub mod ccid;
+pub mod ccid_parse;
 pub mod ctaphid;
+pub mod kbd_gate;
 pub mod keyboard;
 pub mod piv;
 pub mod transport;

@@ -445,10 +445,18 @@ fn http_config_wifi_e_oath_atras_do_trait() {
     let mut h = HttpConfig::new();
     let mut st = storage();
     // POST /config/wifi sem auth rejeita sem tocar na NVS (gates preservados).
-    assert_eq!(
-        h.post_config_wifi(&mut st, "nova-senha-123", false, false, false),
-        Err(WifiApError::NeedBinding)
-    );
+    // Release exige vinculo; test-mode faz bypass (so UP+PIN).
+    if aegis_fido_firmware::binding::binding_bypass_enabled() {
+        assert_eq!(
+            h.post_config_wifi(&mut st, "nova-senha-123", false, false, false),
+            Err(WifiApError::Unauthorized)
+        );
+    } else {
+        assert_eq!(
+            h.post_config_wifi(&mut st, "nova-senha-123", false, false, false),
+            Err(WifiApError::NeedBinding)
+        );
+    }
     assert_eq!(
         h.post_config_wifi(&mut st, "nova-senha-123", true, false, false),
         Err(WifiApError::Unauthorized)

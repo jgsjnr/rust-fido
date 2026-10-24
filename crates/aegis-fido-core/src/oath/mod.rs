@@ -22,9 +22,11 @@ pub use applet::{
 pub use crypto::{
     calculate_code, calculate_code_from_challenge, compute_hmac, pbkdf2_sha1, truncate_digest,
 };
+#[cfg(any(test, not(target_os = "espidf")))]
+pub use presence::MockPresenceVerifier;
 pub use presence::{
-    AlwaysPresentVerifier, Gpio0TouchVerifier, MockPresenceVerifier, NeverPresentVerifier,
-    PresenceError, PresenceVerifier,
+    AlwaysPresentVerifier, Gpio0TouchVerifier, NeverPresentVerifier, PresenceError,
+    PresenceVerifier,
 };
 pub use tlv::{find_tlv, parse_tlv_records, write_tlv, TlvRecord};
 pub use types::*;

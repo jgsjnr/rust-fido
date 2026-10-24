@@ -1,0 +1,440 @@
+//! Wave4 — WiFi AP `AegisKey-XXXX` (Etapa B: radio real via `aegis_wifi`).
+//!
+//! - SSID deriva do serial (`AegisKey-` + sufixo de 4).
+//! - Senha default provisionada; TROCA so via app autenticado (UP+PIN),
+//!   gravada em NVS cifrada (`SecureStorage`, mesma envelope AES-GCM).
+//! - AP so liga em pareamento ou por menu; desliga apos config/timeout.
+//! - HTTP minimo: `POST /ctap`, `POST /config/wifi`, `GET /oath/code?account=`.
+//! - TOTP GERADO NO DEVICE: so o codigo 6-8 digitos sai, nunca o secret.
+//! - Keys nunca saem do device.
+//!
+//! LIMITE CONHECIDO (sem TLS): o AP e puro (`WPA2` + envelope `AES-GCM`);
+//! nao ha `TLS` no `POST /ctap` nem no mgmt HTTP. Confidencialidade do
+//! payload depende do envelope (`AEGN` v`0x01`, nonce 12 B unico, tag 16 B)
+//! e do WPA2 do AP. Captura de radio ainda expoe metadados (rota/tamanho).
+//! Por isso o boundary [`validate_ctap_envelope_for_request`] vincula
+//! AAD `rota/op/nonce` ANTES de delegar o conteudo ao `CtapService`:
+//! rota != `/ctap` rejeita, `op` precisa casar com o byte-op do envelope,
+//! nonce zero ou repetido (replay) rejeita. Sem `burn`/provisionamento
+//! aqui (R13 stub-only); TRNG/AES vao pelo trait existente (R14 HW-first).
+//! Coex de radio: `USB > WiFi > BLE` (USB veta o AP, BLE pareando muteia).
+
+extern crate alloc;
+
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
+use aegis_fido_core::oath::{calculate_code, OathAlgorithm};
+use aegis_fido_core::policy::PolicyError;
+use alloc::format;
+use alloc::string::String;
+
+/// Prefixo do AP.
+pub const WIFI_AP_PREFIX: &str = "AegisKey-";
+/// Timeout do AP em ms (mesma janela de pareamento, 60s).
+pub const WIFI_AP_TIMEOUT_MS: u64 = 60_000;
+/// Maior bloco livre minimo p/ ligar o AP (32 KiB).
+///
+/// Abaixo dele o `esp_wifi_init` aborta o IDF por OOM em vez de retornar
+/// erro; o chamador pula `esp_ap_start` ("AP skip (heap curto)") sem contar
+/// tentativa. Mesmo limiar do C (`AEGIS_WIFI_MIN_HEAP_LARGEST`).
+pub const WIFI_AP_MIN_HEAP_LARGEST: usize = 32 * 1024;
+/// `true` quando ha bloco contiguo suficiente p/ tocar no driver WiFi.
+///
+/// Pura e host-testavel; sensor ausente (`None` no device) vira `false`
+/// (fail-closed, nunca zero inventado aqui: o chamador passa o valor lido).
+pub fn wifi_ap_start_allowed(largest_free: usize) -> bool {
+    largest_free >= WIFI_AP_MIN_HEAP_LARGEST
+}
+/// Codigo NO_MEM do backend C (`ensure_init` sem heap / `esp_wifi_init`
+/// recusado): terminal ate nova borda, sem retry.
+pub const WIFI_AP_RC_NO_MEM: i32 = -4;
+
+/// Erro tipado do AP/HTTP (sem panics).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WifiApError {
+    /// Sem autenticacao (UP+PIN exigidos).
+    Unauthorized,
+    /// Senha fora dos bounds.
+    InvalidPassword,
+    /// Envelope CTAP invalido.
+    InvalidEnvelope,
+    /// Conta OATH desconhecida.
+    UnknownAccount,
+    /// AP desligado.
+    ApOff,
+    /// Binding ausente/invalido (so o app vinculado gerencia o AP).
+    NeedBinding,
+}
+
+impl core::fmt::Display for WifiApError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Unauthorized => write!(f, "unauthorized (UP+PIN required)"),
+            Self::InvalidPassword => write!(f, "invalid wifi password"),
+            Self::InvalidEnvelope => write!(f, "invalid ctap envelope"),
+            Self::UnknownAccount => write!(f, "unknown oath account"),
+            Self::ApOff => write!(f, "ap off"),
+            Self::NeedBinding => write!(f, "binding required (NEED_BINDING)"),
+        }
+    }
+}
+
+impl From<PolicyError> for WifiApError {
+    fn from(e: PolicyError) -> Self {
+        match e {
+            PolicyError::PresenceRequired | PolicyError::PinRequired => Self::Unauthorized,
+        }
+    }
+}
+
+/// Estado do AP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WifiApState {
+    /// Desligado (default).
+    Off,
+    /// Ativo com expiracao.
+    Active {
+        /// Expiracao em ms monotonicos.
+        expires_ms: u64,
+    },
+}
+
+/// Deriva SSID `AegisKey-XXXX` do serial (ultimos 4 alfanumericos).
+pub fn ap_ssid_for_serial(serial: &str) -> String {
+    let tail: String = serial
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let suffix = if tail.len() == 4 {
+        tail
+    } else {
+        String::from("0001")
+    };
+    format!("{}{}", WIFI_AP_PREFIX, suffix)
+}
+
+/// Gerente do AP (sem I/O; ESP liga o radio via `esp_ap_start`, componente C `aegis_wifi`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WifiApManager {
+    state: WifiApState,
+}
+
+impl WifiApManager {
+    /// Cria desligado.
+    pub fn new() -> Self {
+        Self {
+            state: WifiApState::Off,
+        }
+    }
+
+    /// Estado atual.
+    pub fn state(&self) -> WifiApState {
+        self.state
+    }
+
+    /// `true` quando o radio deve estar ligado.
+    pub fn is_active(&self, now_ms: u64) -> bool {
+        match self.state {
+            WifiApState::Off => false,
+            WifiApState::Active { expires_ms } => now_ms < expires_ms,
+        }
+    }
+
+    /// Liga o AP somente em pareamento ou por menu; desliga apos timeout.
+    /// `pairing_open`: janela 60s aberta; `menu_request`: item de menu.
+    pub fn update(&mut self, pairing_open: bool, menu_request: bool, now_ms: u64) {
+        if (pairing_open || menu_request) && !self.is_active(now_ms) {
+            self.state = WifiApState::Active {
+                expires_ms: now_ms.saturating_add(WIFI_AP_TIMEOUT_MS),
+            };
+            crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "wifi");
+        }
+        if let WifiApState::Active { expires_ms } = self.state {
+            if now_ms >= expires_ms {
+                self.state = WifiApState::Off;
+                crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi");
+            }
+        }
+    }
+
+    /// Desliga apos configuracao concluida.
+    pub fn shutdown_after_config(&mut self) {
+        if self.state != WifiApState::Off {
+            crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi");
+        }
+        self.state = WifiApState::Off;
+    }
+}
+
+/// Acao do AP decidida uma vez por poll (chamador aplica e atualiza o cache).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApPollAction {
+    /// Nada a fazer (inclui: BLE assumiu e AP ja estava off).
+    None,
+    /// Ligar o AP (janela/menu, sem BLE pareando, radio off).
+    Start,
+    /// Desligar UMA vez (janela fechou ou BLE assumiu com radio on).
+    Stop,
+}
+
+/// Decisao pura do poll do AP: edge-triggered, sem spam de stop.
+///
+/// `ap_want` vem de `WifiApManager::is_active`; `ble_pairing_now` de
+/// `should_advertise` (BLE e WiFi sao mutuamente exclusivos no S3);
+/// `ap_active_cache` e o estado que o chamador acha que o radio tem.
+pub fn ap_poll_action(ap_want: bool, ble_pairing_now: bool, ap_active_cache: bool) -> ApPollAction {
+    if ap_want && !ble_pairing_now {
+        if ap_active_cache {
+            ApPollAction::None
+        } else {
+            ApPollAction::Start
+        }
+    } else if ap_active_cache {
+        ApPollAction::Stop
+    } else {
+        ApPollAction::None
+    }
+}
+
+impl Default for WifiApManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Valida envelope `POST /ctap` (mesmo `SecureStorage`: magic AEGN+versao).
+/// Retorna tamanho do ciphertext quando valido (delega conteudo ao CtapService).
+/// NOTA: sem vinculo rota/op/nonce — prefira [`validate_ctap_envelope_for_request`].
+pub fn validate_ctap_envelope(envelope: &[u8]) -> Result<usize, WifiApError> {
+    if envelope.len() < 4 + 1 + 12 + 16 {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    if envelope[0..4] != [0x41, 0x45, 0x47, 0x4E] || envelope[4] != 0x01 {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    Ok(envelope.len() - (4 + 1 + 12))
+}
+
+/// Rota HTTP CTAP vinculada como AAD (AP puro, sem TLS — ver limite no topo).
+pub const CTAP_HTTP_ROUTE: &str = "/ctap";
+/// Tamanho do nonce do envelope (12 B, TRNG via trait existente — R14 HW-first).
+pub const CTAP_ENVELOPE_NONCE_LEN: usize = 12;
+/// Offset do byte-op dentro do envelope (apos magic 4 + ver 1 + nonce 12).
+pub const CTAP_ENVELOPE_OP_OFFSET: usize = 4 + 1 + CTAP_ENVELOPE_NONCE_LEN;
+
+/// Extrai o nonce 12 B do envelope (quando o layout basico e valido).
+pub fn ctap_envelope_nonce(envelope: &[u8]) -> Result<[u8; 12], WifiApError> {
+    validate_ctap_envelope(envelope)?;
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&envelope[5..5 + CTAP_ENVELOPE_NONCE_LEN]);
+    Ok(nonce)
+}
+
+/// Boundary endurecido `POST /ctap`: vincula AAD `rota/op/nonce`.
+///
+/// `route` precisa ser exatamente [`CTAP_HTTP_ROUTE`] (cross-rota rejeita).
+/// `op` precisa casar com o byte-op do envelope (`envelope[OP_OFFSET]`);
+/// o conteudo descriptografado e revalidado pelo `CtapService`.
+/// `prev_nonce` quando `Some` com nonce igual ao anterior = replay, rejeita;
+/// nonce todo-zero tambem rejeita (TRNG nunca emite zero — R14).
+/// Sem TLS (limite documentado no topo); sem `burn`/provisionamento (R13).
+pub fn validate_ctap_envelope_for_request(
+    envelope: &[u8],
+    route: &str,
+    op: u8,
+    prev_nonce: Option<[u8; 12]>,
+) -> Result<usize, WifiApError> {
+    if route != CTAP_HTTP_ROUTE {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    let ct_len = validate_ctap_envelope(envelope)?;
+    if ct_len < 1 + 16 {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    if envelope[CTAP_ENVELOPE_OP_OFFSET] != op {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&envelope[5..5 + CTAP_ENVELOPE_NONCE_LEN]);
+    if nonce == [0u8; 12] {
+        return Err(WifiApError::InvalidEnvelope);
+    }
+    if let Some(prev) = prev_nonce {
+        // Comparacao em tempo-constante: evita oraculo de replay por timing.
+        let mut diff = 0u8;
+        for i in 0..12 {
+            diff |= nonce[i] ^ prev[i];
+        }
+        if diff == 0 {
+            return Err(WifiApError::InvalidEnvelope);
+        }
+    }
+    Ok(ct_len)
+}
+
+/// Coex `USB > WiFi > BLE`: USB ativo veta o AP (chamador aplica antes de `update`).
+pub fn wifi_ap_coex_allowed(usb_active: bool) -> bool {
+    !usb_active
+}
+
+/// Extrai `account` de `GET /oath/code?account=<nome>`.
+pub fn parse_oath_account_query(path: &str) -> Option<&str> {
+    let q = path.split('?').nth(1)?;
+    for pair in q.split('&') {
+        if let Some(v) = pair.strip_prefix("account=") {
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+/// Resposta TOTP: so codigo, nunca secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TotpResponse {
+    /// Nome da conta (eco).
+    pub account: String,
+    /// Codigo 6-8 digitos (zero-padded).
+    pub code: String,
+    /// Segundos restantes na janela de 30s.
+    pub remaining_seconds: u32,
+}
+
+/// Gera codigo TOTP no device a partir do secret (secret nunca sai).
+/// `unix_seconds`: relogio do device; janela 30s (T = t/30).
+pub fn totp_code_for_secret(
+    account: &str,
+    secret: &[u8],
+    algo: OathAlgorithm,
+    digits: u8,
+    unix_seconds: u64,
+) -> TotpResponse {
+    let digits_c = digits.clamp(6, 8);
+    let counter = unix_seconds / 30;
+    let code = calculate_code(algo, secret, counter, digits_c);
+    let width = digits_c as usize;
+    let mut s = format!("{:0>width$}", code, width = width);
+    // Garante largura exata mesmo se modulo estourar (trunca a esquerda).
+    if s.len() > width {
+        s = s[s.len() - width..].to_string();
+    }
+    let remaining = 30 - (unix_seconds % 30) as u32;
+    TotpResponse {
+        account: String::from(account),
+        code: s,
+        remaining_seconds: remaining,
+    }
+}
+
+/// Rota `GET /oath/code`: busca secret no mapa injetado (testes/host),
+/// gera no device e retorna so o codigo. Secret nunca serializado.
+pub fn handle_get_oath_code(
+    account: &str,
+    secrets: &[(&str, &[u8], OathAlgorithm, u8)],
+    unix_seconds: u64,
+    presence_confirmed: bool,
+) -> Result<TotpResponse, WifiApError> {
+    if !presence_confirmed {
+        return Err(WifiApError::Unauthorized);
+    }
+    for (name, secret, algo, digits) in secrets {
+        if *name == account {
+            return Ok(totp_code_for_secret(
+                account,
+                secret,
+                *algo,
+                *digits,
+                unix_seconds,
+            ));
+        }
+    }
+    Err(WifiApError::UnknownAccount)
+}
+
+// ---------------------------------------------------------------------------
+// Radio real: FFI manual com o componente C `aegis_wifi`
+// (mesmo padrao do `ble_nimble.rs` com `aegis_ble`; sem bindgen, sem novos
+// deps, sem features do esp-idf-svc além de `binstart`).
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "espidf")]
+extern "C" {
+    fn aegis_wifi_ap_start(ssid: *const u8, ssid_len: i32, pass: *const u8, pass_len: i32) -> i32;
+    fn aegis_wifi_ap_stop() -> i32;
+    fn aegis_wifi_off() -> i32;
+}
+
+/// Liga o AP real (`0` ok, negativo = erro do C).
+/// `pass` vazia = rede aberta (bootstrap na janela curta de pareamento).
+#[cfg(target_os = "espidf")]
+pub fn esp_ap_start(ssid: &str, pass: &str) -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "wifi-ap");
+    unsafe {
+        aegis_wifi_ap_start(
+            ssid.as_ptr(),
+            ssid.len().min(i32::MAX as usize) as i32,
+            pass.as_ptr(),
+            pass.len().min(i32::MAX as usize) as i32,
+        )
+    }
+}
+
+/// Desliga o AP (rebaixa p/ station ou desliga o radio; `0` ok).
+#[cfg(target_os = "espidf")]
+pub fn esp_ap_stop() -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi-ap");
+    unsafe { aegis_wifi_ap_stop() }
+}
+
+/// Power-down total do radio (bateria): chamar com AP off + station off.
+/// Idempotente; `0` ok.
+#[cfg(target_os = "espidf")]
+pub fn esp_wifi_off() -> i32 {
+    unsafe { aegis_wifi_off() }
+}
+
+// Shims inertes no host (sem radio; politica testada por unidade).
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_ap_start(_ssid: &str, _pass: &str) -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_ap_stop() -> i32 {
+    0
+}
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_wifi_off() -> i32 {
+    0
+}
+
+/// Rota `GET /oath/code` (USO): nunca exige vinculo, so UP; so o codigo sai.
+///
+/// Split uso/config (§11): CODE/LIST e USO (senao keypass nao funciona).
+/// `binding_ok` ignorado de proposito (assinatura preservada para compat).
+pub fn handle_get_oath_code_bound(
+    account: &str,
+    secrets: &[(&str, &[u8], OathAlgorithm, u8)],
+    unix_seconds: u64,
+    _binding_ok: bool,
+    presence_confirmed: bool,
+) -> Result<TotpResponse, WifiApError> {
+    let _ = crate::binding::require_bound_usage(_binding_ok);
+    handle_get_oath_code(account, secrets, unix_seconds, presence_confirmed)
+}
+
+// ---------------------------------------------------------------------------
+// F14: T10 HTTP facade moved to `super::http_front` (move-only, no behavior
+// change). Compat re-export: `crate::net::ap_core::*` (via `wifi_ap.rs`)
+// keeps resolving `WifiNet`, `HttpConfig`, and friends.
+// ---------------------------------------------------------------------------
+pub use super::http_front::{
+    HttpConfig, HttpConfigService, RealWifiRadio, WifiNet, WifiNetError, WifiRadioBackend,
+};

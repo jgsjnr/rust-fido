@@ -45,6 +45,10 @@ pub struct YkmanDeviceInfo {
     pub chalresp_timeout: u8,
 }
 
+/// Placeholder default: serial 13374200 is NOT provisioned.
+/// Production must call `YkmanDeviceInfo::new(real_serial)` per device
+/// before `encode_tlv` reaches the wire. Audit 2026-10-24: zero
+/// production constructors; only #[cfg(test)] call-site (`otp/mod.rs`).
 impl Default for YkmanDeviceInfo {
     fn default() -> Self {
         Self {

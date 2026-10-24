@@ -296,6 +296,31 @@ impl NamespacedStore {
         label: &str,
         blob: &[u8],
     ) -> Result<(), NamespacedStoreError> {
+        self.put_impl(storage, label, blob, true)
+    }
+
+    /// Como `put`, mas mismatch de verify NAO apaga o slot (mantem o valor
+    /// antigo legivel; chamador nao deve emitir nada derivado em `Storage`).
+    ///
+    /// Para contadores monotonicos (HOTP `next`): apagar no torn write
+    /// resetaria o contador (replay). Credenciais usam `put` (apaga o slot).
+    pub fn put_keep_on_mismatch<B: FlashStorageBackend>(
+        &self,
+        storage: &mut SecureStorage<B>,
+        label: &str,
+        blob: &[u8],
+    ) -> Result<(), NamespacedStoreError> {
+        self.put_impl(storage, label, blob, false)
+    }
+
+    /// Núcleo do `put`/`put_keep_on_mismatch`.
+    fn put_impl<B: FlashStorageBackend>(
+        &self,
+        storage: &mut SecureStorage<B>,
+        label: &str,
+        blob: &[u8],
+        delete_on_mismatch: bool,
+    ) -> Result<(), NamespacedStoreError> {
         self.check_label(label)?;
         if let Some(max) = self.max_bytes {
             if blob.len() > max {
@@ -313,7 +338,9 @@ impl NamespacedStore {
         let ok = back.as_slice() == blob;
         back.zeroize();
         if !ok {
-            let _ = storage.delete(&key);
+            if delete_on_mismatch {
+                let _ = storage.delete(&key);
+            }
             return Err(NamespacedStoreError::Storage);
         }
         if !known && self.quota_index_key.is_some() {
@@ -465,22 +492,12 @@ fn decode_ns_index(bytes: &[u8]) -> Result<Vec<String>, NamespacedStoreError> {
     }
 }
 
-// T5: compat — o staging OTA concreto (`FlashOtaSink`, `dispatch_ota_request`)
-// mora em `nvs_backend` (flash cru); `persistence` só reexporta p/ compat com
-// chamadores existentes (`main.rs`). `persistence` NÃO importa mais `ota`:
-// a fronteira é o trait `OtaSink` (definido em `ota`, implementado no backend).
-pub use crate::nvs_backend::{
-    dispatch_ota_request, is_ota_op, keys_unchanged, snapshot_keys, verify_ota_signature,
-    FlashOtaSink, OtaRequestCtx, OTA_CHUNK_LEN, OTA_CHUNK_PREFIX, OTA_COMMIT_MARKER_KEY,
-    OTA_MANIFEST_KEY, OTA_STAGE_LEN_KEY, OTA_STAGING_KEY, OTA_STATUS_FAIL, OTA_STATUS_NEED_UP,
-    OTA_STATUS_OK,
-};
+// OTA canonico em ota_store (corte auditoria): main.rs importa de la direto;
+// persistence NAO reexporta OTA.
 
-/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test/host-only; prod (device) usa
-/// `PlatformFlashBackend::Nvs`. Gated por `any(test, not(target_os =
-/// "espidf"))`: fora do device o fallback RAM segue compilando (host
-/// checks + testes); no device este símbolo nem existe.
-/// In-memory storage backend for unit testing and host-side simulation.
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses PlatformFlashBackend.
+/// In-memory storage backend for unit testing and host simulation.
+/// Ausente no device (`target_os = "espidf"` sem `cfg(test)`): prod usa NVS.
 #[cfg(any(test, not(target_os = "espidf")))]
 #[derive(Debug, Clone, Default)]
 pub struct MockFlashBackend {

@@ -62,6 +62,7 @@ dependencies = [
  "hmac",
  "log",
  "p256",
+ "p384",
  "rand",
  "rand_core",
  "sha2",
@@ -73,7 +74,6 @@ dependencies = [
 name = "aegis-fido-usb"
 version = "1.0.0"
 dependencies = [
- "aegis-fido-core",
  "hex",
  "log",
  "rand_core",
