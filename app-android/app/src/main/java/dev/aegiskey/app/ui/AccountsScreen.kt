@@ -31,6 +31,12 @@ import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.AppLock
 import dev.aegiskey.app.security.FeatureFlags
 import dev.aegiskey.app.security.SanitizedLog
+import dev.aegiskey.app.security.SdkGate
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,6 +68,7 @@ fun AccountsScreen(client: AegisBleClient) {
     val state by client.state.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     val appLock = remember { AppLock(context) }
     var unlocked by remember { mutableStateOf(!FeatureFlags.ENABLE_APP_LOCK) }
     if (FeatureFlags.ENABLE_APP_LOCK && !unlocked) {
@@ -89,6 +96,24 @@ fun AccountsScreen(client: AegisBleClient) {
     var keys by remember { mutableStateOf(listOf<VendorOps.KeyEntry>()) }
     var selectedKey by remember { mutableStateOf<VendorOps.KeyEntry?>(null) }
     var listMsg by remember { mutableStateOf<String?>(null) }
+    // OATH (A2, 0x24-0x27): nomes+codigos p/ exibir; segredo nunca persiste
+    // (wipe em finally) e nunca entra em argumento de navegacao.
+    var oathGate by remember { mutableStateOf<SdkGate.GateOutcome?>(null) }
+    var oathNotice by remember { mutableStateOf<String?>(null) }
+    var oathAccounts by remember { mutableStateOf(listOf<VendorOps.OathEntry>()) }
+    var oathCodes by remember { mutableStateOf(mapOf<String, String>()) }
+    var oathSelected by remember { mutableStateOf("") }
+    var oathExpanded by remember { mutableStateOf(false) }
+    var oathHotpNames by remember { mutableStateOf(setOf<String>()) }
+    var oathListMsg by remember { mutableStateOf<String?>(null) }
+    var oathName by remember { mutableStateOf("") }
+    var oathIsTotp by remember { mutableStateOf(true) }
+    var oathDigits by remember { mutableStateOf(OATH_DIGIT_OPTIONS[0]) }
+    var oathSecret by remember { mutableStateOf("") }
+    var oathCounterText by remember { mutableStateOf("0") }
+    var oathMsg by remember { mutableStateOf("-") }
+    var confirmOathDelete by remember { mutableStateOf(false) }
+    var nowSec by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
     var importHex by remember { mutableStateOf("") }
     var importMsg by remember { mutableStateOf("—") }
 
@@ -329,6 +354,258 @@ fun AccountsScreen(client: AegisBleClient) {
         }
     }
 
+    /**
+     * Aviso proprio p/ outcomes sem texto honesto no GateBanner (R4):
+     * gateBannerState() retorna null p/ NotCompiled/ExternalBlocked, e a
+     * tela renderiza este texto em vez de banner enganoso. Null = liberado.
+     */
+    fun oathGateNotice(outcome: SdkGate.GateOutcome): String? = when (outcome) {
+        is SdkGate.GateOutcome.Success, SdkGate.GateOutcome.RealVerified -> null
+        is SdkGate.GateOutcome.NotCompiled ->
+            "OATH fora da compilacao deste app (fala com o dono do SDK; sem crash, sem fingir)."
+        is SdkGate.GateOutcome.ExternalBlocked ->
+            "OATH bloqueado aqui: " + when (outcome.reason) {
+                SdkGate.BlockReason.NO_NATIVE_LIB -> "libs nativas ausentes (rode com o .so do bridge)"
+                SdkGate.BlockReason.NO_TRANSPORT -> "sem transporte BLE"
+                SdkGate.BlockReason.NO_PEER -> "sem par pareado"
+                SdkGate.BlockReason.LAB_MOCKS_OFF -> "mocks de lab desligados"
+            }
+        SdkGate.GateOutcome.PermissionDenied -> "toque no botao do dispositivo (UP+PIN)"
+        SdkGate.GateOutcome.Unsupported -> "device recusou (dado invalido ou conta inexistente)"
+        SdkGate.GateOutcome.Unavailable -> "device sem resposta - toque e tente de novo"
+    }
+
+    /** Toda acao OATH passa primeiro pelo SdkGate (facade-first, R4). */
+    fun oathAllowed(): Boolean {
+        val g = SdkGate.requireOath()
+        oathGate = g
+        oathNotice = oathGateNotice(g)
+        return g is SdkGate.GateOutcome.Success || g is SdkGate.GateOutcome.RealVerified
+    }
+
+    fun refreshOath() {
+        if (!oathAllowed()) return
+        scope.launch {
+            busy = true
+            oathListMsg = null
+            try {
+                val raw = withContext(Dispatchers.IO) {
+                    client.sendVendor(VendorOps.OP_OATH_LIST, ByteArray(0))
+                }
+                val resp = VendorOps.parseResponse(raw)
+                if (resp == null) {
+                    oathListMsg = "sem resposta - toque no dispositivo e tente de novo"
+                } else if (resp.status != VendorOps.STATUS_OK) {
+                    SdkGate.mapWireStatus(resp.status)
+                    oathListMsg = if (resp.status == VendorOps.STATUS_NEED_PIN) {
+                        "PIN necessario"
+                    } else {
+                        VendorOps.statusLabel(resp.status)
+                    }
+                } else {
+                    oathAccounts = VendorOps.parseOathList(resp.tlv)
+                    if (oathSelected.isNotBlank() && oathAccounts.none { it.name == oathSelected }) {
+                        oathSelected = ""
+                    }
+                    oathListMsg = null
+                }
+                DeviceLog.append(DeviceLog.Category.BLE, "oath list: " + oathAccounts.size + " contas")
+            } catch (e: Exception) {
+                oathListMsg = (e.message ?: "falha ao listar").take(64)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /**
+     * CODE (0x26) com tolerancia +-1 periodo: desafio = contador atual
+     * (TOTP precisa do contador; device sem RTC). Resposta vazia na borda
+     * da janela tenta o periodo vizinho uma vez. HOTP nao manda challenge:
+     * o contador e persistente no device (nenhum cache local que divirja).
+     */
+    fun fetchOathCode(name: String, hotp: Boolean) {
+        if (!oathAllowed()) return
+        scope.launch {
+            busy = true
+            try {
+                val cur = nowSec / 30
+                val counters: List<Long?> = if (hotp) listOf(null) else listOf(cur, cur - 1, cur + 1).distinct()
+                var code: String? = null
+                var lastStatus: Int? = null
+                var noResponse = false
+                for (c in counters) {
+                    val nameBytes = name.toByteArray(Charsets.UTF_8)
+                    val chal = if (c == null) {
+                        ByteArray(0)
+                    } else {
+                        ByteArray(8) { i -> ((c shr (56 - 8 * i)) and 0xFFL).toByte() }
+                    }
+                    val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, nameBytes) +
+                        (if (chal.isEmpty()) ByteArray(0) else VendorOps.writeTlv(VendorOps.TAG_OATH_CHALLENGE, chal))
+                    val raw = withContext(Dispatchers.IO) {
+                        client.sendVendor(VendorOps.OP_OATH_CODE, req)
+                    }
+                    val resp = VendorOps.parseResponse(raw)
+                    if (resp == null) {
+                        noResponse = true
+                        break
+                    }
+                    if (resp.status != VendorOps.STATUS_OK) {
+                        lastStatus = resp.status
+                        SdkGate.mapWireStatus(resp.status)
+                        break
+                    }
+                    val records = VendorOps.parseTlvRecords(resp.tlv)
+                    val got = (VendorOps.findTlv(records, VendorOps.TAG_OATH_RESPONSE)
+                        ?: VendorOps.findTlv(records, VendorOps.TAG_OATH_TRUNCATED))
+                        ?.let { runCatching { it.toString(Charsets.UTF_8) }.getOrNull() }
+                        ?.take(8)?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
+                    if (got != null) {
+                        code = got
+                        break
+                    }
+                    val edge = AegisBridge.remainingSeconds(nowSec) <= 2 ||
+                        AegisBridge.remainingSeconds(nowSec) >= 28
+                    if (hotp || !edge) break
+                }
+                if (code != null) {
+                    oathCodes = (oathCodes + (name to code)).toList().takeLast(32).toMap()
+                    DeviceLog.append(DeviceLog.Category.BLE, "oath code ok bytes=" + code.length)
+                } else if (noResponse) {
+                    oathListMsg = "sem resposta - toque no dispositivo e tente de novo"
+                } else if (lastStatus != null) {
+                    oathListMsg = if (lastStatus == VendorOps.STATUS_NEED_PIN) {
+                        "PIN necessario"
+                    } else {
+                        VendorOps.statusLabel(lastStatus)
+                    }
+                } else {
+                    oathListMsg = "codigo vazio - toque e tente de novo"
+                }
+            } catch (e: Exception) {
+                oathListMsg = (e.message ?: "falha ao buscar").take(64)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /** PUT (0x24, UP+PIN): monta TLV, envia e ZERA segredo+req (nunca persiste). */
+    fun putOathAccount(secret: ByteArray) {
+        if (!oathAllowed()) {
+            AegisBridge.wipe(secret)
+            oathMsg = oathNotice ?: "bloqueado pelo gate"
+            return
+        }
+        scope.launch {
+            busy = true
+            var req = ByteArray(0)
+            try {
+                val typeAlgo = (if (oathIsTotp) VendorOps.OATH_TYPE_TOTP else VendorOps.OATH_TYPE_HOTP) or
+                    VendorOps.OATH_ALGO_SHA1
+                val counter = if (oathIsTotp) {
+                    null
+                } else {
+                    val c = oathCounterText.trim().toLongOrNull()
+                    require(c != null && c in 0..0xFFFFFFFFL) { "contador 0..4294967295" }
+                    c
+                }
+                req = VendorOps.oathPutRequest(oathName, typeAlgo, oathDigits.value, secret, counter)
+                val raw = withContext(Dispatchers.IO) {
+                    client.sendVendor(VendorOps.OP_OATH_PUT, req)
+                }
+                val resp = VendorOps.parseResponse(raw)
+                oathMsg = when {
+                    resp == null -> "sem resposta - toque no dispositivo e tente de novo"
+                    resp.status != VendorOps.STATUS_OK -> {
+                        SdkGate.mapWireStatus(resp.status)
+                        if (resp.status == VendorOps.STATUS_NEED_PIN) {
+                            "PIN necessario (salvar exige UP+PIN)"
+                        } else {
+                            VendorOps.statusLabel(resp.status) + " (salvar exige UP+PIN)"
+                        }
+                    }
+                    else -> {
+                        if (!oathIsTotp) oathHotpNames = oathHotpNames + oathName.trim()
+                        oathSecret = ""
+                        refreshOath()
+                        "conta salva no dispositivo (segredo sumiu do celular)"
+                    }
+                }
+            } catch (e: Exception) {
+                oathMsg = (e.message ?: "falha ao salvar").take(64)
+            } finally {
+                AegisBridge.wipe(secret, req)
+                busy = false
+            }
+        }
+    }
+
+    fun saveOathManual() {
+        if (oathName.trim().isEmpty()) {
+            oathMsg = "de um nome para a conta (ex.: GitHub:alice)"
+            return
+        }
+        try {
+            putOathAccount(oathBase32ToBytes(oathSecret))
+        } catch (e: Exception) {
+            oathMsg = (e.message ?: "segredo invalido").take(64)
+        }
+    }
+
+    fun generateOathSecret() {
+        if (oathName.trim().isEmpty()) {
+            oathMsg = "de um nome para a conta (ex.: GitHub:alice)"
+            return
+        }
+        val rng = SecureRandom()
+        putOathAccount(ByteArray(20).also { rng.nextBytes(it) })
+    }
+
+    /** DELETE (0x27, UP+PIN): so via dialogo de confirmacao; sem PIN vira 0x02. */
+    fun deleteOathAccount() {
+        val target = oathSelected.ifBlank { null } ?: return
+        if (!oathAllowed()) return
+        scope.launch {
+            busy = true
+            try {
+                val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, target.toByteArray(Charsets.UTF_8))
+                val raw = withContext(Dispatchers.IO) {
+                    client.sendVendor(VendorOps.OP_OATH_DELETE, req)
+                }
+                val resp = VendorOps.parseResponse(raw)
+                if (resp == null || resp.status != VendorOps.STATUS_OK) {
+                    val st = resp?.status
+                    if (st != null) SdkGate.mapWireStatus(st)
+                    oathListMsg = (st?.let { if (it == VendorOps.STATUS_NEED_PIN) "PIN necessario" else VendorOps.statusLabel(it) } ?: "sem resposta") +
+                        " (apagar exige UP+PIN)"
+                } else {
+                    oathSelected = ""
+                    oathCodes = oathCodes - target
+                    oathHotpNames = oathHotpNames - target
+                    oathListMsg = null
+                    refreshOath()
+                }
+            } catch (e: Exception) {
+                oathListMsg = (e.message ?: "falha ao apagar").take(64)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    // A2: sonda do gate uma vez (efeito, nao composicao) + tick de 1s p/ o countdown.
+    LaunchedEffect(Unit) {
+        val g = SdkGate.requireOath()
+        oathGate = g
+        oathNotice = oathGateNotice(g)
+        while (true) {
+            delay(1000)
+            nowSec = System.currentTimeMillis() / 1000
+        }
+    }
+
     Scaffold(topBar = { TopAppBar(title = { Text("Chaves", maxLines = 1, overflow = TextOverflow.Ellipsis) }) }) { inner ->
         AegisScreenColumn(inner = inner) {
             FriendlyText(
@@ -479,6 +756,143 @@ fun AccountsScreen(client: AegisBleClient) {
             ) { Text("Importar no slot acima (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             FriendlyText(text = "Envelope: " + importMsg, maxLines = 2)
 
+            SectionTitle("Contas OATH no dispositivo")
+            // Gate honesto (R4): banner so p/ UP/PIN; NotCompiled/ExternalBlocked
+            // viram aviso proprio da tela, nunca banner enganoso.
+            val oathBanner = oathGate?.let { SdkGate.gateBannerState(it) }
+            if (oathBanner != null) {
+                GateBanner(gate = oathBanner)
+            }
+            oathNotice?.let {
+                FriendlyText(text = it, maxLines = 3)
+            }
+            FriendlyText(
+                text = "So nomes e codigos saem do aparelho. O segredo nunca sai dele.",
+                maxLines = 2,
+            )
+            OutlinedButton(onClick = ::refreshOath, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text("Atualizar contas OATH (toque no dispositivo)", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (oathAccounts.isEmpty()) {
+                FriendlyEmpty(message = oathListMsg ?: "Nada aqui ainda. Toque no dispositivo para carregar.")
+            } else {
+                oathListMsg?.let { FriendlyText(text = it, maxLines = 2) }
+                for (entry in oathAccounts) {
+                    val hotp = oathHotpNames.contains(entry.name)
+                    val vault = VaultAccount(entry.name, if (hotp) VaultKind.OATH_HOTP else VaultKind.OATH_TOTP)
+                    CodeCard(
+                        account = vault,
+                        code = oathCodes[entry.name],
+                        remaining = AegisBridge.remainingSeconds(nowSec),
+                        busy = busy,
+                        onCopy = { clipboard.setText(AnnotatedString(it)) },
+                        onRefresh = { fetchOathCode(it.name, it.kind == VaultKind.OATH_HOTP) },
+                    )
+                }
+                ExposedDropdownMenuBox(
+                    expanded = oathExpanded,
+                    onExpandedChange = { oathExpanded = !oathExpanded },
+                ) {
+                    OutlinedTextField(
+                        value = oathSelected.ifBlank { "Escolha uma conta" },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Contas (OATH_LIST)") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = oathExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = oathExpanded,
+                        onDismissRequest = { oathExpanded = false },
+                    ) {
+                        for (entry in oathAccounts) {
+                            DropdownMenuItem(
+                                text = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                onClick = {
+                                    oathSelected = entry.name
+                                    oathExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { confirmOathDelete = true },
+                    enabled = !busy && oathSelected.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("EXCLUIR conta selecionada (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+
+            SectionTitle("Adicionar conta OATH")
+            FriendlyText(
+                text = "Onde fica salvo: so no dispositivo. O app nunca guarda o segredo.",
+                maxLines = 2,
+            )
+            OutlinedTextField(
+                value = oathName,
+                onValueChange = { oathName = it.take(64) },
+                label = { Text("Conta (ex.: GitHub:alice)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            LabeledToggle(
+                checked = oathIsTotp,
+                title = if (oathIsTotp) "TOTP - muda com o tempo" else "HOTP - muda a cada uso",
+                explanation = if (oathIsTotp) {
+                    "O codigo troca sozinho a cada 30 segundos. E o mais comum."
+                } else {
+                    "O codigo troca a cada uso; o contador mora no dispositivo, nunca no celular."
+                },
+                onCheckedChange = { oathIsTotp = it },
+                enabled = !busy,
+            )
+            ExplainedDropdown(
+                label = "Digitos do codigo",
+                options = OATH_DIGIT_OPTIONS,
+                selected = oathDigits,
+                onSelected = { oathDigits = it },
+                enabled = !busy,
+            )
+            OutlinedTextField(
+                value = oathSecret,
+                onValueChange = { oathSecret = it },
+                label = { Text("Segredo (cole do site ou do QR)") },
+                supportingText = { Text("Sem camera: abra o QR em outro app e cole o segredo aqui.") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (!oathIsTotp) {
+                OutlinedTextField(
+                    value = oathCounterText,
+                    onValueChange = { oathCounterText = it.filter { ch: Char -> ch.isDigit() }.take(10) },
+                    label = { Text("Contador inicial") },
+                    supportingText = { Text("Comeca em 0; tem que igualar o do site. Depois o device guarda sozinho.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Button(
+                onClick = ::saveOathManual,
+                enabled = !busy && oathName.isNotBlank() && oathSecret.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Salvar no dispositivo (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            OutlinedButton(
+                onClick = ::generateOathSecret,
+                enabled = !busy && oathName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Gerar segredo aqui e salvar", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            FriendlyText(text = "Resultado: " + oathMsg, maxLines = 3)
+            if (confirmOathDelete && oathSelected.isNotBlank()) {
+                ConfirmActionDialog(
+                    title = "Excluir conta?",
+                    body = "Apagar \"" + oathSelected + "\" do dispositivo? Os codigos param de funcionar. Precisa tocar no botao do aparelho (UP+PIN).",
+                    confirmLabel = "EXCLUIR",
+                    onConfirm = { confirmOathDelete = false; deleteOathAccount() },
+                    onDismiss = { confirmOathDelete = false },
+                )
+            }
+
             SectionTitle("Avancado (CTAP direto)")
             OutlinedButton(
                 onClick = { send(BleContract.CTAP_CMD_GET_INFO, "") },
@@ -534,4 +948,35 @@ private fun curveSimple(curve: VendorOps.CurveOption): String = when (curve.cose
     -36 -> "Segurança máxima, mais lenta."
     -47 -> "A curva do Bitcoin (casos especiais)."
     else -> curve.detail
+}
+
+/** Opcoes de digitos OATH (6-8, mesmo padrao do cofre). */
+private val OATH_DIGIT_OPTIONS = listOf(
+    ExplainedOption(6, "6 digitos", "O mais comum - funciona quase sempre."),
+    ExplainedOption(7, "7 digitos", "Alguns bancos e empresas pedem."),
+    ExplainedOption(8, "8 digitos", "Mais longo; use se o site pedir."),
+)
+
+/**
+ * Decodifica segredo base32 (RFC4648, sem padding obrigatorio).
+ * Copia local p/ nao cruzar telas; o retorno e zerado pelo chamador
+ * (wipe em finally) apos o PUT.
+ */
+private fun oathBase32ToBytes(input: String): ByteArray {
+    val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    val clean = input.trim().uppercase().filter { !it.isWhitespace() && it != '-' }.trimEnd('=')
+    require(clean.isNotEmpty() && clean.all { it in alphabet }) { "segredo base32 invalido" }
+    var bits = 0
+    var value = 0
+    val out = mutableListOf<Byte>()
+    for (c in clean) {
+        value = (value shl 5) or alphabet.indexOf(c)
+        bits += 5
+        if (bits >= 8) {
+            out.add(((value shr (bits - 8)) and 0xFF).toByte())
+            bits -= 8
+        }
+    }
+    require(out.size in 10..64) { "segredo 10..64 bytes" }
+    return out.toByteArray()
 }
