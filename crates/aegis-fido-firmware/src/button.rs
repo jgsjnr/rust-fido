@@ -331,11 +331,13 @@ impl<B: ButtonInput, K: ButtonInput> DualButtonManager<B, K> {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 #[derive(Debug, Clone, Default)]
 pub struct MockButtonInput {
     pub pressed: std::sync::Arc<core::sync::atomic::AtomicBool>,
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl MockButtonInput {
     pub fn new() -> Self {
         Self {
@@ -349,6 +351,7 @@ impl MockButtonInput {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl ButtonInput for MockButtonInput {
     fn is_pressed_raw(&self) -> bool {
         self.pressed.load(core::sync::atomic::Ordering::SeqCst)

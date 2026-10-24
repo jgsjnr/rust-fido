@@ -114,22 +114,88 @@ impl<S: EfuseStorage> EfuseManager<S> {
 }
 
 /// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses RamEfuseStorage + provision loader.
-/// Simulated in-memory eFuse storage for testing and host-side development.
+/// Simulated in-memory eFuse storage for unit testing and host-side development.
+/// Ausente no device (`target_os = "espidf"` sem `cfg(test)`).
+#[cfg(any(test, not(target_os = "espidf")))]
 #[derive(Debug, Clone)]
 pub struct MockEfuseStorage {
     blocks: [[u8; EFUSE_KEY_LEN]; 11],
     write_protected: [bool; 11],
 }
 
-/// Prod RAM eFuse storage (no hardcoded secrets; use provision loader).
-pub type RamEfuseStorage = MockEfuseStorage;
+/// Prod RAM eFuse storage (sem segredos fixos; chaves via provision loader).
+///
+/// Semantica OTP igual ao HW (bits so viram 0->1, `OR`; fora da faixa =
+/// `HardwareFault`): substituto de RAM p/ `EfuseManager` fora do eFuse real,
+/// sem fixtures de teste e sem alias p/ mock.
+#[derive(Debug, Clone)]
+pub struct RamEfuseStorage {
+    blocks: [[u8; EFUSE_KEY_LEN]; 11],
+    write_protected: [bool; 11],
+}
 
+impl Default for RamEfuseStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RamEfuseStorage {
+    pub fn new() -> Self {
+        Self {
+            blocks: [[0u8; EFUSE_KEY_LEN]; 11],
+            write_protected: [false; 11],
+        }
+    }
+
+    pub fn set_write_protected(&mut self, block: u8, protected: bool) {
+        if (block as usize) < self.write_protected.len() {
+            self.write_protected[block as usize] = protected;
+        }
+    }
+}
+
+impl EfuseStorage for RamEfuseStorage {
+    fn read_block(&self, block: u8) -> Result<[u8; EFUSE_KEY_LEN], EfuseError> {
+        if (block as usize) >= self.blocks.len() {
+            return Err(EfuseError::HardwareFault);
+        }
+        Ok(self.blocks[block as usize])
+    }
+
+    fn burn_block(&mut self, block: u8, data: &[u8; EFUSE_KEY_LEN]) -> Result<(), EfuseError> {
+        if (block as usize) >= self.blocks.len() {
+            return Err(EfuseError::HardwareFault);
+        }
+        if self.write_protected[block as usize] {
+            return Err(EfuseError::WriteProtected);
+        }
+
+        // In OTP memory, bits can only transition from 0 to 1 (bitwise OR)
+        for (dst, src) in self.blocks[block as usize].iter_mut().zip(data.iter()) {
+            *dst |= *src;
+        }
+
+        Ok(())
+    }
+
+    fn is_write_protected(&self, block: u8) -> bool {
+        if (block as usize) < self.write_protected.len() {
+            self.write_protected[block as usize]
+        } else {
+            true
+        }
+    }
+}
+
+#[cfg(any(test, not(target_os = "espidf")))]
 impl Default for MockEfuseStorage {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl MockEfuseStorage {
     pub fn new() -> Self {
         Self {
@@ -156,6 +222,7 @@ impl MockEfuseStorage {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl EfuseStorage for MockEfuseStorage {
     fn read_block(&self, block: u8) -> Result<[u8; EFUSE_KEY_LEN], EfuseError> {
         if (block as usize) >= self.blocks.len() {

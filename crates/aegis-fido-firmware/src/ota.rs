@@ -3,17 +3,32 @@
 //! BEHAVIOR: state machine `Idle → Staged → Verified → Applying → Committed`,
 //! with `rollback()` returning the machine to `Idle` (rolled back). `begin()`
 //! parses a fixed 104-byte manifest and rejects unprovisioned devices,
-//! malformed manifests, zero versions, and images over the 2 MiB budget.
-//! `stage_chunk(offset, data, sink)` accepts only in-order, non-empty,
+//! malformed manifests, zero versions, and images over the 2 MiB protocol
+//! budget. `stage_chunk(offset, data, sink)` accepts only in-order, non-empty,
 //! in-budget chunks, feeding a running `Sha256` digest while streaming bytes
 //! to an [`OtaSink`] — no whole-image RAM (required: a firmware image can
 //! never fit a single 512 B `MAX_PLAINTEXT_BYTES` envelope, so verification
-//! MUST stream). `verify()` checks the release signature fail-closed (Wave-1
-//! stub denies; Step 4 wires `ed25519-dalek`), then digest equality, then
-//! `version > current`. `commit()` (gated on user presence at the Step-4
-//! wiring via [`OtaState::requires_up`]) finalizes the sink and lands in
-//! `Committed` with `committed_version` updated; `rollback()` from any phase
-//! discards staged state and returns to `Idle`, preserving `committed_version`.
+//! MUST stream). `verify()` checks the real release Ed25519 signature
+//! fail-closed (denied key, malformed key, or bad signature all deny with
+//! [`OtaError::BadSignature`]), then digest equality, then `version > current`.
+//! `commit()` (gated on user presence via [`OtaState::requires_up`]) finalizes
+//! the sink and lands in `Committed` with `committed_version` updated;
+//! `rollback()` from any phase discards staged state and returns to `Idle`,
+//! preserving `committed_version`.
+//!
+//! Fase 2 (SOLID/DIP): the `0x30-0x34` session lives behind [`OtaProvider`];
+//! the USB/serial dispatcher (`nvs_backend::dispatch_ota_request`) depends on
+//! the trait, never on [`OtaState`] directly. Key selection stays injected via
+//! [`OtaKeyProvider`] (release zeros fail-closed, lab only under `test-mode`).
+//!
+//! R14 hardware-first: the ESP32-S3 digital-signature peripheral covers RSA
+//! only (no Ed25519 block on-chip), so signature checks run the existing
+//! workspace `ed25519-dalek` software path; the root of trust stays in real
+//! eFuse OTP (BLOCK7 master key + BLOCK8 device salt, read by
+//! `ota_provisioned` in `main.rs`), and staging lives in real flash NVS
+//! (partition `storage`, 896 KiB) behind `FlashOtaSink` in `nvs_backend`.
+//! [`RamOtaSink`] is host/tests only and actually stores bytes (never a
+//! false-success mock).
 //!
 //! `no_std` compatible: `alloc` only (cf. `identity.rs`); no panics, no
 //! `unwrap`/`expect` outside `#[cfg(test)]`; typed [`OtaError`] + `Display`
@@ -22,6 +37,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 /// Vendor opcode: start a staged OTA session (`manifest(104B)`).
@@ -313,6 +329,90 @@ impl OtaState {
     }
 }
 
+/// Fase-2 SOLID seam (DIP): the `0x30-0x34` OTA session as a trait.
+///
+/// The USB/serial dispatcher (`nvs_backend::dispatch_ota_request`) is generic
+/// over this trait and never names [`OtaState`], so the state machine stays
+/// replaceable (SRP: session policy here, flash staging in `nvs_backend`,
+/// key selection in [`OtaKeyProvider`]) without touching callers. Method
+/// order mirrors the wire order `BEGIN → CHUNK* → FINISH → COMMIT / ABORT`.
+/// Every fallible method denies fail-closed with [`OtaError`] and never
+/// reports success without executing (R16: no false success on any branch).
+pub trait OtaProvider {
+    /// Opens a session: provisioned + idle + well-formed in-budget manifest.
+    fn begin(&mut self, raw_manifest: &[u8], provisioned: bool) -> Result<(), OtaError>;
+    /// Streams one chunk: staged + in-order + non-empty + in-budget.
+    /// Returns total bytes received so far.
+    fn stage_chunk<S: OtaSink>(
+        &mut self,
+        offset: usize,
+        data: &[u8],
+        sink: &mut S,
+    ) -> Result<usize, OtaError>;
+    /// Verification with an injected signature verdict (host-test seam).
+    fn verify_with(&mut self, current_version: u32, sig_valid: bool) -> Result<(), OtaError>;
+    /// Swaps to the verified image: sink finalize, then `Committed`.
+    fn commit<S: OtaSink>(&mut self, sink: &mut S) -> Result<u32, OtaError>;
+    /// Discards staged state and returns to `Idle`.
+    fn rollback(&mut self);
+    /// Current phase.
+    fn phase(&self) -> OtaPhase;
+    /// Bytes staged so far in this session.
+    fn received(&self) -> usize;
+    /// Running firmware version (updated only by [`OtaProvider::commit`]).
+    fn committed_version(&self) -> u32;
+    /// Whether commit requires a physical user-presence check (always true).
+    fn requires_up() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+}
+
+impl OtaProvider for OtaState {
+    fn begin(&mut self, raw_manifest: &[u8], provisioned: bool) -> Result<(), OtaError> {
+        OtaState::begin(self, raw_manifest, provisioned)
+    }
+
+    fn stage_chunk<S: OtaSink>(
+        &mut self,
+        offset: usize,
+        data: &[u8],
+        sink: &mut S,
+    ) -> Result<usize, OtaError> {
+        OtaState::stage_chunk(self, offset, data, sink)
+    }
+
+    fn verify_with(&mut self, current_version: u32, sig_valid: bool) -> Result<(), OtaError> {
+        OtaState::verify_with(self, current_version, sig_valid)
+    }
+
+    fn commit<S: OtaSink>(&mut self, sink: &mut S) -> Result<u32, OtaError> {
+        OtaState::commit(self, sink)
+    }
+
+    fn rollback(&mut self) {
+        OtaState::rollback(self)
+    }
+
+    fn phase(&self) -> OtaPhase {
+        OtaState::phase(self)
+    }
+
+    fn received(&self) -> usize {
+        OtaState::received(self)
+    }
+
+    fn committed_version(&self) -> u32 {
+        OtaState::committed_version(self)
+    }
+
+    fn requires_up() -> bool {
+        OtaState::requires_up()
+    }
+}
+
 /// Backing store for staged image bytes.
 ///
 /// Step 4 provides the flash/partition sink; [`RamOtaSink`] covers host/tests.
@@ -352,21 +452,29 @@ impl OtaSink for RamOtaSink {
     }
 }
 
-/// Fail-closed release-signature gate (Wave 1 stub).
+/// Release-signature gate (Fase 2: real Ed25519, fail-closed).
 ///
 /// The release `signature` over [`OtaManifest::signed_bytes`] MUST verify with
-/// the offline release pubkey before `Verified`. `ed25519-dalek` lives in the
-/// workspace but is not yet a firmware-target dep, so — per the Wave-1 plan —
-/// this stays a documented stub returning `false`: prod `verify()` always
-/// yields [`OtaError::BadSignature`] and no image can reach `Verified`
-/// on-device. Step-4 wiring adds `ed25519-dalek = { workspace = true }` to
-/// the firmware `Cargo.toml` and swaps this body for
-/// `VerifyingKey::from_bytes(pubkey)?.verify_strict(msg, &sig).is_ok()`
-/// (no `cfg(feature)` gate: avoids `unexpected_cfgs` warnings without a
-/// `Cargo.toml` change, which is out of scope for Wave 1).
-/// Host tests drive the accept path via [`OtaState::verify_with`].
-fn verify_signature(_pubkey: &[u8; 32], _message: &[u8], _signature: &[u8; 64]) -> bool {
-    false
+/// the offline release pubkey before `Verified`. Denies (`false`) on: denied
+/// (all-zeros) key, malformed key encoding, malformed signature encoding, or
+/// a signature that does not verify — so `NUNCA COMMIT sem chave válida` holds
+/// even if a caller skipped the [`OtaKeyProvider::is_denied`] pre-check.
+/// R14 note: same `ed25519-dalek` software path as
+/// `nvs_backend::verify_ota_signature` (no Ed25519 block on the S3; the DS
+/// peripheral covers RSA only). Host tests drive the injected-verdict path
+/// via [`OtaState::verify_with`]; positive crypto coverage lives in
+/// `verify_accepts_real_ed25519_signature` below.
+fn verify_signature(pubkey: &[u8; 32], message: &[u8], signature: &[u8; 64]) -> bool {
+    if OtaKeyProvider::is_denied(pubkey) {
+        return false;
+    }
+    match VerifyingKey::from_bytes(pubkey) {
+        Ok(vk) => match Signature::try_from(&signature[..]) {
+            Ok(sig) => vk.verify_strict(message, &sig).is_ok(),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
 }
 
 /// T6/A4 injected OTA key source moves OTA pubkeys out of the dispatcher.
@@ -736,6 +844,80 @@ mod tests {
         assert_eq!(ota.committed_version(), NEXT);
         assert_eq!(sink.buf, image);
         assert_eq!(sink.finalize_calls, 1);
+    }
+
+    #[test]
+    fn verify_accepts_real_ed25519_signature() {
+        // Fase 2 positive crypto path (offline, no hardware): a manifest
+        // signed by the matching release key verifies and reaches `Verified`.
+        // Randomness here is host-test only (`OsRng` under `cfg(test)`); the
+        // device path verifies against the eFuse-rooted provisioned key.
+        use ed25519_dalek::SigningKey;
+        use signature::Signer as _;
+        let image = image_bytes();
+        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let unsigned = manifest_for(NEXT, &image);
+        let m = OtaManifest::parse(&unsigned).expect("parse");
+        let sig = sk.sign(&m.signed_bytes());
+        let mut raw = Vec::with_capacity(OTA_MANIFEST_LEN);
+        raw.extend_from_slice(&NEXT.to_be_bytes());
+        raw.extend_from_slice(&(image.len() as u32).to_be_bytes());
+        raw.extend_from_slice(&Sha256::digest(&image));
+        raw.extend_from_slice(&sig.to_bytes());
+        let mut ota = OtaState::new(CURRENT);
+        let mut sink = RamOtaSink::default();
+        ota.begin(&raw, true).expect("begin");
+        let mut off = 0;
+        for chunk in image.chunks(256) {
+            off = ota.stage_chunk(off, chunk, &mut sink).expect("chunk");
+        }
+        assert_eq!(off, image.len());
+        ota.verify(&sk.verifying_key().to_bytes(), CURRENT)
+            .expect("real signature verifies");
+        assert_eq!(ota.phase(), OtaPhase::Verified);
+    }
+
+    #[test]
+    fn verify_denies_denied_key_fail_closed() {
+        // `is_denied` short-circuit inside `verify_signature`: the all-zeros
+        // release default can never verify, whatever bytes are offered.
+        let image = image_bytes();
+        let (mut ota, _sink) = staged(NEXT, &image);
+        assert!(OtaKeyProvider::is_denied(&OtaKeyProvider::RELEASE_PUBKEY));
+        assert_eq!(
+            ota.verify(&OtaKeyProvider::RELEASE_PUBKEY, CURRENT),
+            Err(OtaError::BadSignature)
+        );
+        assert_eq!(ota.phase(), OtaPhase::Staged);
+    }
+
+    #[test]
+    fn provider_trait_drives_full_cycle_without_naming_state() {
+        // DIP seam proven: the whole session runs through the trait only,
+        // the way `dispatch_ota_request` consumes it (static dispatch; the
+        // trait keeps generic methods, so no `dyn`).
+        fn run_cycle<P: OtaProvider>(ota: &mut P, sink: &mut RamOtaSink, raw: &[u8], image: &[u8]) {
+            OtaProvider::begin(ota, raw, true).expect("begin");
+            assert_eq!(OtaProvider::phase(ota), OtaPhase::Staged);
+            let mut off = 0;
+            for chunk in image.chunks(256) {
+                off = OtaProvider::stage_chunk(ota, off, chunk, sink).expect("chunk");
+            }
+            assert_eq!(off, image.len());
+            assert_eq!(OtaProvider::received(ota), image.len());
+            OtaProvider::verify_with(ota, CURRENT, true).expect("verify");
+            assert_eq!(OtaProvider::phase(ota), OtaPhase::Verified);
+            assert!(P::requires_up());
+            let version = OtaProvider::commit(ota, sink).expect("commit");
+            assert_eq!(version, NEXT);
+            assert_eq!(OtaProvider::phase(ota), OtaPhase::Committed);
+            assert_eq!(OtaProvider::committed_version(ota), NEXT);
+        }
+        let image = image_bytes();
+        let mut ota = OtaState::new(CURRENT);
+        let mut sink = RamOtaSink::default();
+        run_cycle(&mut ota, &mut sink, &manifest_for(NEXT, &image), &image);
+        assert_eq!(sink.buf, image);
     }
 
     #[test]

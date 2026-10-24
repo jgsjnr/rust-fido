@@ -3,6 +3,7 @@
 
 pub mod ccid;
 pub mod ctaphid;
+pub mod kbd_gate;
 pub mod keyboard;
 pub mod piv;
 pub mod transport;

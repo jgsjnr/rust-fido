@@ -40,12 +40,16 @@ impl PresenceVerifier for NeverPresentVerifier {
     }
 }
 
-/// Configurable mock verifier for unit tests
+/// Configurable mock verifier for unit tests.
+/// Ausente no device (`target_os = "espidf"` sem `cfg(test)`): prod usa
+/// `Gpio0TouchVerifier` (HW) ou os verifiers fixos acima.
+#[cfg(any(test, not(target_os = "espidf")))]
 pub struct MockPresenceVerifier {
     pub is_present: bool,
     pub return_timeout: bool,
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl MockPresenceVerifier {
     pub fn new(is_present: bool) -> Self {
         Self {
@@ -62,6 +66,7 @@ impl MockPresenceVerifier {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl PresenceVerifier for MockPresenceVerifier {
     fn check_presence(&mut self) -> Result<bool, PresenceError> {
         Ok(self.is_present)

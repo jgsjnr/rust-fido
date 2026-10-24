@@ -93,30 +93,30 @@ fn lab_provider_only_with_test_mode() {
 
 #[test]
 fn dispatcher_selects_key_via_for_build_without_cfg() {
-    let main = include_str!("../src/main.rs");
+    let run = include_str!("../src/run.rs");
     // The single selection point: no hardcoded key material in the dispatcher.
     assert!(
-        main.contains("OtaKeyProvider::active_pubkey_for_build()"),
+        run.contains("OtaKeyProvider::active_pubkey_for_build()"),
         "dispatcher must select the OTA key via for_build"
     );
     assert!(
-        !main.contains("LAB_PUBKEY"),
+        !run.contains("LAB_PUBKEY"),
         "lab key material must not appear in the dispatcher"
     );
     // No test-mode branch around the key selection (R12: build-selected,
-    // no `cfg` in main).
+    // no `cfg` in run).
     // No test-mode branch inside the key-selection body itself (R12:
-    // build-selected, no `cfg` in main): slice the function body from its
+    // build-selected, no `cfg` in run): slice the function body from its
     // opening brace to its closing brace and inspect only that.
-    let sel = main
+    let sel = run
         .find("fn ota_active_pubkey")
         .expect("ota_active_pubkey present");
-    let body_start = main[sel..].find('{').map(|i| sel + i).expect("body opens");
-    let body_end = main[body_start..]
+    let body_start = run[sel..].find('{').map(|i| sel + i).expect("body opens");
+    let body_end = run[body_start..]
         .find('}')
         .map(|i| body_start + i)
         .expect("body closes");
-    let body = &main[body_start..body_end];
+    let body = &run[body_start..body_end];
     assert!(
         body.contains("active_pubkey_for_build()"),
         "dispatcher must select the OTA key via for_build"

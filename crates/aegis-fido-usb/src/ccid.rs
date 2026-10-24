@@ -314,6 +314,10 @@ impl CcidApduHandler for DefaultCcidHandler {
 }
 
 /// USB CCID Transport Manager.
+///
+/// The PIV applet is an injected dependency (`with_piv`/`set_piv`):
+/// the transport never builds one mid-lifecycle. Session resets go
+/// through the single build site `reset_piv`.
 pub struct CcidTransport {
     pub selected_applet: SelectedApplet,
     pub card_powered: bool,
@@ -327,12 +331,28 @@ impl Default for CcidTransport {
 }
 
 impl CcidTransport {
-    pub fn new() -> Self {
+    /// Builds a transport around an explicitly injected PIV applet.
+    pub fn with_piv(piv: PivApplet) -> Self {
         Self {
             selected_applet: SelectedApplet::None,
             card_powered: false,
-            piv: PivApplet::new(),
+            piv,
         }
+    }
+
+    /// Replaces the PIV applet (e.g. firmware-owned instance).
+    pub fn set_piv(&mut self, piv: PivApplet) {
+        self.piv = piv;
+    }
+
+    /// Resets PIV session state (single build site; `new()` keeps the
+    /// default construction for existing callers).
+    fn reset_piv(&mut self) {
+        self.piv = PivApplet::new();
+    }
+
+    pub fn new() -> Self {
+        Self::with_piv(PivApplet::new())
     }
 
     /// Processes an incoming USB CCID message (minimum 10-byte header).
@@ -368,7 +388,7 @@ impl CcidTransport {
             PC_TO_RDR_ICC_POWER_OFF => {
                 self.card_powered = false;
                 self.selected_applet = SelectedApplet::None;
-                self.piv = PivApplet::new();
+                self.reset_piv();
                 // Slot virtual: cartao sempre presente (remocao nao existe);
                 // 0x00 = pronto. 0x02 faria o host concluir 'sem cartao'.
                 Ok(Self::build_slot_status_response(slot, seq, 0x00))
@@ -428,7 +448,7 @@ impl CcidTransport {
         if apdu.ins == 0xA4 && apdu.p1 == 0x04 {
             if apdu.data == AID_YKOATH {
                 self.selected_applet = SelectedApplet::Oath;
-                self.piv = PivApplet::new();
+                self.reset_piv();
                 // Return YKOATH applet version / name: "AegisKey OATH"
                 let mut name_resp = Vec::new();
                 name_resp.push(0x79); // Name tag
@@ -437,7 +457,7 @@ impl CcidTransport {
                 return ResponseApdu::ok(name_resp);
             } else if apdu.data == AID_FIDO_U2F {
                 self.selected_applet = SelectedApplet::FidoU2f;
-                self.piv = PivApplet::new();
+                self.reset_piv();
                 // Return FIDO U2F V2 version string: "U2F_V2"
                 return ResponseApdu::ok(b"U2F_V2".to_vec());
             } else if apdu.data == AID_PIV {
@@ -450,7 +470,7 @@ impl CcidTransport {
                 return resp;
             } else {
                 self.selected_applet = SelectedApplet::None;
-                self.piv = PivApplet::new();
+                self.reset_piv();
                 return ResponseApdu::status(SW_NOT_FOUND);
             }
         }
@@ -506,7 +526,7 @@ impl CcidTransport {
             PC_TO_RDR_ICC_POWER_OFF => {
                 self.card_powered = false;
                 self.selected_applet = SelectedApplet::None;
-                self.piv = PivApplet::new();
+                self.reset_piv();
                 // Slot virtual: cartao sempre presente (remocao nao existe).
                 Ok(Self::build_slot_status_response(slot, seq, 0x00))
             }
@@ -545,13 +565,13 @@ impl CcidTransport {
                         self.selected_applet = SelectedApplet::Piv;
                     } else if apdu.data == AID_YKOATH {
                         self.selected_applet = SelectedApplet::Oath;
-                        self.piv = PivApplet::new();
+                        self.reset_piv();
                     } else if apdu.data == AID_FIDO_U2F {
                         self.selected_applet = SelectedApplet::FidoU2f;
-                        self.piv = PivApplet::new();
+                        self.reset_piv();
                     } else {
                         self.selected_applet = SelectedApplet::None;
-                        self.piv = PivApplet::new();
+                        self.reset_piv();
                     }
                 }
                 Ok(Self::build_data_block_response(
@@ -1139,6 +1159,31 @@ mod tests {
         assert_eq!(PIV_TAG_X509_CERT, [0x5F, 0xC1, 0x05]);
         assert_eq!(sw_retries_left(3), (0x63, 0xC3));
         assert_eq!(sw_retries_left(0), (0x63, 0xC0));
+    }
+
+    #[test]
+    fn injected_piv_is_used_by_transport() {
+        // Arrange: applet pré-selecionado fora do transporte (DIP).
+        let mut applet = PivApplet::new();
+        let select = CommandApdu {
+            cla: 0x00,
+            ins: 0xA4,
+            p1: 0x04,
+            p2: 0x00,
+            data: AID_PIV.to_vec(),
+            le: None,
+        };
+        let resp = applet.handle(&select);
+        assert_eq!((resp.sw1, resp.sw2), SW_OK);
+        assert!(applet.is_selected());
+        // Act: injeta no transporte.
+        let mut transport = CcidTransport::with_piv(applet);
+        // Assert: estado do injetado preservado (sem rebuild interno).
+        assert!(transport.piv.is_selected());
+        // Act: troca via set_piv.
+        transport.set_piv(PivApplet::new());
+        // Assert: substituído por virgem.
+        assert!(!transport.piv.is_selected());
     }
 
     fn param_msg(msg_type: u8, seq: u8) -> Vec<u8> {

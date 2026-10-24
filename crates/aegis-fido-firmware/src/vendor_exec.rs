@@ -24,7 +24,9 @@ use crate::ble_gatt::{
     authorize_vendor_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_LIST,
     OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
 };
-use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::persistence::{
+    FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
+};
 use crate::piv_store::PivNvsStore;
 
 /// Chaves NVS (≤15 chars) dos blobs de estado F2.
@@ -45,92 +47,192 @@ fn oath_status(e: OathDeviceError) -> u8 {
     e.code()
 }
 
-/// Persiste o estado; `false` se o save falhar (chamador faz rollback).
-fn save_keys<B: FlashStorageBackend>(storage: &mut SecureStorage<B>, keys: &KeyManager) -> bool {
-    storage
-        .store(NVS_KEYS_SLOTS, &keys.export_state(), &[0u8; 12])
-        .is_ok()
+/// Falha tipada fail-closed do executor vendor (sem segredo, sem panics).
+///
+/// R15/R16: sem bool que esconde a causa; o chamador traduz `Err` no wire
+/// (0x04). S9: verify-after-write herdado do `NamespacedStore` (torn
+/// write nega e desfaz o slot); rollback via snapshot do chamador.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VendorExecError {
+    /// Falha de storage, verify-after-write ou blob invalido.
+    Storage,
 }
 
-fn save_oath<B: FlashStorageBackend>(storage: &mut SecureStorage<B>, oath: &OathApplet) -> bool {
-    storage
-        .store(NVS_KEYS_OATH, &oath.export_state(), &[0u8; 12])
-        .is_ok()
+impl core::fmt::Display for VendorExecError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Storage => write!(f, "vendor storage failure"),
+        }
+    }
 }
 
-/// Persiste o estado PIN (F3): hash + retries. Sessão pinUvAuth é RAM
-/// por desenho (morre no reboot). `false` = save falhou (chamador loga).
+impl From<NamespacedStoreError> for VendorExecError {
+    fn from(_: NamespacedStoreError) -> Self {
+        Self::Storage
+    }
+}
+
+/// Chaves NVS legadas deste namespace (prefixo vazio = chave crua).
+/// Preserva os bytes exatos gravados pelo caminho direto anterior.
+fn vendor_key_ok(label: &str) -> bool {
+    label == NVS_KEYS_SLOTS
+        || label == NVS_KEYS_OATH
+        || label == NVS_PIN_HASH
+        || label == NVS_PIN_RETRIES
+}
+
+/// Namespace unico dos blobs F2/F3: chaves cruas, sem quota, teto do
+/// envelope (`MAX_PLAINTEXT_BYTES`, fail-closed no `store`), delete
+/// idempotente (paridade com o `delete` direto anterior).
+fn vendor_ns() -> NamespacedStore {
+    NamespacedStore {
+        prefix: "",
+        max_bytes: None,
+        quota_index_key: None,
+        max_slots: 0,
+        delete_absent_ok: true,
+        strict_index_reads: false,
+        validate: vendor_key_ok,
+    }
+}
+
+/// Persiste o estado das chaves via `NamespacedStore` (fail-closed).
+/// `Err` = save falhou; o chamador faz rollback via snapshot.
+fn save_keys_result<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    keys: &KeyManager,
+) -> Result<(), VendorExecError> {
+    let blob = keys.export_state();
+    vendor_ns().put(storage, NVS_KEYS_SLOTS, &blob)?;
+    Ok(())
+}
+
+/// Persiste o estado OATH via `NamespacedStore` (fail-closed).
+/// `Err` = save falhou; o chamador faz rollback via snapshot.
+fn save_oath_result<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    oath: &OathApplet,
+) -> Result<(), VendorExecError> {
+    let blob = oath.export_state();
+    vendor_ns().put(storage, NVS_KEYS_OATH, &blob)?;
+    Ok(())
+}
+
+/// Persiste o estado PIN (F3: hash + retries) via `NamespacedStore`.
+///
+/// Sessão pinUvAuth é RAM por desenho (morre no reboot). `Err` fail-closed;
+/// hash ausente apaga a chave (idempotente, paridade com o `delete` direto
+/// anterior a T5).
+pub fn save_pin_state_result<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    pin: &ClientPinState,
+) -> Result<(), VendorExecError> {
+    match pin.pin_hash {
+        Some(h) => vendor_ns().put(storage, NVS_PIN_HASH, &h)?,
+        None => vendor_ns().delete(storage, NVS_PIN_HASH)?,
+    }
+    vendor_ns().put(storage, NVS_PIN_RETRIES, &[pin.pin_retries])?;
+    Ok(())
+}
+
+/// Compat fina sobre `save_pin_state_result` (BLE/dispatch congelados).
+/// Caminho unico: delega ao `NamespacedStore`, sem write-path direto.
 pub fn save_pin_state<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,
     pin: &ClientPinState,
 ) -> bool {
-    let hash_ok = match pin.pin_hash {
-        Some(h) => storage.store(NVS_PIN_HASH, &h, &[0u8; 12]).is_ok(),
-        None => storage.delete(NVS_PIN_HASH).is_ok(),
-    };
-    hash_ok
-        && storage
-            .store(NVS_PIN_RETRIES, &[pin.pin_retries], &[0u8; 12])
-            .is_ok()
+    save_pin_state_result(storage, pin).is_ok()
 }
 
-/// Carrega o PIN no boot (ausente = padrão; corrompido = padrão + `false`).
-pub fn load_pin_state<B: FlashStorageBackend>(
+/// Carrega o PIN no boot via `NamespacedStore` (ausente = padrão + `Ok`;
+/// corrompido = padrão + `Err` fail-closed).
+pub fn load_pin_state_result<B: FlashStorageBackend>(
     storage: &SecureStorage<B>,
     pin: &mut ClientPinState,
-) -> bool {
-    use crate::persistence::StorageError;
-    match storage.load(NVS_PIN_HASH) {
+) -> Result<(), VendorExecError> {
+    match vendor_ns().get(storage, NVS_PIN_HASH) {
         Ok(v) if v.len() == 16 => {
             let mut h = [0u8; 16];
             h.copy_from_slice(&v);
             pin.pin_hash = Some(h);
         }
-        Err(StorageError::KeyNotFound) => pin.pin_hash = None,
-        _ => {
+        Ok(_) => {
             pin.pin_hash = None;
             pin.pin_retries = 8;
-            return false;
+            return Err(VendorExecError::Storage);
         }
-    }
-    match storage.load(NVS_PIN_RETRIES) {
-        Ok(v) if v.len() == 1 => pin.pin_retries = v[0].min(8),
-        Err(StorageError::KeyNotFound) => pin.pin_retries = 8,
-        _ => {
+        Err(NamespacedStoreError::NotFound) => pin.pin_hash = None,
+        Err(_) => {
+            pin.pin_hash = None;
             pin.pin_retries = 8;
-            return false;
+            return Err(VendorExecError::Storage);
         }
     }
-    true
+    match vendor_ns().get(storage, NVS_PIN_RETRIES) {
+        Ok(v) if v.len() == 1 => pin.pin_retries = v[0].min(8),
+        Ok(_) => {
+            pin.pin_retries = 8;
+            return Err(VendorExecError::Storage);
+        }
+        Err(NamespacedStoreError::NotFound) => pin.pin_retries = 8,
+        Err(_) => {
+            pin.pin_retries = 8;
+            return Err(VendorExecError::Storage);
+        }
+    }
+    Ok(())
 }
 
-/// Carrega estados do NVS no boot (ausente = vazio; corrompido = vazio +
-/// `false` p/ WARN do chamador).
-pub fn load_states<B: FlashStorageBackend>(
+/// Compat fina sobre `load_pin_state_result` (boot/dispatch congelados).
+/// Caminho unico: delega ao `NamespacedStore`, sem read-path direto.
+pub fn load_pin_state<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    pin: &mut ClientPinState,
+) -> bool {
+    load_pin_state_result(storage, pin).is_ok()
+}
+
+/// Carrega estados do NVS no boot via `NamespacedStore` (ausente = vazio +
+/// `Ok`; corrompido = vazio + `Err` p/ WARN do chamador, fail-closed).
+pub fn load_states_result<B: FlashStorageBackend>(
     storage: &SecureStorage<B>,
     keys: &mut KeyManager,
     oath: &mut OathApplet,
-) -> bool {
+) -> Result<(), VendorExecError> {
     let mut ok = true;
-    match storage.load(NVS_KEYS_SLOTS) {
+    match vendor_ns().get(storage, NVS_KEYS_SLOTS) {
         Ok(blob) => {
             if keys.import_state(&blob).is_err() {
                 ok = false;
             }
         }
-        Err(crate::persistence::StorageError::KeyNotFound) => {}
+        Err(NamespacedStoreError::NotFound) => {}
         Err(_) => ok = false,
     }
-    match storage.load(NVS_KEYS_OATH) {
+    match vendor_ns().get(storage, NVS_KEYS_OATH) {
         Ok(blob) => {
             if oath.import_state(&blob).is_err() {
                 ok = false;
             }
         }
-        Err(crate::persistence::StorageError::KeyNotFound) => {}
+        Err(NamespacedStoreError::NotFound) => {}
         Err(_) => ok = false,
     }
-    ok
+    if ok {
+        Ok(())
+    } else {
+        Err(VendorExecError::Storage)
+    }
+}
+
+/// Compat fina sobre `load_states_result` (boot congelado).
+/// Caminho unico: delega ao `NamespacedStore`, sem read-path direto.
+pub fn load_states<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    keys: &mut KeyManager,
+    oath: &mut OathApplet,
+) -> bool {
+    load_states_result(storage, keys, oath).is_ok()
 }
 
 /// Executa uma op vendor `0x20-0x27` (gates + persistência).
@@ -193,7 +295,7 @@ where
             let snap = keys.export_state();
             match keys.delete(slot, true, pin_ok) {
                 Ok(()) => {
-                    if save_keys(storage, keys) {
+                    if save_keys_result(storage, keys).is_ok() {
                         (0x00, Vec::new())
                     } else {
                         let _ = keys.import_state(&snap);
@@ -207,7 +309,7 @@ where
             let snap = oath.export_state();
             match oath.device_put(payload, pin_ok, true) {
                 Ok(()) => {
-                    if save_oath(storage, oath) {
+                    if save_oath_result(storage, oath).is_ok() {
                         (0x00, Vec::new())
                     } else {
                         let _ = oath.import_state(&snap);
@@ -234,7 +336,7 @@ where
             Ok(res) => {
                 // HOTP avança contador: persiste (rollback não faz sentido;
                 // WARN via status só se o save falhar em nova leitura).
-                let _ = save_oath(storage, oath);
+                let _ = save_oath_result(storage, oath);
                 let mut out = Vec::new();
                 write_tlv(&mut out, TAG_OATH_RESPONSE, res.code.as_bytes());
                 (0x00, out)
@@ -245,7 +347,7 @@ where
             let snap = oath.export_state();
             match oath.device_delete(payload, pin_ok, true) {
                 Ok(()) => {
-                    if save_oath(storage, oath) {
+                    if save_oath_result(storage, oath).is_ok() {
                         (0x00, Vec::new())
                     } else {
                         let _ = oath.import_state(&snap);
@@ -309,7 +411,7 @@ where
     };
     match keys.generate(slot, algo, label.into(), uso, now_secs, true, rng) {
         Ok(s) => {
-            if save_keys(storage, keys) {
+            if save_keys_result(storage, keys).is_ok() {
                 let mut out = Vec::new();
                 write_tlv(&mut out, TAG_SLOT, &[s.id]);
                 write_tlv(&mut out, TAG_LABEL, s.label.as_bytes());
@@ -547,10 +649,91 @@ mod tests {
         }
         let blob = keys.export_state();
         assert_eq!(blob.len(), 3811);
-        assert!(save_keys(&mut st, &keys), "save do pior caso");
+        assert!(
+            save_keys_result(&mut st, &keys).is_ok(),
+            "save do pior caso"
+        );
         let mut keys2 = KeyManager::new();
         assert!(load_states(&st, &mut keys2, &mut OathApplet::new()));
         assert_eq!(keys2.export_state(), blob);
         assert_eq!(keys2.len(), 32);
+    }
+
+    #[test]
+    fn result_api_single_path_parity() {
+        // Via Result: save/load com as mesmas chaves NVS legadas.
+        let mut st = test_storage();
+        let mut keys = KeyManager::new();
+        let oath = OathApplet::new();
+        let mut rng = rand_core::OsRng;
+        keys.generate(
+            3,
+            CoseAlgorithm::ES256,
+            "parity".into(),
+            KEY_USE_SIGN | KEY_USE_AUTH,
+            0,
+            true,
+            &mut rng,
+        )
+        .expect("gen");
+        save_keys_result(&mut st, &keys).expect("save keys");
+        save_oath_result(&mut st, &oath).expect("save oath");
+        let mut keys2 = KeyManager::new();
+        let mut oath2 = OathApplet::new();
+        load_states_result(&st, &mut keys2, &mut oath2).expect("load");
+        assert_eq!(keys2.export_state(), keys.export_state());
+        // Chaves NVS preservadas (prefixo vazio = chave crua).
+        assert!(st.exists(NVS_KEYS_SLOTS));
+        assert!(st.exists(NVS_KEYS_OATH));
+        // PIN via Result: roundtrip + compativel com os shims bool.
+        let pin = ClientPinState {
+            pin_hash: Some([0xABu8; 16]),
+            pin_retries: 5,
+            ..Default::default()
+        };
+        save_pin_state_result(&mut st, &pin).expect("save pin");
+        let mut pin2 = ClientPinState::default();
+        load_pin_state_result(&st, &mut pin2).expect("load pin");
+        assert_eq!(pin2.pin_hash, Some([0xABu8; 16]));
+        assert_eq!(pin2.pin_retries, 5);
+        assert!(save_pin_state(&mut st, &pin));
+        assert!(load_pin_state(&st, &mut pin2));
+    }
+
+    #[test]
+    fn result_api_corrupt_denies_fail_closed() {
+        // Torn write: adultera o envelope cru; load nega fail-closed.
+        let mut st = test_storage();
+        let mut keys = KeyManager::new();
+        let mut rng = rand_core::OsRng;
+        keys.generate(
+            1,
+            CoseAlgorithm::ES256,
+            "torn".into(),
+            KEY_USE_SIGN | KEY_USE_AUTH,
+            0,
+            true,
+            &mut rng,
+        )
+        .expect("gen");
+        save_keys_result(&mut st, &keys).expect("save");
+        let mut raw = st.backend().read_raw(NVS_KEYS_SLOTS).expect("raw");
+        let last = raw.len() - 1;
+        raw[last] ^= 0xFF;
+        st.backend_mut()
+            .write_raw(NVS_KEYS_SLOTS, &raw)
+            .expect("tamper");
+        let mut keys2 = KeyManager::new();
+        let mut oath2 = OathApplet::new();
+        assert_eq!(
+            load_states_result(&st, &mut keys2, &mut oath2),
+            Err(VendorExecError::Storage)
+        );
+        // Shims bool mantem a semantica antiga (false = WARN do chamador).
+        assert!(!load_states(
+            &st,
+            &mut KeyManager::new(),
+            &mut OathApplet::new()
+        ));
     }
 }

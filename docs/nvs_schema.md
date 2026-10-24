@@ -8,7 +8,7 @@ Fonte: `crates/aegis-fido-firmware/src/persistence.rs` (`SecureStorage`, `MockFl
 | --- | --- | --- |
 | magic | 4 | `41 45 47 4E` ("AEGN") |
 | version | 1 | `0x01` |
-| nonce | 12 | AES-GCM nonce (hoje: caller-supplied; TRNG vira MUST na W1) |
+| nonce | 12 | AES-GCM nonce TRNG 12B gerado internamente (persistence.rs:95-122 store/store_with_rng; parametro fixo ignorado) |
 | ciphertext+tag | N+16 | AES-256-GCM |
 
 - Chave: HKDF-SHA256(master eFuse OTP, salt 32B, info `"AegisKey-NVS-Storage-v1"`).
@@ -74,3 +74,26 @@ Roteamento slot→rede persiste como bytes; chaves canônicas no código
 
 Wiring no firmware (instanciar `WalletStore` + ler/escrever NVS no boot):
 follow-up de design — fora deste passo.
+
+## Chaves desacopladas (lane modulos-novos, ASCII)
+
+Envelope AEGN v1 inalterado. Dono unico por chave; sem dual-path.
+
+| Chave | Conteudo | Gate | Nota |
+| --- | --- | --- | --- |
+| `prox_k` | K_prox envelope AEGN | bonded+UP+coex | dono `proximity.rs:233` (`PROXIMITY_BOND_NVS_KEY`); save/load `proximity.rs:533-545`; TRNG injetavel; wipe em release/recovery |
+| `oath6/*` | segredo OATH por slot (envelope AEGN) | binding->UP->PIN | via `oath_cmd.rs` sobre `oath_store.rs`; contador em `oath_ctr/*` |
+| `oath_ctr/*` | contador HOTP u32 monotonico | mesmo op do slot | atomico + power-loss; rollback = FAIL |
+| `opgp/*` | objeto OpenPGP Card 3.4.1 (envelope AEGN) | binding->UP->PIN | via `openpgp_cmd.rs:34` + `apdu.rs` parse; nunca em claro no log |
+| `cred/*` | credencial FIDO (envelope AEGN) | binding->UP->PIN | via `cred_store.rs` sobre `persistence.rs`; index em `cred_index` |
+| `cred_index` | indice slots (bitmap/u32) | interno | verify-after-write; dual-slot + backup (W3) |
+| `vault/*` | segredo carteira por slot (envelope AEGN) | UP+PIN | via `vault_aead.rs`; storage-only BTC/EVM/SOL |
+| `vault_index` | indice vault | UP+PIN | ordenado por slot; rejeita dup |
+| `pin/*` | hash+salt+retries PIN (F3) | UP | via `pin_uv.rs` + `vendor_exec.rs:121-123` (`NamespacedStore`); sessao pinUvAuth e RAM |
+| `boot_state` | estado boot monotono | interno (pre-namespace) | leitura antes do namespace; direto justificado |
+| `anti_rollback_key` | contador anti-downgrade u32 | interno | via `anti_rollback.rs`; monotonico, nunca migra namespace; direto justificado |
+
+Nonce (corrigido): `store()` gera nonce TRNG 12B internamente via OsRng
+(`persistence.rs:95-104`); variante explicita `store_with_rng` recebe
+`RngCore` (`persistence.rs:107-122`); `MAX_ENVELOPE_BYTES = 4+1+12+N+16`,
+`MAX_PLAINTEXT_BYTES = 4096` (paridade bridge em `uniffi-bridge/src/lib.rs:63-66`).

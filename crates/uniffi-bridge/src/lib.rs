@@ -39,13 +39,37 @@ pub const MAX_FRAGMENT_BYTES: usize = 244;
 /// Reassemble cap (== envelope MAX-ESP).
 pub const CONTROL_POINT_LENGTH: usize = 512;
 /// `AEGN` envelope magic.
+///
+/// Canonical source: firmware `persistence.rs::ENVELOPE_MAGIC` (== SDK
+/// `envelope::ENVELOPE_MAGIC`). Documented copy: this cdylib keeps no
+/// SDK/firmware dependency; parity is enforced by
+/// `envelope_cross_vector_matches_sdk_framing` (mirrors SDK
+/// `aegn_cross_vector_matches_bridge_and_firmware`). Full delegation is
+/// blocked by the ABI (UniFFI exposes only `Vec<u8>`; SDK seals opaque
+/// `ct + tag` behind `AuthContext` + `ReplayWindow` and owns no AEAD).
 pub const ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E];
 /// `AEGN` envelope version.
+///
+/// Canonical source: firmware `persistence.rs::ENVELOPE_VERSION` (== SDK
+/// `envelope::ENVELOPE_VERSION`); see `ENVELOPE_MAGIC` for why this is a
+/// copy and how parity is enforced.
 pub const ENVELOPE_VERSION: u8 = 0x01;
 /// `MAGIC[4] | VER[1] | NONCE[12] | TAG[16]` floor (empty ciphertext).
+///
+/// Equals SDK `envelope::MIN_ENVELOPE_LEN` (33) and firmware floor.
 pub const MIN_ENVELOPE_LEN: usize = 33;
-/// Max plaintext accepted by seal (firmware `MAX_PLAINTEXT_BYTES`).
-pub const MAX_PLAINTEXT_BYTES: usize = 512;
+/// Max plaintext accepted by seal.
+///
+/// Canonical source: firmware `persistence.rs::MAX_PLAINTEXT_BYTES = 4096`
+/// (== SDK `envelope::MAX_PLAINTEXT_BYTES`); bridge keeps a documented copy
+/// only (no firmware dependency); parity enforced by the tests below.
+pub const MAX_PLAINTEXT_BYTES: usize = 4096;
+/// Max wire envelope (`HEADER[17] + plaintext[4096] + TAG[16]`).
+///
+/// Canonical source: firmware `persistence.rs::MAX_ENVELOPE_BYTES` (==
+/// SDK `envelope::MAX_ENVELOPE_BYTES`); `envelope_validate` rejects longer
+/// inputs fail-closed (mirrors SDK `TooLarge`, wire `0x04`).
+pub const MAX_ENVELOPE_BYTES: usize = 4129;
 /// WiFi AP password bounds (WPA2, ASCII).
 pub const MIN_WIFI_PASS_LEN: usize = 8;
 /// WiFi AP password upper bound.
@@ -157,13 +181,25 @@ pub fn ble_split_fragments(opcode: u8, payload: Vec<u8>) -> Result<Vec<Vec<u8>>,
     Ok(out)
 }
 
-/// Validates a `POST /ctap` envelope (`AEGN` magic + version + min length).
+/// Validates a `POST /ctap` envelope (`AEGN` magic + version + lengths).
 /// Returns the ciphertext length on success (content delegates to device).
+///
+/// Fail-closed mirror of SDK `open_envelope` framing (minus `AuthContext` /
+/// replay, which stay device-side: this FFI surface is stateless by design
+/// and each call carries its own transient key): rejects short, oversize
+/// (`> MAX_ENVELOPE_BYTES`), bad magic/version, and all-zero nonces
+/// (device TRNG never emits zero; mirrors SDK `ZeroNonce`).
 pub fn envelope_validate(envelope: Vec<u8>) -> Result<u32, BridgeError> {
     if envelope.len() < MIN_ENVELOPE_LEN {
         return Err(BridgeError::InvalidEnvelope);
     }
+    if envelope.len() > MAX_ENVELOPE_BYTES {
+        return Err(BridgeError::Overflow);
+    }
     if envelope[0..4] != ENVELOPE_MAGIC || envelope[4] != ENVELOPE_VERSION {
+        return Err(BridgeError::InvalidEnvelope);
+    }
+    if envelope[5..17] == [0u8; 12] {
         return Err(BridgeError::InvalidEnvelope);
     }
     Ok((envelope.len() - (4 + 1 + 12)) as u32)
@@ -174,6 +210,9 @@ pub fn envelope_validate(envelope: Vec<u8>) -> Result<u32, BridgeError> {
 /// `key` (32B) and `nonce` (12B) are transient caller buffers, zeroized
 /// before return. Deterministic nonce keeps UniFFI tests reproducible;
 /// the app must supply a fresh random nonce per seal (device TRNG guidance).
+/// All-zero nonces are rejected fail-closed (mirrors SDK `ZeroNonce`;
+/// device TRNG never emits zero). Replay windows stay device-side: this
+/// stateless FFI cannot deduplicate across calls.
 pub fn envelope_seal(
     mut key: Vec<u8>,
     plaintext: Vec<u8>,
@@ -181,6 +220,11 @@ pub fn envelope_seal(
     mut nonce: Vec<u8>,
 ) -> Result<Vec<u8>, BridgeError> {
     if key.len() != 32 || nonce.len() != 12 {
+        key.zeroize();
+        nonce.zeroize();
+        return Err(BridgeError::CryptoError);
+    }
+    if nonce.iter().all(|b| *b == 0) {
         key.zeroize();
         nonce.zeroize();
         return Err(BridgeError::CryptoError);
@@ -208,6 +252,11 @@ pub fn envelope_seal(
 }
 
 /// Opens an `AEGN` envelope with a transient key (zeroized before return).
+///
+/// Framing (`magic | ver | len | zero-nonce`) is checked first via
+/// `envelope_validate` (mirrors SDK `open_envelope` framing); AEAD opening
+/// is the only crypto step here. Gates (`binding -> UP -> PIN`) and replay
+/// stay device-side / SDK-typed-layer (this FFI is stateless).
 pub fn envelope_open(
     mut key: Vec<u8>,
     envelope: Vec<u8>,
@@ -497,10 +546,20 @@ mod tests {
     fn envelope_validate_mirrors_firmware() {
         let mut env = Vec::new();
         env.extend_from_slice(&[0x41, 0x45, 0x47, 0x4E, 0x01]);
-        env.extend_from_slice(&[0u8; 12]);
+        env.extend_from_slice(&[0x11u8; 12]);
         env.extend_from_slice(&[9u8; 20]);
         env.extend_from_slice(&[0u8; 16]);
         assert!(envelope_validate(env.clone()).is_ok());
+        // All-zero nonce is rejected fail-closed (device TRNG never emits
+        // zero; mirrors SDK `ZeroNonce`, wire `0x04`).
+        let mut zero = env.clone();
+        zero[5..17].copy_from_slice(&[0u8; 12]);
+        assert_eq!(envelope_validate(zero), Err(BridgeError::InvalidEnvelope));
+        // Oversize envelope is rejected fail-closed (mirrors SDK `TooLarge`).
+        assert_eq!(
+            envelope_validate(vec![0x41u8; MAX_ENVELOPE_BYTES + 1]),
+            Err(BridgeError::Overflow)
+        );
         assert_eq!(
             envelope_validate(b"lixo".to_vec()),
             Err(BridgeError::InvalidEnvelope)
@@ -531,6 +590,101 @@ mod tests {
                 vec![0x42u8; 32],
                 tampered,
                 b"Aegis-Vault-Header-v1".to_vec()
+            ),
+            Err(BridgeError::CryptoError)
+        );
+    }
+
+    #[test]
+    fn envelope_seal_parity_matches_firmware_persistence_ceiling() {
+        // Canonical: crates/aegis-fido-firmware/src/persistence.rs
+        // MAX_PLAINTEXT_BYTES = 4096, MAX_ENVELOPE_BYTES = 4129
+        // (== universal-device-sdk envelope ceilings; bridge keeps a
+        // documented copy only, no firmware/SDK dependency in the cdylib).
+        assert_eq!(MAX_PLAINTEXT_BYTES, 4096);
+        assert_eq!(MAX_ENVELOPE_BYTES, 4129);
+        assert_eq!(MIN_ENVELOPE_LEN, 33);
+        let key = vec![0x42u8; 32];
+        let nonce = vec![0x11u8; 12];
+        let aad = b"Aegis-Vault-Header-v1".to_vec();
+        let pt = vec![0x5Au8; MAX_PLAINTEXT_BYTES];
+        let env = envelope_seal(key.clone(), pt.clone(), aad.clone(), nonce).unwrap();
+        let back = envelope_open(key, env, aad).unwrap();
+        assert_eq!(back, pt);
+        let over = vec![0x5Au8; MAX_PLAINTEXT_BYTES + 1];
+        assert_eq!(
+            envelope_seal(
+                vec![0x42u8; 32],
+                over,
+                b"Aegis-Vault-Header-v1".to_vec(),
+                vec![0x11u8; 12]
+            ),
+            Err(BridgeError::Overflow)
+        );
+    }
+
+    /// Cross-vector: byte-exact framing shared with the SDK and firmware
+    /// (R15/R16, section 9). Mirrors SDK
+    /// `aegn_cross_vector_matches_bridge_and_firmware` in
+    /// `crates/universal-device-sdk/src/envelope.rs`: same fixed nonce
+    /// (`01..0C`), same opaque `ct + tag` (`0xA5 x 16`, the tag floor),
+    /// same expected wire bytes `MAGIC[4] | VER[1] | NONCE[12] | CT+TAG`.
+    /// Any framing drift on either side breaks both tests. Also pins the
+    /// fail-closed deltas vs the old bridge (oversize + zero-nonce reject).
+    #[test]
+    fn envelope_cross_vector_matches_sdk_framing() {
+        assert_eq!(ENVELOPE_MAGIC, [0x41, 0x45, 0x47, 0x4E]);
+        assert_eq!(ENVELOPE_VERSION, 0x01);
+        assert_eq!(MIN_ENVELOPE_LEN, 33);
+        assert_eq!(MAX_ENVELOPE_BYTES, 4129);
+        let nonce: Vec<u8> = (1u8..=12).collect();
+        let ct = vec![0xA5u8; 16];
+        let mut expected = Vec::with_capacity(MIN_ENVELOPE_LEN);
+        expected.extend_from_slice(&ENVELOPE_MAGIC);
+        expected.push(ENVELOPE_VERSION);
+        expected.extend_from_slice(&nonce);
+        expected.extend_from_slice(&ct);
+        assert_eq!(expected.len(), MIN_ENVELOPE_LEN);
+        // SDK-sealed framing validates unchanged on the bridge side.
+        assert_eq!(
+            envelope_validate(expected.clone()).unwrap() as usize,
+            ct.len()
+        );
+        assert_eq!(&expected[0..4], &ENVELOPE_MAGIC);
+        assert_eq!(expected[4], ENVELOPE_VERSION);
+        assert_eq!(&expected[5..17], nonce.as_slice());
+        // Bridge seal echoes the same header layout (AEAD ct stays opaque).
+        let env = envelope_seal(
+            vec![0x42u8; 32],
+            b"cross-vector".to_vec(),
+            b"Aegis-Vault-Header-v1".to_vec(),
+            nonce.clone(),
+        )
+        .unwrap();
+        assert_eq!(&env[0..4], &ENVELOPE_MAGIC);
+        assert_eq!(env[4], ENVELOPE_VERSION);
+        assert_eq!(&env[5..17], nonce.as_slice());
+        assert_eq!(
+            envelope_validate(env.clone()).unwrap() as usize,
+            env.len() - 17
+        );
+        // Fail-closed deltas (mirror SDK TooLarge / ZeroNonce, wire 0x04).
+        assert_eq!(
+            envelope_validate(vec![0x41u8; MAX_ENVELOPE_BYTES + 1]),
+            Err(BridgeError::Overflow)
+        );
+        let mut zero_nonce_env = expected.clone();
+        zero_nonce_env[5..17].copy_from_slice(&[0u8; 12]);
+        assert_eq!(
+            envelope_validate(zero_nonce_env),
+            Err(BridgeError::InvalidEnvelope)
+        );
+        assert_eq!(
+            envelope_seal(
+                vec![0x42u8; 32],
+                b"pt".to_vec(),
+                b"Aegis-Vault-Header-v1".to_vec(),
+                vec![0u8; 12]
             ),
             Err(BridgeError::CryptoError)
         );
