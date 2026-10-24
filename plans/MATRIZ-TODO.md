@@ -63,7 +63,7 @@ Tasks FIDO (Fase 2, ordem; nao toca ota.rs/nvs_backend.rs):
 - T-FD-03 | PRONTO | GEN-DEVICE | dono: firmware-ctap | scope: crates/aegis-fido-firmware/src/pin_uv.rs (NOVO) | gate: `cargo test -p aegis-fido-firmware pin_uv` exit 0 + tentativas/bloqueio/replay + sec9 | rollback: deletar arquivo | deps: T-FD-01.
 - T-FD-04 | PRONTO | GEN-DEVICE | dono: firmware-ctap | scope: crates/aegis-fido-firmware/src/ctap_cmd.rs (NOVO: makeCredential/getAssertion) | gate: `cargo test -p aegis-fido-firmware ctap_cmd` exit 0 + interop host simulado + sec9 | rollback: deletar arquivo | deps: T-FD-02 + T-FD-03.
 - T-FD-05 | PRONTO | GEN-DEVICE | dono: firmware-ctap | scope: crates/aegis-fido-firmware/src/ctap_ext.rs (NOVO: hmac-secret/minPinLength/credProtect/credBlob/largeBlob) | gate: `cargo test -p aegis-fido-firmware ctap_ext` exit 0 + interop por extensao | rollback: deletar arquivo | deps: T-FD-04.
-- T-FD-06 | TODO | GEN-APP-STORE | dono: sdk-envelope | scope: crates/universal-device-sdk/src/envelope.rs (NOVO: AEGN backup/export) | gate: `cargo test -p universal-device-sdk envelope` exit 0 + binding->UP->PIN + replay | rollback: deletar arquivo | deps: T-FD-02.
+- T-FD-06 | PRONTO | GEN-APP-STORE | dono: sdk-envelope | scope: crates/universal-device-sdk/src/envelope.rs (AEGN backup/export) + crates/aegis-fido-firmware/src/backup_envelope.rs (device) | gate: `cargo test -p universal-device-sdk envelope` 13 verdes + `cargo test -p aegis-fido-firmware backup_envelope` 6 verdes + binding->UP->PIN + replay | rollback: deletar arquivo | deps: T-FD-02.
 
 ## 3. OTP / OATH / desafio (matriz secao 3)
 
@@ -76,7 +76,7 @@ Tasks (Fase 4, ordem):
 
 - T-OT-01 | PRONTO | GEN-DEVICE | dono: firmware-otp | scope: crates/aegis-fido-firmware/src/totp.rs (NOVO) | gate: `cargo test -p aegis-fido-firmware totp` exit 0 + vetores RFC6238/4226 + RTC/fail-closed | rollback: deletar arquivo | deps: T-CR-03.
 - T-OT-02 | PRONTO | GEN-DEVICE | dono: firmware-otp | scope: crates/aegis-fido-firmware/src/oath_cmd.rs (NOVO sobre oath_store.rs, sem editar oath_store.rs) | gate: `cargo test -p aegis-fido-firmware oath_cmd` exit 0 + contador atomico + power-loss | rollback: deletar arquivo | deps: T-OT-01.
-- T-OT-03 | TODO | GEN-DEVICE | dono: firmware-usb | scope: crates/aegis-fido-usb/src/kbd_gate.rs (NOVO, sem editar keyboard.rs) | gate: `cargo test -p aegis-fido-usb kbd_gate` exit 0 + exige UP por digitacao | rollback: deletar arquivo | deps: T-OT-01.
+- T-OT-03 | PRONTO | GEN-DEVICE | dono: firmware-usb | scope: crates/aegis-fido-usb/src/kbd_gate.rs (sem editar keyboard.rs) | gate: `cargo test -p aegis-fido-usb kbd_gate` 6 verdes + exige UP por digitacao | rollback: deletar arquivo | deps: T-OT-01.
 
 ## 4. Armazenamento / backup / segredos (matriz secao 4)
 
@@ -143,7 +143,7 @@ Tasks (Fase 1, ordem):
 - Fase 3 extensoes: T-FD-05 + T-FD-06 (credMgmt/attestation via ctap_ext.rs + envelope).
 - Fase 4 adicional: T-OT-01..03 + T-PI-01/02.
 - Fase 5 avancado: T-ST-01..04 + T-PI-03 + T-SF-02 + interop final (T-FX-01 abaixo).
-- T-FX-01 | TODO | - | dono: qa-interop | scope: docs/interop-matrix.md (NOVO) | gate: `cargo test --workspace` exit 0 + `cargo clippy --all-targets -- -D warnings` exit 0 + matriz clientes (navegadores/hosts) + sec9 completa + sem declarar conformidade FIDO sem teste oficial | rollback: deletar arquivo | deps: todas acima.
+- T-FX-01 | PRONTO | - | dono: qa-interop | scope: docs/interop-matrix.md | gate: `cargo test --workspace` exit 0 + `cargo clippy --all-targets -- -D warnings` exit 0 + matriz clientes (navegadores/hosts) + sec9 completa + sem declarar conformidade FIDO sem teste oficial | rollback: deletar arquivo | deps: todas acima.
 
 ## 9. Criterios secao 9 (gate replicado em toda task)
 
@@ -151,7 +151,7 @@ Tasks (Fase 1, ordem):
 
 ## Contagem
 
-- TODOs atomicos neste arquivo: 28 (T-CR 6 + T-FD 6 + T-OT 3 + T-ST 4 + T-PI 3 + T-SF 3 + T-UI 2 + T-FX 1).
+- TODOs atomicos neste arquivo: 28 (T-CR 6 + T-FD 6 + T-OT 3 + T-ST 4 + T-PI 3 + T-SF 3 + T-UI 2 + T-FX 1), todos PRONTO (T-FD-06/T-OT-03/T-FX-01 provados nesta lane: envelope 13 + backup_envelope 6 + kbd_gate 6 + interop-matrix + workspace/clippy verdes).
 - NAs: 6 grupos (RSA arbitrario/raw/X.509, SHA-1 novo, ECB/CBC modos nao-autenticados, PKA-sem-PIN, RTC standalone, fault/invasivo).
 - EM CURSO: 1 (OTA fase 2, ota.rs + nvs_backend.rs).
 - Arquivo: plans/MATRIZ-TODO.md (NOVO, ASCII puro).

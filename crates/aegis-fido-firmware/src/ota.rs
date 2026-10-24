@@ -17,7 +17,7 @@
 //! preserving `committed_version`.
 //!
 //! Fase 2 (SOLID/DIP): the `0x30-0x34` session lives behind [`OtaProvider`];
-//! the USB/serial dispatcher (`nvs_backend::dispatch_ota_request`) depends on
+//! the USB/serial dispatcher (`ota_store::dispatch_ota_request`) depends on
 //! the trait, never on [`OtaState`] directly. Key selection stays injected via
 //! [`OtaKeyProvider`] (release zeros fail-closed, lab only under `test-mode`).
 //!
@@ -26,7 +26,7 @@
 //! workspace `ed25519-dalek` software path; the root of trust stays in real
 //! eFuse OTP (BLOCK7 master key + BLOCK8 device salt, read by
 //! `ota_provisioned` in `main.rs`), and staging lives in real flash NVS
-//! (partition `storage`, 896 KiB) behind `FlashOtaSink` in `nvs_backend`.
+//! (partition `storage`, 896 KiB) behind `FlashOtaSink` in `ota_store`.
 //! [`RamOtaSink`] is host/tests only and actually stores bytes (never a
 //! false-success mock).
 //!
@@ -331,7 +331,7 @@ impl OtaState {
 
 /// Fase-2 SOLID seam (DIP): the `0x30-0x34` OTA session as a trait.
 ///
-/// The USB/serial dispatcher (`nvs_backend::dispatch_ota_request`) is generic
+/// The USB/serial dispatcher (`ota_store::dispatch_ota_request`) is generic
 /// over this trait and never names [`OtaState`], so the state machine stays
 /// replaceable (SRP: session policy here, flash staging in `nvs_backend`,
 /// key selection in [`OtaKeyProvider`]) without touching callers. Method
@@ -460,7 +460,7 @@ impl OtaSink for RamOtaSink {
 /// a signature that does not verify — so `NUNCA COMMIT sem chave válida` holds
 /// even if a caller skipped the [`OtaKeyProvider::is_denied`] pre-check.
 /// R14 note: same `ed25519-dalek` software path as
-/// `nvs_backend::verify_ota_signature` (no Ed25519 block on the S3; the DS
+/// `ota_store::verify_ota_signature` (no Ed25519 block on the S3; the DS
 /// peripheral covers RSA only). Host tests drive the injected-verdict path
 /// via [`OtaState::verify_with`]; positive crypto coverage lives in
 /// `verify_accepts_real_ed25519_signature` below.
