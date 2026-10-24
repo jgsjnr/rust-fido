@@ -47,15 +47,21 @@ pub mod watchdog;
 pub mod wifi_ap;
 pub mod wifi_station;
 
-pub use button::{BootButton, ButtonInput, MockButtonInput, PressEvent, UserPresenceError};
+#[cfg(any(test, not(target_os = "espidf")))]
+pub use button::MockButtonInput;
+pub use button::{BootButton, ButtonInput, PressEvent, UserPresenceError};
 #[cfg(feature = "has-display")]
 pub use display::{AegisUiRenderer, DisplayBuffer};
 pub use display::{DisplayManager, UiScreen};
-pub use efuse::{EfuseError, EfuseManager, EfuseStorage, MockEfuseStorage, RamEfuseStorage};
+#[cfg(any(test, not(target_os = "espidf")))]
+pub use efuse::MockEfuseStorage;
+pub use efuse::{EfuseError, EfuseManager, EfuseStorage, RamEfuseStorage};
 pub use freertos::{EventGroup, FirmwareEvent, FreeRtosQueue, FreeRtosScheduler, TaskConfig};
-pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
-pub use persistence::{
-    FlashStorageBackend, MockFlashBackend, PlatformFlashBackend, SecureStorage, StorageError,
-};
+#[cfg(any(test, not(target_os = "espidf")))]
+pub use led::MockLedOutput;
+pub use led::{Color, LedEffect, LedOutput, Ws2812Controller};
+#[cfg(any(test, not(target_os = "espidf")))]
+pub use persistence::MockFlashBackend;
+pub use persistence::{FlashStorageBackend, PlatformFlashBackend, SecureStorage, StorageError};
 pub use usb_descriptors::*;
 pub use watchdog::{StaticBuf, Watchdog};

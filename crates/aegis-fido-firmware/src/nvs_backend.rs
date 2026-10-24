@@ -23,7 +23,9 @@ use crate::ota::{
     OtaError, OtaManifest, OtaSink, OtaState, MAX_OTA_IMAGE_BYTES, OP_OTA_ABORT, OP_OTA_BEGIN,
     OP_OTA_CHUNK, OP_OTA_COMMIT, OP_OTA_FINISH, OTA_MANIFEST_LEN,
 };
-use crate::persistence::{FlashStorageBackend, MockFlashBackend, StorageError};
+#[cfg(any(test, not(target_os = "espidf")))]
+use crate::persistence::MockFlashBackend;
+use crate::persistence::{FlashStorageBackend, StorageError};
 use alloc::string::String;
 use ed25519_dalek::{Signature, VerifyingKey};
 
@@ -68,6 +70,7 @@ fn storage_partition(
 pub enum PlatformFlashBackend {
     #[cfg(target_os = "espidf")]
     Nvs(esp_idf_svc::nvs::EspNvs<esp_idf_svc::nvs::NvsCustom>),
+    #[cfg(any(test, not(target_os = "espidf")))]
     Ram(MockFlashBackend),
 }
 
@@ -78,12 +81,17 @@ impl PlatformFlashBackend {
         {
             match Self::open_nvs() {
                 Ok(nvs) => return Self::Nvs(nvs),
+                // Fail-operational no host/teste: sem NVS, RAM (sem persistência).
+                // O chamador loga via kprintln (aqui sem acesso a ele).
+                #[cfg(any(test, not(target_os = "espidf")))]
                 Err(e) => {
-                    // Fail-operational: sem NVS, RAM (sem persistência).
-                    // O chamador loga via kprintln (aqui sem acesso a ele).
                     let _ = e;
                     return Self::Ram(MockFlashBackend::new());
                 }
+                // Device (espidf, sem teste): só NVS real; sem fallback RAM
+                // (`MockFlashBackend` usa `std`, ausente no device `no_std`).
+                #[cfg(not(any(test, not(target_os = "espidf"))))]
+                Err(_) => panic!("NVS partition unavailable"),
             }
         }
         #[cfg(not(target_os = "espidf"))]
@@ -97,6 +105,7 @@ impl PlatformFlashBackend {
         match self {
             #[cfg(target_os = "espidf")]
             Self::Nvs(_) => true,
+            #[cfg(any(test, not(target_os = "espidf")))]
             Self::Ram(_) => false,
         }
     }
@@ -126,6 +135,7 @@ impl FlashStorageBackend for PlatformFlashBackend {
                     None => Err(StorageError::KeyNotFound),
                 }
             }
+            #[cfg(any(test, not(target_os = "espidf")))]
             Self::Ram(ram) => ram.read_raw(key),
         }
     }
@@ -137,6 +147,7 @@ impl FlashStorageBackend for PlatformFlashBackend {
         match self {
             #[cfg(target_os = "espidf")]
             Self::Nvs(nvs) => nvs.set_blob(key, data).map_err(map_esp_err),
+            #[cfg(any(test, not(target_os = "espidf")))]
             Self::Ram(ram) => ram.write_raw(key, data),
         }
     }
@@ -149,6 +160,7 @@ impl FlashStorageBackend for PlatformFlashBackend {
                 nvs.remove(key).map_err(map_esp_err)?;
                 Ok(())
             }
+            #[cfg(any(test, not(target_os = "espidf")))]
             Self::Ram(ram) => ram.delete_raw(key),
         }
     }
@@ -157,6 +169,7 @@ impl FlashStorageBackend for PlatformFlashBackend {
         match self {
             #[cfg(target_os = "espidf")]
             Self::Nvs(nvs) => nvs.contains(key).unwrap_or(false),
+            #[cfg(any(test, not(target_os = "espidf")))]
             Self::Ram(ram) => ram.exists(key),
         }
     }

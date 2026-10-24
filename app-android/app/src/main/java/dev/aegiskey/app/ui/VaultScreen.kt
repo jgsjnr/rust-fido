@@ -1,15 +1,16 @@
 package dev.aegiskey.app.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,12 +24,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
@@ -43,18 +45,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.security.SecureRandom
 import java.io.File
+import java.security.SecureRandom
 
 /**
- * Cofre OATH: codigos gerados NO dispositivo, exibidos com countdown 30s.
- * - Adicionar: nome + TOTP/HOTP explicado + digitos + segredo colado
- *   (QR sem camera: cole o segredo) ou gerado aqui; PUT (0x24, UP+PIN)
- *   com buffer zerado apos o envio (nunca persiste no celular).
- * - Contas via OATH_LIST (0x25): ver-codigo (0x26), EXCLUIR
- *   (confirma + 0x27 UP+PIN) e REGENERAR (segredo novo via PUT).
- * - WiFi GET /oath/code (fallback) + import/export AEGN mantidos.
- * - Segredos nunca sao exibidos, logados ou guardados. Sem Log com PII.
+ * Cofre OATH — 3 blocos (Jornadas 1-4):
+ * 1. Estado de vinculo fail-closed no topo (GateBanner + TestModeBanner).
+ * 2. Lista de contas com codigo mono XXX XXX + barra countdown + Copiar.
+ * 3. Secoes colapsadas: Adicionar / WiFi / Envelope.
+ *
+ * Origens: OATH_LIST 0x25 / OATH_CODE 0x26 via BLE (so codigos, nunca
+ * segredo; wipe em finally preservado) e GET /oath/code via WiFi.
+ * Gates: vinculo -> UP (PressDeviceSheet) -> PIN. Tick 1s so texto+progresso;
+ * animacao (fade 200ms) so na troca do codigo (CodeCard).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,13 +72,14 @@ fun VaultScreen(client: AegisBleClient? = null) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var baseUrl by remember { mutableStateOf("http://192.168.4.1") }
-    var account by remember { mutableStateOf("") }
-    var accountsExpanded by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf("") }
     var deviceAccounts by remember { mutableStateOf(listOf<VendorOps.OathEntry>()) }
     var listMsg by remember { mutableStateOf<String?>(null) }
     var entries by remember { mutableStateOf(listOf<AegisBridge.OathEntry>()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var lastStatus by remember { mutableStateOf<Int?>(null) }
+    var showPressSheet by remember { mutableStateOf(false) }
     var envHex by remember { mutableStateOf("") }
     var envInfo by remember { mutableStateOf("—") }
     var savedCount by remember { mutableStateOf(0) }
@@ -89,11 +93,27 @@ fun VaultScreen(client: AegisBleClient? = null) {
     var confirmOathDelete by remember { mutableStateOf(false) }
     var confirmOathRegen by remember { mutableStateOf(false) }
 
+    val gate = when {
+        client == null -> VaultGate.NO_BLE
+        // Fail-closed: antes da primeira resposta do dispositivo, assume sem
+        // vinculo (banner NEED_BINDING visivel onde os codigos deveriam estar).
+        lastStatus == null -> VaultGate.NEED_BINDING
+        lastStatus == VendorOps.STATUS_NEED_BINDING -> VaultGate.NEED_BINDING
+        lastStatus == VendorOps.STATUS_NEED_UP || showPressSheet -> VaultGate.NEED_UP
+        lastStatus == VendorOps.STATUS_NEED_PIN -> VaultGate.NEED_PIN
+        else -> VaultGate.READY
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
             nowSec = System.currentTimeMillis() / 1000
         }
+    }
+
+    fun noteStatus(status: Int) {
+        lastStatus = status
+        showPressSheet = status == VendorOps.STATUS_NEED_UP
     }
 
     fun refreshAccounts() {
@@ -112,8 +132,11 @@ fun VaultScreen(client: AegisBleClient? = null) {
                 if (resp == null) {
                     listMsg = "sem resposta — toque no dispositivo e tente de novo"
                 } else if (resp.status != VendorOps.STATUS_OK) {
+                    noteStatus(resp.status)
                     listMsg = VendorOps.statusLabel(resp.status)
                 } else {
+                    lastStatus = VendorOps.STATUS_OK
+                    showPressSheet = false
                     deviceAccounts = VendorOps.parseOathList(resp.tlv)
                     listMsg = null
                 }
@@ -145,8 +168,11 @@ fun VaultScreen(client: AegisBleClient? = null) {
                 if (resp == null) {
                     error = "sem resposta — toque no dispositivo"
                 } else if (resp.status != VendorOps.STATUS_OK) {
+                    noteStatus(resp.status)
                     error = VendorOps.statusLabel(resp.status)
                 } else {
+                    lastStatus = VendorOps.STATUS_OK
+                    showPressSheet = false
                     val records = VendorOps.parseTlvRecords(resp.tlv)
                     val codeBytes = VendorOps.findTlv(records, VendorOps.TAG_OATH_RESPONSE)
                         ?: VendorOps.findTlv(records, VendorOps.TAG_OATH_TRUNCATED)
@@ -167,12 +193,21 @@ fun VaultScreen(client: AegisBleClient? = null) {
         }
     }
 
+    /** Ponto de extensao: despacha por [VaultAccount.kind]; wallet/PIV entram sem refazer a lista. */
+    fun fetchVaultCode(account: VaultAccount) {
+        when (account.kind) {
+            VaultKind.OATH_TOTP, VaultKind.OATH_HOTP -> fetchBleCode(account.name)
+            VaultKind.WALLET -> error = "carteira sai em outra tela (extensao pronta)"
+            VaultKind.PIV -> error = "PIV sai em outra tela (extensao pronta)"
+        }
+    }
+
     fun fetchWifi() {
         scope.launch {
             busy = true
             error = null
             try {
-                val entry = withContext(Dispatchers.IO) { WifiApi.getOathCode(baseUrl, account.trim()) }
+                val entry = withContext(Dispatchers.IO) { WifiApi.getOathCode(baseUrl, selected.trim()) }
                 entries = (entries.filterNot { it.account == entry.account } + entry).take(32)
             } catch (e: Exception) {
                 error = (e.message ?: "falha ao buscar").take(64)
@@ -209,8 +244,13 @@ fun VaultScreen(client: AegisBleClient? = null) {
                 val resp = VendorOps.parseResponse(raw)
                 addMsg = when {
                     resp == null -> "sem resposta — toque no dispositivo e tente de novo"
-                    resp.status != VendorOps.STATUS_OK -> VendorOps.statusLabel(resp.status) + " (salvar exige UP+PIN)"
+                    resp.status != VendorOps.STATUS_OK -> {
+                        noteStatus(resp.status)
+                        VendorOps.statusLabel(resp.status) + " (salvar exige UP+PIN)"
+                    }
                     else -> {
+                        lastStatus = VendorOps.STATUS_OK
+                        showPressSheet = false
                         addSecret = ""
                         refreshAccounts()
                         "conta salva no dispositivo (segredo sumiu do celular)"
@@ -247,7 +287,7 @@ fun VaultScreen(client: AegisBleClient? = null) {
     }
 
     fun deleteOathAccount() {
-        val target = account.ifBlank { null } ?: return
+        val target = selected.ifBlank { null } ?: return
         val ble = client ?: run {
             listMsg = "conecte via BLE primeiro (tela Conectar)"
             return
@@ -261,10 +301,13 @@ fun VaultScreen(client: AegisBleClient? = null) {
                 }
                 val resp = VendorOps.parseResponse(raw)
                 if (resp == null || resp.status != VendorOps.STATUS_OK) {
+                    if (resp != null) noteStatus(resp.status)
                     listMsg = (resp?.let { VendorOps.statusLabel(it.status) } ?: "sem resposta") +
                         " (apagar exige UP+PIN)"
                 } else {
-                    account = ""
+                    lastStatus = VendorOps.STATUS_OK
+                    showPressSheet = false
+                    selected = ""
                     listMsg = null
                     refreshAccounts()
                 }
@@ -278,7 +321,7 @@ fun VaultScreen(client: AegisBleClient? = null) {
 
     /** Rotacao OATH: segredo novo gerado aqui faz PUT por cima do mesmo nome. */
     fun regenOathSecret() {
-        val target = account.ifBlank { null } ?: return
+        val target = selected.ifBlank { null } ?: return
         if (client == null) {
             listMsg = "conecte via BLE primeiro (tela Conectar)"
             return
@@ -300,7 +343,7 @@ fun VaultScreen(client: AegisBleClient? = null) {
                 val file = File(context.filesDir, "envelope_" + System.currentTimeMillis() + ".aegn")
                 val enc = EncryptedFile.Builder(
                     context, file, key,
-                    EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
+                    EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB,
                 ).build()
                 withContext(Dispatchers.IO) { enc.openFileOutput().use { it.write(bytes) } }
                 savedCount += 1
@@ -310,193 +353,190 @@ fun VaultScreen(client: AegisBleClient? = null) {
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Cofre (OATH)", maxLines = 1, overflow = TextOverflow.Ellipsis) }) }) { inner ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Cofre", maxLines = 1, overflow = TextOverflow.Ellipsis) }) }) { inner ->
         AegisScreenColumn(inner = inner) {
-            SectionTitle("Adicionar conta")
-            FriendlyText(
-                text = "Onde fica salvo: só no dispositivo. O app nunca guarda o segredo.",
-                maxLines = 2,
-            )
-            OutlinedTextField(
-                value = addName,
-                onValueChange = { addName = it.take(64) },
-                label = { Text("Conta (ex.: GitHub:alice)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            LabeledToggle(
-                checked = isTotp,
-                title = if (isTotp) "TOTP — muda com o tempo" else "HOTP — muda a cada uso",
-                explanation = if (isTotp) {
-                    "O código troca sozinho a cada 30 segundos. É o mais comum."
-                } else {
-                    "O código troca a cada uso, com contador. Só para casos especiais."
-                },
-                onCheckedChange = { isTotp = it },
-                enabled = !busy,
-            )
-            ExplainedDropdown(
-                label = "Dígitos do código",
-                options = DIGIT_OPTIONS,
-                selected = digitsOption,
-                onSelected = { digitsOption = it },
-                enabled = !busy,
-            )
-            OutlinedTextField(
-                value = addSecret,
-                onValueChange = { addSecret = it },
-                label = { Text("Segredo (cole do site ou do QR)") },
-                supportingText = { Text("Sem câmera: abra o QR em outro app e cole o segredo aqui.") },
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (!isTotp) {
-                OutlinedTextField(
-                    value = counterText,
-                    onValueChange = { counterText = it.filter { ch -> ch.isDigit() }.take(10) },
-                    label = { Text("Contador inicial") },
-                    supportingText = { Text("Começa em 0; tem que igualar o do site.") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+            // Bloco 1 — vinculo fail-closed no topo.
+            GateBanner(gate = gate)
+            if (client != null) {
+                TestModeBanner(client = client)
+            } else {
+                FriendlyText(
+                    text = "Sem conexao: o cofre mostra este aviso em vez de codigos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
                 )
             }
-            Button(
-                onClick = ::saveManualSecret,
-                enabled = !busy && addName.isNotBlank() && addSecret.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Salvar no dispositivo (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = ::generateAndSaveSecret,
-                enabled = !busy && addName.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Gerar segredo aqui e salvar", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            FriendlyText(text = "Resultado: " + addMsg, maxLines = 3)
+            if (showPressSheet && client != null) {
+                PressDeviceSheet(
+                    statusLabel = "toque no dispositivo (UP)",
+                    onCancel = {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { client.cancel() }
+                            showPressSheet = false
+                        }
+                    },
+                    onDismiss = { showPressSheet = false },
+                )
+            }
+            if (busy) CircularProgressIndicator()
+            error?.let { Text("Erro: " + it, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
 
-            SectionTitle("Contas no dispositivo")
-            OutlinedButton(onClick = ::refreshAccounts, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            // Bloco 2 — codigos (Jornada 2).
+            SectionTitle("Codigos")
+            FriendlyText(
+                text = "Jornada 2: escolha a conta e veja o codigo atual. So codigos e nomes saem do dispositivo — segredos ficam nele.",
+                maxLines = 3,
+            )
+            OutlinedButton(onClick = ::refreshAccounts, enabled = !busy && client != null, modifier = Modifier.fillMaxWidth()) {
                 Text("Atualizar contas (toque no dispositivo)", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (deviceAccounts.isEmpty()) {
                 FriendlyEmpty(message = listMsg ?: "Nada aqui ainda. Toque no dispositivo para carregar.")
             } else {
-                ExposedDropdownMenuBox(
-                    expanded = accountsExpanded,
-                    onExpandedChange = { accountsExpanded = !accountsExpanded },
-                ) {
-                    OutlinedTextField(
-                        value = account.ifBlank { "Escolha uma conta" },
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Contas (OATH_LIST)") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountsExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                listMsg?.let { FriendlyText(text = it, maxLines = 2) }
+                for (dev in deviceAccounts) {
+                    val kind = if (isTotp) VaultKind.OATH_TOTP else VaultKind.OATH_HOTP
+                    val vault = VaultAccount(dev.name, kind)
+                    val cached = entries.firstOrNull { it.account == dev.name }
+                    CodeCard(
+                        account = vault,
+                        code = cached?.code,
+                        remaining = AegisBridge.remainingSeconds(nowSec),
+                        busy = busy,
+                        onCopy = { clipboard.setText(AnnotatedString(it)) },
+                        onRefresh = { fetchVaultCode(it) },
                     )
-                    ExposedDropdownMenu(
-                        expanded = accountsExpanded,
-                        onDismissRequest = { accountsExpanded = false },
-                    ) {
-                        for (entry in deviceAccounts) {
-                            DropdownMenuItem(
-                                text = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                onClick = {
-                                    account = entry.name
-                                    accountsExpanded = false
-                                    fetchBleCode(entry.name)
-                                },
-                            )
-                        }
+                }
+            }
+            // Codigos via WiFi tambem aparecem aqui (mesmo cartao).
+            for (entry in entries.filter { e -> deviceAccounts.none { it.name == e.account } }) {
+                CodeCard(
+                    account = VaultAccount(entry.account),
+                    code = entry.code,
+                    remaining = AegisBridge.remainingSeconds(nowSec),
+                    busy = busy,
+                    onCopy = { clipboard.setText(AnnotatedString(it)) },
+                    onRefresh = { fetchVaultCode(it) },
+                )
+            }
+            if (selected.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { confirmOathDelete = true }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                        Text("EXCLUIR (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    OutlinedButton(onClick = { confirmOathRegen = true }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                        Text("REGENERAR", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
-            listMsg?.let {
-                if (deviceAccounts.isNotEmpty()) FriendlyText(text = it, maxLines = 2)
-            }
 
-            if (account.isNotBlank()) {
-                OutlinedButton(
-                    onClick = { fetchBleCode(account) },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Ver código da selecionada", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                OutlinedButton(
-                    onClick = { confirmOathDelete = true },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("EXCLUIR selecionada (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                OutlinedButton(
-                    onClick = { confirmOathRegen = true },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("REGENERAR segredo", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            // Bloco 3 — secoes colapsadas (Jornadas 3-4).
+            SectionTitle("Mais opcoes")
+            CollapsedSection(title = "Adicionar conta (Jornada 3)") {
                 FriendlyText(
-                    text = "Regenerar cria um segredo novo na hora (usa tipo e dígitos acima). O código antigo para de funcionar.",
+                    text = "Onde fica salvo: so no dispositivo. O app nunca guarda o segredo.",
+                    maxLines = 2,
+                )
+                OutlinedTextField(
+                    value = addName,
+                    onValueChange = { addName = it.take(64) },
+                    label = { Text("Conta (ex.: GitHub:alice)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                LabeledToggle(
+                    checked = isTotp,
+                    title = if (isTotp) "TOTP — muda com o tempo" else "HOTP — muda a cada uso",
+                    explanation = if (isTotp) {
+                        "O codigo troca sozinho a cada 30 segundos. E o mais comum."
+                    } else {
+                        "O codigo troca a cada uso, com contador. So para casos especiais."
+                    },
+                    onCheckedChange = { isTotp = it },
+                    enabled = !busy,
+                )
+                ExplainedDropdown(
+                    label = "Digitos do codigo",
+                    options = DIGIT_OPTIONS,
+                    selected = digitsOption,
+                    onSelected = { digitsOption = it },
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = addSecret,
+                    onValueChange = { addSecret = it },
+                    label = { Text("Segredo (cole do site ou do QR)") },
+                    supportingText = { Text("Sem camera: abra o QR em outro app e cole o segredo aqui.") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (!isTotp) {
+                    OutlinedTextField(
+                        value = counterText,
+                        onValueChange = { counterText = it.filter { ch: Char -> ch.isDigit() }.take(10) },
+                        label = { Text("Contador inicial") },
+                        supportingText = { Text("Comeca em 0; tem que igualar o do site.") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Button(
+                    onClick = ::saveManualSecret,
+                    enabled = !busy && addName.isNotBlank() && addSecret.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Salvar no dispositivo (UP+PIN)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                OutlinedButton(
+                    onClick = ::generateAndSaveSecret,
+                    enabled = !busy && addName.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Gerar segredo aqui e salvar", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                FriendlyText(text = "Resultado: " + addMsg, maxLines = 3)
+                FriendlyText(
+                    text = "Regenerar cria um segredo novo na hora. O codigo antigo para de funcionar.",
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 3,
                 )
             }
-
-            SectionTitle("Buscar por WiFi (alternativo)")
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = { baseUrl = it },
-                label = { Text("Endereco do dispositivo") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = account,
-                onValueChange = { account = it },
-                label = { Text("Conta (ex.: GitHub:alice)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = ::fetchWifi,
-                enabled = !busy && account.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Buscar codigo (WiFi)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            if (busy) CircularProgressIndicator()
-            error?.let { Text("Erro: " + it, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            for (entry in entries) {
-                val remaining = AegisBridge.remainingSeconds(nowSec)
-                Card {
-                    androidx.compose.foundation.layout.Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(entry.account, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(entry.code, style = MaterialTheme.typography.displaySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        LinearProgressIndicator(progress = { remaining / 30f })
-                        FriendlyText(text = remaining.toString() + " s restantes (janela 30s)", maxLines = 1)
-                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(entry.code)) }) {
-                            Text("Copiar codigo", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
+            CollapsedSection(title = "Buscar por WiFi (alternativo, Jornada 4)") {
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("Endereco do dispositivo") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = selected,
+                    onValueChange = { selected = it },
+                    label = { Text("Conta (ex.: GitHub:alice)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = ::fetchWifi,
+                    enabled = !busy && selected.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Buscar codigo (WiFi)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            SectionTitle("Importar / exportar envelope")
-            OutlinedTextField(
-                value = envHex,
-                onValueChange = { envHex = it },
-                label = { Text("Envelope (hex)") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = ::importEnvelope,
-                enabled = envHex.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Validar + salvar criptografado", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            FriendlyText(text = "Envelope: " + envInfo + " · salvos: " + savedCount, maxLines = 2)
-            FriendlyText(
-                text = "So codigos e nomes saem do dispositivo. Segredos ficam nele.",
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-            )
+            CollapsedSection(title = "Importar envelope") {
+                OutlinedTextField(
+                    value = envHex,
+                    onValueChange = { envHex = it },
+                    label = { Text("Envelope (hex)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = ::importEnvelope,
+                    enabled = envHex.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Validar + salvar criptografado", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                FriendlyText(text = "Envelope: " + envInfo + " · salvos: " + savedCount, maxLines = 2)
+            }
             if (confirmOathDelete) {
                 ConfirmActionDialog(
                     title = "Excluir conta?",
-                    body = "Apagar \u0022" + account + "\u0022 do dispositivo? Os códigos param de funcionar. Precisa tocar no botão do aparelho (UP+PIN).",
+                    body = "Apagar \u0022" + selected + "\u0022 do dispositivo? Os codigos param de funcionar. Precisa tocar no botao do aparelho (UP+PIN).",
                     confirmLabel = "EXCLUIR",
                     onConfirm = { confirmOathDelete = false; deleteOathAccount() },
                     onDismiss = { confirmOathDelete = false },
@@ -505,7 +545,7 @@ fun VaultScreen(client: AegisBleClient? = null) {
             if (confirmOathRegen) {
                 ConfirmActionDialog(
                     title = "Regenerar segredo?",
-                    body = "Criar um segredo novo para \u0022" + account + "\u0022? O código antigo para de funcionar na hora.",
+                    body = "Criar um segredo novo para \u0022" + selected + "\u0022? O codigo antigo para de funcionar na hora.",
                     confirmLabel = "REGENERAR",
                     onConfirm = { confirmOathRegen = false; regenOathSecret() },
                     onDismiss = { confirmOathRegen = false },
@@ -515,13 +555,31 @@ fun VaultScreen(client: AegisBleClient? = null) {
     }
 }
 
+@Composable
+private fun CollapsedSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { open = !open },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(if (open) "Recolher" else "Abrir", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            if (open) Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        }
+    }
+}
+
 private val DIGIT_OPTIONS = listOf(
-    ExplainedOption(6, "6 dígitos", "O mais comum — funciona quase sempre."),
-    ExplainedOption(7, "7 dígitos", "Alguns bancos e empresas pedem."),
-    ExplainedOption(8, "8 dígitos", "Mais longo; use se o site pedir."),
+    ExplainedOption(6, "6 digitos", "O mais comum — funciona quase sempre."),
+    ExplainedOption(7, "7 digitos", "Alguns bancos e empresas pedem."),
+    ExplainedOption(8, "8 digitos", "Mais longo; use se o site pedir."),
 )
 
-/** Decodifica segredo base32 (RFC4648, sem padding obrigatório). */
+/** Decodifica segredo base32 (RFC4648, sem padding obrigatorio). */
 private fun base32ToBytes(input: String): ByteArray {
     val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
     val clean = input.trim().uppercase().filter { !it.isWhitespace() && it != '-' }.trimEnd('=')

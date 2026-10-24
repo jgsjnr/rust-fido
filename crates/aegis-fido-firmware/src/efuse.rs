@@ -113,24 +113,27 @@ impl<S: EfuseStorage> EfuseManager<S> {
     }
 }
 
-/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test-only; prod uses RamEfuseStorage + provision loader.
-/// Simulated in-memory eFuse storage for testing and host-side development.
+/// CI-GREP: MOCK-ONLY-IN-TEST — Mock* test/host-only; prod usa
+/// `RamEfuseStorage` (sem segredos hardcoded) + provision loader.
+/// `MockEfuseStorage` nem compila no device (`any(test, not(target_os =
+/// "espidf"))`); fora do device segue disponível p/ host checks + testes.
+///
+/// Prod RAM eFuse storage (no hardcoded secrets; use provision loader).
+/// `core`-only (`no_std`-compatível no device); bits queimados grudam via
+/// OR (semântica OTP), igual ao hardware.
 #[derive(Debug, Clone)]
-pub struct MockEfuseStorage {
+pub struct RamEfuseStorage {
     blocks: [[u8; EFUSE_KEY_LEN]; 11],
     write_protected: [bool; 11],
 }
 
-/// Prod RAM eFuse storage (no hardcoded secrets; use provision loader).
-pub type RamEfuseStorage = MockEfuseStorage;
-
-impl Default for MockEfuseStorage {
+impl Default for RamEfuseStorage {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl MockEfuseStorage {
+impl RamEfuseStorage {
     pub fn new() -> Self {
         Self {
             blocks: [[0u8; EFUSE_KEY_LEN]; 11],
@@ -145,18 +148,7 @@ impl MockEfuseStorage {
     }
 }
 
-#[cfg(test)]
-impl MockEfuseStorage {
-    /// Pre-populates default developmental keys (test fixture only).
-    pub fn with_default_keys() -> Self {
-        let mut s = Self::new();
-        s.blocks[EFUSE_MASTER_KEY_BLOCK as usize] = [0x5A; EFUSE_KEY_LEN];
-        s.blocks[EFUSE_DEVICE_SALT_BLOCK as usize] = [0xA5; EFUSE_KEY_LEN];
-        s
-    }
-}
-
-impl EfuseStorage for MockEfuseStorage {
+impl EfuseStorage for RamEfuseStorage {
     fn read_block(&self, block: u8) -> Result<[u8; EFUSE_KEY_LEN], EfuseError> {
         if (block as usize) >= self.blocks.len() {
             return Err(EfuseError::HardwareFault);
@@ -186,6 +178,53 @@ impl EfuseStorage for MockEfuseStorage {
         } else {
             true
         }
+    }
+}
+
+/// Test/host-only eFuse mock (delegates OTP semantics to `RamEfuseStorage`).
+/// Gated out of device prod; `with_default_keys` é fixture `#[cfg(test)]`.
+#[cfg(any(test, not(target_os = "espidf")))]
+#[derive(Debug, Clone, Default)]
+pub struct MockEfuseStorage {
+    inner: RamEfuseStorage,
+}
+
+#[cfg(any(test, not(target_os = "espidf")))]
+impl MockEfuseStorage {
+    pub fn new() -> Self {
+        Self {
+            inner: RamEfuseStorage::new(),
+        }
+    }
+
+    pub fn set_write_protected(&mut self, block: u8, protected: bool) {
+        self.inner.set_write_protected(block, protected);
+    }
+}
+
+#[cfg(test)]
+impl MockEfuseStorage {
+    /// Pre-populates default developmental keys (test fixture only).
+    pub fn with_default_keys() -> Self {
+        let mut s = Self::new();
+        s.inner.blocks[EFUSE_MASTER_KEY_BLOCK as usize] = [0x5A; EFUSE_KEY_LEN];
+        s.inner.blocks[EFUSE_DEVICE_SALT_BLOCK as usize] = [0xA5; EFUSE_KEY_LEN];
+        s
+    }
+}
+
+#[cfg(any(test, not(target_os = "espidf")))]
+impl EfuseStorage for MockEfuseStorage {
+    fn read_block(&self, block: u8) -> Result<[u8; EFUSE_KEY_LEN], EfuseError> {
+        self.inner.read_block(block)
+    }
+
+    fn burn_block(&mut self, block: u8, data: &[u8; EFUSE_KEY_LEN]) -> Result<(), EfuseError> {
+        self.inner.burn_block(block, data)
+    }
+
+    fn is_write_protected(&self, block: u8) -> bool {
+        self.inner.is_write_protected(block)
     }
 }
 

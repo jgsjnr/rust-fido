@@ -297,8 +297,8 @@ impl CcidApduHandler for DefaultCcidHandler {
     fn handle_oath_apdu(&mut self, apdu: &CommandApdu) -> ResponseApdu {
         match apdu.ins {
             0xA1 => {
-                // LIST OATH credentials (empty example list)
-                ResponseApdu::ok(vec![])
+                // LIST sem engine real: fail-closed (sem sucesso sintetico).
+                ResponseApdu::status(SW_INS_NOT_SUPPORTED)
             }
             0xA2 => {
                 // CALCULATE
