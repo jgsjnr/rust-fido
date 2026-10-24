@@ -66,8 +66,10 @@ Rollback por item: `git checkout -- <write-scope>`.
   apos UP), telas UP/LED policy (comando autenticado), `LogScreen`
   (fw-log 0x38: metadados/contagens, nunca segredo). Gate: idem.
 - A9 Bateria app | scope: `tools/` + emulador | self-tests + smoke no
-  AVD + HIL BLE fim-a-fim (H5: scan+janela+bond+wallet, com celular
-  pareado; sem celular = ExternalBlocked, nao finge).
+  AVD (Telemetry_AVD_S24 24/10: install ok, MainActivity displayed,
+  pid vivo, zero FATAL/AndroidRuntime) + HIL BLE fim-a-fim (H5:
+  scan+janela+bond+wallet, com celular pareado; sem celular =
+  ExternalBlocked, nao finge).
 
 ## 3. Ordem e gates
 
