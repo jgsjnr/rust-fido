@@ -12,6 +12,7 @@ pub mod anti_rollback;
 pub mod apdu;
 pub mod backup_envelope;
 pub mod binding;
+pub mod ble;
 pub mod ble_gatt;
 pub mod ble_nimble;
 pub mod button;
