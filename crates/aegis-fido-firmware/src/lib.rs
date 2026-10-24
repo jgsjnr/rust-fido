@@ -46,6 +46,7 @@ pub mod led_policy;
 pub mod lifetime_trace;
 pub mod mdns;
 pub mod migrations;
+pub mod net;
 pub mod nvs_backend;
 pub mod oath_cmd;
 pub mod oath_store;
