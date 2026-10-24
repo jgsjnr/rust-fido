@@ -334,7 +334,7 @@ sys.exit(0 if ok else 2)
         Read-Host "Pressione ENTER quando estiver segurando BOOT" | Out-Null
     }
 
-    Write-Info "Gravando firmware na placa via $targetPort ($Chip, --before no-reset)..."
+    Write-Info "Gravando firmware na placa via $targetPort ($Chip, --before no_reset)..."
     $bauds = @($Baud)
     if ($Baud -ne 115200) { $bauds += 115200 }
     $flashed = $false
@@ -343,8 +343,8 @@ sys.exit(0 if ok else 2)
             "--chip", $Chip,
             "--port", $targetPort,
             "--baud", "$b",
-            "--before", "no-reset",
-            "--after", "hard-reset",
+            "--before", "no_reset",
+            "--after", "hard_reset",
             "write_flash",
             $Offset,
             $BinPath
