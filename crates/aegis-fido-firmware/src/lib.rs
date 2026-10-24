@@ -32,6 +32,9 @@ pub mod dkek;
 pub mod efuse;
 pub mod efuse_plan;
 pub mod freertos;
+#[cfg(target_os = "espidf")]
+pub mod freertos_native;
+pub mod freertos_queue;
 pub mod freertos_route;
 pub mod freertos_sched;
 pub mod fw_log;
@@ -64,6 +67,7 @@ pub mod recovery;
 pub mod run;
 pub mod secure_msg;
 pub mod serial_ctaphid;
+pub mod serial_text;
 pub mod test_hooks;
 pub mod totp;
 pub mod totp_view;
@@ -101,7 +105,9 @@ pub use display::{DisplayManager, UiScreen};
 pub use efuse::MockEfuseStorage;
 pub use efuse::{EfuseError, EfuseManager, EfuseStorage, RamEfuseStorage};
 pub use freertos::{EventGroup, FirmwareEvent, FreeRtosQueue, FreeRtosScheduler, TaskConfig};
-pub use led::{Color, LedEffect, LedOutput, MockLedOutput, Ws2812Controller};
+#[cfg(any(test, not(target_os = "espidf")))]
+pub use led::MockLedOutput;
+pub use led::{Color, LedEffect, LedOutput, Ws2812Controller};
 #[cfg(any(test, not(target_os = "espidf")))]
 pub use persistence::MockFlashBackend;
 pub use persistence::{FlashStorageBackend, PlatformFlashBackend, SecureStorage, StorageError};
