@@ -355,12 +355,14 @@ impl LedOutput for EspWs2812Output {
 }
 
 /// Simulated LED output for unit testing.
+#[cfg(any(test, not(target_os = "espidf")))]
 #[derive(Debug, Clone, Default)]
 pub struct MockLedOutput {
     pub last_color: Color,
     pub write_count: usize,
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl MockLedOutput {
     pub fn new() -> Self {
         Self {
@@ -370,6 +372,7 @@ impl MockLedOutput {
     }
 }
 
+#[cfg(any(test, not(target_os = "espidf")))]
 impl LedOutput for MockLedOutput {
     fn write_color(&mut self, color: Color) -> Result<(), &'static str> {
         self.last_color = color;

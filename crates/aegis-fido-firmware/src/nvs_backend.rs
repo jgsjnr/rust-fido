@@ -214,16 +214,6 @@ pub fn load_or_create_dev_keys() -> Result<([u8; 32], [u8; 32]), StorageError> {
     Ok((m, s))
 }
 
-// T5/modulos-novos: staging OTA mora em `ota_store` (flash cru, `ota_*` keys);
-// `nvs_backend` fica so com `PlatformFlashBackend`; o reexport abaixo segue p/
-// compat externa - `main.rs` importa `ota_store` direto (`persistence` nao reexporta).
-pub use crate::ota_store::{
-    dispatch_ota_request, is_ota_op, keys_unchanged, snapshot_keys, verify_ota_signature,
-    FlashOtaSink, OtaRequestCtx, OTA_CHUNK_LEN, OTA_CHUNK_PREFIX, OTA_COMMIT_MARKER_KEY,
-    OTA_MANIFEST_KEY, OTA_STAGE_LEN_KEY, OTA_STAGING_KEY, OTA_STATUS_FAIL, OTA_STATUS_NEED_UP,
-    OTA_STATUS_OK, OTA_STORAGE_BUDGET_BYTES,
-};
-
 #[cfg(test)]
 mod tests {
     use super::*;
