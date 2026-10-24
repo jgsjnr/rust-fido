@@ -117,4 +117,85 @@ object AegisBridge {
         uniffi.aegis_bridge.walletAddress(network, pubkeyHex)
     }.recoverCatching { throw sanitize(it) }
 
+    /**
+     * Abre um envelope AEGN com chave transitoria (par do envelopeSeal;
+     * base do restore A5). A chave e zerada dentro do Rust antes do retorno;
+     * este facade nunca retem segredo alem do frame: o chamador deve usar
+     * wipe nos buffers em finally, como no selo.
+     */
+    fun envelopeOpen(key: ByteArray, envelope: ByteArray, aad: ByteArray): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.envelopeOpen(
+            key.map { it.toUByte() },
+            envelope.map { it.toUByte() },
+            aad.map { it.toUByte() },
+        ).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    /**
+     * Teto de plaintext do selo AEGN, medido no proprio bridge (o teto vive no
+     * SDK, em envelope MAX_PLAINTEXT_BYTES, e e aplicado pelo Rust com
+     * Overflow fail-closed). Nenhum literal do teto vive no Kotlin: o menor
+     * envelope bem-formado aceito e o maior sao sondados via
+     * envelopeValidate (framing puro, sem cripto e sem segredo); o teto e a
+     * diferenca entre eles. Calculado uma vez e cacheado (o .so nao muda).
+     */
+    @Volatile
+    private var cachedMaxPlaintext: Int? = null
+
+    fun maxPlaintextBytes(): Result<Int> = runCatching {
+        checkNative()
+        cachedMaxPlaintext ?: probePlaintextCeiling().also { cachedMaxPlaintext = it }
+    }.recoverCatching { throw sanitize(it) }
+
+    private fun probePlaintextCeiling(): Int {
+        // Sonda com cabecalho AEGN bem-formado e nonce fixo nao-zero (sem
+        // segredo): o bridge rejeita qualquer tamanho acima do teto com
+        // Overflow e aceita framing valido numa faixa fechada [min, max].
+        val header = byteArrayOf(0x41, 0x45, 0x47, 0x4E, 0x01) + ByteArray(12) { 0x11 }
+        fun validates(total: Int): Boolean {
+            if (total < header.size) return false
+            val probe = header + ByteArray(total - header.size)
+            return try {
+                uniffi.aegis_bridge.envelopeValidate(probe.map { it.toUByte() })
+                true
+            } catch (_: uniffi.aegis_bridge.BridgeException) {
+                false
+            }
+        }
+        var floor = -1
+        for (n in header.size..header.size + 256) {
+            if (validates(n)) {
+                floor = n
+                break
+            }
+        }
+        require(floor > header.size) { "bridge ceiling probe has no floor" }
+        var ok = floor
+        var step = 1
+        var capped = ok + step
+        while (true) {
+            val next = ok + step
+            if (next < 0 || next > SEARCH_GUARD_BYTES) break
+            if (!validates(next)) {
+                capped = next
+                break
+            }
+            ok = next
+            step *= 2
+        }
+        require(!validates(capped) && validates(ok)) { "bridge ceiling probe inconclusive" }
+        while (capped - ok > 1) {
+            val mid = ok + (capped - ok) / 2
+            if (validates(mid)) ok = mid else capped = mid
+        }
+        return ok - floor
+    }
+
+    /**
+     * Guarda de busca da sonda de teto (nao e politica: o teto real vem do
+     * bridge; este limite so impede sondagem sem fim se o nativo estiver
+     * inconsistente).
+     */
+    private const val SEARCH_GUARD_BYTES = 1048576
 }
