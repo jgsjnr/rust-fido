@@ -277,6 +277,11 @@ pub fn run_authenticator() {
     let mut ble_rx = [0u8; crate::ble_nimble::BLE_RX_FRAGMENT_MAX];
     // Borda da janela de pareamento p/ o fw-log (0x38).
     let mut pairing_open_prev = false;
+    // B2 feedback do hold fisico: borda do Arming + progresso por segundo +
+    // solto-cedo. Console e a prova remota; LED segue pairing_led.rs
+    // (PromptTouch no hold, azul respirando na janela).
+    let mut pairing_arming_prev = false;
+    let mut pairing_arming_sec: u64 = 0;
     // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
     let mut wifi_ap_mgr = crate::wifi_ap::WifiApManager::new();
     let mut mdns_mgr = crate::mdns::MdnsManager::new();
@@ -400,6 +405,7 @@ pub fn run_authenticator() {
             use crate::fw_log as fl;
             if pairing_open_now && !pairing_open_prev {
                 fw_log.record(fl::EV_PAIR_OPEN, 0, now_ms);
+                kprintln!("[PAIRING] janela aberta 60s — pareando.");
             } else if !pairing_open_now && pairing_open_prev {
                 fw_log.record(fl::EV_PAIR_CLOSE, 0, now_ms);
                 // Close/timeout (Locked): radio mudo no close (mesmo fix do
@@ -413,6 +419,34 @@ pub fn run_authenticator() {
                 }
             }
             pairing_open_prev = pairing_open_now;
+        }
+        // B2: transicoes do hold fisico (visivel sem display/LCD).
+        {
+            use crate::pairing::PairingState;
+            match pairing_mgr.state() {
+                PairingState::Arming { start_ms } => {
+                    if !pairing_arming_prev {
+                        kprintln!("[PAIRING] segurando BOOT... (mantenha 5s p/ abrir a janela).");
+                        pairing_arming_prev = true;
+                        pairing_arming_sec = 0;
+                    }
+                    let held = now_ms.saturating_sub(start_ms) / 1000;
+                    if held > pairing_arming_sec && held < 60 {
+                        pairing_arming_sec = held;
+                        kprintln!("[PAIRING] segurando... {}s.", held);
+                    }
+                }
+                _ => {
+                    if pairing_arming_prev {
+                        pairing_arming_prev = false;
+                        // Saiu do Arming sem janela = soltou cedo (o caso de
+                        // sucesso passa pela borda da janela com EV_PAIR_OPEN).
+                        if !pairing_open_now {
+                            kprintln!("[PAIRING] solto cedo, sem janela (segure 5s).");
+                        }
+                    }
+                }
+            }
         }
         // Exclusao mutua de radio (OOM BT+WiFi): BLE anuncia SOMENTE em
         // PairingBle; WiFi (AP/station/mDNS) fica desligado nesse estado.

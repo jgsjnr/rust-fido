@@ -5,6 +5,9 @@
 //!
 //! Contract (R15/R16): move-only de `run/mod.rs`; `use super::*` mantem
 //! o escopo do pai identico (helpers, FFI, cfgs); fio byte-a-byte.
+//! Host+freertos nao usa itens do pai (ramos ESP-IDF): glob so no device
+//! (R6: zero warnings em todas as configs).
+#[cfg(target_os = "espidf")]
 use super::*;
 
 /// Entrada da variante FreeRTOS com feature freertos, T12 parte B.
@@ -322,6 +325,12 @@ pub fn run_authenticator_freertos() {
     let mut pairing_open_prev = false;
     #[cfg(target_os = "espidf")]
     let mut pairing_open_now = false;
+    // B2 feedback do hold fisico (transicoes do Arming): mesmo cfg e
+    // vizinhanca do bloco da janela (compila onde eles compilam).
+    #[cfg(target_os = "espidf")]
+    let mut pairing_arming_prev = false;
+    #[cfg(target_os = "espidf")]
+    let mut pairing_arming_sec: u64 = 0;
     #[cfg(target_os = "espidf")]
     let mut rescue_engine = RescueEngine::new();
     #[cfg(target_os = "espidf")]
@@ -978,6 +987,7 @@ pub fn run_authenticator_freertos() {
                         pairing_mgr.is_pairing_window_open(freertos_now_ms) || test_open;
                     if pairing_open_now && !pairing_open_prev {
                         fw_log.record(fl::EV_PAIR_OPEN, 0, freertos_now_ms);
+                        kprintln!("[PAIRING] janela aberta 60s — pareando.");
                     } else if !pairing_open_now && pairing_open_prev {
                         fw_log.record(fl::EV_PAIR_CLOSE, 0, freertos_now_ms);
                         // Close/timeout (Locked): radio mudo no close. O
@@ -992,6 +1002,34 @@ pub fn run_authenticator_freertos() {
                         }
                     }
                     pairing_open_prev = pairing_open_now;
+                    // B2: transicoes do hold fisico (visivel sem display/LCD).
+                    {
+                        use crate::pairing::PairingState;
+                        match pairing_mgr.state() {
+                            PairingState::Arming { start_ms } => {
+                                if !pairing_arming_prev {
+                                    kprintln!("[PAIRING] segurando BOOT... (mantenha 5s p/ abrir a janela).");
+                                    pairing_arming_prev = true;
+                                    pairing_arming_sec = 0;
+                                }
+                                let held = freertos_now_ms.saturating_sub(start_ms) / 1000;
+                                if held > pairing_arming_sec && held < 60 {
+                                    pairing_arming_sec = held;
+                                    kprintln!("[PAIRING] segurando... {}s.", held);
+                                }
+                            }
+                            _ => {
+                                if pairing_arming_prev {
+                                    pairing_arming_prev = false;
+                                    // Saiu do Arming sem janela = soltou cedo (o
+                                    // caso de sucesso passa pela borda da janela).
+                                    if !pairing_open_now {
+                                        kprintln!("[PAIRING] solto cedo, sem janela (segure 5s).");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 binding_mgr.tick(freertos_now_ms);
                 let _ = binding_mgr.is_claimed();
