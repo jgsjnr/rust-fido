@@ -6,6 +6,7 @@
 //! Compat: todo simbolo publico de `piv.rs` segue em `crate::piv::*`.
 
 pub mod apdu;
+pub mod piv_applet;
 pub mod piv_cmd;
 
 pub use piv_cmd::{
