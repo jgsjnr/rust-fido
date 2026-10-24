@@ -39,6 +39,34 @@ pub const MAX_FRAGMENT_BYTES: usize = 244;
 /// Reassemble cap for the BLE GATT control point (transport-only, frozen
 /// per `docs/ble-protocol.md`; NOT the `AEGN` envelope seal cap).
 pub const CONTROL_POINT_LENGTH: usize = 512;
+/// Binding mgmt fragment range over BLE (mirrors firmware
+/// `ble::gatt_core::{BIND_MGMT_OP_MIN, BIND_MGMT_OP_MAX}`, Sec.11).
+pub const BIND_MGMT_OP_MIN: u8 = 0x28;
+/// Upper bound of the binding mgmt fragment range (see `BIND_MGMT_OP_MIN`).
+pub const BIND_MGMT_OP_MAX: u8 = 0x2D;
+/// OTA fragment range over BLE (mirrors firmware
+/// `ble::gatt_core::{OTA_OP_MIN, OTA_OP_MAX}`).
+///
+/// `0x33` COMMIT framing is accepted here but executes USB-only
+/// device-side (no execution branch in the BLE dispatcher); `0x2E`
+/// rescue travels ONLY as `OP_MSG` payload and `0x2F` stays reserved,
+/// both rejected below fail-closed.
+pub const OTA_OP_MIN: u8 = 0x30;
+/// Upper bound of the OTA fragment range (see `OTA_OP_MIN`).
+pub const OTA_OP_MAX: u8 = 0x34;
+
+/// `true` for opcodes that open a BLE control-point transaction: CTAP-BLE
+/// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D` and OTA `0x30-0x34`.
+///
+/// `0xBE` CANCEL aborts and is rejected here (single-byte, never split);
+/// `0x2E` rescue travels ONLY as `OP_MSG` payload, `0x2F` stays reserved.
+fn is_ble_fragment_opcode(opcode: u8) -> bool {
+    opcode == OP_PING
+        || opcode == OP_MSG
+        || (BIND_MGMT_OP_MIN..=BIND_MGMT_OP_MAX).contains(&opcode)
+        || (OTA_OP_MIN..=OTA_OP_MAX).contains(&opcode)
+}
+
 /// `AEGN` envelope magic.
 ///
 /// Canonical source: firmware `persistence.rs::ENVELOPE_MAGIC` (== SDK
@@ -147,13 +175,17 @@ pub fn ble_constants() -> BleInfo {
     }
 }
 
-/// Splits a CTAP2-BLE payload into FFF1 fragments.
+/// Splits a BLE control-point payload into FFF1 fragments.
 ///
 /// First fragment: `[opcode, len_hi, len_lo, data..]` (up to 241B of data);
 /// continuations: `[seq, data..]` with `seq = 0, 1, ...` (up to 243B each),
 /// matching `BleReassembler::feed`. `CANCEL` is single-byte and rejected here.
+/// Accepted opcodes mirror the firmware transport: CTAP-BLE `0x81`/`0x83`,
+/// bind-mgmt `0x28-0x2D` and OTA `0x30-0x34` (`0x33` COMMIT executes
+/// USB-only device-side; `0x2E` rescue travels only as `OP_MSG` payload
+/// and `0x2F` stays reserved, both rejected fail-closed).
 pub fn ble_split_fragments(opcode: u8, payload: Vec<u8>) -> Result<Vec<Vec<u8>>, BridgeError> {
-    if opcode != OP_PING && opcode != OP_MSG {
+    if !is_ble_fragment_opcode(opcode) {
         return Err(BridgeError::InvalidOpcode);
     }
     if payload.len() > CONTROL_POINT_LENGTH {
@@ -525,6 +557,45 @@ mod tests {
         let mut joined = frags[0][3..].to_vec();
         joined.extend_from_slice(&frags[1][1..]);
         assert_eq!(joined, payload);
+    }
+
+    #[test]
+    fn ble_split_accepts_bind_and_ota_fragments() {
+        // Bind-mgmt 0x28-0x2D (Sec.11) fragments like CTAP-BLE.
+        for op in BIND_MGMT_OP_MIN..=BIND_MGMT_OP_MAX {
+            let frags = ble_split_fragments(op, vec![0xABu8; 16]).unwrap();
+            assert_eq!(frags.len(), 1);
+            assert_eq!(&frags[0][..3], &[op, 0x00, 0x10]);
+        }
+        // OTA 0x30-0x34 fragments; 0x33 COMMIT framing accepted here,
+        // execution stays USB-only device-side.
+        for op in OTA_OP_MIN..=OTA_OP_MAX {
+            let frags = ble_split_fragments(op, vec![0xCDu8; 4]).unwrap();
+            assert_eq!(&frags[0][..3], &[op, 0x00, 0x04]);
+        }
+        // Multi-fragment shape holds for the new opcodes too.
+        let payload = vec![0xABu8; 300];
+        let frags = ble_split_fragments(0x28, payload.clone()).unwrap();
+        assert_eq!(frags.len(), 2);
+        assert_eq!(frags[0].len(), 244);
+        assert_eq!(&frags[0][..3], &[0x28, 0x01, 0x2C]);
+        let mut joined = frags[0][3..].to_vec();
+        joined.extend_from_slice(&frags[1][1..]);
+        assert_eq!(joined, payload);
+    }
+
+    #[test]
+    fn ble_split_still_rejects_rescue_reserved_and_cancel() {
+        // 0x2E rescue travels ONLY as OP_MSG payload, never as fragment.
+        assert_eq!(
+            ble_split_fragments(0x2E, vec![1]),
+            Err(BridgeError::InvalidOpcode)
+        );
+        // 0x2F reserved stays rejected fail-closed.
+        assert_eq!(
+            ble_split_fragments(0x2F, vec![1]),
+            Err(BridgeError::InvalidOpcode)
+        );
     }
 
     #[test]

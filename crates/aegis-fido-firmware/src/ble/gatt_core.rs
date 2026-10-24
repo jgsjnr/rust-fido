@@ -95,6 +95,34 @@ pub const OP_RECOVERY_UNLOCK: u8 = 0x2D;
 pub const BIND_MGMT_OP_MIN: u8 = OP_BIND_CLAIM;
 pub const BIND_MGMT_OP_MAX: u8 = OP_RECOVERY_UNLOCK;
 
+/// OTA sobre GATT (faixa livre `0x30-0x34`, aditiva, sem quebra Sec.1-Sec.11).
+///
+/// Framing Sec.3 reutilizado: `[op:1, len_hi:1, len_lo:1, payload...]` +
+/// continuacao `[seq:1, data..]`. Fonte canonica dos valores:
+/// `crate::ota::{OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_FINISH, OP_OTA_COMMIT,
+/// OP_OTA_ABORT}`; estes limites espelham essa faixa para o transporte
+/// validar sem acoplar a maquina OTA. `0x33` COMMIT executa SOMENTE via
+/// USB/CTAPHID: o transporte BLE aceita o framing fail-closed (sem braco
+/// de execucao no `ble_dispatch`, que responde `0x04` generico), nunca
+/// executa swap. `0x2F` reservado segue rejeitado.
+pub const OTA_OP_MIN: u8 = 0x30;
+/// Limite superior da faixa OTA sobre GATT (ver `OTA_OP_MIN`).
+pub const OTA_OP_MAX: u8 = 0x34;
+
+/// `true` para opcodes que abrem transacao no reassembler: CTAP-BLE
+/// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D` e OTA `0x30-0x34`.
+///
+/// `0xBE` CANCEL tem caminho proprio (aborta a transacao); `0x2E` rescue
+/// viaja SOMENTE como payload de `OP_MSG` (`[0x2E, frame...]`), nunca como
+/// opcode de fragmento; `0x2F` reservado e demais valores negam fail-closed
+/// com `InvalidOpcode`.
+pub fn is_ble_fragment_opcode(op: u8) -> bool {
+    op == OP_PING
+        || op == OP_MSG
+        || (BIND_MGMT_OP_MIN..=BIND_MGMT_OP_MAX).contains(&op)
+        || (OTA_OP_MIN..=OTA_OP_MAX).contains(&op)
+}
+
 /// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.
 ///
 /// Mapa da vizinhanca (primeiro byte de CMD_MSG): 0x20-0x27 vendor
@@ -121,7 +149,8 @@ pub const MAX_FRAGMENT_BYTES: usize = 244;
 /// Erro tipado do GATT (sem stringly, sem panics).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BleGattError {
-    /// Opcode desconhecido (diferente de PING/MSG/CANCEL).
+    /// Opcode fora do conjunto de fragmentos (PING/MSG, bind `0x28-0x2D`,
+    /// OTA `0x30-0x34`; CANCEL tem caminho proprio).
     InvalidOpcode,
     /// Ja ha transacao ativa (colisao rejeitada).
     TransactionBusy,
@@ -169,7 +198,8 @@ impl From<PolicyError> for BleGattError {
 /// Mensagem completa apos reassemble.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BleCompleteMessage {
-    /// Opcode (PING/MSG/CANCEL).
+    /// Opcode (PING/MSG, bind-mgmt `0x28-0x2D` ou OTA `0x30-0x34`;
+    /// CANCEL e reportado a parte com payload vazio).
     pub opcode: u8,
     /// Payload reassemblado (sem header de 3B).
     pub payload: Vec<u8>,
@@ -229,15 +259,15 @@ impl BleReassembler {
                 return Err(BleGattError::InvalidFragment);
             }
             let opcode = fragment[0];
-            if opcode != OP_PING && opcode != OP_MSG && opcode != OP_CANCEL {
-                return Err(BleGattError::InvalidOpcode);
-            }
             if opcode == OP_CANCEL {
                 self.cancel();
                 return Ok(Some(BleCompleteMessage {
                     opcode,
                     payload: Vec::new(),
                 }));
+            }
+            if !is_ble_fragment_opcode(opcode) {
+                return Err(BleGattError::InvalidOpcode);
             }
             let total = ((fragment[1] as usize) << 8) | (fragment[2] as usize);
             if total > CONTROL_POINT_LENGTH {
@@ -267,7 +297,7 @@ impl BleReassembler {
         // rejeita como busy (chamador deve CANCEL primeiro).
         if fragment.len() >= 3 {
             let maybe_op = fragment[0];
-            if (maybe_op == OP_PING || maybe_op == OP_MSG) && self.buf.len() < self.expected_len {
+            if is_ble_fragment_opcode(maybe_op) && self.buf.len() < self.expected_len {
                 // Ambiguidade resolvida como colisao apenas se parecer header novo:
                 // trata como colisao quando o buffer parcial nao avancou neste feed.
                 // Para manter determinismo no stub, so rejeita se fragmento
@@ -311,7 +341,7 @@ impl BleReassembler {
         if self.is_active() {
             return Err(BleGattError::TransactionBusy);
         }
-        if opcode != OP_PING && opcode != OP_MSG {
+        if !is_ble_fragment_opcode(opcode) {
             return Err(BleGattError::InvalidOpcode);
         }
         if total > CONTROL_POINT_LENGTH {
@@ -478,5 +508,92 @@ impl BleGattError {
             | Self::Overflow
             | Self::InvalidFragment => 0x04,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    fn single_fragment(opcode: u8, payload: &[u8]) -> Vec<u8> {
+        let mut v = Vec::with_capacity(3 + payload.len());
+        v.push(opcode);
+        v.push(((payload.len() >> 8) & 0xFF) as u8);
+        v.push((payload.len() & 0xFF) as u8);
+        v.extend_from_slice(payload);
+        v
+    }
+
+    #[test]
+    fn fragment_opcodes_cover_bind_and_ota_ranges() {
+        // CTAP-BLE classico segue abrindo transacao.
+        assert!(is_ble_fragment_opcode(OP_PING));
+        assert!(is_ble_fragment_opcode(OP_MSG));
+        // Bind-mgmt 0x28-0x2D (Sec.11) abre transacao no reassembler.
+        for op in BIND_MGMT_OP_MIN..=BIND_MGMT_OP_MAX {
+            assert!(is_ble_fragment_opcode(op), "bind op 0x{op:02X}");
+        }
+        assert_eq!((BIND_MGMT_OP_MIN, BIND_MGMT_OP_MAX), (0x28, 0x2D));
+        // OTA 0x30-0x34 abre transacao no framing; 0x33 COMMIT executa
+        // somente via USB (sem braco de execucao no ble_dispatch).
+        for op in OTA_OP_MIN..=OTA_OP_MAX {
+            assert!(is_ble_fragment_opcode(op), "ota op 0x{op:02X}");
+        }
+        assert_eq!((OTA_OP_MIN, OTA_OP_MAX), (0x30, 0x34));
+        // Paridade com a fonte canonica (crate::ota) sem acoplar o transporte.
+        assert_eq!(OTA_OP_MIN, crate::ota::OP_OTA_BEGIN);
+        assert_eq!(OTA_OP_MAX, crate::ota::OP_OTA_ABORT);
+        assert_eq!(crate::ota::OP_OTA_COMMIT, 0x33);
+    }
+
+    #[test]
+    fn rescue_and_reserved_never_open_fragment() {
+        // 0x2E rescue viaja SOMENTE como payload de OP_MSG 0x83.
+        assert!(!is_ble_fragment_opcode(0x2E));
+        assert_eq!(
+            BleReassembler::new().start_new(0x2E, 1),
+            Err(BleGattError::InvalidOpcode)
+        );
+        // 0x2F reservado segue rejeitado fail-closed.
+        assert!(!is_ble_fragment_opcode(0x2F));
+        assert_eq!(
+            BleReassembler::new().start_new(0x2F, 1),
+            Err(BleGattError::InvalidOpcode)
+        );
+        assert!(!is_ble_fragment_opcode(0x00));
+    }
+
+    #[test]
+    fn bind_opcode_reassembles_single_fragment() {
+        let mut r = BleReassembler::new();
+        let payload = [0xABu8; 16];
+        let frag = single_fragment(OP_BIND_CLAIM, &payload);
+        let done = r.feed(&frag).expect("bind fragment ok").expect("completa");
+        assert_eq!(done.opcode, OP_BIND_CLAIM);
+        assert_eq!(done.payload, payload);
+    }
+
+    #[test]
+    fn ota_opcode_reassembles_multi_fragment() {
+        let mut r = BleReassembler::new();
+        // Total 10B: primeiro leva 4B, resto em continuacao [seq + dados].
+        let first = [OTA_OP_MIN, 0x00, 0x0A, 1, 2, 3, 4];
+        assert!(r.feed(&first).expect("ota first ok").is_none());
+        let cont = [0x00, 5, 6, 7, 8, 9, 10];
+        let done = r.feed(&cont).expect("ota cont ok").expect("completa");
+        assert_eq!(done.opcode, OTA_OP_MIN);
+        assert_eq!(done.payload, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    }
+
+    #[test]
+    fn gatt_contract_frozen_after_fragment_extension() {
+        assert_eq!(BLE_SERVICE_UUID, 0xFFFD);
+        assert_eq!(CHAR_CONTROL_UUID, 0xFFF1);
+        assert_eq!(CHAR_STATUS_UUID, 0xFFF2);
+        assert_eq!(CHAR_LEN_UUID, 0xFFF3);
+        assert_eq!(CHAR_REVISION_UUID, 0xFFF4);
+        assert_eq!(GATT_REVISION, 0x01);
+        assert_eq!((OP_PING, OP_MSG, OP_CANCEL), (0x81, 0x83, 0xBE));
     }
 }

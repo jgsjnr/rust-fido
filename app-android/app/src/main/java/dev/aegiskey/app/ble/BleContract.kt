@@ -50,6 +50,17 @@ object BleContract {
     // Enrollment PIV / smartcard (0x39, F4).
     const val OP_PIV_ENROLL = 0x39
 
+    // OTA estagiado (0x30/0x31/0x32/0x34): BEGIN + CHUNKs + FINISH + ABORT.
+    // Espelha net/OtaApi.kt (fonte do wire 104 B + stage budget); aqui vivem
+    // so os opcodes p/ a allowlist BLE. 0x33 (COMMIT) NAO tem constante aqui
+    // POR DESENHO: commit e ritual USB-only offline (release key + latch UP
+    // fisico) do bootloader/rollback; GATT nunca despacha 0x30-0x34 como
+    // commit e sem UP o device responde NEED_UP (0x01) mantendo Verified.
+    const val OP_OTA_BEGIN = 0x30
+    const val OP_OTA_CHUNK = 0x31
+    const val OP_OTA_FINISH = 0x32
+    const val OP_OTA_ABORT = 0x34
+
     // Vendor status set (fechado, S9.5).
     const val VENDOR_OK = 0x00
     const val VENDOR_NEED_UP = 0x01
@@ -75,7 +86,17 @@ object BleContract {
     }
 
     fun isVendorOp(op: Int): Boolean =
-        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_PIV_ENROLL
+        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_PIV_ENROLL || isOtaOp(op)
+
+    /**
+     * Allowlist OTA via BLE (fail-closed): 0x30 BEGIN, 0x31 CHUNK, 0x32
+     * FINISH, 0x34 ABORT. 0x33 (COMMIT) NUNCA entra aqui — sem constante,
+     * sem builder, sem flag: USB-only offline (ver OtaApi.kt). Qualquer
+     * op fora das faixas golden/vendor/binding/OTA cai no require de
+     * AegisBleClient.sendVendor ("operacao invalida", sem envio).
+     */
+    fun isOtaOp(op: Int): Boolean =
+        op == OP_OTA_BEGIN || op == OP_OTA_CHUNK || op == OP_OTA_FINISH || op == OP_OTA_ABORT
 
     fun vendorOpName(op: Int): String = when (op) {
         OP_KEY_GEN_ONDEVICE -> "0x20 key-gen-ondevice"
@@ -91,6 +112,10 @@ object BleContract {
         OP_WALLET_ADDR -> "0x37 wallet-addr"
         OP_FW_LOG -> "0x38 fw-log"
         OP_PIV_ENROLL -> "0x39 piv-enroll"
+        OP_OTA_BEGIN -> "0x30 ota-begin"
+        OP_OTA_CHUNK -> "0x31 ota-chunk"
+        OP_OTA_FINISH -> "0x32 ota-finish"
+        OP_OTA_ABORT -> "0x34 ota-abort"
         else -> "0x" + String.format("%02X", op)
     }
 }

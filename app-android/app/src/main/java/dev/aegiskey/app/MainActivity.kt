@@ -46,6 +46,7 @@ import dev.aegiskey.app.ui.FriendlyText
 import dev.aegiskey.app.ui.ForeignDeviceScreen
 import dev.aegiskey.app.ui.LogScreen
 import dev.aegiskey.app.ui.OnboardingScreen
+import dev.aegiskey.app.ui.OtaScreen
 import dev.aegiskey.app.ui.PivScreen
 import dev.aegiskey.app.ui.RecoveryUnlockScreen
 import dev.aegiskey.app.ui.RescueScreen
@@ -118,7 +119,7 @@ fun AegisApp(client: AegisBleClient) {
                     val current = entry?.destination?.route
                     val activeTop = when (current) {
                         "onboarding", "setup-usb", "setup-ble" -> "welcome"
-                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "rescue", "wallet", "piv" -> "connect"
+                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "rescue", "wallet", "piv", "ota" -> "connect"
                         else -> current
                     }
                     for (dest in BOTTOM_DESTINATIONS) {
@@ -197,6 +198,7 @@ fun AegisApp(client: AegisBleClient) {
                 composable("unbind") { UnbindGuideScreen(onDone = { nav.navigate("connect") }) }
                 composable("recovery") { RecoveryUnlockScreen(client, onReclaim = { nav.navigate("binding") }, onBack = { nav.navigate("connect") }) }
                 composable("rescue") { RescueScreen(client, onBack = { nav.navigate("connect") }) }
+                composable("ota") { OtaScreen(client, onBack = { nav.popBackStack() }) }
             }
         }
     }
@@ -272,6 +274,10 @@ private fun ConnectHub(nav: NavController, client: AegisBleClient) {
                 onClick = { nav.navigate("rescue") },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Resgate: ping e diagnostico", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            OutlinedButton(
+                onClick = { nav.navigate("ota") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Atualizar firmware (OTA)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
             FriendlyText(
                 text = "Dica nao-tecnica: segure o botao do dispositivo 5s para parear; confirme o codigo na tela BLE.",
                 maxLines = 4,
