@@ -57,13 +57,12 @@ use aegis_fido_core::ctap::{
 use aegis_fido_usb::ctaphid::{
     CtapHidError, CtapHidFramer, CtapHidManager, CtapHidMessage, CMD_CBOR, CMD_MSG, PACKET_SIZE,
 };
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
-    authorize_vendor_op, authorize_wallet_op, is_bind_mgmt_op, is_piv_enroll_op,
-    is_vendor_keys_oath_op, is_wallet_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE,
-    OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT, OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
+    is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op, BleGattError,
+    OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT,
+    OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
 };
 
 /// UART line rate for the serial CTAPHID link (8N1, same as the monitor).
@@ -261,37 +260,6 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
     CtapHidFramer::frame_message(msg.cid, msg.cmd, &[SERIAL_DENY_CTAP_STATUS])
 }
 
-/// Dispatches one vendor op with the exact BLE gates.
-///
-/// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
-/// executor = follow-up, same as BLE), denial maps via `to_vendor_status`.
-/// `binding_ok` comes from the caller (`BindingManager::verify` proof);
-/// `pin_authenticated` = sessão pinUvAuth viva (plumbing ClientPIN, como
-/// no rescue; fail-closed sem ela).
-pub fn dispatch_serial_vendor(
-    op: u8,
-    binding_ok: bool,
-    pin_authenticated: bool,
-    up: bool,
-) -> (u8, Vec<u8>) {
-    match authorize_vendor_op(op, binding_ok, pin_authenticated, up) {
-        Ok(()) => (0x04, Vec::new()),
-        Err(e) => (e.to_vendor_status(), Vec::new()),
-    }
-}
-
-/// Dispatches one wallet op (0x35-0x37) with the exact BLE gates.
-///
-/// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
-/// executor `WalletStore` + NVS = follow-up, same as BLE), denial maps
-/// via `to_vendor_status` (binding → `0x05`, UP → `0x01`).
-pub fn dispatch_serial_wallet(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
-    match authorize_wallet_op(op, binding_ok, up) {
-        Ok(()) => (0x04, Vec::new()),
-        Err(e) => (e.to_vendor_status(), Vec::new()),
-    }
-}
-
 /// `true` when a reassembled `CMD_MSG` carries a rescue frame.
 ///
 /// Wire convention (Wave2 Step3): first payload byte is
@@ -307,21 +275,6 @@ pub fn is_rescue_msg(cmd: u8, payload: &[u8]) -> bool {
             .is_some_and(|op| is_rescue_transport_op(*op))
 }
 
-/// Dispatches one rescue frame (`0x2E` already stripped by the caller).
-///
-/// Pure `RescueEngine::handle_packet` pass-through: UP/PIN latches must be
-/// set by the caller beforehand (`set_user_presence` from the BOOT latch;
-/// `set_pin_uv_authenticated` from `ClientPinState::has_valid_pin_uv_session`,
-/// wired at all three transports). Returns `(wire_status, body)` for the
-/// caller to frame status-first (`[status, body...]`), same shape
-/// as the bind-mgmt branch.
-pub fn dispatch_serial_rescue(
-    engine: &mut aegis_fido_core::otp::rescue::RescueEngine,
-    frame: &[u8],
-) -> (u8, Vec<u8>) {
-    engine.handle_packet(frame)
-}
-
 /// `true` when a serial bind-mgmt op consumes the UP latch on success.
 ///
 /// CLAIM/RELEASE/RECOVERY_SET/RECOVERY_UNLOCK require UP (same gates as BLE);
@@ -334,205 +287,21 @@ pub fn serial_bind_mgmt_consumes_up(op: u8) -> bool {
     )
 }
 
-/// Dispatches one binding-mgmt op (`0x28-0x2D`) over serial with BLE-identical gates.
-///
-/// Reuses the `ble_gatt::dispatch_*` helpers byte-for-byte (claim / challenge /
-/// verify / release / recovery); returns `(wire_status, body)` for the caller to
-/// frame as `CMD_MSG` `[status, body...]` (status-first like BLE `notify_frame`,
-/// no protocol change: the payload content is app-level).
-/// `pairing_open`/`up` come from the caller (5s-hold window + BOOT latch).
-pub fn dispatch_serial_bind_mgmt<B, R>(
-    op: u8,
-    params: &[u8],
-    pairing_open: bool,
-    up: bool,
-    binding: &mut crate::binding::BindingManager,
-    storage: &mut crate::persistence::SecureStorage<B>,
-    rng: &mut R,
-) -> (u8, Vec<u8>)
-where
-    B: crate::persistence::FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
-{
-    use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PAYLOAD_HASH_LEN, BIND_PUB_LEN};
-    use crate::ble_gatt as g;
-    if !g::is_bind_mgmt_op(op) {
-        return (
-            g::BleGattError::InvalidOpcode.to_vendor_status(),
-            Vec::new(),
-        );
-    }
-    match op {
-        g::OP_BIND_CLAIM => {
-            if params.len() != BIND_PUB_LEN + BIND_ID_LEN {
-                return (
-                    g::BleGattError::InvalidFragment.to_vendor_status(),
-                    Vec::new(),
-                );
-            }
-            let mut app_pub = [0u8; BIND_PUB_LEN];
-            let mut binding_id = [0u8; BIND_ID_LEN];
-            app_pub.copy_from_slice(&params[..BIND_PUB_LEN]);
-            binding_id.copy_from_slice(&params[BIND_PUB_LEN..]);
-            match g::dispatch_bind_claim(binding, storage, &app_pub, &binding_id, pairing_open, up)
-            {
-                Ok(()) => (0x00, binding_id.to_vec()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            }
-        }
-        g::OP_BIND_CHALLENGE => {
-            if !params.is_empty() {
-                return (
-                    g::BleGattError::InvalidFragment.to_vendor_status(),
-                    Vec::new(),
-                );
-            }
-            match g::dispatch_bind_challenge(binding, storage, rng) {
-                Ok(ch) => (0x00, ch.to_vec()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            }
-        }
-        g::OP_BIND_VERIFY => {
-            if params.len() < 1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
-                return (
-                    g::BleGattError::InvalidFragment.to_vendor_status(),
-                    Vec::new(),
-                );
-            }
-            let vop = params[0];
-            let mut ch = [0u8; BIND_CHALLENGE_LEN];
-            let mut ph = [0u8; BIND_PAYLOAD_HASH_LEN];
-            ch.copy_from_slice(&params[1..1 + BIND_CHALLENGE_LEN]);
-            ph.copy_from_slice(
-                &params[1 + BIND_CHALLENGE_LEN..1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN],
-            );
-            match g::dispatch_bind_verify(
-                binding,
-                &params[1 + BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN..],
-                &ch,
-                vop,
-                &ph,
-            ) {
-                Ok(()) => (0x00, Vec::new()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            }
-        }
-        g::OP_BIND_RELEASE => {
-            if params.len() < BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
-                return (
-                    g::BleGattError::InvalidFragment.to_vendor_status(),
-                    Vec::new(),
-                );
-            }
-            let mut ch = [0u8; BIND_CHALLENGE_LEN];
-            let mut ph = [0u8; BIND_PAYLOAD_HASH_LEN];
-            ch.copy_from_slice(&params[..BIND_CHALLENGE_LEN]);
-            ph.copy_from_slice(
-                &params[BIND_CHALLENGE_LEN..BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN],
-            );
-            match g::dispatch_bind_release(
-                binding,
-                storage,
-                &params[BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN..],
-                &ch,
-                &ph,
-                up,
-            ) {
-                Ok(()) => (0x00, Vec::new()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            }
-        }
-        g::OP_RECOVERY_SET => match core::str::from_utf8(params) {
-            Ok(pin) => match g::dispatch_recovery_set(storage, pin, up) {
-                Ok(()) => (0x00, Vec::new()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            },
-            Err(_) => (
-                g::BleGattError::InvalidFragment.to_vendor_status(),
-                Vec::new(),
-            ),
-        },
-        g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(params) {
-            Ok(pin) => match g::dispatch_recovery_unlock(storage, binding, pin, up) {
-                Ok(()) => (0x00, Vec::new()),
-                Err(e) => (e.to_vendor_status(), Vec::new()),
-            },
-            Err(_) => (
-                g::BleGattError::InvalidFragment.to_vendor_status(),
-                Vec::new(),
-            ),
-        },
-        _ => (
-            g::BleGattError::InvalidOpcode.to_vendor_status(),
-            Vec::new(),
-        ),
-    }
-}
-
 /// Maps a BLE gate denial to its wire status (shared with serial vendor).
 pub fn vendor_status(e: BleGattError) -> u8 {
     e.to_vendor_status()
 }
 
-/// Dispatches one serial diagnostic text line (dump only, metadata only).
-///
-/// Returns `Some(dump)` solely for the exact `TEST_LIFETIME_DUMP` line when
-/// built with `test-mode`; otherwise (or without the feature) `None`.
-pub fn dispatch_serial_text_line(line: &str, extra_states: &str) -> Option<String> {
-    #[cfg(feature = "test-mode")]
-    {
-        crate::lifetime_trace::dispatch_test_command(line, extra_states)
-    }
-    #[cfg(not(feature = "test-mode"))]
-    {
-        let _ = (line, extra_states);
-        None
-    }
-}
-
-/// Dispatches `TEST_PAIRING_OPEN` / `TEST_PAIRING_CLOSE` (test-mode only).
-///
-/// Abre a MESMA janela de 60s do hold 5s via
-/// [`crate::pairing::PairingManager::open_test_window`]: software abre a
-/// janela, NAO confirma presenca (gates UP/bonding seguem exigidos).
-/// `TEST_PAIRING_CLOSE` fecha via `close_test_window` (vira `Locked`,
-/// mesmo estado do timeout natural; determinismo entre sessões sem reset).
-/// Retorna o ack na batida exata, `None` caso contrario; sem `test-mode`
-/// os comandos nao existem (sempre `None`, comandos desconhecidos).
 #[cfg(feature = "test-mode")]
-pub fn dispatch_serial_pairing_line(
-    line: &str,
-    pairing: &mut crate::pairing::PairingManager,
-    now_ms: u64,
-) -> Option<String> {
-    use crate::pairing::{
-        TEST_PAIRING_CLOSE_CMD, TEST_PAIRING_OPEN_300_CMD, TEST_PAIRING_OPEN_300_SECS,
-        TEST_PAIRING_OPEN_CMD,
-    };
-    if line.trim() == TEST_PAIRING_OPEN_CMD {
-        pairing.open_test_window(now_ms);
-        Some(String::from("pairing_open window_s=60 source=software\n"))
-    } else if line.trim() == TEST_PAIRING_OPEN_300_CMD {
-        pairing.open_test_window_secs(now_ms, TEST_PAIRING_OPEN_300_SECS);
-        Some(String::from("pairing_open window_s=300 source=software\n"))
-    } else if line.trim() == TEST_PAIRING_CLOSE_CMD {
-        pairing.close_test_window();
-        Some(String::from("pairing_closed source=software\n"))
-    } else {
-        None
-    }
-}
-
-/// Release: `TEST_PAIRING_OPEN` / `TEST_PAIRING_CLOSE` nao existem (comandos
-/// desconhecidos, sem janela).
+pub use crate::serial_text::dispatch_serial_pairing_line;
 #[cfg(not(feature = "test-mode"))]
-pub fn dispatch_serial_pairing_line(
-    _line: &str,
-    _pairing: &mut crate::pairing::PairingManager,
-    _now_ms: u64,
-) -> Option<String> {
-    None
-}
+pub use crate::serial_text::dispatch_serial_pairing_line;
+pub use crate::serial_text::dispatch_serial_text_line;
+
+pub use crate::serial_vendor::{
+    dispatch_serial_bind_mgmt, dispatch_serial_rescue, dispatch_serial_vendor,
+    dispatch_serial_wallet,
+};
 
 #[cfg(test)]
 mod tests {

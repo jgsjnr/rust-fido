@@ -28,9 +28,11 @@ extern crate alloc;
 
 mod auth;
 mod capabilities;
+mod envelope;
 mod error;
 #[cfg(feature = "hardwallet")]
 pub mod hardwallet;
+mod providers;
 mod request;
 mod response;
 #[cfg(feature = "secmon")]
@@ -41,12 +43,24 @@ pub mod test_hooks;
 
 pub use auth::AuthContext;
 pub use capabilities::{capabilities, CapabilitySet};
+pub use envelope::{
+    check_envelope_auth, open_envelope, seal_envelope, EnvelopeError, OpenedEnvelope, ReplayWindow,
+    SealParams, ENVELOPE_MAGIC, ENVELOPE_VERSION, HEADER_LEN, MAX_CIPHERTEXT_BYTES,
+    MAX_ENVELOPE_BYTES, MAX_PLAINTEXT_BYTES, MIN_ENVELOPE_LEN, NONCE_LEN, REPLAY_WINDOW_CAP,
+    TAG_LEN,
+};
 pub use error::{require_fido, require_hardwallet, require_secmon, require_test_mode, SdkError};
 #[cfg(feature = "hardwallet")]
 pub use hardwallet::{AddressRequest, CoinKind};
+pub use providers::{
+    AuditProvider, BackupProvider, OathProvider, OtaProvider, OtpProvider, PivProvider,
+    PolicyProvider, ProximityProvider, RescueProvider, WalletProvider,
+};
 pub use request::{
-    BindingOp, BindingRequest, FidoRequest, SdkRequest, SystemOp, SystemRequest, VendorRequest,
-    WalletRequest, WALLET_OP_ADDR, WALLET_OP_GEN, WALLET_OP_LIST,
+    AuditRequest, BackupRequest, BindingOp, BindingRequest, FidoRequest, OathRequest, OtaRequest,
+    OtpRequest, PivRequest, PolicyRequest, ProximityRequest, RescueRequest, SdkRequest, SystemOp,
+    SystemRequest, VendorRequest, WalletRequest, WalletSignRequest, WALLET_OP_ADDR, WALLET_OP_GEN,
+    WALLET_OP_LIST,
 };
 pub use response::SdkResponse;
 #[cfg(feature = "secmon")]

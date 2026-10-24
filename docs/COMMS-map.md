@@ -177,9 +177,25 @@ perde-se no reboot; `EV_BOOT` marca o zero). Eventos:
 | USB CCID / PIV APDUs (fora enroll `0x39`) | `crates/aegis-fido-usb/src/ccid.rs`, `piv.rs`; `core/oath` INS `01/02/03/04/A1/A2/A3/A4`, AID `A0000005272101`; builders `piv_apdu/select_aid/verify_pin` | **MAPPED (host)** — builders + menu 13; vetor `SELECT a0000005272101` (`00A40400 07 ...`); gate `pairing->UP`; sem toque em firmware | firmware (PIV/CCID) |
 | USB keyboard HID (OTP modhex/scancodes) | `crates/aegis-fido-usb/src/keyboard.rs`; entrada app `otp_typer_input` | **MAPPED (host)** — validador + menu 14; vetor `287082` ok, `12ab56` deny; so digitos 6-8, fail-closed; segredo nunca no log | firmware (OTP) |
 | Ykman mgmt / Nitrokey / YubiOTP | `crates/aegis-fido-core/src/otp/ykman.rs`, `nitrokey.rs`, `yubikey_otp.rs`; `ext_route_status/deny` | **MAPPED (host)** — rotas + menu 15; resposta honesta `6D00` fora de escopo; deny `ExternalBlocked` | firmware (OTP) |
-| Proximidade `0xFFFE` (K_prox NVS, adv walkaway) | `ble_gatt.rs` `PROXIMITY_SERVICE_UUID`, `proximity.rs`, `ble_nimble.rs`; builders `prox_walkaway/k_prox_begin` | **MAPPED (host)** — builders + menu 16; vetor `prox_walkaway(60)=003C`; RAM-only, sem NVS aqui; nunca usa `FFF1-FFF4`; gate `bonded->UP->coex` | proximity lane |
+| Proximidade `0xFFFE` (K_prox NVS, adv walkaway) | `ble_gatt.rs` `PROXIMITY_SERVICE_UUID`, `proximity.rs`, `ble_nimble.rs`; builders `prox_walkaway/k_prox_begin` | **MAPPED (host)** - builders + menu 16; vetor `prox_walkaway(60)=003C`; K_prox em NVS cifrada (`proximity.rs:233 PROXIMITY_BOND_NVS_KEY="prox_k"`, save/load `proximity.rs:533-545`, TRNG injetavel); nunca usa `FFF1-FFF4`; gate `bonded->UP->coex` | proximity lane |
 | PIV CCID via OpenSC / F4 | `plans/`, `docs/piv-ble-proximity.md`, `docs/sessao-20-10-f4-ccid-opensc.md`; helpers `piv_strip_ff/gen_auth/verify_pin` | **MAPPED (host)** — helpers + menu 17; norma `strip-FF` (trailing `FF` removido); VERIFY 6-8 digitos + GEN AUTH 32B; fora do contrato do app terminal | PIV lane |
 | Rescue killswitch `cmd 0x06` / wipe token | `core/otp/rescue.rs` (`RESCUE_CMD_PING`, `EMERGENCY_WIPE_TOKEN`, `KILLSWITCH_ACK`); `rescue_killswitch_frame` | **MAPPED (host)** — builder + menu 18 com `--confirm WIPE-ACK`; vetor `RESC 01 06 ...`; kill real = `ExternalBlocked` (jig+HSM), nunca executar aqui | firmware (rescue) |
+| Credenciais FIDO `cred/*` + index | `cred_store.rs` (sobre `persistence.rs`), `ctap_state.rs`, `ctap_cmd.rs` | **MAPPED (host)** - T-FD-02 PRONTO; gate `binding->UP->PIN`; verify-after-write, power-loss, rollback-resistencia | firmware (CTAP) |
+| PIN/UV `pin/*` (pinUvAuth RAM, hash+retries NVS) | `pin_uv.rs`, `vendor_exec.rs:121-123` (persiste via `NamespacedStore`) | **MAPPED (host)** - T-FD-03 PRONTO; sessao RAM morre no reboot; `Err` fail-closed | firmware (CTAP) |
+| Vault `vault/*` + index (AEAD) | `vault_aead.rs` (sobre `vault_store.rs`), `backup_envelope.rs` | **MAPPED (host)** - T-ST-01/02 PRONTO; storage-only BTC/EVM/SOL; gate UP+PIN | firmware (store) |
+| OATH `oath6/*` + `oath_ctr/*` | `oath_cmd.rs` (sobre `oath_store.rs`), `ccid.rs` INS `01/02/03/04/A1/A2/A3/A4` | **MAPPED (host)** - T-OT-01/02 PRONTO; contador atomico + power-loss | firmware (OTP) |
+| OpenPGP `opgp/*` (Card 3.4.1) | `openpgp_cmd.rs:34` via `crate::apdu` compartilhado (`apdu.rs` dono do parse) | **MAPPED (host)** - T-PI-02 PRONTO; nunca duplicar parser APDU | firmware (PIV) |
+| Estado CTAP `ctap_state` + ext `ctap_ext` | `ctap_state.rs`, `ctap_ext.rs`, `ctap_cmd.rs` | **MAPPED (host)** - T-FD-01 PRONTO; erros CTAP normativos + limites msg + sec9 | firmware (CTAP) |
+| EXT/app sem entrada (teclado OTP fora contrato terminal) | `kbd_gate.rs` (usb, sem editar `keyboard.rs`), `secure_msg.rs` APDU sensivel | **MAPPED (host)** - T-OT-03/T-PI-03 PRONTO; exige UP por digitacao; SSC+CT+TAG | firmware (OTP/PIV) |
+
+> Fase 0 — contrato SDK congelado (lane `modulos-novos` @`a940a20`, sem execucao):
+> `CapabilitySet` soma 8 bits (`OTA 1<<7` / `PIV 1<<8` / `OTP 1<<9` /
+> `PROXIMITY 1<<10` / `OATH 1<<11` / `BACKUP 1<<12` / `AUDIT 1<<13` /
+> `POLICY 1<<14`, so OR, sem renumerar); `require_*()` por modulo retorna
+> `NotCompiled` com feature off; `SdkRequest` soma 10 variants tipadas
+> (`Ota`/`Piv`/`Otp`/`Proximity`/`Rescue` via `otp`/`WalletSign` via
+> `hardwallet`/`Oath`/`Backup`/`Audit`/`Policy`) so tipos+gates; existente
+> intocado; re-export raiz (`lib.rs`) fica com o dono da lane.
 
 ## 8. Validação da dona (só leitura + lint)
 
