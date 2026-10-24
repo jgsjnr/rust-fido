@@ -349,3 +349,28 @@ Para validar a emulação do hardware físico utilizando a plataforma Renode (`E
 | **J5-Log** | `sanitized_log` | Garantia de que segredos Base32 e PINs nunca são gravados nos logs da aplicação. | **APROVADO** |
 | **RENODE** | `renode_bridge.py` | Integração com executável do Renode e plataforma `fido-s3-v3.repl`. | **APROVADO** |
 | **SERVER** | `ThreadedEmulatorServer` | Atendimento do Emulador Android via `10.0.2.2:5678` com framing CTAPHID. | **APROVADO** |
+
+---
+
+## 8. Emulador Realista em Modo de Desenvolvimento (`DebugHardwareChipMock`)
+
+Para proporcionar uma experiência de desenvolvimento e homologação imediata, o aplicativo conta com o subsistema [`DebugHardwareChipMock.kt`](file:///e:/projetos/fido/.slim/worktrees/android-ux-journey/app-android/app/src/main/java/dev/aegiskey/app/data/debug/DebugHardwareChipMock.kt) e a interface recolhível [`DebugChipControlHooksCard.kt`](file:///e:/projetos/fido/.slim/worktrees/android-ux-journey/app-android/app/src/main/java/dev/aegiskey/app/ui/atomic/organisms/DebugChipControlHooksCard.kt).
+
+### 8.1. Princípio de Segurança e Isolamento (`BuildConfig.DEBUG`)
+- **Restrição Estrita:** Todo o código de mock é guardado pela flag de compilação `BuildConfig.DEBUG`. Em compilações de Release direcionadas à produção, a árvore inteira de simulação é eliminada via dead-code elimination e minificação R8/ProGuard.
+- **Transparência de Protocolo:** Ao selecionar Bluetooth, USB ou Simulador no Passo 1 do Wizard, o mock responde aos opcodes do protocolo como se fosse o chip real **ESP32-S3 + ATECC608A** conectado via cabo ou rádio.
+
+### 8.2. Recursos Disponíveis no Mock
+1. **Candidatos de Hardware Virtuais:**
+   - Bluetooth: `AA:BB:CC:AE:61:01` (*AegisKey FIDO2 BLE*)
+   - USB: `USB:303A:AE61:01` (*AegisKey USB-C Hardware*)
+   - Simulador: `SIM:RENODE:5678` (*AegisKey Renode Chip*)
+2. **Injeção de Memória NVS e Cofre Físico:**
+   - Popula instantaneamente o cofre com credenciais realistas: Passkeys FIDO2 (`GitHub Enterprise`, `Google Principal`) e Carteiras Web3 (Bitcoin Native SegWit `bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh`, Ethereum `0x71C7656EC7ab88b098defB751B7401B5f6d8976F` e Solana `HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH`).
+3. **Cálculo Dinâmico de TOTP RFC 6238:**
+   - Calcula códigos temporários em tempo real para contas como GitHub, Google, AWS e Microsoft, sincronizados com o relógio Unix e o anel regressivo de 30 segundos.
+4. **Hooks de Controle Visual (`DebugChipControlHooksCard`):**
+   - Disparo simulado de holding de botão físico (5 segundos);
+   - Disparo de toque rápido de presença física (UP);
+   - Teste de alternância de conexão (simula desconexão física e reconexão);
+   - Limpeza total de chaves para testar o retorno reativo ao Onboarding.
