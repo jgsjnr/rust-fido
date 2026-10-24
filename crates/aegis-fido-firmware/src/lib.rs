@@ -61,6 +61,7 @@ pub mod piv_store;
 pub mod provision;
 #[cfg(feature = "proximity")]
 pub mod proximity;
+pub mod proximity_crypto;
 #[cfg(feature = "proximity")]
 pub mod proximity_sched;
 pub mod recovery;
