@@ -41,6 +41,7 @@ import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.security.AppLock
 import dev.aegiskey.app.security.FeatureFlags
+import dev.aegiskey.app.security.SdkGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -92,6 +93,9 @@ fun VaultScreen(client: AegisBleClient? = null) {
     var addMsg by remember { mutableStateOf("—") }
     var confirmOathDelete by remember { mutableStateOf(false) }
     var confirmOathRegen by remember { mutableStateOf(false) }
+    var vaultWalletNotice by remember { mutableStateOf<String?>(null) }
+    var vaultWalletMsg by remember { mutableStateOf<String?>(null) }
+    var vaultWalletRows by remember { mutableStateOf(listOf<VaultWalletEntry>()) }
 
     val gate = when {
         client == null -> VaultGate.NO_BLE
@@ -197,7 +201,7 @@ fun VaultScreen(client: AegisBleClient? = null) {
     fun fetchVaultCode(account: VaultAccount) {
         when (account.kind) {
             VaultKind.OATH_TOTP, VaultKind.OATH_HOTP -> fetchBleCode(account.name)
-            VaultKind.WALLET -> error = "carteira sai em outra tela (extensao pronta)"
+            VaultKind.WALLET -> error = "carteira: veja a secao Carteira abaixo (somente leitura)"
             VaultKind.PIV -> error = "PIV sai em outra tela (extensao pronta)"
         }
     }
@@ -331,6 +335,85 @@ fun VaultScreen(client: AegisBleClient? = null) {
         putOathAccount(ByteArray(20).also { rng.nextBytes(it) })
     }
 
+    /** A3: LIST 0x36 da carteira (binding -> UP) via SdkGate; nunca crash. */
+    fun refreshVaultWallet() {
+        val ble = client ?: run {
+            vaultWalletMsg = "conecte via BLE primeiro (tela Conectar)"
+            return
+        }
+        vaultWalletNotice = vaultWalletGateNotice(SdkGate.requireWallet())
+        if (vaultWalletNotice != null) return
+        scope.launch {
+            busy = true
+            vaultWalletMsg = null
+            try {
+                val raw = withContext(Dispatchers.IO) {
+                    ble.sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
+                }
+                val resp = VendorOps.parseResponse(raw)
+                if (resp == null) {
+                    vaultWalletMsg = "sem resposta — toque no dispositivo e tente de novo"
+                } else if (resp.status != VendorOps.STATUS_OK) {
+                    vaultWalletNotice = vaultWalletGateNotice(SdkGate.mapWireStatus(resp.status))
+                    vaultWalletMsg = VendorOps.statusLabel(resp.status)
+                } else {
+                    vaultWalletNotice = null
+                    vaultWalletRows = parseVaultWalletEntries(resp.tlv)
+                    if (vaultWalletRows.isEmpty()) vaultWalletMsg = "nenhuma carteira salva ainda"
+                    DeviceLog.append(DeviceLog.Category.BLE, "vault wallet list ok n=" + vaultWalletRows.size)
+                }
+            } catch (e: Exception) {
+                vaultWalletMsg = (e.message ?: "falha ao listar").take(64)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /** A3: ADDR 0x37 de um slot (binding -> UP) via SdkGate; nunca crash. */
+    fun fetchVaultWalletAddr(slot: Int) {
+        val ble = client ?: run {
+            vaultWalletMsg = "conecte via BLE primeiro (tela Conectar)"
+            return
+        }
+        vaultWalletNotice = vaultWalletGateNotice(SdkGate.requireWallet())
+        if (vaultWalletNotice != null) return
+        scope.launch {
+            busy = true
+            try {
+                val req = VendorOps.writeTlv(0x01, byteArrayOf(slot.toByte()))
+                val raw = withContext(Dispatchers.IO) {
+                    ble.sendVendor(VendorOps.OP_WALLET_ADDR, req)
+                }
+                val resp = VendorOps.parseResponse(raw)
+                if (resp == null) {
+                    vaultWalletMsg = "sem resposta — toque no dispositivo"
+                } else if (resp.status != VendorOps.STATUS_OK) {
+                    vaultWalletNotice = vaultWalletGateNotice(SdkGate.mapWireStatus(resp.status))
+                    vaultWalletMsg = VendorOps.statusLabel(resp.status)
+                } else {
+                    vaultWalletNotice = null
+                    val addr = VendorOps.findTlv(VendorOps.parseTlvRecords(resp.tlv), 0x07)?.let {
+                        runCatching { it.toString(Charsets.UTF_8).take(128) }.getOrNull()
+                    } ?: ""
+                    if (addr.isBlank()) {
+                        vaultWalletMsg = "endereco vazio do dispositivo"
+                    } else {
+                        vaultWalletRows = vaultWalletRows.map { r ->
+                            if (r.slot == slot) r.copy(address = addr) else r
+                        }
+                        vaultWalletMsg = null
+                        DeviceLog.append(DeviceLog.Category.BLE, "vault wallet addr slot=" + slot)
+                    }
+                }
+            } catch (e: Exception) {
+                vaultWalletMsg = (e.message ?: "falha ao buscar").take(64)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     fun importEnvelope() {
         scope.launch(Dispatchers.Default) {
             try {
@@ -426,6 +509,34 @@ fun VaultScreen(client: AegisBleClient? = null) {
                     }
                     OutlinedButton(onClick = { confirmOathRegen = true }, enabled = !busy, modifier = Modifier.weight(1f)) {
                         Text("REGENERAR", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+
+            // Bloco 2b — Carteira A3 (somente leitura: LIST 0x36 + ADDR 0x37 via SdkGate).
+            SectionTitle("Carteira (somente leitura)")
+            FriendlyText(
+                text = "Gerar fica na tela Carteira. Aqui e so leitura: lista e endereco por curva, direto do dispositivo.",
+                maxLines = 3,
+            )
+            FriendlyText(
+                text = "Aviso: chaves em RAM nesta sessao — somem se o aparelho reiniciar (NVS e follow-up).",
+                maxLines = 3,
+            )
+            if (vaultWalletNotice != null) FriendlyText(text = vaultWalletNotice!!, maxLines = 3)
+            OutlinedButton(onClick = ::refreshVaultWallet, enabled = !busy && client != null, modifier = Modifier.fillMaxWidth()) {
+                Text("Atualizar carteira (toque no dispositivo)", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (vaultWalletRows.isEmpty()) {
+                FriendlyEmpty(message = vaultWalletMsg ?: "Nada aqui ainda. Toque no dispositivo para carregar.")
+            } else {
+                vaultWalletMsg?.let { FriendlyText(text = it, maxLines = 2) }
+                for (row in vaultWalletRows) {
+                    FriendlyText(text = "slot " + row.slot + " · " + row.label, maxLines = 2)
+                    if (row.address.isNotEmpty()) FriendlyText(text = "endereco: " + row.address, maxLines = 2)
+                    if (row.hdPath != null) FriendlyText(text = "caminho HD: " + row.hdPath + " (so exibido; deriva no aparelho)", maxLines = 2)
+                    OutlinedButton(onClick = { fetchVaultWalletAddr(row.slot) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Conferir endereco do slot " + row.slot + " (0x37)", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -571,6 +682,60 @@ private fun CollapsedSection(title: String, content: @Composable ColumnScope.() 
             if (open) Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
         }
     }
+}
+
+/** Entrada de carteira exibida no Cofre (so metadados publicos; nunca segredo). */
+private data class VaultWalletEntry(
+    val slot: Int,
+    val label: String,
+    val address: String,
+    val hdPath: String?,
+)
+
+/** Aviso proprio da tela para cada R4 sem GateBanner honesto (nunca crash). */
+private fun vaultWalletGateNotice(outcome: SdkGate.GateOutcome): String? = when (outcome) {
+    SdkGate.GateOutcome.Success, SdkGate.GateOutcome.RealVerified -> null
+    is SdkGate.GateOutcome.NotCompiled ->
+        "Carteira fora deste build (SDK sem hardwallet): nada foi enviado ao dispositivo."
+    is SdkGate.GateOutcome.ExternalBlocked ->
+        when (outcome.reason) {
+            SdkGate.BlockReason.NO_NATIVE_LIB -> "Biblioteca nativa ausente: esta acao precisa do bridge. Nada foi enviado."
+            SdkGate.BlockReason.NO_TRANSPORT -> "Sem transporte para a carteira. Nada foi enviado."
+            SdkGate.BlockReason.NO_PEER -> "Sem par pareado para a carteira. Nada foi enviado."
+            SdkGate.BlockReason.LAB_MOCKS_OFF -> "Mocks de laboratorio desligados: sem caminho real. Nada foi enviado."
+        }
+    SdkGate.GateOutcome.PermissionDenied ->
+        "Falta prova no dispositivo (vinculo -> botao -> PIN). Toque no aparelho e tente de novo."
+    SdkGate.GateOutcome.Unsupported -> "Operacao nao suportada pelo SDK/firmware. Nada foi inventado."
+    SdkGate.GateOutcome.Unavailable -> "Carteira indisponivel agora. Tente de novo."
+}
+
+/**
+ * Agrupa TLVs 0x01/0x02/0x07 por slot; ignora tags desconhecidas (S9.6).
+ * Caminho HD (m/...) so aparece se o firmware devolver; nunca derivado aqui.
+ */
+private fun parseVaultWalletEntries(tlv: ByteArray): List<VaultWalletEntry> {
+    val chunks = mutableListOf<MutableList<VendorOps.Tlv>>()
+    for (r in VendorOps.parseTlvRecords(tlv)) {
+        if (r.tag == 0x01) chunks.add(mutableListOf())
+        if (chunks.isEmpty()) chunks.add(mutableListOf())
+        chunks.last().add(r)
+    }
+    return chunks.mapNotNull { chunk ->
+        val slotBytes = VendorOps.findTlv(chunk, 0x01)
+        val slot = if (slotBytes != null && slotBytes.size == 1) slotBytes[0].toInt() and 0xFF else null
+        if (slot == null) return@mapNotNull null
+        val label = VendorOps.findTlv(chunk, 0x02)?.let {
+            runCatching { it.toString(Charsets.UTF_8).take(32) }.getOrDefault("slot $slot")
+        } ?: "slot $slot"
+        val address = VendorOps.findTlv(chunk, 0x07)?.let {
+            runCatching { it.toString(Charsets.UTF_8).take(128) }.getOrNull()
+        } ?: ""
+        val hdPath = chunk.map { it.value }.mapNotNull { v ->
+            runCatching { v.toString(Charsets.UTF_8) }.getOrNull()
+        }.firstOrNull { it.startsWith("m/") && it.length <= 64 && it.all { c -> c in "m/0123456789'Hh" } }
+        VaultWalletEntry(slot, label, address, hdPath)
+    }.take(64)
 }
 
 private val DIGIT_OPTIONS = listOf(
