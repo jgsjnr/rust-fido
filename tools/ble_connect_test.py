@@ -396,8 +396,11 @@ async def run_live(args):
                     "WRITE_NOTIFY", "sem notify FFF2 em %.0fs. "
                     "Causas: UP fisico pendente no device (toque no botao), "
                     "CCCD nao programado, ou MTU race." % step_timeout)
-            raw = notifies[-1]
-            status = parse_fff2(bytes(raw))
+            raw = bytes(notifies[-1])
+            if len(raw) >= 2:
+                _op, status, _pay = parse_notify_frame(raw)
+            else:
+                status = parse_fff2(raw)
             log("WRITE_NOTIFY", fmt_rx_fff2(status, len(raw)))
             if status == STATUS_UP_NEEDED:
                 raise StageError(
