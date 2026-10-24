@@ -75,6 +75,7 @@ class CleanJourneyArchitectureTest {
 
     @Test
     fun testCompleteFiveStepPairingWizardFlow_addsKeyAndRedirectsToMainHub() = runTest {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = true
         val wizardRepo = PairingWizardRepositoryImpl(
             bleClient = null,
             usbCtaphid = null,
@@ -371,5 +372,24 @@ class CleanJourneyArchitectureTest {
             digits = 6
         )
         assertTrue("Cadastro TOTP em hardware offline deve falhar (fail-closed)", addResult.isFailure)
+    }
+
+    @Test
+    fun testBridgeDiscovery_zeroMocksWhenBridgeOffline() = runTest {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = false
+        val wizardRepo = PairingWizardRepositoryImpl(
+            bleClient = null,
+            usbCtaphid = null,
+            hostBridgeClient = dev.aegiskey.app.data.transport.HostUsbUartBridgeClient(),
+            simulatedRenodeTransport = simulatedTransport,
+            securityService = securityService,
+            connectedKeysRepository = connectedKeysRepo,
+            scope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        wizardRepo.startDiscovery(ConnectionTransportType.USB)
+        val candidates = wizardRepo.discoveredCandidates.value
+        // Com mocks desligados e sem hardware na ponte, não deve inventar dispositivos
+        assertTrue("Não deve conter mock fake quando desabilitado", candidates.none { it.id == "USB:303A:AE61:01" })
     }
 }

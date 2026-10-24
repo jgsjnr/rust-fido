@@ -11,6 +11,7 @@ import dev.aegiskey.app.data.repository.ThemeRepositoryImpl
 import dev.aegiskey.app.data.repository.TotpRepositoryImpl
 import dev.aegiskey.app.data.system.SystemSecurityService
 import dev.aegiskey.app.data.transport.BleKeyTransport
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
@@ -62,6 +63,7 @@ class AppContainer(val context: Context) {
     val bleClient: AegisBleClient by lazy { AegisBleClient(context) }
     val usbCtaphid: UsbCtaphid by lazy { UsbCtaphid(context) }
     val simulatedRenodeTransport: SimulatedRenodeTransport by lazy { SimulatedRenodeTransport() }
+    val hostUsbUartBridgeClient: HostUsbUartBridgeClient by lazy { HostUsbUartBridgeClient() }
 
     val bleTransport: BleKeyTransport by lazy { BleKeyTransport(bleClient) }
     val usbTransport: UsbKeyTransport by lazy { UsbKeyTransport(usbCtaphid) }
@@ -75,6 +77,7 @@ class AppContainer(val context: Context) {
         PairingWizardRepositoryImpl(
             bleClient = bleClient,
             usbCtaphid = usbCtaphid,
+            hostBridgeClient = hostUsbUartBridgeClient,
             simulatedRenodeTransport = simulatedRenodeTransport,
             securityService = securityService,
             connectedKeysRepository = connectedKeysRepository,
@@ -86,6 +89,7 @@ class AppContainer(val context: Context) {
         KeyVaultRepositoryImpl(
             keysStore = keysStore,
             bleClient = bleClient,
+            hostBridgeClient = hostUsbUartBridgeClient,
             simulatedRenodeTransport = simulatedRenodeTransport,
             connectedKeysRepository = connectedKeysRepository
         )
@@ -95,6 +99,7 @@ class AppContainer(val context: Context) {
         TotpRepositoryImpl(
             keysStore = keysStore,
             bleClient = bleClient,
+            hostBridgeClient = hostUsbUartBridgeClient,
             simulatedRenodeTransport = simulatedRenodeTransport,
             connectedKeysRepository = connectedKeysRepository
         )

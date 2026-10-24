@@ -3,8 +3,10 @@ package dev.aegiskey.app.data.repository
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.domain.model.AccessKeyType
+import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.KeyVaultRepository
@@ -22,6 +24,7 @@ import kotlinx.coroutines.withContext
 class KeyVaultRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
     private val bleClient: AegisBleClient? = null,
+    private val hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val connectedKeysRepository: ConnectedKeysRepository,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
@@ -45,19 +48,39 @@ class KeyVaultRepositoryImpl(
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        return if (activeKey?.transportType == dev.aegiskey.app.domain.model.ConnectionTransportType.SIMULATOR) {
-            simulatedRenodeTransport.sendVendor(opcode, payload)
-        } else {
-            bleClient?.sendVendor(opcode, payload)
+        val addr = activeKey?.hardwareAddressOrId ?: ""
+        return when {
+            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB -> {
+                hostBridgeClient.sendVendor(opcode, payload)
+            }
+            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
+                hostBridgeClient.sendVendor(opcode, payload)
+            }
+            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
+                simulatedRenodeTransport.sendVendor(opcode, payload)
+            }
+            else -> {
+                bleClient?.sendVendor(opcode, payload)
+            }
         }
     }
 
     private suspend fun sendMsg(payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        return if (activeKey?.transportType == dev.aegiskey.app.domain.model.ConnectionTransportType.SIMULATOR) {
-            simulatedRenodeTransport.sendMsg(payload)
-        } else {
-            bleClient?.sendMsg(payload)
+        val addr = activeKey?.hardwareAddressOrId ?: ""
+        return when {
+            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB -> {
+                hostBridgeClient.sendVendor(0x83, payload)
+            }
+            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
+                hostBridgeClient.sendVendor(0x83, payload)
+            }
+            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
+                simulatedRenodeTransport.sendMsg(payload)
+            }
+            else -> {
+                bleClient?.sendMsg(payload)
+            }
         }
     }
 

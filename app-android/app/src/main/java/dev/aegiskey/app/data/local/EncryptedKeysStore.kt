@@ -39,6 +39,41 @@ class EncryptedKeysStore(private val context: Context?) {
 
     private val inMemoryFallback = mutableMapOf<String, String>()
 
+    init {
+        purgeResidualMockData()
+    }
+
+    private fun purgeResidualMockData() {
+        runCatching {
+            val allKeys = loadConnectedKeys()
+            val filteredKeys = allKeys.filterNot { key ->
+                key.hardwareAddressOrId in MOCK_IDS ||
+                    key.id in MOCK_IDS ||
+                    key.displayName.contains("Chip Simulado") ||
+                    key.displayName.contains("Chip Debug")
+            }
+            if (filteredKeys.size != allKeys.size) {
+                saveConnectedKeys(filteredKeys)
+                for (mockId in MOCK_IDS) {
+                    putString(KEY_VAULT_PREFIX + mockId, null)
+                    putString(KEY_TOTP_PREFIX + mockId, null)
+                }
+                val active = loadActiveKeyId()
+                if (active in MOCK_IDS || filteredKeys.none { it.id == active }) {
+                    saveActiveKeyId(filteredKeys.firstOrNull()?.id)
+                }
+            }
+
+            for (key in filteredKeys) {
+                val vault = loadVaultEntries(key.id)
+                val cleanVault = vault.filterNot { it.label.contains("Enterprise Passkey") }
+                if (cleanVault.size != vault.size) {
+                    saveVaultEntries(key.id, cleanVault)
+                }
+            }
+        }
+    }
+
     @Synchronized
     private fun getString(key: String): String? {
         return prefs?.getString(key, null) ?: inMemoryFallback[key]
@@ -228,5 +263,6 @@ class EncryptedKeysStore(private val context: Context?) {
         private const val KEY_ACTIVE_KEY_ID = "active_key_id"
         private const val KEY_VAULT_PREFIX = "vault_entries_"
         private const val KEY_TOTP_PREFIX = "totp_accounts_"
+        private val MOCK_IDS = setOf("AA:BB:CC:AE:61:01", "USB:303A:AE61:01", "SIM:RENODE:5678")
     }
 }

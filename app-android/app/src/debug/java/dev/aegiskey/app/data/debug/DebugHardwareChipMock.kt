@@ -21,8 +21,8 @@ import javax.crypto.spec.SecretKeySpec
  */
 object DebugHardwareChipMock {
 
-    const val IS_MOCK_ENABLED: Boolean = true
-    val isDebugMode: Boolean get() = true
+    var IS_MOCK_ENABLED: Boolean = false
+    val isDebugMode: Boolean get() = IS_MOCK_ENABLED
 
     // Candidatos pré-configurados do chip simulado para cada transporte em DEBUG
     val MOCK_BLE_CANDIDATE = DiscoveredKeyCandidate(
@@ -59,6 +59,7 @@ object DebugHardwareChipMock {
         return when (transport) {
             ConnectionTransportType.BLE -> MOCK_BLE_CANDIDATE
             ConnectionTransportType.USB -> MOCK_USB_CANDIDATE
+            ConnectionTransportType.WIFI -> null
             ConnectionTransportType.SIMULATOR -> MOCK_SIMULATOR_CANDIDATE
         }
     }

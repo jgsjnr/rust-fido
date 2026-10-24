@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -320,7 +321,7 @@ private fun WelcomeTransportStepContent(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         TransportOptionCard(
             title = "Bluetooth Sem Fio",
-            description = "Conexão prática e sem fios para o dia a dia.",
+            description = "Conectar à chave por aproximação via Bluetooth (BLE)",
             icon = Icons.Filled.Bluetooth,
             isSelected = selectedTransport == ConnectionTransportType.BLE,
             badgeText = "Recomendado",
@@ -328,11 +329,21 @@ private fun WelcomeTransportStepContent(
         )
 
         TransportOptionCard(
-            title = "Cabo USB",
-            description = "Conecte sua chave diretamente à porta USB do aparelho.",
+            title = "Cabo USB ou Porta Serial (UART)",
+            description = "Conectar via cabo USB-C direto ou ponte USB/UART no emulador",
             icon = Icons.Filled.Usb,
             isSelected = selectedTransport == ConnectionTransportType.USB,
+            badgeText = "Bancada / PC",
             onSelect = { onSelectTransport(ConnectionTransportType.USB) },
+        )
+
+        TransportOptionCard(
+            title = "Rede Wi-Fi da Chave",
+            description = "Conectar ao ponto de acesso Wi-Fi da chave (192.168.4.1)",
+            icon = Icons.Filled.Wifi,
+            isSelected = selectedTransport == ConnectionTransportType.WIFI,
+            badgeText = "Sem Fio Direto",
+            onSelect = { onSelectTransport(ConnectionTransportType.WIFI) },
         )
 
         if (DebugHardwareChipMock.IS_MOCK_ENABLED) {

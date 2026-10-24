@@ -183,7 +183,8 @@ fun ConnectedKeysRepositoryScreen(
                 val isCurrent = device.id == uiState.activeKey?.id
                 val transportText = when (device.transportType) {
                     ConnectionTransportType.BLE -> "Bluetooth Sem Fio"
-                    ConnectionTransportType.USB -> "Cabo USB"
+                    ConnectionTransportType.USB -> "Cabo USB / UART"
+                    ConnectionTransportType.WIFI -> "Rede Wi-Fi"
                     ConnectionTransportType.SIMULATOR -> "Simulador Virtual"
                 }
 

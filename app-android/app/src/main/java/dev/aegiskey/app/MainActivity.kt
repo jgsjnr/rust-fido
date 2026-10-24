@@ -159,7 +159,8 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
 
             val transportLabel = when (activeKey?.transportType) {
                 ConnectionTransportType.BLE -> "Bluetooth"
-                ConnectionTransportType.USB -> "Cabo USB"
+                ConnectionTransportType.USB -> "Cabo USB / UART"
+                ConnectionTransportType.WIFI -> "Rede Wi-Fi"
                 ConnectionTransportType.SIMULATOR -> "Simulador Virtual"
                 null -> "Chave Física"
             }

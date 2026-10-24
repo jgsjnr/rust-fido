@@ -4,6 +4,7 @@ import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.system.SystemSecurityService
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
@@ -13,6 +14,7 @@ import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.PairingWizardRepository
+import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.ui.BindingWire
 import dev.aegiskey.app.usb.UsbCtaphid
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +30,7 @@ import java.util.UUID
 class PairingWizardRepositoryImpl(
     private val bleClient: AegisBleClient? = null,
     private val usbCtaphid: UsbCtaphid? = null,
+    private val hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val securityService: SystemSecurityService,
     private val connectedKeysRepository: ConnectedKeysRepository,
@@ -88,27 +91,62 @@ class PairingWizardRepositoryImpl(
 
         when (transport) {
             ConnectionTransportType.BLE -> {
-                // Emite imediatamente candidatos conhecidos (bonded) sem tela vazia
                 val currentDevices = bleClient?.devices?.value ?: emptyList()
                 _discoveredCandidates.value = buildBleCandidates(currentDevices)
                 runCatching { bleClient?.startScan() }
             }
             ConnectionTransportType.USB -> {
-                val device = runCatching { usbCtaphid?.findDevice() }.getOrNull()
+                android.util.Log.i("PairingWizard", "startDiscovery: Iniciando busca por USB / Bridge UART...")
                 val list = mutableListOf<DiscoveredKeyCandidate>()
-                if (device != null) {
+
+                // 1. Verifica dispositivo USB conectado diretamente ao dispositivo Android (OTG)
+                val directUsbDevice = runCatching { usbCtaphid?.findDevice() }.getOrNull()
+                if (directUsbDevice != null) {
                     list.add(
                         DiscoveredKeyCandidate(
-                            id = "usb:${device.vendorId}:${device.productId}",
-                            name = "AegisKey USB Hardware",
+                            id = "usb:${directUsbDevice.vendorId}:${directUsbDevice.productId}",
+                            name = "AegisKey USB Hardware (Nativo)",
                             signalRssi = 0,
                             transportType = ConnectionTransportType.USB
                         )
                     )
                 }
+
+                // 2. Consulta a ponte USB/UART no host PC (127.0.0.1 ou 10.0.2.2 no emulador)
+                val bridgeInfo = runCatching { hostBridgeClient.probeRealHardware() }.getOrNull()
+                if (bridgeInfo != null && bridgeInfo.connected) {
+                    list.add(
+                        DiscoveredKeyCandidate(
+                            id = "BRIDGE:${bridgeInfo.port}",
+                            name = bridgeInfo.deviceName,
+                            signalRssi = 0,
+                            transportType = ConnectionTransportType.USB
+                        )
+                    )
+                }
+
+                // 3. Mock do chip (apenas se ativado explicitamente)
                 if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
                     DebugHardwareChipMock.MOCK_USB_CANDIDATE?.let { list.add(it) }
                 }
+
+                android.util.Log.i("PairingWizard", "startDiscovery(USB) encontrou ${list.size} candidatos: ${list.map { it.name }}")
+                _discoveredCandidates.value = list
+                _isScanning.value = false
+            }
+            ConnectionTransportType.WIFI -> {
+                val list = mutableListOf<DiscoveredKeyCandidate>()
+
+                // Ponto de acesso direto ou rede Wi-Fi da AegisKey
+                list.add(
+                    DiscoveredKeyCandidate(
+                        id = "WIFI:http://192.168.4.1",
+                        name = "AegisKey Wi-Fi (192.168.4.1)",
+                        signalRssi = -35,
+                        transportType = ConnectionTransportType.WIFI
+                    )
+                )
+
                 _discoveredCandidates.value = list
             }
             ConnectionTransportType.SIMULATOR -> {
@@ -132,7 +170,13 @@ class PairingWizardRepositoryImpl(
 
     override suspend fun simulatePhysicalButtonHold5s(): Result<Unit> = withContext(Dispatchers.IO) {
         if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
-            return@withContext Result.failure(IllegalStateException("Simulação de botão físico indisponível em modo release"))
+            // Em ambiente com chave real na ponte, tenta solicitar janela de pareamento na UART
+            val bridgeOk = hostBridgeClient.requestPairingWindow()
+            if (bridgeOk) {
+                _buttonHoldSimulatedOrDetected.value = true
+                return@withContext Result.success(Unit)
+            }
+            return@withContext Result.failure(IllegalStateException("Pressione o botão físico da chave para iniciar o pareamento"))
         }
         _buttonHoldSimulatedOrDetected.value = true
         simulatedRenodeTransport.simulatePhysicalButtonHold5s()
@@ -140,7 +184,12 @@ class PairingWizardRepositoryImpl(
 
     override suspend fun simulatePhysicalButtonSingleTouch(): Result<Unit> = withContext(Dispatchers.IO) {
         if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
-            return@withContext Result.failure(IllegalStateException("Simulação de toque físico indisponível em modo release"))
+            // Em ambiente de bancada, avisa a ponte ou requer toque no sensor físico
+            val bridgeOk = hostBridgeClient.triggerTouchUp()
+            if (bridgeOk) {
+                return@withContext Result.success(Unit)
+            }
+            return@withContext Result.failure(IllegalStateException("Toque no botão/sensor físico da chave para confirmar"))
         }
         simulatedRenodeTransport.simulatePhysicalButtonSingleTouch()
     }
@@ -149,8 +198,16 @@ class PairingWizardRepositoryImpl(
         runCatching {
             currentCandidate = candidate
             if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate.id)) {
-                // Candidato Mock do Chip ESP32: conexão simulada instantânea apenas se mocks estiverem ativos
                 Unit
+            } else if (candidate.id.startsWith("BRIDGE:")) {
+                // Valida que a chave responde na ponte host USB/UART
+                val ok = hostBridgeClient.ping() || hostBridgeClient.probeRealHardware() != null
+                if (!ok) {
+                    throw IllegalStateException("Não foi possível comunicar com a chave física na porta USB/UART (${candidate.id})")
+                }
+            } else if (candidate.id.startsWith("WIFI:") || candidate.transportType == ConnectionTransportType.WIFI) {
+                // Tenta verificar disponibilidade do AP Wi-Fi
+                runCatching { WifiApi.getWifiNets("http://192.168.4.1") }
             } else {
                 when (candidate.transportType) {
                     ConnectionTransportType.BLE -> {
@@ -163,6 +220,7 @@ class PairingWizardRepositoryImpl(
                         val device = usb.findDevice() ?: throw IllegalStateException("Dispositivo USB AegisKey não encontrado")
                         usb.requestPermission(device)
                     }
+                    ConnectionTransportType.WIFI -> Unit
                     ConnectionTransportType.SIMULATOR -> {
                         if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
                             throw IllegalStateException("Transporte simulado indisponível na versão de produção")
@@ -196,8 +254,15 @@ class PairingWizardRepositoryImpl(
             val transportType = candidate?.transportType ?: ConnectionTransportType.BLE
 
             val rawResponse = if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id)) {
-                // Eco imediato determinístico do chip físico simulado (apenas em DEBUG com mocks ativos)
                 byteArrayOf(0x28.toByte(), 0x00.toByte()) + bindingId
+            } else if (candidate?.id?.startsWith("BRIDGE:") == true) {
+                // Envia comando real de claim (0x28) diretamente para a chave física na porta USB/UART
+                hostBridgeClient.sendVendor(0x28, claimPayload)
+                    ?: throw IllegalStateException("Chave física no USB/UART não respondeu ao comando de vínculo 0x28")
+            } else if (candidate?.transportType == ConnectionTransportType.WIFI || candidate?.id?.startsWith("WIFI:") == true) {
+                // Envia comando de claim para a chave via Wi-Fi/ponte
+                hostBridgeClient.sendVendor(0x28, claimPayload)
+                    ?: throw IllegalStateException("Chave Wi-Fi não respondeu ao comando de vínculo 0x28")
             } else {
                 val sendResult = when (transportType) {
                     ConnectionTransportType.SIMULATOR -> {
@@ -211,7 +276,11 @@ class PairingWizardRepositoryImpl(
                         client.sendVendor(0x28, claimPayload)
                     }
                     ConnectionTransportType.USB -> {
-                        simulatedRenodeTransport.sendVendor(0x28, claimPayload)
+                        hostBridgeClient.sendVendor(0x28, claimPayload)
+                            ?: simulatedRenodeTransport.sendVendor(0x28, claimPayload)
+                    }
+                    ConnectionTransportType.WIFI -> {
+                        hostBridgeClient.sendVendor(0x28, claimPayload)
                     }
                 }
 
@@ -240,15 +309,19 @@ class PairingWizardRepositoryImpl(
             val displayName = keyAliasName.trim().ifEmpty {
                 when {
                     DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id) -> "AegisKey FIDO2 (Chip Debug)"
+                    candidate?.id?.startsWith("BRIDGE:") == true -> candidate.name
+                    transportType == ConnectionTransportType.WIFI -> "AegisKey Wi-Fi (192.168.4.1)"
                     transportType == ConnectionTransportType.SIMULATOR -> "AegisKey Virtual (Teste)"
                     else -> "AegisKey " + bindingIdHex.take(4)
                 }
             }
 
+            val hardwareAddr = candidate?.id ?: (if (transportType == ConnectionTransportType.WIFI) "WIFI:http://192.168.4.1" else bindingIdHex)
+
             val device = ConnectedKeyDevice(
                 id = UUID.randomUUID().toString(),
                 displayName = displayName,
-                hardwareAddressOrId = candidate?.id ?: bindingIdHex,
+                hardwareAddressOrId = hardwareAddr,
                 bindingIdHex = bindingIdHex,
                 transportType = transportType,
                 isCurrentlyConnected = true,
@@ -256,7 +329,7 @@ class PairingWizardRepositoryImpl(
                 lastConnectedEpochMs = System.currentTimeMillis()
             )
 
-            // Em modo debug com mocks ativos, injeta dados simulando a NVS do chip
+            // Apenas se mocks estiverem explicitamente ativos
             if (keysStore != null && DebugHardwareChipMock.IS_MOCK_ENABLED) {
                 DebugHardwareChipMock.seedChipDataForKey(device.id, keysStore)
             }

@@ -46,11 +46,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.BuildConfig
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 
 /**
  * Painel recolhível de Hooks e Mocks de Hardware do Chip físico ESP32-S3.
  * Grade 2x3 compacta com botões de 36.dp e textos em linha única sem quebras.
- * Disponível exclusivamente na compilação DEBUG.
+ * Disponível exclusivamente na compilação DEBUG com mocks explicitamente ativados.
  */
 @Composable
 fun DebugChipControlHooksCard(
@@ -62,7 +63,7 @@ fun DebugChipControlHooksCard(
     onToggleConnection: () -> Unit = {},
     onResetAllKeys: () -> Unit = {},
 ) {
-    if (!BuildConfig.DEBUG) return
+    if (!BuildConfig.DEBUG || !DebugHardwareChipMock.IS_MOCK_ENABLED) return
 
     var isExpanded by remember { mutableStateOf(false) }
 

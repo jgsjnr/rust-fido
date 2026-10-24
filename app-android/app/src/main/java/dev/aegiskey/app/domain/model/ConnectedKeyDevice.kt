@@ -1,6 +1,6 @@
 package dev.aegiskey.app.domain.model
 
-enum class ConnectionTransportType { BLE, USB, SIMULATOR }
+enum class ConnectionTransportType { BLE, USB, WIFI, SIMULATOR }
 
 data class SecurityToggles(
     val lockOnWalkAway: Boolean = true,

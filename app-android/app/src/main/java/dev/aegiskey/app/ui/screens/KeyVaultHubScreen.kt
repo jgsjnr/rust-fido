@@ -438,7 +438,8 @@ private fun ActiveKeySummaryCard(
 ) {
     val transportLabel = when (transport) {
         ConnectionTransportType.BLE -> "Bluetooth"
-        ConnectionTransportType.USB -> "Cabo USB"
+        ConnectionTransportType.USB -> "Cabo USB / UART"
+        ConnectionTransportType.WIFI -> "Rede Wi-Fi"
         ConnectionTransportType.SIMULATOR -> "Simulador Virtual"
         null -> "Chave Física"
     }

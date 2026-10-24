@@ -4,6 +4,7 @@ import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.TotpAccountItem
@@ -26,6 +27,7 @@ import javax.crypto.spec.SecretKeySpec
 class TotpRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
     private val bleClient: AegisBleClient? = null,
+    private val hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val connectedKeysRepository: ConnectedKeysRepository,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
@@ -56,10 +58,20 @@ class TotpRepositoryImpl(
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        return if (activeKey?.transportType == ConnectionTransportType.SIMULATOR) {
-            simulatedRenodeTransport.sendVendor(opcode, payload)
-        } else {
-            bleClient?.sendVendor(opcode, payload)
+        val addr = activeKey?.hardwareAddressOrId ?: ""
+        return when {
+            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB -> {
+                hostBridgeClient.sendVendor(opcode, payload)
+            }
+            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
+                hostBridgeClient.sendVendor(opcode, payload)
+            }
+            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
+                simulatedRenodeTransport.sendVendor(opcode, payload)
+            }
+            else -> {
+                bleClient?.sendVendor(opcode, payload)
+            }
         }
     }
 
