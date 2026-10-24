@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,8 +36,8 @@ import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 
 /**
- * Cartão representando uma chave física de segurança no repositório do app.
- * Mostra status de pareamento, chave ativa atual e ações rápidas (usar, renomear, desconectar).
+ * Cartão compacto representando uma chave física de segurança.
+ * Padding de 12.dp, textos com maxLines=1 e botões em linha única com altura de 32.dp.
  */
 @Composable
 fun ConnectedKeyCardMolecule(
@@ -57,11 +58,11 @@ fun ConnectedKeyCardMolecule(
     }
 
     OutlinedCard(
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(if (isCurrentKey) 2.dp else 1.dp, borderColor),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(if (isCurrentKey) 1.5.dp else 1.dp, borderColor),
         colors = CardDefaults.outlinedCardColors(
             containerColor = if (isCurrentKey) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f)
             } else {
                 MaterialTheme.colorScheme.surface
             },
@@ -71,21 +72,21 @@ fun ConnectedKeyCardMolecule(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(12.dp),
         ) {
-            // Cabeçalho: Ícone + Nome + Badge Ativo / Status
+            // Cabeçalho: Ícone + Nome + Badge Ativo
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = if (isCurrentKey) {
                         MaterialTheme.colorScheme.primaryContainer
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant
                     },
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(36.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -96,12 +97,12 @@ fun ConnectedKeyCardMolecule(
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -110,21 +111,24 @@ fun ConnectedKeyCardMolecule(
                     ) {
                         Text(
                             text = keyName.ifBlank { "Minha Chave AegisKey" },
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (isCurrentKey) {
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(6.dp),
                                 color = MaterialTheme.colorScheme.primary,
                             ) {
                                 Text(
                                     text = "Em uso",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                                 )
                             }
                         }
@@ -142,7 +146,7 @@ fun ConnectedKeyCardMolecule(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Badge de status de conexão
             ConnectionStatusBadgeAtom(
@@ -150,17 +154,17 @@ fun ConnectedKeyCardMolecule(
                 transportLabel = transportLabel,
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Linha de Ações
+            // Linha de Ações alinhada
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!isCurrentKey) {
                     QuickActionPillButton(
-                        text = "Usar esta chave",
+                        text = "Usar",
                         icon = Icons.Filled.CheckCircle,
                         onClick = onSelectKey,
                     )
@@ -168,37 +172,44 @@ fun ConnectedKeyCardMolecule(
 
                 OutlinedButton(
                     onClick = onRenameKey,
-                    shape = RoundedCornerShape(20.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    modifier = Modifier.height(36.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Edit,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(14.dp),
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "Renomear", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "Renomear",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
                 TextButton(
                     onClick = onDisconnectKey,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.LinkOff,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(14.dp),
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = "Desconectar",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

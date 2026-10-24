@@ -44,29 +44,35 @@ class PairingWizardRepositoryImpl(
     private val _buttonHoldSimulatedOrDetected = MutableStateFlow(false)
     override val buttonHoldSimulatedOrDetected: StateFlow<Boolean> = _buttonHoldSimulatedOrDetected.asStateFlow()
 
+    private var activeScanTransport: ConnectionTransportType? = null
     private var currentCandidate: DiscoveredKeyCandidate? = null
 
+    private fun buildBleCandidates(devices: List<AegisBleClient.FoundDevice>): List<DiscoveredKeyCandidate> {
+        val realCandidates = devices.map { dev ->
+            DiscoveredKeyCandidate(
+                id = dev.address,
+                name = dev.name.ifBlank { "Chave Bluetooth (${dev.address})" },
+                signalRssi = dev.rssi,
+                transportType = ConnectionTransportType.BLE
+            )
+        }
+        return if (DebugHardwareChipMock.isDebugMode) {
+            val mockBle = DebugHardwareChipMock.MOCK_BLE_CANDIDATE
+            if (realCandidates.none { it.id == mockBle.id }) {
+                listOf(mockBle) + realCandidates
+            } else {
+                realCandidates
+            }
+        } else {
+            realCandidates
+        }
+    }
+
     init {
-        // Observa dispositivos encontrados pelo AegisBleClient se disponível
-        bleClient?.state?.onEach { uiState ->
-            if (_isScanning.value && currentCandidate?.transportType != ConnectionTransportType.SIMULATOR) {
-                val bleCandidates = uiState.devices.map {
-                    DiscoveredKeyCandidate(
-                        id = it.address,
-                        name = it.name.ifBlank { "AegisKey BLE" },
-                        signalRssi = -55,
-                        transportType = ConnectionTransportType.BLE
-                    )
-                }
-                val allCandidates = if (DebugHardwareChipMock.isDebugMode) {
-                    val mockBle = DebugHardwareChipMock.MOCK_BLE_CANDIDATE
-                    if (bleCandidates.none { it.id == mockBle.id }) {
-                        listOf(mockBle) + bleCandidates
-                    } else bleCandidates
-                } else {
-                    bleCandidates
-                }
-                _discoveredCandidates.value = allCandidates
+        // Observa continuamente o StateFlow de dispositivos encontrados pelo AegisBleClient
+        bleClient?.devices?.onEach { foundList ->
+            if (_isScanning.value && activeScanTransport == ConnectionTransportType.BLE) {
+                _discoveredCandidates.value = buildBleCandidates(foundList)
             }
         }?.launchIn(scope)
 
@@ -76,16 +82,16 @@ class PairingWizardRepositoryImpl(
     }
 
     override suspend fun startDiscovery(transport: ConnectionTransportType): Unit = withContext(Dispatchers.IO) {
+        activeScanTransport = transport
         _isScanning.value = true
         _buttonHoldSimulatedOrDetected.value = false
-        _discoveredCandidates.value = emptyList()
 
         when (transport) {
             ConnectionTransportType.BLE -> {
+                // Emite imediatamente candidatos conhecidos (bonded + mock) sem tela vazia
+                val currentDevices = bleClient?.devices?.value ?: emptyList()
+                _discoveredCandidates.value = buildBleCandidates(currentDevices)
                 runCatching { bleClient?.startScan() }
-                if (DebugHardwareChipMock.isDebugMode) {
-                    _discoveredCandidates.value = listOf(DebugHardwareChipMock.MOCK_BLE_CANDIDATE)
-                }
             }
             ConnectionTransportType.USB -> {
                 val device = runCatching { usbCtaphid?.findDevice() }.getOrNull()
@@ -122,6 +128,7 @@ class PairingWizardRepositoryImpl(
 
     override suspend fun stopDiscovery(): Unit = withContext(Dispatchers.IO) {
         _isScanning.value = false
+        activeScanTransport = null
         bleClient?.stopScan()
         Unit
     }

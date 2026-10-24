@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 import dev.aegiskey.app.ui.atomic.atoms.SecondaryBackButton
@@ -30,11 +31,7 @@ import dev.aegiskey.app.ui.atomic.atoms.StepProgressDotsAtom
 /**
  * Template padronizado para fluxos lineares e acolhedores no estilo "Próximo → Próximo → Concluir"
  * (Onboarding, Pareamento Guiado, Recuperação e Troca de Dono).
- *
- * Estrutura:
- * 1. Topo: Indicador de passos em pílula + Título acolhedor + Subtítulo amigável
- * 2. Centro: Área rolável para o conteúdo customizado do passo
- * 3. Base: Barra fixa de ações com botão Voltar e botão Próximo/Concluir em destaque
+ * Espaçamentos enxutos de 12.dp e barra inferior compacta (16x10.dp).
  */
 @Composable
 fun WizardStepTemplate(
@@ -58,32 +55,36 @@ fun WizardStepTemplate(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        // Cabeçalho Fixo do Passo
+        // Cabeçalho Fixo do Passo com espaçamentos enxutos
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             StepProgressDotsAtom(
                 currentStep = currentStep,
                 totalSteps = totalSteps,
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
 
             if (!subtitle.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -98,16 +99,16 @@ fun WizardStepTemplate(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 content = content,
             )
         }
 
-        // Barra Inferior Fixa de Navegação
+        // Barra Inferior Fixa Compacta
         Surface(
-            tonalElevation = 3.dp,
-            shadowElevation = 4.dp,
+            tonalElevation = 2.dp,
+            shadowElevation = 3.dp,
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -115,8 +116,8 @@ fun WizardStepTemplate(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (currentStep > 1 && onBackClick != null) {
@@ -132,7 +133,7 @@ fun WizardStepTemplate(
                     onClick = onNextClick,
                     enabled = isNextEnabled,
                     isLoading = isNextLoading,
-                    modifier = Modifier.weight(if (currentStep > 1 && onBackClick != null) 1.6f else 1f),
+                    modifier = Modifier.weight(if (currentStep > 1 && onBackClick != null) 1.5f else 1f),
                 )
             }
         }

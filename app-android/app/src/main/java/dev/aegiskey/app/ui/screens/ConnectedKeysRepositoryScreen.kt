@@ -1,7 +1,6 @@
 package dev.aegiskey.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
@@ -82,8 +81,10 @@ fun ConnectedKeysRepositoryScreen(
                 title = {
                     Text(
                         text = "Minhas Chaves Físicas",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 },
                 navigationIcon = {
@@ -100,27 +101,31 @@ fun ConnectedKeysRepositoryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Cartão de Destaque para Conectar Nova Chave
+            // Botão compacto para Conectar Nova Chave (46.dp)
             item {
                 Button(
                     onClick = onConnectNewKey,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Conectar Nova Chave",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -128,40 +133,46 @@ fun ConnectedKeysRepositoryScreen(
 
             item {
                 Text(
-                    text = "Chaves Cadastradas no Celular",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Chaves Vinculadas ao Celular",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
             if (uiState.keys.isEmpty()) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier.padding(18.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.VpnKey,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(32.dp),
                             )
                             Text(
                                 text = "Nenhuma chave vinculada",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Toque no botão acima para conectar sua primeira chave física AegisKey.",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "Toque no botão acima para conectar sua primeira chave física.",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -201,31 +212,35 @@ fun ConnectedKeysRepositoryScreen(
         }
     }
 
-    // Diálogo de Renomear Chave
+    // Diálogo compacto de Renomear Chave
     keyToRename?.let { device ->
         AlertDialog(
             onDismissRequest = { keyToRename = null },
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
                     text = "Renomear Chave",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "Escolha um apelido fácil de lembrar para identificar esta chave:",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     OutlinedTextField(
                         value = newKeyName,
                         onValueChange = { newKeyName = it },
-                        label = { Text("Nome da chave") },
+                        label = { Text("Nome da chave", maxLines = 1) },
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -242,29 +257,33 @@ fun ConnectedKeysRepositoryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { keyToRename = null }) {
-                    Text("Cancelar")
+                    Text("Cancelar", maxLines = 1)
                 }
             },
         )
     }
 
-    // Diálogo de Confirmação para Desconectar / Remover
+    // Diálogo compacto de Confirmação para Desconectar
     keyToRemove?.let { device ->
         AlertDialog(
             onDismissRequest = { keyToRemove = null },
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
                     text = "Desconectar Chave?",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             text = {
                 Text(
-                    text = "Tem certeza de que deseja remover a chave \"${device.displayName}\"? Você poderá reconectá-la a qualquer momento.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Tem certeza de que deseja remover \"${device.displayName}\"? Você poderá reconectá-la a qualquer momento.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             confirmButton = {
@@ -277,14 +296,15 @@ fun ConnectedKeysRepositoryScreen(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError,
                     ),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(40.dp),
                 ) {
-                    Text("Desconectar")
+                    Text("Desconectar", maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { keyToRemove = null }) {
-                    Text("Cancelar")
+                    Text("Cancelar", maxLines = 1)
                 }
             },
         )

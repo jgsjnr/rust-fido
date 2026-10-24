@@ -23,11 +23,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
  * Botão principal de avanço / confirmação ("Próximo", "Concluir", "Continuar").
- * Destaque visual elevado, área de toque confortável e suporte a estado de carregamento.
+ * Responsivo, altura compacta de 46.dp, canto de 12.dp e texto com maxLines=1 para nunca quebrar.
  */
 @Composable
 fun PrimaryNextButton(
@@ -40,34 +41,36 @@ fun PrimaryNextButton(
     Button(
         onClick = onClick,
         enabled = enabled && !isLoading,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
-        modifier = modifier.defaultMinSize(minHeight = 50.dp),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+        modifier = modifier.defaultMinSize(minHeight = 46.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (isLoading) {
                 CircularProgressIndicator(
                     strokeWidth = 2.dp,
                     color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(16.dp),
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
             }
             Text(
                 text = text,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             if (!isLoading) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Icon(
                     imageVector = Icons.Filled.ArrowForward,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
@@ -76,7 +79,7 @@ fun PrimaryNextButton(
 
 /**
  * Botão secundário de retorno ("Voltar").
- * Contorno limpo, sem conflito com a ação primária.
+ * Altura compacta de 46.dp, contorno limpo e texto com maxLines=1.
  */
 @Composable
 fun SecondaryBackButton(
@@ -88,28 +91,31 @@ fun SecondaryBackButton(
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier.defaultMinSize(minHeight = 50.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.defaultMinSize(minHeight = 46.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = Icons.Filled.ArrowBack,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(16.dp),
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = text,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
 /**
- * Botão em formato de pílula para ações contextuais rápidas (ex: "Copiar", "Renomear", "Testar").
+ * Botão pílula enxuto para ações rápidas de 1 toque (ex: "Copiar", "Renomear", "Testar").
+ * Altura de 32.dp, padding de 10x4.dp e texto com maxLines=1.
  */
 @Composable
 fun QuickActionPillButton(
@@ -120,21 +126,23 @@ fun QuickActionPillButton(
 ) {
     FilledTonalButton(
         onClick = onClick,
-        shape = RoundedCornerShape(24.dp),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        modifier = modifier.defaultMinSize(minHeight = 36.dp),
+        shape = RoundedCornerShape(16.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        modifier = modifier.defaultMinSize(minHeight = 32.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(14.dp),
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(5.dp))
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

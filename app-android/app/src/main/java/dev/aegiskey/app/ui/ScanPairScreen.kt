@@ -42,6 +42,7 @@ import androidx.core.content.ContextCompat
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.security.BlePermissions
 import dev.aegiskey.app.security.SanitizedLog
 import dev.aegiskey.app.security.SdkGate
 import kotlinx.coroutines.Dispatchers
@@ -65,10 +66,7 @@ import kotlinx.coroutines.launch
  * - ACCESS_FINE/COARSE_LOCATION nunca pedida: filtro 0xFFFD nao precisa
  *   e o app nunca deriva localizacao fisica.
  */
-private val REQUIRED_BT_PERMISSIONS = arrayOf(
-    Manifest.permission.BLUETOOTH_SCAN,
-    Manifest.permission.BLUETOOTH_CONNECT,
-)
+private val REQUIRED_BT_PERMISSIONS = BlePermissions.REQUIRED
 
 /** Anuncio de proximidade: so par bonded ve 0xFFFE (nunca inventado). */
 private const val PROXIMITY_ADV_UUID16 = 0xFFFE
@@ -82,15 +80,10 @@ private const val USB_VID = 0x303A
 private const val USB_PID = 0xAE61
 
 private fun hasBtPermissions(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
-        PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
-        PackageManager.PERMISSION_GRANTED
+    BlePermissions.hasPermissions(context)
 
-private fun shouldShowBtRationale(activity: Activity?): Boolean {
-    if (activity == null) return false
-    return REQUIRED_BT_PERMISSIONS.any { activity.shouldShowRequestPermissionRationale(it) }
-}
+private fun shouldShowBtRationale(activity: Activity?): Boolean =
+    BlePermissions.shouldShowRationale(activity)
 
 private fun openAppSettings(context: Context) {
     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -279,6 +272,15 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
         DeviceLog.append(DeviceLog.Category.PAIRING, "proximity reconnect tocado: " + name.take(24))
         client.ensureBonded(address)
         client.connect(address)
+    }
+
+    // Solicita permissões BLE automaticamente ao entrar e inicia scan aberto
+    LaunchedEffect(granted) {
+        if (!granted && !permanentlyDenied) {
+            launcher.launch(REQUIRED_BT_PERMISSIONS)
+        } else if (granted && state.devices.isEmpty() && state.connection != AegisBleClient.Connection.SCANNING) {
+            client.startScan()
+        }
     }
 
     // Sonda do gate de proximidade informativa (efeito, nao composicao) + estado USB inicial.

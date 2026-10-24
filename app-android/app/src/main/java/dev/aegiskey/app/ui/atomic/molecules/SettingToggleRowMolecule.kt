@@ -29,8 +29,8 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.atoms.AegisSwitchAtom
 
 /**
- * Linha de configuração com interruptor (AegisSwitchAtom), ícone opcional e linguagem clara.
- * Clicar em qualquer parte do cartão alterna o interruptor.
+ * Linha de configuração responsiva com interruptor, padding enxuto (12.dp)
+ * e limites estritos de texto (título maxLines=1, descrição maxLines=2).
  */
 @Composable
 fun SettingToggleRowMolecule(
@@ -43,13 +43,13 @@ fun SettingToggleRowMolecule(
     modifier: Modifier = Modifier,
 ) {
     OutlinedCard(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surface,
         ),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable(
                 enabled = enabled,
                 role = Role.Switch,
@@ -59,25 +59,25 @@ fun SettingToggleRowMolecule(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (icon != null) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(36.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(10.dp))
             }
 
             Column(
@@ -86,24 +86,24 @@ fun SettingToggleRowMolecule(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!description.isNullOrBlank()) {
                     Text(
                         text = description,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             AegisSwitchAtom(
                 checked = checked,

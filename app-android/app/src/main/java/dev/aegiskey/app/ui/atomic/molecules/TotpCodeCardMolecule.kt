@@ -40,8 +40,8 @@ private fun formatGroupedDigits(rawCode: String): String {
 }
 
 /**
- * Cartão de código de verificação em duas etapas (TOTP) no padrão Material 3.
- * Exibe o emissor, conta, código em destaque visual imediato, anel animado e botão de cópia com 1 toque.
+ * Cartão compacto e responsivo de código de verificação TOTP.
+ * Padding de 12.dp, código monoespaçado em linha única com anel de 40.dp e botão de cópia rápido.
  */
 @Composable
 fun TotpCodeCardMolecule(
@@ -57,17 +57,17 @@ fun TotpCodeCardMolecule(
     val formattedCode = formatGroupedDigits(code)
 
     ElevatedCard(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface,
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(12.dp),
         ) {
             // Cabeçalho: Ícone do serviço + Emissor / Conta + Botão de exclusão opcional
             Row(
@@ -75,26 +75,26 @@ fun TotpCodeCardMolecule(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(36.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Filled.Key,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = issuer.ifBlank { "Código de Acesso" },
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -111,21 +111,21 @@ fun TotpCodeCardMolecule(
                 if (onDeleteAccount != null) {
                     IconButton(
                         onClick = onDeleteAccount,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(30.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
                             contentDescription = "Remover código",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Linha Central: Código Monoespaçado Gigante + Anel de Tempo
+            // Linha Central: Código Monoespaçado com anel de tempo sem quebrar linha
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -135,7 +135,12 @@ fun TotpCodeCardMolecule(
                     text = formattedCode.ifBlank { "--- ---" },
                     style = AegisCodeMonospaceStyle,
                     color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 TotpCountdownRingAtom(
                     remainingSeconds = remainingSeconds,
@@ -143,9 +148,9 @@ fun TotpCodeCardMolecule(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Rodapé: Botão de Cópia com 1 toque
+            // Rodapé: Botão de Cópia com 1 toque alinhado à direita
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 
@@ -48,28 +48,28 @@ enum class VaultKeyType(
 ) {
     PASSKEY(
         title = "Chave de Acesso (Passkey)",
-        description = "Login sem senha para Google, Apple, GitHub e sites",
+        description = "Login sem senha para Google, Apple e GitHub",
         icon = Icons.Filled.Fingerprint,
     ),
     BITCOIN(
         title = "Carteira Bitcoin",
-        description = "Segurança em hardware para guardar e assinar BTC",
+        description = "Segurança em hardware para assinar BTC",
         icon = Icons.Filled.AccountBalanceWallet,
     ),
     ETHEREUM(
         title = "Carteira Ethereum",
-        description = "Suporte para rede Ethereum, Polygon e EVM",
+        description = "Suporte para rede Ethereum e EVM",
         icon = Icons.Filled.AccountBalanceWallet,
     ),
     SOLANA(
         title = "Carteira Solana",
-        description = "Chave de alta velocidade para ecossistema Solana",
+        description = "Chave de alta velocidade para Solana",
         icon = Icons.Filled.AccountBalanceWallet,
     ),
 }
 
 /**
- * Diálogo acolhedor e descomplicado para criar uma nova credencial ou carteira na chave física.
+ * Diálogo compacto e responsivo para criar nova credencial na chave física.
  */
 @Composable
 fun KeyGenerationDialogOrganism(
@@ -84,43 +84,48 @@ fun KeyGenerationDialogOrganism(
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismissRequest() },
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         title = {
             Text(
                 text = "Criar nova chave no cofre",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "A nova chave será gravada e protegida exclusivamente pelo chip de segurança da sua AegisKey.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "A nova chave será gravada exclusivamente no chip de segurança.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
                 OutlinedTextField(
                     value = accountName,
                     onValueChange = { accountName = it },
-                    label = { Text("Nome ou identificador") },
-                    placeholder = { Text("Ex: GitHub Trabalho ou Carteira Pessoal") },
+                    label = { Text("Nome da chave", maxLines = 1) },
+                    placeholder = { Text("Ex: GitHub ou Carteira BTC", maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 Text(
                     text = "Tipo de Chave:",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
                 )
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     VaultKeyType.entries.forEach { keyType ->
                         val isSelected = keyType == selectedType
                         val borderColor = if (isSelected) {
@@ -129,24 +134,24 @@ fun KeyGenerationDialogOrganism(
                             MaterialTheme.colorScheme.outlineVariant
                         }
                         val containerColor = if (isSelected) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
                         } else {
                             MaterialTheme.colorScheme.surface
                         }
 
                         OutlinedCard(
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
                             colors = CardDefaults.outlinedCardColors(containerColor = containerColor),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .clickable(enabled = !isLoading) { selectedType = keyType },
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(12.dp),
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Surface(
@@ -156,7 +161,7 @@ fun KeyGenerationDialogOrganism(
                                     } else {
                                         MaterialTheme.colorScheme.surfaceVariant
                                     },
-                                    modifier = Modifier.size(36.dp),
+                                    modifier = Modifier.size(30.dp),
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
@@ -167,23 +172,27 @@ fun KeyGenerationDialogOrganism(
                                             } else {
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                             },
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = Modifier.size(16.dp),
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = keyType.title,
-                                        style = MaterialTheme.typography.titleSmall,
+                                        style = MaterialTheme.typography.labelLarge,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
                                         text = keyType.description,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                             }
@@ -194,7 +203,7 @@ fun KeyGenerationDialogOrganism(
         },
         confirmButton = {
             PrimaryNextButton(
-                text = "Criar na minha chave",
+                text = "Criar na chave",
                 enabled = isFormValid,
                 isLoading = isLoading,
                 onClick = {
@@ -209,7 +218,11 @@ fun KeyGenerationDialogOrganism(
                 onClick = onDismissRequest,
                 enabled = !isLoading,
             ) {
-                Text(text = "Cancelar", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "Cancelar",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                )
             }
         },
         modifier = modifier,

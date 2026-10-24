@@ -1,15 +1,13 @@
 package dev.aegiskey.app.ui.atomic.templates
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -55,12 +53,7 @@ enum class HubDestination(
 }
 
 /**
- * Template principal pós-pareamento para navegação diária no AegisKey.
- *
- * Oferece:
- * - TopAppBar informativa com a chave física ativa (com toque para troca de chave), badge de status e atalho de tema
- * - Barra inferior NavigationBar limpa com 4 destinos principais
- * - Suporte completo ao Scaffold PaddingValues para evitar qualquer sobreposição de telas
+ * Template principal pós-pareamento com TopAppBar contida e NavigationBar responsiva.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,33 +76,35 @@ fun MainHubScaffoldTemplate(
                 title = {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
+                            .widthIn(max = 190.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .clickable(onClick = onSwitchKeyClick),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.VpnKey,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = activeKeyName.ifBlank { "Minha AegisKey" },
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                             Icon(
                                 imageVector = Icons.Filled.ArrowDropDown,
                                 contentDescription = "Trocar chave",
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                             )
                         }
                     }
@@ -119,11 +114,15 @@ fun MainHubScaffoldTemplate(
                         isConnected = isConnected,
                         transportLabel = transportLabel,
                     )
-                    IconButton(onClick = onToggleThemeClick) {
+                    IconButton(
+                        onClick = onToggleThemeClick,
+                        modifier = Modifier.size(36.dp),
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Palette,
                             contentDescription = "Alternar aparência",
                             tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 },
@@ -136,7 +135,7 @@ fun MainHubScaffoldTemplate(
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp,
+                tonalElevation = 2.dp,
             ) {
                 HubDestination.entries.forEach { destination ->
                     val isSelected = destination == currentDestination
@@ -147,13 +146,16 @@ fun MainHubScaffoldTemplate(
                             Icon(
                                 imageVector = destination.icon,
                                 contentDescription = destination.label,
+                                modifier = Modifier.size(22.dp),
                             )
                         },
                         label = {
                             Text(
                                 text = destination.label,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         },
                     )

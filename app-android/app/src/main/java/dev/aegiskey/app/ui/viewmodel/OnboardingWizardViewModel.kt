@@ -60,9 +60,11 @@ class OnboardingWizardViewModel(
         // Observa candidatos descobertos pelo repositório
         pairingWizardRepository.discoveredCandidates.onEach { list ->
             _uiState.update { current ->
-                val autoSelected = current.selectedCandidate
-                    ?: list.firstOrNull { it.transportType == current.selectedTransport }
-                    ?: list.firstOrNull()
+                val autoSelected = if (current.selectedCandidate != null && list.any { it.id == current.selectedCandidate.id }) {
+                    current.selectedCandidate
+                } else {
+                    list.firstOrNull { it.transportType == current.selectedTransport } ?: list.firstOrNull()
+                }
                 current.copy(candidates = list, selectedCandidate = autoSelected)
             }
         }.launchIn(viewModelScope)
@@ -80,10 +82,23 @@ class OnboardingWizardViewModel(
 
     fun selectTransport(type: ConnectionTransportType) {
         _uiState.update { it.copy(selectedTransport = type, errorMessage = null) }
-        if (_uiState.value.currentStep == OnboardingStep.DISCOVER_AND_CONNECT) {
+        val step = _uiState.value.currentStep
+        if (step == OnboardingStep.HOLD_PHYSICAL_BUTTON || step == OnboardingStep.DISCOVER_AND_CONNECT) {
             viewModelScope.launch {
                 startDiscoveryUseCase(type)
             }
+        }
+    }
+
+    /**
+     * Reinicia a busca ativa pelo transporte selecionado (botão "Buscar novamente").
+     */
+    fun refreshDiscovery() {
+        viewModelScope.launch {
+            val transport = _uiState.value.selectedTransport
+            _uiState.update { it.copy(errorMessage = null) }
+            stopDiscoveryUseCase()
+            startDiscoveryUseCase(transport)
         }
     }
 
@@ -143,7 +158,12 @@ class OnboardingWizardViewModel(
         val current = _uiState.value.currentStep
         when (current) {
             OnboardingStep.WELCOME_TRANSPORT -> {
+                val transport = _uiState.value.selectedTransport
                 _uiState.update { it.copy(currentStep = OnboardingStep.HOLD_PHYSICAL_BUTTON, errorMessage = null) }
+                // Inicia a busca antecipadamente no Passo 2 para que no Passo 3 os dispositivos já estejam presentes
+                viewModelScope.launch {
+                    startDiscoveryUseCase(transport)
+                }
             }
             OnboardingStep.HOLD_PHYSICAL_BUTTON -> {
                 viewModelScope.launch {

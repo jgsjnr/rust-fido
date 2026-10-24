@@ -2,13 +2,11 @@ package dev.aegiskey.app.ui.atomic.organisms
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,18 +40,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.BuildConfig
-import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 
 /**
  * Painel recolhível de Hooks e Mocks de Hardware do Chip físico ESP32-S3.
- * Renderizado e ativo EXCLUSIVAMENTE em compilações de Debug ([BuildConfig.DEBUG]).
+ * Grade 2x3 compacta com botões de 36.dp e textos em linha única sem quebras.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DebugChipControlHooksCard(
     modifier: Modifier = Modifier,
@@ -69,10 +66,10 @@ fun DebugChipControlHooksCard(
     var isExpanded by remember { mutableStateOf(false) }
 
     OutlinedCard(
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f)),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)),
         colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.18f),
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f),
         ),
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -83,37 +80,44 @@ fun DebugChipControlHooksCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .clickable { isExpanded = !isExpanded }
-                    .padding(vertical = 4.dp, horizontal = 4.dp),
+                    .padding(vertical = 4.dp, horizontal = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(26.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Filled.BugReport,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onTertiary,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(15.dp),
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Hooks do Chip (Modo Debug)",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "Simulação física do ESP32-S3 + ATECC608A",
+                            text = "Simulação de hardware ESP32-S3",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -122,6 +126,7 @@ fun DebugChipControlHooksCard(
                     imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.size(20.dp),
                 )
             }
 
@@ -132,41 +137,61 @@ fun DebugChipControlHooksCard(
                         .padding(top = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FlowRow(
+                    // Linha 1: Segurar 5s + Toque (UP)
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         HookMiniButton(
-                            text = "Hold 5s",
+                            text = "Segurar 5s",
                             icon = Icons.Filled.Sensors,
                             onClick = onSimulateHold5s,
+                            modifier = Modifier.weight(1f),
                         )
                         HookMiniButton(
                             text = "Toque (UP)",
                             icon = Icons.Filled.TouchApp,
                             onClick = onSimulateTouch,
+                            modifier = Modifier.weight(1f),
                         )
+                    }
+
+                    // Linha 2: Injetar Dados + Ping Saúde
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         HookMiniButton(
-                            text = "+ Passkey/TOTP",
+                            text = "Injetar Dados",
                             icon = Icons.Filled.AddModerator,
                             onClick = onInjectSampleData,
+                            modifier = Modifier.weight(1f),
                         )
                         HookMiniButton(
-                            text = "Ping (0x2E)",
+                            text = "Ping Saúde",
                             icon = Icons.Filled.HealthAndSafety,
                             onClick = onSimulatePing,
+                            modifier = Modifier.weight(1f),
                         )
+                    }
+
+                    // Linha 3: Alternar Sinal + Resetar Zero
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         HookMiniButton(
-                            text = "Reconectar BLE",
+                            text = "Alternar Sinal",
                             icon = Icons.Filled.WifiTethering,
                             onClick = onToggleConnection,
+                            modifier = Modifier.weight(1f),
                         )
                         HookMiniButton(
-                            text = "Resetar p/ 0 Chaves",
+                            text = "Resetar Zero",
                             icon = Icons.Filled.DeleteSweep,
                             onClick = onResetAllKeys,
                             isDestructive = true,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -180,26 +205,34 @@ private fun HookMiniButton(
     text: String,
     icon: ImageVector,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     isDestructive: Boolean = false,
 ) {
     FilledTonalButton(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-        modifier = Modifier.height(34.dp),
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        modifier = modifier.height(36.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            color = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                fontWeight = FontWeight.Medium,
+                color = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

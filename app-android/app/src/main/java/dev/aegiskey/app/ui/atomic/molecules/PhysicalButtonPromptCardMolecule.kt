@@ -9,13 +9,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,12 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Cartão de instrução amigável e desmistificado para toque no botão físico da chave.
- * Comunica claramente se é necessário um toque rápido ou segurar por alguns segundos,
- * sem termos técnicos de criptografia ou FIDO2.
+ * Cartão compacto e acolhedor de instrução para toque no botão físico da chave.
+ * Padding de 14.dp, ícone contido e textos sem quebra desnecessária.
  */
 @Composable
 fun PhysicalButtonPromptCardMolecule(
@@ -51,36 +52,34 @@ fun PhysicalButtonPromptCardMolecule(
     onSimulateTouch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    // Animação de pulsação suave no ícone para atrair a atenção do usuário
     val infiniteTransition = rememberInfiniteTransition(label = "pulse_button")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.12f,
+        targetValue = 1.08f,
         animationSpec = infiniteRepeatable(
-            animation = tween(900),
+            animation = tween(800),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "pulse_scale",
     )
 
     Card(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f),
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
         ),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Círculo com ícone pulsante
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(46.dp)
                     .scale(pulseScale)
                     .background(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -91,68 +90,75 @@ fun PhysicalButtonPromptCardMolecule(
                     imageVector = Icons.Filled.TouchApp,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier.size(26.dp),
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = instruction,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
-                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
 
-            // Dica de duração
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
             ) {
                 Text(
-                    text = if (isLongPress) "⏱ Segure por ~5 segundos até a luz piscar" else "⚡ Dê 1 toque rápido para aprovar",
+                    text = if (isLongPress) "⏱ Segure por ~5 segundos até a luz piscar" else "⚡ Dê 1 toque rápido para confirmar",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                 )
             }
 
-            // Botão opcional para Simulação
             if (isSimulatedMode && onSimulateTouch != null) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 ElevatedButton(
                     onClick = onSimulateTouch,
                     colors = ButtonDefaults.elevatedButtonColors(
                         containerColor = MaterialTheme.colorScheme.tertiary,
                         contentColor = MaterialTheme.colorScheme.onTertiary,
                     ),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                         Text(
                             text = "Simular toque no botão",
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }

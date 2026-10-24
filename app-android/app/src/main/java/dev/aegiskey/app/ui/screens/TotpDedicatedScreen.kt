@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.ui.atomic.molecules.TotpCodeCardMolecule
@@ -76,29 +77,31 @@ fun TotpDedicatedScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Cartão de Topo / Botão Principal de Adicionar Código
+            // Botão Principal Compacto de Adicionar Código (46.dp)
             item {
                 Button(
                     onClick = { showAddDialog = true },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
+                        .height(46.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Adicionar Código Temporário (TOTP)",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Adicionar Código (TOTP)",
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -113,23 +116,25 @@ fun TotpDedicatedScreen(
                 ) {
                     Text(
                         text = "Códigos de Verificação",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (uiState.isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
                         }
                         IconButton(
                             onClick = { viewModel.refreshCodes() },
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
                                 contentDescription = "Sincronizar códigos",
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                             )
                         }
                     }
@@ -140,30 +145,34 @@ fun TotpDedicatedScreen(
             if (uiState.accounts.isEmpty() && !uiState.isLoading) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier.padding(18.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.LockClock,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "Nenhum código temporário cadastrado",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = "Nenhum código cadastrado",
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Adicione contas do Google, GitHub, redes sociais e bancos para gerar códigos mesmo sem internet.",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "Adicione contas do Google, GitHub e outros serviços para gerar códigos offline.",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -195,13 +204,15 @@ fun TotpDedicatedScreen(
             }
 
             item {
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp),
         )
     }
 
@@ -221,19 +232,23 @@ fun TotpDedicatedScreen(
     accountToDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { accountToDelete = null },
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
                     text = "Remover Código?",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             text = {
                 Text(
-                    text = "Deseja remover o gerador de códigos para \"${item.issuer.ifBlank { item.accountName }}\"? Você precisará do segredo original se quiser reconfigurar.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Deseja remover \"${item.issuer.ifBlank { item.accountName }}\"? Você precisará do segredo original se quiser reconfigurar.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             confirmButton = {
@@ -246,14 +261,15 @@ fun TotpDedicatedScreen(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError,
                     ),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(38.dp),
                 ) {
-                    Text("Remover Código")
+                    Text("Remover Código", maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { accountToDelete = null }) {
-                    Text("Cancelar")
+                    Text("Cancelar", maxLines = 1)
                 }
             },
         )

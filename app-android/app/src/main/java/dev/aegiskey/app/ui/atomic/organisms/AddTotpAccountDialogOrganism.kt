@@ -2,9 +2,11 @@ package dev.aegiskey.app.ui.atomic.organisms
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,13 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 
 /**
- * Diálogo amigável para cadastrar uma conta com código de autenticação em 2 etapas (TOTP).
- * Permite colar o segredo Base32 ou URL `otpauth://`, além de oferecer preenchimento
- * com 1 clique para testes e demonstrações rápidas.
+ * Diálogo compacto e responsivo para cadastrar uma conta com código TOTP.
  */
 @Composable
 fun AddTotpAccountDialogOrganism(
@@ -48,46 +49,55 @@ fun AddTotpAccountDialogOrganism(
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismissRequest() },
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         title = {
             Text(
                 text = "Adicionar código temporário",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "Cadastre o código de 2 etapas (TOTP). A chave física gerará os números de 6 dígitos mesmo se seu celular estiver offline.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "A chave física gerará os códigos mesmo com o celular offline.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
-                // Botão de preenchimento rápido para demonstração/testes
+                // Botão de preenchimento rápido
                 OutlinedButton(
                     onClick = {
                         issuer = "AegisKey Demo"
                         accountName = "usuario@aegiskey.dev"
-                        secretOrUri = "JBSWY3DPEHPK3PXP" // Segredo Base32 de teste padrão RFC 6238
+                        secretOrUri = "JBSWY3DPEHPK3PXP"
                     },
                     enabled = !isLoading,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(34.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Filled.AutoAwesome,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(14.dp),
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Gerar dados de teste automaticamente",
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "Preencher dados de teste",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -95,34 +105,33 @@ fun AddTotpAccountDialogOrganism(
                 OutlinedTextField(
                     value = issuer,
                     onValueChange = { issuer = it },
-                    label = { Text("Nome do serviço") },
-                    placeholder = { Text("Ex: Google, GitHub, Binance") },
+                    label = { Text("Nome do serviço", maxLines = 1) },
+                    placeholder = { Text("Ex: Google ou GitHub", maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 OutlinedTextField(
                     value = accountName,
                     onValueChange = { accountName = it },
-                    label = { Text("E-mail ou nome da conta") },
-                    placeholder = { Text("Ex: junior@empresa.com") },
+                    label = { Text("E-mail ou conta", maxLines = 1) },
+                    placeholder = { Text("Ex: usuario@empresa.com", maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 OutlinedTextField(
                     value = secretOrUri,
                     onValueChange = { secretOrUri = it },
-                    label = { Text("Chave secreta ou link otpauth://") },
-                    placeholder = { Text("Cole o código alfanumérico fornecido") },
-                    minLines = 2,
-                    maxLines = 4,
+                    label = { Text("Chave secreta ou link otpauth://", maxLines = 1) },
+                    placeholder = { Text("Cole o código alfanumérico", maxLines = 1) },
+                    singleLine = true,
                     enabled = !isLoading,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -144,7 +153,11 @@ fun AddTotpAccountDialogOrganism(
                 onClick = onDismissRequest,
                 enabled = !isLoading,
             ) {
-                Text(text = "Cancelar", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "Cancelar",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                )
             }
         },
         modifier = modifier,

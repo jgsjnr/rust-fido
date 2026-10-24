@@ -41,41 +41,52 @@ def main():
     adb(["shell", "input", "keyevent", "224"])
     adb(["shell", "wm", "dismiss-keyguard"])
     adb(["shell", "am", "force-stop", "com.google.android.apps.messaging"])
+    adb(["shell", "am", "force-stop", "com.google.android.dialer"])
     
-    # 1. Reset app state
+    # 1. Reset app state and pre-grant all runtime permissions
     adb(["shell", "pm", "clear", "dev.aegiskey.app"])
+    adb(["shell", "pm", "grant", "dev.aegiskey.app", "android.permission.BLUETOOTH_SCAN"])
+    adb(["shell", "pm", "grant", "dev.aegiskey.app", "android.permission.BLUETOOTH_CONNECT"])
+    adb(["shell", "pm", "grant", "dev.aegiskey.app", "android.permission.ACCESS_FINE_LOCATION"])
     time.sleep(1.0)
     adb(["shell", "am", "start", "-n", "dev.aegiskey.app/.MainActivity"])
     time.sleep(4.0)
+
+    # Dismiss permission dialog if one still showed up
+    adb(["shell", "input", "tap", "540", "1305"])
+    time.sleep(0.5)
 
     # Screen 1: Transport Selection (real Step 1 after start)
     screencap("01_wizard_step1_transport.png")
     # Tap "Bluetooth Sem Fio" - Bluetooth is at (540, 285)
     tap(540, 285)
-    tap(540, 2359) # Next
+    tap(540, 2366) # Next
 
     # Screen 2: Hold Button 5s
-    time.sleep(1.0)
+    time.sleep(1.2)
     screencap("02_wizard_step2_hold_button.png")
-    tap(743, 2359) # Next
+    tap(752, 2366) # Next
 
     # Screen 3: Discover and Connect
-    time.sleep(1.2)
+    time.sleep(1.5)
+    # Check if permission dialog needs dismissal
+    adb(["shell", "input", "tap", "540", "1305"])
+    time.sleep(0.5)
     screencap("03_wizard_step3_discover_connect.png")
-    tap(743, 2359) # Next
+    tap(752, 2366) # Next
 
     # Screen 4: Touch Confirmation & Biometrics
-    time.sleep(1.2)
+    time.sleep(1.5)
     screencap("04_wizard_step4_touch_biometric.png")
-    tap(743, 2359) # Next
+    tap(752, 2366) # Next
 
     # Screen 5: Name and Finish
-    time.sleep(1.2)
+    time.sleep(1.5)
     screencap("05_wizard_step5_name_finish.png")
-    tap(743, 2359) # Finish and open vault
+    tap(752, 2366) # Finish and open vault
 
     # Main Hub
-    time.sleep(2.0)
+    time.sleep(2.5)
     # Screen 6: Tab 1 - Key Vault
     screencap("06_hub_key_vault.png")
 
@@ -86,12 +97,12 @@ def main():
 
     # Screen 8: Tab 3 - Connected Keys (x=676, y=2360)
     tap(676, 2360)
-    time.sleep(1.2)
+    time.sleep(1.5)
     screencap("08_hub_connected_keys.png")
 
     # Screen 9: Tab 4 - Settings and Themes (x=948, y=2360)
     tap(948, 2360)
-    time.sleep(1.2)
+    time.sleep(1.5)
     screencap("09_hub_settings_themes.png")
 
     print("=== All screens captured and verified! ===")

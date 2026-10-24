@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
 import dev.aegiskey.app.ui.theme.ThemeMode
@@ -55,23 +56,24 @@ private fun ThemeModeOptionCard(
     }
 
     OutlinedCard(
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
         colors = CardDefaults.outlinedCardColors(containerColor = containerColor),
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
+            .height(64.dp)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onSelect),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp, horizontal = 8.dp),
+                .padding(vertical = 6.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(24.dp),
             ) {
                 Icon(
                     imageVector = icon,
@@ -81,10 +83,10 @@ private fun ThemeModeOptionCard(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
@@ -95,13 +97,16 @@ private fun ThemeModeOptionCard(
                     MaterialTheme.colorScheme.onSurface
                 },
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
 /**
- * Organismo para seleção visual de tema e personalização Material You.
+ * Organismo compacto para seleção de tema com altura uniforme de 64.dp
+ * e texto em linha única garantido.
  */
 @Composable
 fun ThemeSelectorOrganism(
@@ -113,18 +118,20 @@ fun ThemeSelectorOrganism(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = "Aparência e Cores",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
 
-        // Seletor de 3 Modos: Sistema, Claro, Escuro
+        // Seletor de 3 Modos com altura fixa de 64.dp
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ThemeModeOptionCard(
                 mode = ThemeMode.SYSTEM,
@@ -154,10 +161,10 @@ fun ThemeSelectorOrganism(
             )
         }
 
-        // Interruptor para Cores Dinâmicas (Material You)
+        // Interruptor para Cores Dinâmicas
         SettingToggleRowMolecule(
             title = "Cores Dinâmicas do Android",
-            description = "Adapta a paleta do app às cores do papel de parede do seu aparelho.",
+            description = "Adapta a paleta às cores do papel de parede do aparelho.",
             icon = Icons.Filled.Palette,
             checked = dynamicColorEnabled,
             onCheckedChange = onDynamicColorToggle,

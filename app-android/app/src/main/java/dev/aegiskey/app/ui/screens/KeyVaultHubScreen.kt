@@ -3,6 +3,7 @@ package dev.aegiskey.app.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
@@ -92,10 +94,10 @@ fun KeyVaultHubScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Cartão de Resumo da Chave Física Ativa
+            // Cartão de Resumo da Chave Física Ativa Compacto
             item {
                 ActiveKeySummaryCard(
                     activeKeyName = uiState.activeKey?.displayName ?: "Nenhuma chave ativa",
@@ -107,26 +109,28 @@ fun KeyVaultHubScreen(
                 )
             }
 
-            // Botão Principal: Criar Nova Chave no Cofre
+            // Botão Principal: Criar Nova Chave no Cofre (46.dp)
             item {
                 Button(
                     onClick = { showCreateDialog = true },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
+                        .height(46.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Criar Nova Chave de Acesso",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -141,11 +145,13 @@ fun KeyVaultHubScreen(
                 ) {
                     Text(
                         text = "Guardadas no Cofre",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     if (uiState.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     }
                 }
             }
@@ -153,30 +159,34 @@ fun KeyVaultHubScreen(
             if (uiState.entries.isEmpty() && !uiState.isLoading) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier.padding(18.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Lock,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(36.dp),
+                                modifier = Modifier.size(32.dp),
                             )
                             Text(
                                 text = "Seu cofre está vazio",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Crie sua primeira Passkey ou carteira para proteger suas contas diretamente no chip da chave.",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "Crie sua primeira Passkey ou carteira para proteger suas contas diretamente no chip.",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -205,34 +215,36 @@ fun KeyVaultHubScreen(
             item {
                 Text(
                     text = "Proteção Rápida",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 8.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
 
             item {
                 val toggles = uiState.activeKey?.toggles
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingToggleRowMolecule(
                         title = "Bloquear ao afastar a chave",
-                        description = "O cofre fecha automaticamente caso o sinal sem fio da chave se distancie.",
+                        description = "Fecha o cofre se a chave física se distanciar.",
                         icon = Icons.Filled.LockPerson,
                         checked = toggles?.lockOnWalkAway ?: true,
                         onCheckedChange = { viewModel.toggleLockOnWalkAway(it) },
                     )
 
                     SettingToggleRowMolecule(
-                        title = "Pedir digital ao abrir o aplicativo",
-                        description = "Exige sua impressão digital ou reconhecimento facial do celular para visualizar o cofre.",
+                        title = "Pedir digital ao abrir o app",
+                        description = "Exige biometria do celular para ver o cofre.",
                         icon = Icons.Filled.Fingerprint,
                         checked = toggles?.requireBiometricsOnOpen ?: false,
                         onCheckedChange = { viewModel.toggleRequireBiometrics(it) },
                     )
 
                     SettingToggleRowMolecule(
-                        title = "Exigir toque físico na chave para cada código",
-                        description = "Garante que nenhuma operação seja aprovada sem que você aperte o botão da chave.",
+                        title = "Exigir toque físico na chave",
+                        description = "Nenhuma operação é aprovada sem tocar no botão.",
                         icon = Icons.Filled.TouchApp,
                         checked = toggles?.requireTouchForEveryCode ?: true,
                         onCheckedChange = { viewModel.toggleRequireTouchForCode(it) },
@@ -244,36 +256,40 @@ fun KeyVaultHubScreen(
             item {
                 Text(
                     text = "Cuidados com a Chave",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 8.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
 
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Status de saúde caso tenha sido executado
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Status de saúde
                     if (!uiState.healthCheckStatus.isNullOrBlank()) {
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(
-                                modifier = Modifier.padding(14.dp),
+                                modifier = Modifier.padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.CheckCircle,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(18.dp),
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = uiState.healthCheckStatus ?: "",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -281,37 +297,46 @@ fun KeyVaultHubScreen(
 
                     OutlinedButton(
                         onClick = { viewModel.runHealthCheck() },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Filled.HealthAndSafety, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Verificar Saúde da Chave")
+                            Icon(imageVector = Icons.Filled.HealthAndSafety, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Verificar Saúde da Chave", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                     }
 
                     OutlinedButton(
                         onClick = onNavigateToBackup,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Filled.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Fazer Backup de Segurança")
+                            Icon(imageVector = Icons.Filled.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Fazer Backup de Segurança", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                     }
 
                     OutlinedButton(
                         onClick = onNavigateToOta,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Filled.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Atualizar Software da Chave")
+                            Icon(imageVector = Icons.Filled.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Atualizar Software da Chave", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                     }
                 }
@@ -326,13 +351,15 @@ fun KeyVaultHubScreen(
             }
 
             item {
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp),
         )
     }
 
@@ -354,23 +381,27 @@ fun KeyVaultHubScreen(
         )
     }
 
-    // Diálogo de Confirmação para Excluir Entrada do Cofre
+    // Diálogo compacto para Excluir Entrada do Cofre
     entryToDelete?.let { entry ->
         AlertDialog(
             onDismissRequest = { entryToDelete = null },
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
                     text = "Remover do Cofre?",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             text = {
                 Text(
-                    text = "Tem certeza de que deseja remover \"${entry.label}\" da sua chave? Esta ação não pode ser desfeita.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Tem certeza de que deseja remover \"${entry.label}\"? Esta ação não pode ser desfeita.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             confirmButton = {
@@ -383,14 +414,15 @@ fun KeyVaultHubScreen(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError,
                     ),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(38.dp),
                 ) {
-                    Text("Remover Chave")
+                    Text("Remover Chave", maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { entryToDelete = null }) {
-                    Text("Cancelar")
+                    Text("Cancelar", maxLines = 1)
                 }
             },
         )
@@ -412,48 +444,52 @@ private fun ActiveKeySummaryCard(
     }
 
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
         ),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(36.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Filled.VpnKey,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = activeKeyName,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = "Cofre Físico Ativo",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
@@ -464,15 +500,23 @@ private fun ActiveKeySummaryCard(
             }
 
             if (onSimulateTouch != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = onSimulateTouch,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(34.dp),
                 ) {
-                    Icon(imageVector = Icons.Filled.TouchApp, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Simular Toque na Chave de Teste")
+                    Icon(imageVector = Icons.Filled.TouchApp, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Simular Toque na Chave de Teste",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }

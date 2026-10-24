@@ -10,7 +10,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /**
- * Transporte BLE padrão encapsulando [AegisBleClient].
+ * Transporte BLE padrão encapsulando [AegisBleClient] com exposição reativa
+ * dos dispositivos detectados e controle de scan.
  */
 class BleKeyTransport(
     val client: AegisBleClient,
@@ -22,6 +23,20 @@ class BleKeyTransport(
     override val isConnected: StateFlow<Boolean> = client.state
         .map { it.connection == AegisBleClient.Connection.READY }
         .stateIn(scope, SharingStarted.Eagerly, false)
+
+    val devices: StateFlow<List<AegisBleClient.FoundDevice>> = client.devices
+
+    val isScanning: StateFlow<Boolean> = client.state
+        .map { it.connection == AegisBleClient.Connection.SCANNING }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
+    fun startScan() {
+        client.startScan()
+    }
+
+    fun stopScan() {
+        client.stopScan()
+    }
 
     override suspend fun connect(target: String): Result<Unit> = runCatching {
         client.ensureBonded(target)

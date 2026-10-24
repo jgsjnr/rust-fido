@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,15 +23,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.ui.theme.AegisColors
 
 /**
- * Indicador visual de progresso por passos (ex: Passo 2 de 4).
- * O passo ativo expande suavemente como uma pílula, enquanto os demais permanecem circulares.
+ * Indicador visual compacto de progresso por passos (ex: Passo 2 de 4).
+ * O passo ativo expande suavemente como uma pílula enxuta.
  */
 @Composable
 fun StepProgressDotsAtom(
@@ -42,7 +41,7 @@ fun StepProgressDotsAtom(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (step in 1..totalSteps) {
@@ -50,7 +49,7 @@ fun StepProgressDotsAtom(
             val isPassed = step < currentStep
 
             val dotWidth by animateDpAsState(
-                targetValue = if (isCurrent) 28.dp else 8.dp,
+                targetValue = if (isCurrent) 22.dp else 6.dp,
                 label = "step_dot_width_$step",
             )
             val dotColor by animateColorAsState(
@@ -64,7 +63,7 @@ fun StepProgressDotsAtom(
 
             Box(
                 modifier = Modifier
-                    .height(8.dp)
+                    .height(6.dp)
                     .width(dotWidth)
                     .clip(CircleShape)
                     .background(dotColor),
@@ -74,7 +73,7 @@ fun StepProgressDotsAtom(
 }
 
 /**
- * Anel circular de contagem regressiva para códigos temporários (TOTP).
+ * Anel circular compacto de 40.dp de contagem regressiva para códigos temporários (TOTP).
  * Altera de cor dinamicamente:
  * - > 10s: Esmeralda / Segurança
  * - 6 a 10s: Âmbar / Atenção
@@ -103,36 +102,38 @@ fun TotpCountdownRingAtom(
     }
 
     Box(
-        modifier = modifier.size(44.dp),
+        modifier = modifier.size(40.dp),
         contentAlignment = Alignment.Center,
     ) {
         // Trilha de fundo translúcida
         CircularProgressIndicator(
             progress = { 1f },
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(40.dp),
             color = ringColor.copy(alpha = 0.15f),
-            strokeWidth = 3.5.dp,
+            strokeWidth = 3.dp,
         )
         // Progresso ativo
         CircularProgressIndicator(
             progress = { animatedProgress },
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(40.dp),
             color = ringColor,
-            strokeWidth = 3.5.dp,
+            strokeWidth = 3.dp,
         )
         Text(
             text = "$safeRemaining",
-            style = MaterialTheme.typography.labelMedium.copy(
+            style = MaterialTheme.typography.labelSmall.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
             ),
             color = ringColor,
+            maxLines = 1,
         )
     }
 }
 
 /**
- * Pílula informativa de status de conexão física (Bluetooth, USB ou Simulador).
+ * Pílula informativa compacta de status de conexão física (Bluetooth, USB ou Simulador).
+ * Garante que o texto fique em linha única (maxLines = 1, TextOverflow.Ellipsis).
  */
 @Composable
 fun ConnectionStatusBadgeAtom(
@@ -149,18 +150,18 @@ fun ConnectionStatusBadgeAtom(
 
     Surface(
         color = badgeColor.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         modifier = modifier,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // Ponto de status
+            // Ponto de status compacto
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(6.dp)
                     .clip(CircleShape)
                     .background(badgeColor),
             )
@@ -171,8 +172,13 @@ fun ConnectionStatusBadgeAtom(
             }
             Text(
                 text = labelText,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                ),
                 color = badgeColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

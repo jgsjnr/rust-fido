@@ -50,8 +50,9 @@ private fun getIconForEntryType(entryType: String): ImageVector {
 }
 
 /**
- * Cartão para exibir um item guardado com segurança no cofre físico da chave
- * (Passkeys, Chaves Privadas de Cripto, Contas e Identidades).
+ * Cartão compacto e responsivo para itens do cofre (Passkeys, Carteiras e Contas).
+ * Padding contido de 12.dp, ícone de 36.dp e caixa de endereço em linha horizontal única
+ * com weight(1f) e TextOverflow.Ellipsis ao lado do botão de cópia.
  */
 @Composable
 fun VaultEntryCardMolecule(
@@ -67,11 +68,11 @@ fun VaultEntryCardMolecule(
     val icon = getIconForEntryType(entryType)
 
     ElevatedCard(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface,
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
         modifier = modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
@@ -79,50 +80,53 @@ fun VaultEntryCardMolecule(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(36.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
                             text = title,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                         ) {
                             Text(
                                 text = entryType,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                             )
                         }
                     }
@@ -139,32 +143,31 @@ fun VaultEntryCardMolecule(
                 if (onDelete != null) {
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(30.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
                             contentDescription = "Remover do cofre",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
             }
 
             if (identifierToCopy.isNotBlank()) {
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
                             text = identifierToCopy,
@@ -175,7 +178,7 @@ fun VaultEntryCardMolecule(
                             modifier = Modifier.weight(1f),
                         )
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
 
                         QuickActionPillButton(
                             text = "Copiar",
