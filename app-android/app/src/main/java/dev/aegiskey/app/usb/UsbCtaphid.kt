@@ -12,6 +12,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import dev.aegiskey.app.log.DeviceLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -133,11 +134,14 @@ class UsbCtaphid(private val context: Context) {
                 addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
                 addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                context.registerReceiver(usbReceiver, filter)
-            }
+            // Custom action e broadcasts USB: nunca exportado (API 33+ exige
+            // flag; ContextCompat aplica NOT_EXPORTED em todos os niveis).
+            ContextCompat.registerReceiver(
+                context,
+                usbReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
         }.onFailure {
             _ui.value = UiState(State.ERROR, "receiver USB falhou", "Reinicie o app e tente de novo, ou use BLE.")
         }

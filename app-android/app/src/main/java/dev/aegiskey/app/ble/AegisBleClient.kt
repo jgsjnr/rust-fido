@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -390,7 +391,7 @@ class AegisBleClient(private val context: Context) {
             // API 33+: escrita com valor inline; 31/32: campos legados.
             val submitted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 g.writeCharacteristic(c, bytes, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) ==
-                    BluetoothGatt.GATT_SUCCESS
+                    BluetoothStatusCodes.SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 c.value = bytes
@@ -417,7 +418,7 @@ class AegisBleClient(private val context: Context) {
             // API 33+: descritor com valor inline; 31/32: campo legado.
             val submitted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
-                    BluetoothGatt.GATT_SUCCESS
+                    BluetoothStatusCodes.SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE

@@ -22,6 +22,10 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Biometric auth (BindingKey + BiometricGate): normal permission,
+         granted at install, no runtime prompt. Required by lint
+         (MissingPermission) for canAuthenticate/authenticate. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- WiFi AP transport: POST /ctap, POST /config/wifi, GET /oath/code.
          Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.INTERNET" />
