@@ -363,8 +363,18 @@ impl CtapHidManager {
                     return Ok(Some(CtapHidMessage::new(cid, cmd, Vec::new())));
                 }
 
-                // If another channel is currently in mid-assembly, return BUSY
-                if let Some(ref state) = self.active_assembly {
+                // If another channel is currently in mid-assembly, return BUSY.
+                // Exception: a fresh broadcast INIT (new session) clears a
+                // stale assembly instead of wedging behind it. Single-packet
+                // INIT carries only the nonce (no secret), so dropping the
+                // orphan is liveness-safe; the orphan's CID gets
+                // ERR_MSG_TIMEOUT semantics on its next packet via the
+                // timeout check above. Back-to-back HIL sessions that never
+                // closed a multi-packet assembly recover here instead of
+                // answering BUSY forever.
+                if cid == BROADCAST_CID && cmd == CMD_INIT {
+                    self.active_assembly = None;
+                } else if let Some(ref state) = self.active_assembly {
                     if state.cid != cid {
                         return Err(CtapHidError::new(cid, ERR_CHANNEL_BUSY));
                     }
@@ -671,6 +681,27 @@ mod tests {
         // Send next packet after 3500ms (> 3000ms timeout)
         let err = mgr.process_packet(&packets[1], 4501).unwrap_err();
         assert_eq!(err.code, ERR_MSG_TIMEOUT);
+    }
+
+    #[test]
+    fn test_broadcast_init_clears_stale_assembly() {
+        // HIL back-to-back: orphan multi-packet assembly must not wedge the
+        // next session behind ERR_CHANNEL_BUSY; a fresh broadcast INIT
+        // resets it (INIT carries only the nonce).
+        let orphan_cid = 0x01020304;
+        let payload = vec![0u8; 100];
+        let orphan = CtapHidFramer::frame_message(orphan_cid, CMD_CBOR, &payload);
+        let mut mgr = CtapHidManager::new();
+        assert_eq!(mgr.process_packet(&orphan[0], 1000).unwrap(), None);
+        assert!(mgr.has_pending_assembly());
+        let nonce = [0xAAu8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let done = mgr
+            .process_packet(&init[0], 1100)
+            .expect("broadcast INIT must not be BUSY")
+            .expect("single-packet INIT completes");
+        assert_eq!(done.cmd, CMD_INIT);
+        assert!(!mgr.has_pending_assembly());
     }
 
     #[test]

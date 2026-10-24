@@ -211,9 +211,8 @@ mod freertos_test_mode {
             "TEST_DOWNLOAD" => FreertosTestLine::Download,
             "TEST_USB_RECONNECT" => FreertosTestLine::UsbReconnect,
             "TEST_LED_STATE" => FreertosTestLine::LedState,
-            "TEST_LED_RED" | "TEST_LED_GREEN" | "TEST_LED_BLUE" | "TEST_LED_OFF" => {
-                FreertosTestLine::LedSet
-            }
+            "TEST_LED_RED" | "TEST_LED_GREEN" | "TEST_LED_BLUE" | "TEST_LED_OFF"
+            | "TEST_LED_ON" => FreertosTestLine::LedSet,
             "TEST_LED_RELEASE" => FreertosTestLine::LedRelease,
             "TEST_LIFETIME_DUMP" => FreertosTestLine::LifetimeDump,
             s if s.starts_with("TEST_") => FreertosTestLine::UnknownTest,
@@ -455,6 +454,7 @@ mod freertos_test_mode {
                 "TEST_LED_GREEN",
                 "TEST_LED_BLUE",
                 "TEST_LED_OFF",
+                "TEST_LED_ON",
             ] {
                 assert_eq!(classify_freertos_test_line(cmd), FreertosTestLine::LedSet);
             }

@@ -650,6 +650,8 @@ pub fn run_authenticator_freertos() {
                             let t = line.trim();
                             if t.starts_with("TEST_LED_RED") {
                                 led_test_hold = Some(LedEffect::Solid(LedColor::RED));
+                            } else if t.starts_with("TEST_LED_ON") {
+                                led_test_hold = Some(LedEffect::Solid(LedColor::RED));
                             } else if t.starts_with("TEST_LED_GREEN") {
                                 led_test_hold = Some(LedEffect::Solid(LedColor::GREEN));
                             } else if t.starts_with("TEST_LED_BLUE") {
@@ -887,6 +889,7 @@ pub fn run_authenticator_freertos() {
                 {
                     serial_quiet_until_ms = freertos_now_ms.saturating_add(40);
                 }
+                #[cfg(feature = "debug-terminal")]
                 if !out.responses.is_empty() {
                     kprintln!(
                         "[FREERTOS] ctaphid resp ({} pkt, origem={:?}).",
@@ -955,6 +958,7 @@ pub fn run_authenticator_freertos() {
                 }
             }
             Some(FirmwareEvent::Tick10ms(t)) => {
+                #[cfg(feature = "debug-terminal")]
                 if t % 100 == 0 {
                     kprintln!("[FREERTOS] tick {}.", t);
                 }

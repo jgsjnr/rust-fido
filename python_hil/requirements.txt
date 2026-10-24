@@ -1,0 +1,6 @@
+pyserial
+hidapi
+bleak
+requests
+pytest
+
