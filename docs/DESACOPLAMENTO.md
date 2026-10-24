@@ -103,9 +103,30 @@ ASCII puro, sem segredo em log, fail-closed com Err tipado, sem flash/COM7.
 
 ## 5. Mapa de arquivos -> teste (onde provar cada split)
 
-- run.rs split: testes em run.rs mod tests (dispatcher_touch_from_extra,
+- run/ (D1-D4): testes em run/mod.rs mod tests (dispatcher_touch_from_extra,
   pairing open/close) + serial_ctaphid.rs tests (vendor/wallet/rescue/
-  bind_mgmt parity BLE).
+  bind_mgmt parity BLE). run/mod.rs 621; filhos: ble_dispatch,
+  serial_io, run_loop_freertos, run_loop_legacy (`use super::*`).
+- serial_vendor.rs (F3): dispatch_serial_vendor/wallet/rescue/bind_mgmt;
+  testes no dono serial_ctaphid.rs (mod tests verbatim).
+- serial_text.rs (D5): text/pairing lines test-mode; testes no dono.
+- ble/ (F5): gatt_core (tipos/auth puro) + dispatch_bind (gates c/ binding)
+  + nimble_backend (radio/FFI/shims); testes verbatim nos donos finos
+  ble_gatt.rs/ble_nimble.rs.
+- net/ (F6): ap_core + station + mdns + password_policy; testes verbatim
+  nos donos finos wifi_ap.rs/wifi_station.rs/mdns.rs.
+- usb/piv/ (F7): apdu.rs DONO UNICO dos parsers de campo PIV
+  (piv_cmd consome via super::apdu); `CommandApdu::parse` ficou no
+  transporte ccid.rs (fio cru, oraculo DIP intacto). Excecao justificada:
+  piv_cmd.rs 2190 (applet coeso de dominio unico; seam falsa criaria refs
+  circulares); openpgp_cmd nao criado (zero simbolos no crate usb);
+  core/oath e ccid_dispatch intocados (sem cluster).
+- stores/ota_store.rs + proximity/monitor.rs (F8, D6): dispatch_ota_request/
+  is_ota_op e monitor/beacon; NVS sem dual-path (ota_* so em stores/,
+  prox_k so em proximity.rs dono unico); cred_store_ns/vendor_ns NAO
+  criados (cred/ tem dono cred_store.rs; pin/slots consumidos inline).
+- proximity NVS: proximity.rs tests (rekey/load/delete roundtrip,
+  CorruptedEnvelope/DecryptionFailed).
 - apdu.rs: piv_cmd.rs tests (parse_apdu vetores, TooShort/TooLarge) +
   openpgp_cmd.rs:944 parse path.
 - proximity NVS: proximity.rs tests (rekey/load/delete roundtrip,
