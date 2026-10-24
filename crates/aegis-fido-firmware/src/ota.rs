@@ -40,6 +40,10 @@ use alloc::vec::Vec;
 use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
+/// Staging/dispatch OTA canonico em `stores::ota_store` (re-export de compat).
+/// (a maquina `OtaState` segue aqui; `FlashOtaSink` + dispatch vivem em `stores`.)
+pub use crate::stores::ota_store::*;
+
 /// Vendor opcode: start a staged OTA session (`manifest(104B)`).
 pub const OP_OTA_BEGIN: u8 = 0x30;
 /// Vendor opcode: stream one image chunk (`offset BE u32 || data`).

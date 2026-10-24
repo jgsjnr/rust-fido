@@ -23,6 +23,9 @@ use alloc::vec::Vec;
 use crate::persistence::MockFlashBackend;
 use crate::persistence::{FlashStorageBackend, StorageError};
 
+/// OTA staging/dispatch canonico em `stores::ota_store` (re-export de compat).
+pub use crate::stores::ota_store::*;
+
 /// Teto de leitura por blob (envelopes SecureStorage são pequenos).
 pub(crate) const NVS_READ_MAX: usize = 8192;
 
