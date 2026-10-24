@@ -50,6 +50,7 @@ pub mod net;
 pub mod nvs_backend;
 pub mod oath_cmd;
 pub mod oath_store;
+pub mod openpgp_applet;
 pub mod openpgp_cmd;
 pub mod ota;
 pub mod ota_store;

@@ -31,9 +31,11 @@ use alloc::vec::Vec;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
-use crate::apdu::{parse_apdu, Apdu, ApduError};
+use crate::apdu::ApduError;
 use crate::crypto_hrng::{HrngError, HrngSource};
-use crate::crypto_p256::{ecdh_p256, P256Error, P256Secret};
+use crate::crypto_p256::P256Error;
+#[cfg(test)]
+use crate::crypto_p256::{ecdh_p256, P256Secret};
 use crate::persistence::{
     FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
 };
@@ -221,8 +223,8 @@ pub fn status_word(err: &OpgpError) -> u16 {
 /// Sessao volatil (limpa no SELECT e no reboot; nunca persiste).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct OpgpSession {
-    pw1: bool,
-    pw3: bool,
+    pub(crate) pw1: bool,
+    pub(crate) pw3: bool,
 }
 
 impl OpgpSession {
@@ -249,22 +251,22 @@ impl OpgpSession {
 const K_SERIAL: &str = "opgp/serial";
 const K_PW1H: &str = "opgp/pw1hash";
 const K_PW1S: &str = "opgp/pw1salt";
-const K_PW1R: &str = "opgp/pw1ret";
+pub(crate) const K_PW1R: &str = "opgp/pw1ret";
 const K_PW3H: &str = "opgp/pw3hash";
 const K_PW3S: &str = "opgp/pw3salt";
-const K_PW3R: &str = "opgp/pw3ret";
+pub(crate) const K_PW3R: &str = "opgp/pw3ret";
 const K_RCH: &str = "opgp/rchash";
 const K_RCS: &str = "opgp/rcsalt";
-const K_RCR: &str = "opgp/rcret";
-const K_SIGN: &str = "opgp/key/sign";
-const K_FPSIGN: &str = "opgp/fp/sign";
+pub(crate) const K_RCR: &str = "opgp/rcret";
+pub(crate) const K_SIGN: &str = "opgp/key/sign";
+pub(crate) const K_FPSIGN: &str = "opgp/fp/sign";
 const K_TERM: &str = "opgp/term";
 
 /// Namespace `opgp/`: chaves cruas (sem teto alem do envelope
 /// `MAX_PLAINTEXT_BYTES`, fail-closed no `put`), sem quota, delete
 /// idempotente (paridade com o comportamento anterior a T5). Ponto unico
 /// de put/get + prefixo + verify-after-write (antes manual em `store_blob`).
-fn opgp_ns() -> NamespacedStore {
+pub(crate) fn opgp_ns() -> NamespacedStore {
     NamespacedStore {
         prefix: "opgp/",
         max_bytes: None,
@@ -277,16 +279,16 @@ fn opgp_ns() -> NamespacedStore {
 }
 
 /// Gate do label: chaves fixas acima + `do/XXXX` (o applet valida o layout).
-fn opgp_label_ok(label: &str) -> bool {
+pub(crate) fn opgp_label_ok(label: &str) -> bool {
     !label.is_empty() && label.len() <= 64
 }
 
 /// Tira o prefixo `opgp/` das chaves fixas p/ o label do namespace.
-fn opgp_label(full_key: &str) -> &str {
+pub(crate) fn opgp_label(full_key: &str) -> &str {
     full_key.strip_prefix("opgp/").unwrap_or(full_key)
 }
 
-fn store_blob<B: FlashStorageBackend>(
+pub(crate) fn store_blob<B: FlashStorageBackend>(
     store: &mut SecureStorage<B>,
     key: &str,
     value: &[u8],
@@ -297,7 +299,7 @@ fn store_blob<B: FlashStorageBackend>(
         .map_err(|_| OpgpError::Storage)
 }
 
-fn load_blob<B: FlashStorageBackend>(
+pub(crate) fn load_blob<B: FlashStorageBackend>(
     store: &SecureStorage<B>,
     key: &str,
     expect_len: usize,
@@ -311,7 +313,7 @@ fn load_blob<B: FlashStorageBackend>(
     }
 }
 
-fn load_retries<B: FlashStorageBackend>(
+pub(crate) fn load_retries<B: FlashStorageBackend>(
     store: &SecureStorage<B>,
     key: &str,
 ) -> Result<u8, OpgpError> {
@@ -327,7 +329,7 @@ fn load_retries<B: FlashStorageBackend>(
     }
 }
 
-fn store_retries<B: FlashStorageBackend>(
+pub(crate) fn store_retries<B: FlashStorageBackend>(
     store: &mut SecureStorage<B>,
     key: &str,
     value: u8,
@@ -335,14 +337,14 @@ fn store_retries<B: FlashStorageBackend>(
     store_blob(store, key, &[value])
 }
 
-fn hash_pin(salt: &[u8; SALT_LEN], pin: &[u8]) -> [u8; HASH_LEN] {
+pub(crate) fn hash_pin(salt: &[u8; SALT_LEN], pin: &[u8]) -> [u8; HASH_LEN] {
     let mut h = Sha256::new();
     h.update(salt);
     h.update(pin);
     h.finalize().into()
 }
 
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -353,18 +355,20 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-fn slot_keys(slot: PinSlot) -> (&'static str, &'static str, &'static str, usize, usize) {
+pub(crate) fn slot_keys(slot: PinSlot) -> (&'static str, &'static str, &'static str, usize, usize) {
     match slot {
         PinSlot::Pw1 => (K_PW1H, K_PW1S, K_PW1R, PW1_MIN, PW_MAX),
         PinSlot::Pw3 => (K_PW3H, K_PW3S, K_PW3R, PW3_MIN, PW_MAX),
     }
 }
 
-fn is_provisioned<B: FlashStorageBackend>(store: &SecureStorage<B>) -> bool {
+pub(crate) fn is_provisioned<B: FlashStorageBackend>(store: &SecureStorage<B>) -> bool {
     opgp_ns().get(store, opgp_label(K_PW1H)).is_ok()
 }
 
-fn check_terminated<B: FlashStorageBackend>(store: &SecureStorage<B>) -> Result<(), OpgpError> {
+pub(crate) fn check_terminated<B: FlashStorageBackend>(
+    store: &SecureStorage<B>,
+) -> Result<(), OpgpError> {
     match opgp_ns().get(store, opgp_label(K_TERM)) {
         Ok(v) if v == alloc::vec![0x01u8] => Err(OpgpError::Terminated),
         Ok(_) => Err(OpgpError::Storage),
@@ -598,352 +602,14 @@ pub fn aid<B: FlashStorageBackend>(store: &SecureStorage<B>) -> Result<[u8; 16],
     Ok(out)
 }
 
-fn tag_to_bytes(tag: u16) -> Vec<u8> {
-    if tag < 0x100 {
-        alloc::vec![tag as u8]
-    } else {
-        alloc::vec![(tag >> 8) as u8, (tag & 0xFF) as u8]
-    }
-}
-
-fn tlv(tag: u16, value: &[u8]) -> Vec<u8> {
-    let mut out = tag_to_bytes(tag);
-    out.push(value.len() as u8);
-    out.extend_from_slice(value);
-    out
-}
-
-fn do_key(tag: u16) -> alloc::string::String {
+pub(crate) fn do_key(tag: u16) -> alloc::string::String {
     alloc::format!("opgp/do/{:04X}", tag)
 }
 
-/// Bytes do PW-status (DO C4): [00, maxPW1, maxRC, maxPW3, e1, erc, e3].
-pub fn pw_status<B: FlashStorageBackend>(store: &SecureStorage<B>) -> Result<[u8; 7], OpgpError> {
-    if !is_provisioned(store) {
-        return Err(OpgpError::NotProvisioned);
-    }
-    let e1 = load_retries(store, K_PW1R)?;
-    let er = load_retries(store, K_RCR)?;
-    let e3 = load_retries(store, K_PW3R)?;
-    Ok([0x00, PW_MAX as u8, RC_LEN as u8, PW_MAX as u8, e1, er, e3])
-}
-
-/// GET DATA (retorna TLV completo). Tags: 4F 5E 5B 5F2D 5F35 5F50 C4 C7 6E.
-pub fn get_data<B: FlashStorageBackend>(
-    store: &SecureStorage<B>,
-    tag: u16,
-) -> Result<Vec<u8>, OpgpError> {
-    check_terminated(store)?;
-    match tag {
-        0x004F => Ok(tlv(0x4F, &aid(store)?)),
-        0x00C4 => Ok(tlv(0xC4, &pw_status(store)?)),
-        0x005E | 0x005B | 0x5F2D | 0x5F35 | 0x5F50 => {
-            let key = do_key(tag);
-            match opgp_ns().get(store, opgp_label(key.as_str())) {
-                Ok(v) => Ok(tlv(tag, &v)),
-                Err(NamespacedStoreError::NotFound) => Ok(tlv(tag, &[])),
-                Err(_) => Err(OpgpError::Storage),
-            }
-        }
-        0x00C7 => match opgp_ns().get(store, opgp_label(K_FPSIGN)) {
-            Ok(v) => Ok(tlv(0xC7, &v)),
-            Err(NamespacedStoreError::NotFound) => {
-                if !is_provisioned(store) {
-                    return Err(OpgpError::NotProvisioned);
-                }
-                Ok(tlv(0xC7, &[]))
-            }
-            Err(_) => Err(OpgpError::Storage),
-        },
-        0x006E => {
-            let mut inner = tlv(0x4F, &aid(store)?);
-            inner.extend_from_slice(&tlv(0xC4, &pw_status(store)?));
-            let login_key = do_key(0x5E);
-            let login = match opgp_ns().get(store, opgp_label(login_key.as_str())) {
-                Ok(v) => v,
-                Err(NamespacedStoreError::NotFound) => Vec::new(),
-                Err(_) => return Err(OpgpError::Storage),
-            };
-            inner.extend_from_slice(&tlv(0x5E, &login));
-            Ok(tlv(0x6E, &inner))
-        }
-        _ => Err(OpgpError::UnknownTag),
-    }
-}
-
-/// PUT DATA (exige sessao PW1; C7/4F/C4/6E sao ReadOnly).
-pub fn put_data<B: FlashStorageBackend>(
-    store: &mut SecureStorage<B>,
-    session: &OpgpSession,
-    tag: u16,
-    value: &[u8],
-) -> Result<(), OpgpError> {
-    if !is_provisioned(store) {
-        return Err(OpgpError::NotProvisioned);
-    }
-    check_terminated(store)?;
-    if !session.pw1 {
-        return Err(OpgpError::NotAuthorized);
-    }
-    match tag {
-        0x005E | 0x005B | 0x5F2D | 0x5F35 | 0x5F50 => {
-            if value.len() > MAX_DO_LEN {
-                return Err(OpgpError::TooLarge);
-            }
-            store_blob(store, do_key(tag).as_str(), value)
-        }
-        0x004F | 0x00C4 | 0x00C7 | 0x006E => Err(OpgpError::ReadOnly),
-        _ => Err(OpgpError::UnknownTag),
-    }
-}
-
-/// Gera a chave de assinatura no device (GEN-DEVICE; exige PW3).
-/// Gera a chave de assinatura no device (GEN-DEVICE; exige PW3).
-pub fn generate_sign_key<B, R>(
-    store: &mut SecureStorage<B>,
-    rng: &mut R,
-    session: &OpgpSession,
-) -> Result<[u8; 33], OpgpError>
-where
-    B: FlashStorageBackend,
-    R: HrngSource,
-{
-    if !is_provisioned(store) {
-        return Err(OpgpError::NotProvisioned);
-    }
-    check_terminated(store)?;
-    if !session.pw3 {
-        return Err(OpgpError::NotAuthorized);
-    }
-    let mut raw = [0u8; 32];
-    for _ in 0..MAX_RETRY_GEN {
-        rng.fill(&mut raw)?;
-        if P256Secret::from_bytes(raw).is_ok() {
-            let secret = P256Secret::from_bytes(raw).map_err(|_| OpgpError::Storage)?;
-            let public = secret.public_compressed();
-            store_blob(store, K_SIGN, &raw)?;
-            raw.zeroize();
-            return store_pub_and_fp(store, &public);
-        }
-    }
-    raw.zeroize();
-    Err(OpgpError::Rng)
-}
-
-const MAX_RETRY_GEN: usize = 8;
-
-/// Importa a chave via envelope (GEN-APP-STORE; exige PW3). Guarda + FP.
-pub fn import_sign_key<B: FlashStorageBackend>(
-    store: &mut SecureStorage<B>,
-    session: &OpgpSession,
-    raw32: &[u8; 32],
-) -> Result<[u8; 33], OpgpError> {
-    if !is_provisioned(store) {
-        return Err(OpgpError::NotProvisioned);
-    }
-    check_terminated(store)?;
-    if !session.pw3 {
-        return Err(OpgpError::NotAuthorized);
-    }
-    let secret = P256Secret::from_bytes(*raw32).map_err(|_| OpgpError::BadKey)?;
-    let public = secret.public_compressed();
-    store_blob(store, K_SIGN, raw32)?;
-    store_pub_and_fp(store, &public)?;
-    Ok(public)
-}
-
-fn store_pub_and_fp<B: FlashStorageBackend>(
-    store: &mut SecureStorage<B>,
-    public: &[u8; 33],
-) -> Result<[u8; 33], OpgpError> {
-    // Fingerprint = SHA256(pub)[..20].
-    let mut h = Sha256::new();
-    h.update(public);
-    let digest = h.finalize();
-    let mut fp = [0u8; 20];
-    fp.copy_from_slice(&digest[..20]);
-    store_blob(store, K_FPSIGN, &fp)?;
-    let mut out = [0u8; 33];
-    out.copy_from_slice(public);
-    Ok(out)
-}
-
-fn load_sign_key<B: FlashStorageBackend>(store: &SecureStorage<B>) -> Result<[u8; 32], OpgpError> {
-    let raw = load_blob(store, K_SIGN, 32, OpgpError::NoKey)?;
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&raw);
-    Ok(out)
-}
-
-/// PSO SIGN: ECDSA-SHA256 P-256 (dado 1..=256 B; exige PW1; sai r||s).
-pub fn pso_sign<B: FlashStorageBackend>(
-    store: &SecureStorage<B>,
-    session: &OpgpSession,
-    data: &[u8],
-) -> Result<[u8; 64], OpgpError> {
-    check_terminated(store)?;
-    if !session.pw1 {
-        return Err(OpgpError::NotAuthorized);
-    }
-    if data.is_empty() || data.len() > MAX_SIGN_INPUT {
-        return Err(OpgpError::TooLarge);
-    }
-    let raw = load_sign_key(store)?;
-    let secret = P256Secret::from_bytes(raw).map_err(|_| OpgpError::Storage)?;
-    Ok(secret.sign(data))
-}
-
-/// PSO DEC: ECDH + KDF(HMAC-SHA256) XOR (pub 33 B || ct; exige PW1).
-pub fn pso_decrypt<B: FlashStorageBackend>(
-    store: &SecureStorage<B>,
-    session: &OpgpSession,
-    input: &[u8],
-) -> Result<Vec<u8>, OpgpError> {
-    check_terminated(store)?;
-    if !session.pw1 {
-        return Err(OpgpError::NotAuthorized);
-    }
-    if input.len() < EPH_LEN + 1 || input.len() > EPH_LEN + MAX_DEC_CT {
-        return Err(OpgpError::TooLarge);
-    }
-    let mut peer = [0u8; EPH_LEN];
-    peer.copy_from_slice(&input[..EPH_LEN]);
-    let raw = load_sign_key(store)?;
-    let z = ecdh_p256(&raw, &peer).map_err(|_| OpgpError::BadPeer)?;
-    // KDF: SHA256(z || dominio); keystream XOR.
-    let mut h = Sha256::new();
-    h.update(z);
-    h.update(b"aegis-openpgp-ecdh-v1");
-    let ks = h.finalize();
-    let ct = &input[EPH_LEN..];
-    let mut pt = Vec::with_capacity(ct.len());
-    for (i, b) in ct.iter().enumerate() {
-        pt.push(b ^ ks[i % 32]);
-    }
-    Ok(pt)
-}
-
-/// GET CHALLENGE: n aleatorios (8..=255 B; sem estado).
-pub fn get_challenge<R: HrngSource>(rng: &mut R, n: usize) -> Result<Vec<u8>, OpgpError> {
-    if !(8..=255).contains(&n) {
-        return Err(OpgpError::TooLarge);
-    }
-    let mut out = alloc::vec![0u8; n];
-    rng.fill(&mut out)?;
-    Ok(out)
-}
-
-/// Decodifica a tag do P1P2 (0x00XX ou 0x5FXX).
-pub fn parse_tag(p1: u8, p2: u8) -> Result<u16, OpgpError> {
-    if p1 == 0x00 {
-        Ok(u16::from(p2))
-    } else if p1 == 0x5F {
-        Ok(0x5F00 | u16::from(p2))
-    } else {
-        Err(OpgpError::BadP1P2)
-    }
-}
-
-/// Despacha um APDU curto ja parseado; retorna os bytes de resposta.
-pub fn dispatch<B, R>(
-    store: &mut SecureStorage<B>,
-    session: &mut OpgpSession,
-    rng: &mut R,
-    apdu: &Apdu,
-) -> Result<Vec<u8>, OpgpError>
-where
-    B: FlashStorageBackend,
-    R: HrngSource,
-{
-    if apdu.cla != CLA_ISO {
-        return Err(OpgpError::BadCla);
-    }
-    match apdu.ins {
-        INS_SELECT => {
-            if apdu.data.len() < OPGP_AID_PREFIX.len() || apdu.data[..6] != OPGP_AID_PREFIX {
-                return Err(OpgpError::UnknownTag);
-            }
-            *session = OpgpSession::new();
-            Ok(tlv(0x4F, &aid(store)?))
-        }
-        INS_GET_DATA => {
-            check_terminated(store)?;
-            let tag = parse_tag(apdu.p1, apdu.p2)?;
-            get_data(store, tag)
-        }
-        INS_PUT_DATA => {
-            let tag = parse_tag(apdu.p1, apdu.p2)?;
-            put_data(store, session, tag, &apdu.data)?;
-            Ok(Vec::new())
-        }
-        INS_VERIFY => {
-            check_terminated(store)?;
-            let slot = match apdu.p2 {
-                P2_PW1 => PinSlot::Pw1,
-                P2_PW3 => PinSlot::Pw3,
-                _ => return Err(OpgpError::BadP1P2),
-            };
-            verify(store, session, slot, &apdu.data)?;
-            Ok(Vec::new())
-        }
-        INS_CHANGE => {
-            check_terminated(store)?;
-            let slot = match apdu.p2 {
-                P2_PW1 => PinSlot::Pw1,
-                P2_PW3 => PinSlot::Pw3,
-                _ => return Err(OpgpError::BadP1P2),
-            };
-            // data = old || 0x00 sep? Formato: Lc cobre old+new sem borda;
-            // usa metade/metade so se par; senao nega (fail-closed).
-            let (old, new) = split_half(&apdu.data)?;
-            change_pin(store, rng, slot, old, new)?;
-            Ok(Vec::new())
-        }
-        INS_PSO => {
-            if (apdu.p1, apdu.p2) == PSO_SIGN_P1P2 {
-                Ok(pso_sign(store, session, &apdu.data)?.to_vec())
-            } else if (apdu.p1, apdu.p2) == PSO_DEC_P1P2 {
-                pso_decrypt(store, session, &apdu.data)
-            } else {
-                Err(OpgpError::BadP1P2)
-            }
-        }
-        INS_CHALLENGE => {
-            check_terminated(store)?;
-            // Le descartado pelo parser curto; desafio fixo de 32 B aqui.
-            Ok(get_challenge(rng, 32)?)
-        }
-        INS_TERMINATE => {
-            terminate(store, session)?;
-            Ok(Vec::new())
-        }
-        INS_ACTIVATE => {
-            activate(store)?;
-            Ok(Vec::new())
-        }
-        _ => Err(OpgpError::BadIns),
-    }
-}
-
-/// Divide old||new ao meio (comprimento par e >= 2*min); senao nega.
-fn split_half(data: &[u8]) -> Result<(&[u8], &[u8]), OpgpError> {
-    if data.len() < 2 || !data.len().is_multiple_of(2) || data.len() > 2 * PW_MAX {
-        return Err(OpgpError::BadPin);
-    }
-    let mid = data.len() / 2;
-    Ok((&data[..mid], &data[mid..]))
-}
-
-/// Parse + dispatch a partir dos bytes (atalho p/ transporte).
-pub fn dispatch_raw<B: FlashStorageBackend, R: HrngSource>(
-    store: &mut SecureStorage<B>,
-    session: &mut OpgpSession,
-    rng: &mut R,
-    raw: &[u8],
-) -> Result<Vec<u8>, OpgpError> {
-    let apdu = parse_apdu(raw).map_err(OpgpError::BadApdu)?;
-    dispatch(store, session, rng, &apdu)
-}
+pub use super::openpgp_applet::{
+    dispatch, dispatch_raw, generate_sign_key, get_challenge, get_data, import_sign_key, parse_tag,
+    pso_decrypt, pso_sign, put_data, pw_status,
+};
 
 #[cfg(test)]
 mod tests {
