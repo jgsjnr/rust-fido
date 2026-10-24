@@ -3,12 +3,19 @@
 //! Motivo: PIV/OpenPGP exigem RSA; gerar 1024 bits hoje seria vulneravel, e
 //! operar sem padding correto (raw/X.509 legado) quebra a secao 9.
 //!
-//! - Sem crate RSA nas deps do firmware: toda operacao criptografica passa
-//!   pelo trait `RsaBackend`, cujo software retorna `NotCompiled`
-//!   (fail-closed, sem mock falso). O device gerara via HW quando ancorado.
-//! - Politica local e dura: 1024 so verifica legado, NUNCA gera; tamanhos
-//!   arbitrarios, raw e X.509 sem padding sao rejeitados aqui.
-//! - Limites de mensagem por esquema (secao 9: entradas invalidas/truncadas).
+//! Decisao G5 (b) NA PARCIAL (R15/R16; sem mock, sem sucesso falso):
+//! - Sem crate `rsa` no lock do workspace: habilitar exigiria fetch de
+//!   `rsa` + `num-bigint` (~+100 KiB flash) + medicao HIL de stack no S3 com
+//!   hardware + aprovacao. O temporario privado de RSA-2048 supera o teto do
+//!   dominio cripto (8192 B, ver CRYPTO_RAM_BUDGET em `crypto_extra.rs`);
+//!   RSA-4096 fica muito alem. Sem acelerador HW ancorado no S3, o software
+//!   travaria o teto de RAM: por isso `SoftwareRsa` permanece `NotCompiled`
+//!   fail-closed honesto. O device gerara via HW quando ancorado.
+//! - O que E real e testado aqui (sem backend): politica local dura (1024
+//!   so verifica legado, NUNCA gera; tamanhos arbitrarios, raw e X.509 sem
+//!   padding rejeitados) + tetos de mensagem por esquema (secao 9: entradas
+//!   invalidas/truncadas). Vetores oficiais de cifra/assinatura entram com o
+//!   backend HW ancorado, nunca simulados.
 
 /// Tamanhos RSA suportados pela matriz (bits).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

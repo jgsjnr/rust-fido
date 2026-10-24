@@ -62,6 +62,7 @@ dependencies = [
  "hmac",
  "log",
  "p256",
+ "p384",
  "rand",
  "rand_core",
  "sha2",

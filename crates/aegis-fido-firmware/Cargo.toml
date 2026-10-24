@@ -35,6 +35,7 @@ aes-gcm = { workspace = true, features = ["alloc"] }
 sha2 = { workspace = true }
 rand_core = { workspace = true }
 p256 = { workspace = true }
+p384 = { workspace = true }
 ed25519-dalek = { workspace = true }
 signature = { version = "2.2", default-features = false }
 zeroize = { workspace = true }

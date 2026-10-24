@@ -3,15 +3,26 @@
 //! Motivo: P-384 amplia interop (PIV/FIDO) e X25519/Ed25519 cobrem SSH/age;
 //! sem teto de RAM o S3 estoura stack ao habilitar curvas maiores (secao 9).
 //!
+//! Decisao G5 por algoritmo (R15/R16; sem mock, sem sucesso falso):
+//! - P-384 (a) HABILITADO: `p384` 0.13 (ecdsa+arithmetic, no_std) ja esta no
+//!   Cargo.lock via core; stack ~6144 B < CRYPTO_RAM_BUDGET (8192); a curva
+//!   executa de verdade abaixo (roundtrip + tamper), nada e simulado.
+//! - X25519 (b) NA PARCIAL: sem crate `x25519-dalek` no lock do workspace;
+//!   habilitar exigiria fetch + medicao HIL de stack/flash no S3 (hardware e
+//!   aprovacao). Mantem `NotCompiled` fail-closed honesto; tamanho (32 B) e
+//!   teto de RAM ja ficam validados aqui para quando o backend ancorar.
+//! - RSA: ver `crypto_rsa.rs` ((b) NA PARCIAL pelo mesmo motivo RAM/HW).
 //! - Ed25519 real via `ed25519-dalek` (GEN-DEVICE, vetor RFC 8032 7.1).
-//! - P-384 e X25519: sem crate nas deps -> `NotCompiled` fail-closed; a
-//!   especificacao de tamanhos e o orcamento de RAM ja ficam validados aqui.
 //! - `check_ram` barra a curva quando o dominio cripto nao tem folga.
 
 use core::fmt;
 
 use ed25519_dalek::VerifyingKey as EdVerifyingKey;
 use ed25519_dalek::{Signature as EdSignature, SigningKey as EdSigningKey};
+use p384::ecdsa::{
+    Signature as P384Signature, SigningKey as P384SigningKey, VerifyingKey as P384VerifyingKey,
+};
+
 use signature::{Signer, Verifier};
 use zeroize::Zeroize;
 
@@ -31,6 +42,7 @@ pub enum ExtraError {
     BadSignature,
     BadLength,
     RamExceeded,
+    /// Backend ausente (X25519, NA parcial G5-b): bloqueado, nao simulado.
     NotCompiled,
 }
 
@@ -38,6 +50,8 @@ pub enum ExtraError {
 pub const ED25519_SEED_LEN: usize = 32;
 pub const ED25519_SIG_LEN: usize = 64;
 pub const P384_FIELD_LEN: usize = 48;
+pub const P384_SIG_LEN: usize = 96;
+pub const P384_PUB_COMPRESSED_LEN: usize = 49;
 pub const X25519_KEY_LEN: usize = 32;
 /// Teto de mensagem assinada/trocada neste modulo.
 pub const EXTRA_MAX_MSG: usize = 1024;
@@ -122,12 +136,86 @@ pub fn verify_ed25519(
     key.verify(msg, &sig).map_err(|_| ExtraError::BadSignature)
 }
 
-/// P-384: sem crate `p384` nas deps -> fail-closed (GEN condicionado).
-pub fn p384_sign(_seed48: &[u8], _msg: &[u8]) -> Result<[u8; 96], ExtraError> {
-    Err(ExtraError::NotCompiled)
+/// Chave privada P-384 em RAM (G5-a, curva real). Apaga na queda.
+pub struct P384Secret {
+    raw: [u8; P384_FIELD_LEN],
 }
 
-/// X25519: sem crate nas deps -> fail-closed (GEN condicionado).
+impl P384Secret {
+    /// Constroi a partir de 48 bytes big-endian; rejeita zero e >= n.
+    pub fn from_bytes(raw: [u8; P384_FIELD_LEN]) -> Result<Self, ExtraError> {
+        P384SigningKey::from_slice(&raw).map_err(|_| ExtraError::BadSeed)?;
+        Ok(Self { raw })
+    }
+
+    fn signing(&self) -> P384SigningKey {
+        // Seguro: validado no construtor; from_slice e deterministico.
+        P384SigningKey::from_slice(&self.raw).expect("P384Secret validado no construtor")
+    }
+
+    /// Chave publica comprimida SEC1 (49 bytes, prefixo 02/03 + x).
+    pub fn public_compressed(&self) -> [u8; P384_PUB_COMPRESSED_LEN] {
+        let verifying = P384VerifyingKey::from(self.signing());
+        let point = verifying.to_encoded_point(true);
+        let mut out = [0u8; P384_PUB_COMPRESSED_LEN];
+        out.copy_from_slice(point.as_bytes());
+        out
+    }
+
+    /// Assina (RFC 6979, deterministico). Retorna r || s (96 bytes).
+    pub fn sign(&self, msg: &[u8]) -> Result<[u8; P384_SIG_LEN], ExtraError> {
+        if msg.len() > EXTRA_MAX_MSG {
+            return Err(ExtraError::BadLength);
+        }
+        let sig: P384Signature = self.signing().sign(msg);
+        let raw = sig.to_bytes();
+        let mut out = [0u8; P384_SIG_LEN];
+        out.copy_from_slice(&raw);
+        Ok(out)
+    }
+
+    /// Apaga a chave da RAM imediatamente.
+    pub fn wipe(&mut self) {
+        self.raw.zeroize();
+    }
+}
+
+impl Drop for P384Secret {
+    fn drop(&mut self) {
+        self.raw.zeroize();
+    }
+}
+
+impl fmt::Debug for P384Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("P384Secret(redacted)")
+    }
+}
+
+/// P-384 real via `p384` (G5-a): valida semente de 48 B + assina RFC 6979.
+pub fn p384_sign(seed48: &[u8], msg: &[u8]) -> Result<[u8; P384_SIG_LEN], ExtraError> {
+    let raw: [u8; P384_FIELD_LEN] = seed48.try_into().map_err(|_| ExtraError::BadLength)?;
+    P384Secret::from_bytes(raw)?.sign(msg)
+}
+
+/// Verifica ECDSA P-384 com chave SEC1 (comprimida 49 B ou aberta 97 B).
+pub fn p384_verify(
+    public_sec1: &[u8],
+    msg: &[u8],
+    sig_96: &[u8; P384_SIG_LEN],
+) -> Result<(), ExtraError> {
+    if msg.len() > EXTRA_MAX_MSG {
+        return Err(ExtraError::BadLength);
+    }
+    let key =
+        P384VerifyingKey::from_sec1_bytes(public_sec1).map_err(|_| ExtraError::BadPublicKey)?;
+    let sig = P384Signature::from_slice(sig_96).map_err(|_| ExtraError::BadSignature)?;
+    key.verify(msg, &sig).map_err(|_| ExtraError::BadSignature)
+}
+
+/// X25519 (G5-b) NA PARCIAL: sem crate `x25519-dalek` no lock do workspace;
+/// habilitar exigiria fetch + medicao HIL de stack/flash no S3 (hardware +
+/// aprovacao, R15/R16). Fail-closed honesto; nada e simulado.
 pub fn x25519_agree(
     _secret32: &[u8; X25519_KEY_LEN],
     _peer32: &[u8],
@@ -236,9 +324,79 @@ mod tests {
         assert_eq!(sec.sign(&big), Err(ExtraError::BadLength));
     }
 
+    fn p384_one() -> [u8; 48] {
+        let mut raw = [0u8; 48];
+        raw[47] = 1;
+        raw
+    }
+
     #[test]
-    fn conditioned_curves_are_fail_closed() {
-        assert_eq!(p384_sign(&[0u8; 48], b"m"), Err(ExtraError::NotCompiled));
+    fn p384_roundtrip_and_tamper() {
+        // Curva real: escalar 1 gera chave valida; sign/verify conferem.
+        let sec = P384Secret::from_bytes(p384_one()).expect("1 e escalar valido");
+        let pk = sec.public_compressed();
+        assert_eq!(pk.len(), P384_PUB_COMPRESSED_LEN);
+        assert!(pk[0] == 0x02 || pk[0] == 0x03);
+        let sig = sec.sign(b"piv-challenge").expect("assinatura valida");
+        p384_verify(&pk, b"piv-challenge", &sig).expect("roundtrip verifica");
+        // Caminho free-function usa a mesma curva real.
+        let sig2 = p384_sign(&p384_one(), b"piv-challenge").expect("p384_sign real");
+        p384_verify(&pk, b"piv-challenge", &sig2).expect("p384_sign verifica");
+        let mut bad = sig;
+        bad[10] ^= 0x80;
+        assert_eq!(
+            p384_verify(&pk, b"piv-challenge", &bad),
+            Err(ExtraError::BadSignature)
+        );
+        assert_eq!(
+            p384_verify(&pk, b"outra", &sig),
+            Err(ExtraError::BadSignature)
+        );
+        let mut other_raw = [0u8; 48];
+        other_raw[47] = 2;
+        let other = P384Secret::from_bytes(other_raw)
+            .unwrap()
+            .public_compressed();
+        assert_eq!(
+            p384_verify(&other, b"piv-challenge", &sig),
+            Err(ExtraError::BadSignature)
+        );
+    }
+
+    #[test]
+    fn p384_rejects_invalid_inputs() {
+        // Escalar zero nao e chave.
+        assert_eq!(
+            P384Secret::from_bytes([0u8; 48]).map(|_| ()),
+            Err(ExtraError::BadSeed)
+        );
+        // Semente fora de 48 B nao entra na curva.
+        assert_eq!(p384_sign(&[0u8; 32], b"m"), Err(ExtraError::BadLength));
+        assert_eq!(p384_sign(&[0u8; 47], b"m"), Err(ExtraError::BadLength));
+        let sec = P384Secret::from_bytes(p384_one()).unwrap();
+        let big = std::vec![0u8; EXTRA_MAX_MSG + 1];
+        assert_eq!(sec.sign(&big), Err(ExtraError::BadLength));
+        assert_eq!(p384_sign(&p384_one(), &big), Err(ExtraError::BadLength));
+        // Chave publica malformada/truncada.
+        assert_eq!(
+            p384_verify(&[0x02], b"m", &[0u8; 96]),
+            Err(ExtraError::BadPublicKey)
+        );
+        // Assinatura toda-zero nao e valida.
+        let pk = sec.public_compressed();
+        assert_eq!(
+            p384_verify(&pk, b"m", &[0u8; 96]),
+            Err(ExtraError::BadSignature)
+        );
+        // Debug nunca expoe a semente.
+        let dbg = format!("{:?}", sec);
+        assert!(dbg.contains("redacted"));
+        assert_eq!(dbg, "P384Secret(redacted)");
+    }
+
+    #[test]
+    fn x25519_stays_fail_closed_na_parcial() {
+        // G5-b: backend ausente = erro honesto, nunca valor simulado.
         assert_eq!(
             x25519_agree(&[0u8; 32], &[0u8; 32]),
             Err(ExtraError::NotCompiled)
