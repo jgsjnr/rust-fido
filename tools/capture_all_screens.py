@@ -46,11 +46,11 @@ def main():
     adb(["shell", "pm", "clear", "dev.aegiskey.app"])
     time.sleep(1.0)
     adb(["shell", "am", "start", "-n", "dev.aegiskey.app/.MainActivity"])
-    time.sleep(2.5)
+    time.sleep(4.0)
 
-    # Screen 1: Transport Selection
+    # Screen 1: Transport Selection (real Step 1 after start)
     screencap("01_wizard_step1_transport.png")
-    # Tap "Bluetooth Sem Fio" (or Simulator if testing simulator) - Bluetooth is at (540, 285)
+    # Tap "Bluetooth Sem Fio" - Bluetooth is at (540, 285)
     tap(540, 285)
     tap(540, 2359) # Next
 
@@ -79,19 +79,19 @@ def main():
     # Screen 6: Tab 1 - Key Vault
     screencap("06_hub_key_vault.png")
 
-    # Screen 7: Tab 2 - TOTP Codes
+    # Screen 7: Tab 2 - TOTP Codes (x=404, y=2360)
     tap(404, 2360)
-    time.sleep(1.0)
+    time.sleep(1.5)
     screencap("07_hub_totp_codes.png")
 
-    # Screen 8: Tab 3 - Connected Keys
+    # Screen 8: Tab 3 - Connected Keys (x=676, y=2360)
     tap(676, 2360)
-    time.sleep(1.0)
+    time.sleep(1.2)
     screencap("08_hub_connected_keys.png")
 
-    # Screen 9: Tab 4 - Settings and Themes
+    # Screen 9: Tab 4 - Settings and Themes (x=948, y=2360)
     tap(948, 2360)
-    time.sleep(1.0)
+    time.sleep(1.2)
     screencap("09_hub_settings_themes.png")
 
     print("=== All screens captured and verified! ===")
