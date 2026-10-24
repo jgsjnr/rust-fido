@@ -38,11 +38,17 @@ fun formatCodeGrouped(code: String): String {
     return digits.chunked(3).joinToString(" ")
 }
 
+/** Tolerancia de janela OATH (A2): o device aceita +-1 periodo de 30s. */
+const val OATH_WINDOW_TOLERANCE_PERIODS: Int = 1
+
 /**
- * Jornada 2 — cartao de codigo: mono XXX XXX + barra countdown colorida
+ * Jornada 2 - cartao de codigo: mono XXX XXX + barra countdown colorida
  * (verde > 10s, laranja 5..10s, vermelho < 5s) + Copiar via clipboard.
  * Tick de 1s atualiza so texto+progresso; animacao (fade 200ms) so na
  * troca do codigo.
+ *
+ * A2: HOTP nao mostra countdown (o contador e persistente no device e o
+ * codigo vale ate o proximo uso); TOTP exibe a tolerancia +-1 periodo.
  */
 @Composable
 fun CodeCard(
@@ -53,7 +59,9 @@ fun CodeCard(
     onCopy: (String) -> Unit,
     onRefresh: (VaultAccount) -> Unit,
     modifier: Modifier = Modifier,
+    tolerancePeriods: Int = OATH_WINDOW_TOLERANCE_PERIODS,
 ) {
+    val isHotp = account.kind == VaultKind.OATH_HOTP
     val fraction = (remaining.coerceIn(0, 30) / 30f)
     val barColor = when {
         remaining <= 5 -> MaterialTheme.colorScheme.error
@@ -78,14 +86,14 @@ fun CodeCard(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    if (account.kind == VaultKind.OATH_HOTP) "HOTP" else "TOTP",
+                    if (isHotp) "HOTP" else "TOTP",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
             AnimatedContent(
-                targetState = code ?: "··· ···",
+                targetState = code ?: "... ...",
                 transitionSpec = { fadeIn(initialAlpha = 0.4f) togetherWith fadeOut() },
                 label = "codeSwap",
             ) { shown ->
@@ -96,12 +104,24 @@ fun CodeCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.fillMaxWidth(),
-                color = barColor,
-            )
-            FriendlyText(text = "$remaining s restantes (janela 30s)", maxLines = 1)
+            if (isHotp) {
+                FriendlyText(text = "HOTP - vale ate o proximo uso", maxLines = 1)
+                FriendlyText(
+                    text = "Contador guardado no dispositivo, nunca no celular.",
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = barColor,
+                )
+                FriendlyText(
+                    text = remaining.toString() + " s restantes (janela 30s, +-" + tolerancePeriods + " periodo)",
+                    maxLines = 1,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = { code?.let(onCopy) },
