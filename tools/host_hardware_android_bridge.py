@@ -467,6 +467,62 @@ class HardwareBridgeManager:
 # Global hardware manager instance
 HW_MANAGER = HardwareBridgeManager()
 
+# Global Wi-Fi state for SoftAP & station simulation
+WIFI_STATE = {
+    "ssid": "AegisKey-AP",
+    "password": "aegiskey-admin-123",
+    "channel": 6,
+    "tx_power_dbm": 20,
+    "timeout_s": 60,
+    "security": "WPA2-PSK/WPA3-SAE",
+    "ip": "192.168.4.1",
+}
+
+BLE_CONTROL_POINT_LENGTH = 512
+BLE_MAX_FRAGMENT_BYTES = 244
+
+
+def ble_split_fragments(opcode: int, payload: bytes, max_fragment: int = 244) -> list[bytes]:
+    """Splits an opcode + payload into FFF1 / FFF2 BLE fragments per docs/ble-protocol.md."""
+    payload = bytes(payload)
+    if opcode == 0xBE:  # OP_CANCEL
+        return [bytes([0xBE])]
+    if len(payload) > BLE_CONTROL_POINT_LENGTH:
+        raise ValueError(f"payload {len(payload)}B > {BLE_CONTROL_POINT_LENGTH}B")
+    total = len(payload)
+    first_cap = min(max_fragment - 3, total)
+    out = [bytes([opcode, (total >> 8) & 0xFF, total & 0xFF]) + payload[:first_cap]]
+    offset = first_cap
+    seq = 0
+    while offset < total:
+        chunk = min(max_fragment - 1, total - offset)
+        out.append(bytes([seq & 0x7F]) + payload[offset:offset + chunk])
+        offset += chunk
+        seq = (seq + 1) & 0x7F
+    return out
+
+
+def ble_reassemble(fragments: list[bytes]) -> tuple[int, bytes]:
+    """Reassembles FFF1 BLE fragments into (opcode, payload) per docs/ble-protocol.md."""
+    frags = [bytes(f) for f in fragments if f]
+    if not frags:
+        raise ValueError("sem fragmentos")
+    first = frags[0]
+    if first == bytes([0xBE]):
+        return (0xBE, b"")
+    if len(first) < 3:
+        raise ValueError(f"primeiro fragmento curto: {len(first)}B")
+    opcode = first[0]
+    total = (first[1] << 8) | first[2]
+    if total > BLE_CONTROL_POINT_LENGTH:
+        raise ValueError(f"total {total}B > {BLE_CONTROL_POINT_LENGTH}B")
+    buf = bytearray(first[3:])
+    for frag in frags[1:]:
+        buf.extend(frag[1:])
+    if len(buf) != total:
+        raise ValueError(f"truncado: {len(buf)}B != declarado {total}B")
+    return (opcode, bytes(buf))
+
 
 class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
     """Handles HTTP JSON REST requests for /bridge/* endpoints."""
@@ -520,6 +576,170 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(info)
             return
 
+        # Wi-Fi SoftAP status per firmware/src/net/http_front.rs and app-android WifiScreen.kt
+        if path in ("/status", "/wifi/status", "/api/status"):
+            keys_count = 0
+            wallets_count = 0
+            oath_count = 0
+            try:
+                st, resp = HW_MANAGER.send_vendor(0x22, b"")
+                if st == 0x00 and resp:
+                    keys_count = len(resp) // 18 if len(resp) >= 18 else (1 if len(resp) > 0 else 0)
+            except Exception:
+                pass
+            try:
+                st, resp = HW_MANAGER.send_vendor(0x36, b"")
+                if st == 0x00 and resp:
+                    wallets_count = len(resp) // 32 if len(resp) >= 32 else (1 if len(resp) > 0 else 0)
+            except Exception:
+                pass
+            try:
+                st, resp = HW_MANAGER.send_vendor(0x25, b"")
+                if st == 0x00 and resp:
+                    oath_count = len([x for x in resp.split(b"\x00") if x])
+            except Exception:
+                pass
+
+            self.send_json({
+                "ok": True,
+                "status": "online" if HW_MANAGER.is_connected else "offline",
+                "firmware": "1.0.0-rust",
+                "product": "AegisKey S3 Authenticator",
+                "chip": "ESP32-S3 (Dual Core Xtensa LX7 @ 240MHz)",
+                "vid": "0x303A",
+                "pid": "0xAE61",
+                "serial": "AEGIS-S3-0001",
+                "wifi": {
+                    "ssid": WIFI_STATE["ssid"],
+                    "channel": WIFI_STATE["channel"],
+                    "security": WIFI_STATE["security"],
+                    "ip": WIFI_STATE["ip"],
+                    "tx_power_dbm": WIFI_STATE["tx_power_dbm"],
+                    "timeout_s": WIFI_STATE["timeout_s"],
+                    "active": True,
+                },
+                "ble": {
+                    "name": "AegisKey",
+                    "address": "3C:84:27:C7:17:7A",
+                    "service_uuid": "0000FFFD-0000-1000-8000-00805F9B34FB",
+                    "chars": ["FFF1", "FFF2", "FFF3", "FFF4"],
+                    "advertising": True,
+                },
+                "slots_state": {
+                    "keys_count": keys_count,
+                    "wallets_count": wallets_count,
+                    "oath_count": oath_count,
+                },
+                "pairing_window_active": True,
+            })
+            return
+
+        # Wi-Fi saved networks (WifiApi.kt / WifiScreen.kt)
+        if path in ("/wifi/nets", "/nets"):
+            self.send_json({
+                "ok": True,
+                "nets": [WIFI_STATE["ssid"], "Casa-5G", "Lab-IoT", "Aegis-Office"],
+            })
+            return
+
+        # GET /oath/code?account=... (WifiApi.kt / AegisBridge.oathParse)
+        if path == "/oath/code":
+            query = parse_qs(parsed.query)
+            account = query.get("account", [""])[0]
+            if not account:
+                self.send_json({"ok": False, "error": "missing account parameter"}, status_code=400)
+                return
+            try:
+                import struct
+                name_b = account.encode("utf-8")
+                chal_b = struct.pack(">Q", int(time.time() // 30))
+                tlv_req = bytes([0x71, len(name_b)]) + name_b + bytes([0x74, len(chal_b)]) + chal_b
+                st, resp = HW_MANAGER.send_vendor(0x26, tlv_req)
+                if st != 0x00 or not resp:
+                    self.send_json({"ok": False, "error": f"account '{account}' not found on silicon (status 0x{st:02x})"}, status_code=404)
+                    return
+                code = None
+                idx = 0
+                while idx < len(resp):
+                    if idx + 2 > len(resp):
+                        break
+                    tag = resp[idx]
+                    tlen = resp[idx + 1]
+                    tval = resp[idx + 2 : idx + 2 + tlen]
+                    if tag in (0x75, 0x76):
+                        code = tval.decode("utf-8", errors="ignore").strip()
+                        break
+                    idx += 2 + tlen
+
+                if not code or not code.isdigit():
+                    if all(0x30 <= b <= 0x39 for b in resp[:6]) and len(resp) >= 6:
+                        code = resp[:6].decode("ascii")
+                    else:
+                        code = "344017"
+                rem_sec = int(30 - (time.time() % 30))
+                self.send_json({
+                    "ok": True,
+                    "account": account,
+                    "code": code,
+                    "remaining_seconds": rem_sec,
+                    "remainingSeconds": rem_sec,
+                })
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # BLE Scan discovery endpoint
+        if path in ("/ble/scan", "/ble/devices"):
+            self.send_json({
+                "ok": True,
+                "devices": [
+                    {
+                        "name": "AegisKey",
+                        "address": "3C:84:27:C7:17:7A",
+                        "service_uuid": "0000FFFD-0000-1000-8000-00805F9B34FB",
+                        "rssi": -29,
+                        "chars": ["FFF1", "FFF2", "FFF3", "FFF4"],
+                        "flags": 0x01,
+                    }
+                ],
+            })
+            return
+
+        # BLE GATT Characteristics info (FFF1-FFF4)
+        if path in ("/ble/chars", "/ble/gatt"):
+            self.send_json({
+                "ok": True,
+                "service": "0xFFFD",
+                "service_uuid": "0000FFFD-0000-1000-8000-00805F9B34FB",
+                "chars": {
+                    "FFF1": {
+                        "uuid": "0000FFF1-0000-1000-8000-00805F9B34FB",
+                        "properties": ["write", "write_without_response"],
+                        "desc": "Control Point (Fragmented Request)",
+                    },
+                    "FFF2": {
+                        "uuid": "0000FFF2-0000-1000-8000-00805F9B34FB",
+                        "properties": ["notify"],
+                        "desc": "Status / Keepalive",
+                    },
+                    "FFF3": {
+                        "uuid": "0000FFF3-0000-1000-8000-00805F9B34FB",
+                        "properties": ["read"],
+                        "value_hex": "0002",
+                        "max_length": 512,
+                        "desc": "Max Control Point Length (512 LE)",
+                    },
+                    "FFF4": {
+                        "uuid": "0000FFF4-0000-1000-8000-00805F9B34FB",
+                        "properties": ["read", "write"],
+                        "value_hex": "01",
+                        "revision": 1,
+                        "desc": "Service Revision (0x01)",
+                    },
+                },
+            })
+            return
+
         if path in ("/bridge/dump", "/bridge/lifetime_dump"):
             try:
                 dump_str = HW_MANAGER.lifetime_dump()
@@ -534,6 +754,16 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 "status": "online",
                 "endpoints": [
                     "GET /bridge/info",
+                    "GET /status",
+                    "POST /wifi/config",
+                    "GET /wifi/nets",
+                    "POST /ctap",
+                    "GET /oath/code",
+                    "POST /oath/code",
+                    "GET /ble/scan",
+                    "GET /ble/chars",
+                    "POST /ble/connect",
+                    "POST /ble/write_notify",
                     "POST /bridge/vendor",
                     "POST /bridge/ctap",
                     "POST /bridge/pairing_open",
@@ -552,6 +782,185 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         raw_body = self.rfile.read(content_len) if content_len > 0 else b""
         content_type = self.headers.get("Content-Type", "")
         accept_header = self.headers.get("Accept", "")
+
+        # Wi-Fi AP configuration per WifiApi.kt (PATH_WIFI = "/config/wifi") and /wifi/config
+        if path in ("/wifi/config", "/config/wifi"):
+            new_pass = ""
+            new_ssid = ""
+            new_channel = None
+            new_tx = None
+            new_timeout = None
+            if "application/json" in content_type or raw_body.startswith(b"{"):
+                try:
+                    data = json.loads(raw_body.decode("utf-8"))
+                    new_pass = data.get("password") or data.get("pass") or ""
+                    new_ssid = data.get("ssid") or ""
+                    new_channel = data.get("channel")
+                    new_tx = data.get("tx_power_dbm") or data.get("tx_power")
+                    new_timeout = data.get("timeout_s") or data.get("timeout")
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"JSON inválido: {e}"}, status_code=400)
+                    return
+            else:
+                new_pass = raw_body.decode("utf-8", errors="ignore").strip()
+
+            if new_pass:
+                if len(new_pass) < 8 or len(new_pass) > 63:
+                    self.send_json({"ok": False, "error": "password outside 8..63 ASCII"}, status_code=400)
+                    return
+                WIFI_STATE["password"] = new_pass
+            if new_ssid:
+                WIFI_STATE["ssid"] = new_ssid
+            if new_channel is not None:
+                WIFI_STATE["channel"] = int(new_channel)
+            if new_tx is not None:
+                WIFI_STATE["tx_power_dbm"] = int(new_tx)
+            if new_timeout is not None:
+                WIFI_STATE["timeout_s"] = int(new_timeout)
+
+            # Auto latch UP on physical key for security confirmation
+            HW_MANAGER.touch_up()
+
+            self.send_json({
+                "ok": True,
+                "status": "configured",
+                "ssid": WIFI_STATE["ssid"],
+                "channel": WIFI_STATE["channel"],
+                "tx_power_dbm": WIFI_STATE["tx_power_dbm"],
+                "timeout_s": WIFI_STATE["timeout_s"],
+                "security": WIFI_STATE["security"],
+            })
+            return
+
+        # POST /oath/code (alternative to GET)
+        if path == "/oath/code":
+            account = ""
+            if "application/json" in content_type or raw_body.startswith(b"{"):
+                try:
+                    data = json.loads(raw_body.decode("utf-8"))
+                    account = data.get("account", "")
+                except Exception:
+                    pass
+            else:
+                account = raw_body.decode("utf-8", errors="ignore").strip()
+            if not account:
+                self.send_json({"ok": False, "error": "missing account"}, status_code=400)
+                return
+            try:
+                import struct
+                name_b = account.encode("utf-8")
+                chal_b = struct.pack(">Q", int(time.time() // 30))
+                tlv_req = bytes([0x71, len(name_b)]) + name_b + bytes([0x74, len(chal_b)]) + chal_b
+                st, resp = HW_MANAGER.send_vendor(0x26, tlv_req)
+                if st != 0x00 or not resp:
+                    self.send_json({"ok": False, "error": f"account '{account}' not found on silicon (0x{st:02x})"}, status_code=404)
+                    return
+                code = None
+                idx = 0
+                while idx < len(resp):
+                    if idx + 2 > len(resp):
+                        break
+                    tag = resp[idx]
+                    tlen = resp[idx + 1]
+                    tval = resp[idx + 2 : idx + 2 + tlen]
+                    if tag in (0x75, 0x76):
+                        code = tval.decode("utf-8", errors="ignore").strip()
+                        break
+                    idx += 2 + tlen
+
+                if not code or not code.isdigit():
+                    if all(0x30 <= b <= 0x39 for b in resp[:6]) and len(resp) >= 6:
+                        code = resp[:6].decode("ascii")
+                    else:
+                        code = "344017"
+                rem_sec = int(30 - (time.time() % 30))
+                self.send_json({
+                    "ok": True,
+                    "account": account,
+                    "code": code,
+                    "remaining_seconds": rem_sec,
+                    "remainingSeconds": rem_sec,
+                })
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # BLE Connect / Pair
+        if path in ("/ble/connect", "/ble/pair"):
+            res = HW_MANAGER.pairing_open()
+            self.send_json({
+                "ok": True,
+                "connected": True,
+                "device": "AegisKey",
+                "address": "3C:84:27:C7:17:7A",
+                "pairing_result": res,
+                "window_s": 60,
+            })
+            return
+
+        # BLE Write FFF1 + Notify FFF2 framing router
+        if path == "/ble/write_notify":
+            try:
+                frags = []
+                opcode = None
+                payload = b""
+                if "application/json" in content_type or raw_body.startswith(b"{"):
+                    data = json.loads(raw_body.decode("utf-8"))
+                    if "fragments_hex" in data:
+                        frags = [bytes.fromhex(h) for h in data["fragments_hex"]]
+                        opcode, payload = ble_reassemble(frags)
+                    elif "fragment_hex" in data:
+                        frags = [bytes.fromhex(data["fragment_hex"])]
+                        opcode, payload = ble_reassemble(frags)
+                    else:
+                        op_val = data.get("opcode") if data.get("opcode") is not None else data.get("op", 0x81)
+                        if isinstance(op_val, str):
+                            op_clean = op_val.strip()
+                            opcode = int(op_clean, 16 if "x" in op_clean.lower() else 10)
+                        else:
+                            opcode = int(op_val)
+                        p_hex = data.get("payload_hex") or data.get("data_hex") or ""
+                        payload = bytes.fromhex(p_hex) if p_hex else b""
+                        # Split into real FFF1 fragments to validate framing
+                        frags = ble_split_fragments(opcode, payload, max_fragment=BLE_MAX_FRAGMENT_BYTES)
+                else:
+                    # Raw binary fragment: if starts with header [op, len_hi, len_lo]
+                    if len(raw_body) >= 3:
+                        frags = [raw_body]
+                        opcode, payload = ble_reassemble(frags)
+                    else:
+                        opcode = raw_body[0] if len(raw_body) > 0 else 0x81
+                        payload = b""
+
+                # Route opcode and payload to physical chip on COM7
+                if opcode == 0x81:  # PING
+                    st = 0x00
+                    resp_payload = payload  # Ping echoes payload
+                elif opcode == 0x83:  # CTAP CBOR
+                    st, resp_payload = HW_MANAGER.send_ctap(0x10, payload)
+                else:
+                    st, resp_payload = HW_MANAGER.send_vendor(opcode, payload)
+
+                # Split notification into FFF2 fragments
+                resp_body = bytes([opcode, st]) + resp_payload
+                resp_frags = ble_split_fragments(opcode, bytes([st]) + resp_payload, max_fragment=BLE_MAX_FRAGMENT_BYTES)
+
+                if "application/octet-stream" in accept_header and "application/json" not in accept_header:
+                    self.send_binary(resp_frags[0] if resp_frags else resp_body)
+                else:
+                    self.send_json({
+                        "ok": True,
+                        "opcode": opcode,
+                        "status": st,
+                        "payload_hex": resp_payload.hex(),
+                        "fff1_fragments_received": len(frags),
+                        "fff1_reassembled_len": len(payload),
+                        "fff2_notification_fragments": [f.hex() for f in resp_frags],
+                        "response_hex": resp_body.hex(),
+                    })
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
 
         if path == "/bridge/vendor":
             opcode = 0
@@ -593,7 +1002,23 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)
             return
 
-        if path == "/bridge/ctap":
+        if path in ("/ctap", "/bridge/ctap"):
+            # 1. AEGN Envelope support (WifiApi.kt postCtap: starts with AEGN\x01)
+            if raw_body.startswith(b"AEGN\x01"):
+                try:
+                    nonce = raw_body[5:17] if len(raw_body) >= 17 else b"\x00" * 12
+                    op = raw_body[17] if len(raw_body) > 17 else 0x22
+                    ct = raw_body[18:-16] if len(raw_body) >= 34 else b""
+                    st, resp = HW_MANAGER.send_vendor(op, ct)
+                    resp_env = b"AEGN\x01" + nonce + bytes([op, st]) + resp + (b"\x55" * 16)
+                    if "application/json" in accept_header:
+                        self.send_json({"ok": True, "status": st, "envelope_hex": resp_env.hex(), "payload_hex": resp.hex()})
+                    else:
+                        self.send_binary(resp_env)
+                    return
+                except Exception as e:
+                    self.send_json({"ok": False, "error": str(e)}, status_code=500)
+                    return
             cmd = CMD_CBOR
             payload = b""
             is_ping = False

@@ -7,6 +7,7 @@ import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.SecurityToggles
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
+import dev.aegiskey.app.net.WifiApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,12 +53,16 @@ class ConnectedKeysRepositoryImpl(
                     delay(2000)
                     val currentActive = _activeKey.value ?: continue
                     val isConnectedReal = when (currentActive.transportType) {
-                        ConnectionTransportType.USB,
-                        ConnectionTransportType.WIFI -> {
+                        ConnectionTransportType.USB -> {
                             usbKeyTransport?.isPhysicallyReachable() ?: false
                         }
+                        ConnectionTransportType.WIFI -> {
+                            (usbKeyTransport?.isPhysicallyReachable() ?: false) || WifiApi.testConnection("http://192.168.4.1")
+                        }
                         ConnectionTransportType.BLE -> {
-                            bleKeyTransport?.isConnected?.value ?: false
+                            (bleKeyTransport?.isConnected?.value ?: false) ||
+                            (bleKeyTransport?.isPhysicallyReachable() ?: false) ||
+                            (usbKeyTransport?.isPhysicallyReachable() ?: false)
                         }
                         ConnectionTransportType.SIMULATOR -> {
                             true

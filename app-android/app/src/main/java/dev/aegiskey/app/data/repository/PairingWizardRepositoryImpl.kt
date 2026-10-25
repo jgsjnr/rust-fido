@@ -58,7 +58,23 @@ class PairingWizardRepositoryImpl(
                 signalRssi = dev.rssi,
                 transportType = ConnectionTransportType.BLE
             )
+        }.toMutableList()
+
+        // Se estiver rodando no Emulador Android ou a ponte host estiver ativa com chave física real
+        val bridgeInfo = runCatching { hostBridgeClient.probeRealHardware() }.getOrNull()
+        if (bridgeInfo != null && bridgeInfo.connected) {
+            if (realCandidates.none { it.id == "BLE-BRIDGE" }) {
+                realCandidates.add(
+                    DiscoveredKeyCandidate(
+                        id = "BLE-BRIDGE",
+                        name = "AegisKey BLE (Hardware Real)",
+                        signalRssi = -42,
+                        transportType = ConnectionTransportType.BLE
+                    )
+                )
+            }
         }
+
         return if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
             val mockBle = DebugHardwareChipMock.MOCK_BLE_CANDIDATE
             if (mockBle != null && realCandidates.none { it.id == mockBle.id }) {
@@ -137,17 +153,31 @@ class PairingWizardRepositoryImpl(
             ConnectionTransportType.WIFI -> {
                 val list = mutableListOf<DiscoveredKeyCandidate>()
 
-                // Ponto de acesso direto ou rede Wi-Fi da AegisKey
-                list.add(
-                    DiscoveredKeyCandidate(
-                        id = "WIFI:http://192.168.4.1",
-                        name = "AegisKey Wi-Fi (192.168.4.1)",
-                        signalRssi = -35,
-                        transportType = ConnectionTransportType.WIFI
+                // 1. Testa conectividade real com SoftAP ou bridge (192.168.4.1 ou fallback 10.0.2.2)
+                val reachable = WifiApi.testConnection("http://192.168.4.1")
+                val bridgeInfo = if (!reachable) runCatching { hostBridgeClient.probeRealHardware() }.getOrNull() else null
+
+                if (reachable || (bridgeInfo != null && bridgeInfo.connected)) {
+                    list.add(
+                        DiscoveredKeyCandidate(
+                            id = "WIFI:http://192.168.4.1",
+                            name = "AegisKey Wi-Fi AP (192.168.4.1)",
+                            signalRssi = -35,
+                            transportType = ConnectionTransportType.WIFI
+                        )
                     )
-                )
+                }
+
+                // 2. Mock do chip (apenas se ativado explicitamente)
+                if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                    val mockWifi = DebugHardwareChipMock.MOCK_WIFI_CANDIDATE
+                    if (mockWifi != null && list.none { it.id == mockWifi.id }) {
+                        list.add(mockWifi)
+                    }
+                }
 
                 _discoveredCandidates.value = list
+                _isScanning.value = false
             }
             ConnectionTransportType.SIMULATOR -> {
                 if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
@@ -170,7 +200,6 @@ class PairingWizardRepositoryImpl(
 
     override suspend fun simulatePhysicalButtonHold5s(): Result<Unit> = withContext(Dispatchers.IO) {
         if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
-            // Em ambiente com chave real na ponte, tenta solicitar janela de pareamento na UART
             val bridgeOk = hostBridgeClient.requestPairingWindow()
             if (bridgeOk) {
                 _buttonHoldSimulatedOrDetected.value = true
@@ -184,7 +213,6 @@ class PairingWizardRepositoryImpl(
 
     override suspend fun simulatePhysicalButtonSingleTouch(): Result<Unit> = withContext(Dispatchers.IO) {
         if (!DebugHardwareChipMock.IS_MOCK_ENABLED) {
-            // Em ambiente de bancada, avisa a ponte ou requer toque no sensor físico
             val bridgeOk = hostBridgeClient.triggerTouchUp()
             if (bridgeOk) {
                 return@withContext Result.success(Unit)
@@ -199,15 +227,17 @@ class PairingWizardRepositoryImpl(
             currentCandidate = candidate
             if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate.id)) {
                 Unit
-            } else if (candidate.id.startsWith("BRIDGE:")) {
+            } else if (candidate.id == "BLE-BRIDGE" || candidate.id.startsWith("BRIDGE:")) {
                 // Valida que a chave responde na ponte host USB/UART
                 val ok = hostBridgeClient.ping() || hostBridgeClient.probeRealHardware() != null
                 if (!ok) {
                     throw IllegalStateException("Não foi possível comunicar com a chave física na porta USB/UART (${candidate.id})")
                 }
             } else if (candidate.id.startsWith("WIFI:") || candidate.transportType == ConnectionTransportType.WIFI) {
-                // Tenta verificar disponibilidade do AP Wi-Fi
-                runCatching { WifiApi.getWifiNets("http://192.168.4.1") }
+                val ok = WifiApi.testConnection("http://192.168.4.1") || hostBridgeClient.ping()
+                if (!ok && !DebugHardwareChipMock.IS_MOCK_ENABLED) {
+                    throw IllegalStateException("Não foi possível alcançar o AP Wi-Fi da chave física")
+                }
             } else {
                 when (candidate.transportType) {
                     ConnectionTransportType.BLE -> {
@@ -255,10 +285,10 @@ class PairingWizardRepositoryImpl(
 
             val rawResponse = if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id)) {
                 byteArrayOf(0x28.toByte(), 0x00.toByte()) + bindingId
-            } else if (candidate?.id?.startsWith("BRIDGE:") == true) {
-                // Envia comando real de claim (0x28) diretamente para a chave física na porta USB/UART
+            } else if (candidate?.id == "BLE-BRIDGE" || candidate?.id?.startsWith("BRIDGE:") == true) {
+                // Envia comando real de claim (0x28) diretamente para a chave física na porta USB/UART/bridge
                 hostBridgeClient.sendVendor(0x28, claimPayload)
-                    ?: throw IllegalStateException("Chave física no USB/UART não respondeu ao comando de vínculo 0x28")
+                    ?: throw IllegalStateException("Chave física BLE na bridge não respondeu ao comando de vínculo 0x28")
             } else if (candidate?.transportType == ConnectionTransportType.WIFI || candidate?.id?.startsWith("WIFI:") == true) {
                 // Envia comando de claim para a chave via Wi-Fi/ponte
                 hostBridgeClient.sendVendor(0x28, claimPayload)
@@ -308,15 +338,27 @@ class PairingWizardRepositoryImpl(
             val bindingIdHex = bindingId.joinToString("") { "%02X".format(it) }
             val displayName = keyAliasName.trim().ifEmpty {
                 when {
-                    DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id) -> "AegisKey FIDO2 (Chip Debug)"
+                    DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id) -> {
+                        when (transportType) {
+                            ConnectionTransportType.BLE -> "AegisKey BLE (Chip Simulado)"
+                            ConnectionTransportType.WIFI -> "AegisKey Wi-Fi AP (192.168.4.1)"
+                            ConnectionTransportType.USB -> "AegisKey USB (Chip Simulado)"
+                            ConnectionTransportType.SIMULATOR -> "AegisKey Renode (Virtual)"
+                        }
+                    }
+                    candidate?.id == "BLE-BRIDGE" -> "AegisKey BLE (Hardware Real)"
                     candidate?.id?.startsWith("BRIDGE:") == true -> candidate.name
-                    transportType == ConnectionTransportType.WIFI -> "AegisKey Wi-Fi (192.168.4.1)"
+                    transportType == ConnectionTransportType.WIFI -> "AegisKey Wi-Fi AP (192.168.4.1)"
                     transportType == ConnectionTransportType.SIMULATOR -> "AegisKey Virtual (Teste)"
                     else -> "AegisKey " + bindingIdHex.take(4)
                 }
             }
 
-            val hardwareAddr = candidate?.id ?: (if (transportType == ConnectionTransportType.WIFI) "WIFI:http://192.168.4.1" else bindingIdHex)
+            val hardwareAddr = candidate?.id ?: when (transportType) {
+                ConnectionTransportType.WIFI -> "WIFI:http://192.168.4.1"
+                ConnectionTransportType.BLE -> "BLE-BRIDGE"
+                else -> bindingIdHex
+            }
 
             val device = ConnectedKeyDevice(
                 id = UUID.randomUUID().toString(),

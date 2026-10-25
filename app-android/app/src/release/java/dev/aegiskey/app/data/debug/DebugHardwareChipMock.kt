@@ -20,6 +20,7 @@ object DebugHardwareChipMock {
     val MOCK_BLE_CANDIDATE: DiscoveredKeyCandidate? = null
     val MOCK_USB_CANDIDATE: DiscoveredKeyCandidate? = null
     val MOCK_SIMULATOR_CANDIDATE: DiscoveredKeyCandidate? = null
+    val MOCK_WIFI_CANDIDATE: DiscoveredKeyCandidate? = null
 
     private val _isHoldSimulated = MutableStateFlow(false)
     val isHoldSimulated: StateFlow<Boolean> = _isHoldSimulated.asStateFlow()

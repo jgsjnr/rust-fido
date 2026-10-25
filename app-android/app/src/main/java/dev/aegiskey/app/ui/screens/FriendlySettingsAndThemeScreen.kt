@@ -56,7 +56,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -143,6 +145,13 @@ fun FriendlySettingsAndThemeScreen(
     // Estado do Teste Wi-Fi (192.168.4.1)
     var wifiTesting by remember { mutableStateOf(false) }
     var wifiTestResult by remember { mutableStateOf<String?>(null) }
+    var wifiTotpReading by remember { mutableStateOf(false) }
+    var showWifiConfigDialog by remember { mutableStateOf(false) }
+    var wifiConfigSsid by remember { mutableStateOf("AegisKey-AP") }
+    var wifiConfigPassword by remember { mutableStateOf("12345678") }
+    var wifiConfigChannel by remember { mutableIntStateOf(6) }
+    var wifiConfigPowerSave by remember { mutableStateOf(false) }
+    var wifiConfiguring by remember { mutableStateOf(false) }
 
     // Estado da Checagem de Atualização OTA
     var otaChecking by remember { mutableStateOf(false) }
