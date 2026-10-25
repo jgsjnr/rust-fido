@@ -41,6 +41,8 @@ pub const EVT_SHUTDOWN: u32 = 1 << 31;
 pub const USB_TASK_PRIO: u8 = 5;
 /// Tarefa de UI/botão.
 pub const UI_TASK_PRIO: u8 = 4;
+/// Tarefa dedicada do Secure Guard (autoridade local e sessões).
+pub const SECURE_GUARD_TASK_PRIO: u8 = 3;
 /// Tarefa de housekeeping/watchdog.
 pub const HOUSEKEEPING_TASK_PRIO: u8 = 2;
 
@@ -48,8 +50,19 @@ pub const HOUSEKEEPING_TASK_PRIO: u8 = 2;
 pub const USB_TASK_STACK: usize = 32 * 1024;
 /// Stack da tarefa de botão/UI.
 pub const UI_TASK_STACK: usize = 32 * 1024;
+/// Stack da tarefa Secure Guard (32 KiB para acomodar PBKDF2 sem risco de overflow).
+pub const SECURE_GUARD_TASK_STACK: usize = 32 * 1024;
 /// Stack da tarefa de housekeeping.
 pub const HOUSEKEEPING_TASK_STACK: usize = 32 * 1024;
+
+/// Identificadores canônicos das tarefas gerenciadas do FreeRTOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TaskId {
+    UsbCtapHid,
+    UiButton,
+    Housekeeping,
+    SecureGuard,
+}
 
 /// Origem física de um pacote CTAPHID de 64 B.
 ///
@@ -144,6 +157,16 @@ impl TaskConfig {
             name: "housekeeping",
             stack_size: HOUSEKEEPING_TASK_STACK,
             priority: HOUSEKEEPING_TASK_PRIO,
+            pinned_core: None,
+        }
+    }
+
+    /// Config padrão da tarefa Secure Guard.
+    pub fn secure_guard() -> Self {
+        Self {
+            name: "secure_guard",
+            stack_size: SECURE_GUARD_TASK_STACK,
+            priority: SECURE_GUARD_TASK_PRIO,
             pinned_core: None,
         }
     }
@@ -670,6 +693,30 @@ impl FreeRtosScheduler {
             })
             .expect("spawn housekeeping")
     }
+
+    /// Tarefa periódica dedicada do Secure Guard: executa tick a cada 100 ms com watchdog.
+    pub fn spawn_secure_guard_task(
+        &self,
+        mut on_tick: impl FnMut(u64) + Send + 'static,
+    ) -> std::thread::JoinHandle<u64> {
+        let events = Arc::clone(&self.events);
+        let stop = Arc::clone(&self.stop);
+        std::thread::Builder::new()
+            .name("secure_guard".into())
+            .stack_size(SECURE_GUARD_TASK_STACK)
+            .spawn(move || {
+                let twdt = PerTaskWatchdog::subscribe_current_task();
+                let mut tick: u64 = 0;
+                while !Self::stop_requested(&stop, &events) {
+                    twdt.feed_current_task();
+                    on_tick(tick.saturating_mul(100));
+                    tick = tick.saturating_add(1);
+                    task_delay_ms(100);
+                }
+                tick
+            })
+            .expect("spawn secure_guard")
+    }
 }
 
 /// Entrada da variante FreeRTOS (feature `freertos`).
@@ -718,10 +765,13 @@ mod tests {
         let usb = TaskConfig::usb();
         let btn = TaskConfig::button();
         let hk = TaskConfig::housekeeping();
+        let sg = TaskConfig::secure_guard();
         assert_eq!(usb.priority, USB_TASK_PRIO);
         assert_eq!(btn.priority, UI_TASK_PRIO);
         assert_eq!(hk.priority, HOUSEKEEPING_TASK_PRIO);
+        assert_eq!(sg.priority, SECURE_GUARD_TASK_PRIO);
         assert!(usb.stack_size >= 2048);
+        assert_eq!(sg.stack_size, SECURE_GUARD_TASK_STACK);
         assert!(TaskConfig::new("x", 1024, 5, None).is_none());
         assert!(TaskConfig::new("x", 4096, 0, None).is_none());
         assert!(TaskConfig::new("x", 4096, 25, None).is_none());

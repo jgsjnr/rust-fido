@@ -114,6 +114,8 @@ pub struct SerialVendorCtx<'a> {
     pub pairing: &'a mut crate::pairing::PairingManager,
     /// Sessão pinUvAuth viva (ClientPIN).
     pub pin_uv_session: bool,
+    /// Mecanismo do Secure Guard (autoridade local e barreira de autorização).
+    pub secure_guard: Option<&'a mut aegis_fido_core::secure_guard::SecureGuardEngine>,
 }
 
 /// Despacha 1 `CMD_MSG` serial vendor/bind-mgmt/wallet/fw-log/rescue/
@@ -182,9 +184,61 @@ pub fn dispatch_serial_vendor_msg(
         resp.extend_from_slice(&body);
         return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
     }
+    // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
+    if crate::ble_gatt::is_secure_guard_op(op) {
+        if let Some(ref mut sg) = ctx.secure_guard {
+            let mut rng = rand_core::OsRng;
+            let (st, body) = crate::secure_guard_exec::exec_secure_guard_op(
+                sg,
+                ctx.storage,
+                ctx.wallet,
+                ctx.key_mgr,
+                ctx.oath,
+                op,
+                &payload[1..],
+                ctx.now_ms,
+                &mut rng,
+            );
+            let mut resp = Vec::with_capacity(1 + body.len());
+            resp.push(st);
+            resp.extend_from_slice(&body);
+            return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
+        } else {
+            return Some((
+                CtapHidFramer::frame_message(
+                    msg.cid,
+                    msg.cmd,
+                    &[crate::secure_guard_exec::CTAP2_ERR_PIN_REQUIRED],
+                ),
+                false,
+            ));
+        }
+    }
     // Vendor keys/OATH + carteira + PIV enroll: UP do latch (como o BLE);
     // negação carrega o wire status.
     if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
+        // Barreira de Autorização Obrigatória (Enforcement) Secure Guard:
+        // Se provisionado, bloqueia operações não autorizadas com CTAP2_ERR_PIN_REQUIRED (0x36).
+        if let Some(ref mut sg) = ctx.secure_guard {
+            if sg.is_provisioned() {
+                if let Err(e) = sg.authorize_vendor_opcode(op, ctx.now_ms) {
+                    log::warn!(
+                        "[SECURE_GUARD] Bloqueado pela barreira de autorização: op=0x{:02X}, estado={:?}, err={:?}",
+                        op,
+                        sg.state(),
+                        e
+                    );
+                    return Some((
+                        CtapHidFramer::frame_message(
+                            msg.cid,
+                            msg.cmd,
+                            &[crate::secure_guard_exec::CTAP2_ERR_PIN_REQUIRED],
+                        ),
+                        false,
+                    ));
+                }
+            }
+        }
         match authorize_serial(msg.cmd, payload, ctx.pairing_open, ctx.up_latched) {
             SerialGate::NeedPairing => {
                 return Some((deny_response(msg), false));
@@ -370,6 +424,8 @@ pub fn route_ctaphid_event(
             // no engine CTAP genérico abaixo (U2F/OTA/desconhecido).
             if msg.cmd == CMD_MSG && !msg.payload.is_empty() {
                 if let Some(ctx) = vendor {
+                    ctx.now_ms = now_ms;
+                    ctx.now_secs = now_secs;
                     if let Some((responses, consumed)) = dispatch_serial_vendor_msg(ctx, &msg) {
                         let arm_up = ctx.arm_up;
                         let pin_verified = ctx.pin_verified;
@@ -634,6 +690,7 @@ mod tests {
             rescue: &mut rescue,
             pairing: &mut pairing,
             pin_uv_session: false,
+            secure_guard: None,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -701,6 +758,7 @@ mod tests {
             rescue: &mut rescue,
             pairing: &mut pairing,
             pin_uv_session: false,
+            secure_guard: None,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -732,5 +790,247 @@ mod tests {
         assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"PinSession"));
         assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"GattDispatch"));
         assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"WifiCoex"));
+    }
+
+    #[test]
+    fn test_secure_guard_enforcement_barrier_on_wallet_ops() {
+        use crate::binding::BindingManager;
+        use crate::ble_gatt::{OP_SECURE_GUARD_UNLOCK, OP_WALLET_LIST};
+        use crate::fw_log::FwLog;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardPolicy, SecureGuardState};
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::CMD_MSG;
+        use ciborium::value::Value;
+
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let backend = PlatformFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut mgr_usb = CtapHidManager::new();
+        let mut mgr_serial = CtapHidManager::new();
+        let mut engine = CtapEngine::new([0x11; 32], 0);
+
+        let policy = SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            session_duration_ms: 1000,
+            inactivity_timeout_ms: 500,
+            ..Default::default()
+        };
+        let mut sg = SecureGuardEngine::new(policy);
+        let pin = b"4829";
+
+        // 1. Provisiona Secure Guard via 0x3B
+        let prov_map = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
+        ];
+        let mut prov_cbor = Vec::new();
+        ciborium::into_writer(&Value::Map(prov_map), &mut prov_cbor).unwrap();
+
+        let mut prov_payload = Vec::new();
+        prov_payload.push(OP_SECURE_GUARD_UNLOCK);
+        prov_payload.extend_from_slice(&prov_cbor);
+
+        let raw_prov = init_raw(0x1122_3344, CMD_MSG, &prov_payload);
+        let ev_prov = FirmwareEvent::SerialPacket(raw_prov);
+
+        let mut vendor = SerialVendorCtx {
+            pairing_open: true,
+            up_latched: true,
+            now_ms: 1000,
+            now_secs: 1,
+            arm_up: false,
+            pin_verified: true,
+            binding: &mut binding,
+            storage: &mut storage,
+            wallet: &mut wallet,
+            key_mgr: &mut key_mgr,
+            oath: &mut oath,
+            fwlog: &mut fwlog,
+            rescue: &mut rescue,
+            pairing: &mut pairing,
+            pin_uv_session: true,
+            secure_guard: Some(&mut sg),
+        };
+
+        let out_prov = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev_prov,
+            true,
+            1000,
+            1,
+            Some(&mut vendor),
+        );
+        assert!(!out_prov.responses.is_empty());
+        assert_eq!(out_prov.responses[0][7], 0x00); // Sucesso provisionamento!
+        assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Locked);
+        assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
+
+        // 2. Tenta OP_WALLET_LIST (0x36) com Secure Guard LOCKED -> Deve ser BLOQUEADO pela barreira (0x36 PIN_REQUIRED)!
+        let raw_wallet = init_raw(0x1122_3344, CMD_MSG, &[OP_WALLET_LIST]);
+        let ev_wallet = FirmwareEvent::SerialPacket(raw_wallet);
+
+        let out_blocked = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev_wallet,
+            true,
+            1050,
+            1,
+            Some(&mut vendor),
+        );
+        assert_eq!(out_blocked.responses.len(), 1);
+        assert_eq!(out_blocked.responses[0][7], 0x36); // CTAP2_ERR_PIN_REQUIRED / SECURE_GUARD_LOCKED!
+
+        // 3. Desbloqueia Secure Guard via 0x3B com PIN correto
+        let unlock_map = vec![
+            (Value::Text("action".into()), Value::Text("unlock".into())),
+            (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
+        ];
+        let mut unlock_cbor = Vec::new();
+        ciborium::into_writer(&Value::Map(unlock_map), &mut unlock_cbor).unwrap();
+
+        let mut unlock_payload = Vec::new();
+        unlock_payload.push(OP_SECURE_GUARD_UNLOCK);
+        unlock_payload.extend_from_slice(&unlock_cbor);
+
+        let raw_unlock = init_raw(0x1122_3344, CMD_MSG, &unlock_payload);
+        let ev_unlock = FirmwareEvent::SerialPacket(raw_unlock);
+
+        let out_unlock = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev_unlock,
+            true,
+            1100,
+            1,
+            Some(&mut vendor),
+        );
+        assert!(!out_unlock.responses.is_empty());
+        assert_eq!(out_unlock.responses[0][7], 0x00); // Desbloqueado com sucesso!
+        assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Unlocked);
+
+        // 4. Agora chama OP_WALLET_LIST (0x36) com Secure Guard UNLOCKED -> PERMITIDO!
+        let raw_wallet_ok = init_raw(0x1122_3344, CMD_MSG, &[OP_WALLET_LIST]);
+        let ev_wallet_ok = FirmwareEvent::SerialPacket(raw_wallet_ok);
+
+        let out_allowed = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev_wallet_ok,
+            true,
+            1200,
+            1,
+            Some(&mut vendor),
+        );
+        assert_eq!(out_allowed.responses.len(), 1);
+        assert_eq!(out_allowed.responses[0][7], 0x00); // Carteira executada com sucesso!
+
+        // 5. Avança o tempo além da expiração da sessão por inatividade (1200 + 500 = 1700ms)
+        // Chama OP_WALLET_LIST em t = 1800ms -> A barreira expira a sessão e NEGA!
+        let raw_wallet_exp = init_raw(0x1122_3344, CMD_MSG, &[OP_WALLET_LIST]);
+        let ev_wallet_exp = FirmwareEvent::SerialPacket(raw_wallet_exp);
+
+        let out_expired = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev_wallet_exp,
+            true,
+            1800,
+            1,
+            Some(&mut vendor),
+        );
+        assert_eq!(out_expired.responses.len(), 1);
+        assert_eq!(out_expired.responses[0][7], 0x36); // Expirou sessão e bloqueou!
+        assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Locked);
+    }
+
+    #[test]
+    fn test_secure_guard_fido2_standard_never_blocked() {
+        use crate::binding::BindingManager;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardPolicy, SecureGuardState};
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::CMD_CBOR;
+
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let backend = PlatformFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut mgr_usb = CtapHidManager::new();
+        let mut mgr_serial = CtapHidManager::new();
+        let mut engine = CtapEngine::new([0x11; 32], 0);
+
+        let policy = SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            ..Default::default()
+        };
+        let mut sg = SecureGuardEngine::new(policy);
+        let _ = sg.provision_pin(b"2948", [0x11; 16], b"", [0x22; 16], 1000).expect("prov");
+        // Secure Guard está LOCKED e provisionado!
+        assert_eq!(sg.state(), SecureGuardState::Locked);
+
+        let mut vendor = SerialVendorCtx {
+            pairing_open: false,
+            up_latched: true,
+            now_ms: 1000,
+            now_secs: 1,
+            arm_up: false,
+            pin_verified: false,
+            binding: &mut binding,
+            storage: &mut storage,
+            wallet: &mut wallet,
+            key_mgr: &mut key_mgr,
+            oath: &mut oath,
+            fwlog: &mut fwlog,
+            rescue: &mut rescue,
+            pairing: &mut pairing,
+            pin_uv_session: false,
+            secure_guard: Some(&mut sg),
+        };
+
+        // FIDO2 standard MakeCredential / GetAssertion via CMD_CBOR
+        // Não é bloqueado com 0x36 (PIN_REQUIRED do SG); o engine CTAP processa o comando FIDO normalmente!
+        let raw = init_raw(0x0A0B_0C0D, CMD_CBOR, &[CTAP_CMD_MAKE_CREDENTIAL]);
+        let ev = FirmwareEvent::UsbPacket(raw);
+
+        let out = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev,
+            true,
+            1000,
+            1,
+            Some(&mut vendor),
+        );
+        // O comando alcança o CtapEngine (que responde erro CTAP de payload inválido, e NUNCA é interceptado pelo SG)
+        assert_eq!(out.responses.len(), 1);
+        assert_ne!(out.responses[0][7], 0x36); // Não foi barrado pelo Secure Guard!
     }
 }

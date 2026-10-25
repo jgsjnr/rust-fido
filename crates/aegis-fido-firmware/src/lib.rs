@@ -69,6 +69,9 @@ pub mod proximity_crypto;
 pub mod proximity_sched;
 pub mod recovery;
 pub mod run;
+pub mod secure_guard_exec;
+pub mod secure_guard_sched;
+pub mod secure_guard_storage;
 pub mod secure_msg;
 pub mod serial_ctaphid;
 pub mod serial_text;
@@ -117,5 +120,12 @@ pub use led::{Color, LedEffect, LedOutput, Ws2812Controller};
 #[cfg(any(test, not(target_os = "espidf")))]
 pub use persistence::MockFlashBackend;
 pub use persistence::{FlashStorageBackend, PlatformFlashBackend, SecureStorage, StorageError};
+pub use secure_guard_exec::exec_secure_guard_op;
+pub use secure_guard_sched::{
+    tick_secure_guard, SecureGuardSupervisor, SECURE_GUARD_TASK_PRIO, SECURE_GUARD_TASK_STACK,
+};
+pub use secure_guard_storage::{
+    load_secure_guard_record, save_secure_guard_record, NVS_SECURE_GUARD_RECORD,
+};
 pub use usb_descriptors::*;
 pub use watchdog::{StaticBuf, Watchdog};

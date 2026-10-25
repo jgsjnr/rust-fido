@@ -356,7 +356,15 @@ pub fn run_authenticator_freertos() {
         if !crate::vendor_exec::load_pin_state(&storage, &mut ctap_engine.pin_state) {
             kprintln!("[WARN] PIN NVS inconsistente; sem PIN.");
         }
+        let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
+        kprintln!(
+            "[INIT] Secure Guard online (state={:?}, provisioned={}).",
+            secure_guard.state(),
+            secure_guard.is_provisioned()
+        );
     }
+    #[cfg(target_os = "espidf")]
+    let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     #[cfg(target_os = "espidf")]
     stack_mark("binding+managers");
     #[cfg(target_os = "espidf")]
@@ -875,6 +883,7 @@ pub fn run_authenticator_freertos() {
                     rescue: &mut rescue_engine,
                     pairing: &mut pairing_mgr,
                     pin_uv_session,
+                    secure_guard: Some(&mut secure_guard),
                 };
                 let out = route_ctaphid_event(
                     &mut ctaphid_usb,
@@ -1375,6 +1384,8 @@ pub fn run_authenticator_freertos() {
                 if freertos_test.take_up() {
                     kprintln!("[TEST] UP sem prox (ack já enviado, sem latch).");
                 }
+                // Tick periódico do Secure Guard (expiração por tempo e inatividade).
+                crate::secure_guard_sched::tick_secure_guard(&mut secure_guard, freertos_now_ms);
             }
             Some(FirmwareEvent::BleFragment(_, len)) => {
                 // Via task dedicada (nenhuma ativa hoje): o poll direto
@@ -1384,6 +1395,8 @@ pub fn run_authenticator_freertos() {
             }
             Some(FirmwareEvent::Shutdown) => {
                 kprintln!("[FREERTOS] shutdown.");
+                let _ = secure_guard.on_transport_disconnect(freertos_now_ms);
+                kprintln!("[SECURE_GUARD] Sessão do Secure Guard invalidada no shutdown.");
                 #[cfg(feature = "proximity")]
                 {
                     prox.erase();

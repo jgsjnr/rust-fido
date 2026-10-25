@@ -4,7 +4,8 @@
 use super::gatt_core::{
     BleGattError, BIND_MGMT_OP_MAX, BIND_MGMT_OP_MIN, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE,
     OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT,
-    OP_PIV_ENROLL, VENDOR_OP_MAX, VENDOR_OP_MIN, WALLET_OP_MAX, WALLET_OP_MIN,
+    OP_PIV_ENROLL, SECURE_GUARD_OP_MAX, SECURE_GUARD_OP_MIN, VENDOR_OP_MAX, VENDOR_OP_MIN,
+    WALLET_OP_MAX, WALLET_OP_MIN,
 };
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
@@ -42,6 +43,11 @@ pub fn is_vendor_keys_oath_op(op: u8) -> bool {
 /// Retorna true para opcodes wallet Fase7 0x35-0x37 (reservados).
 pub fn is_wallet_op(op: u8) -> bool {
     (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&op)
+}
+
+/// Retorna true para opcodes Secure Guard 0x3A-0x3E.
+pub fn is_secure_guard_op(op: u8) -> bool {
+    (SECURE_GUARD_OP_MIN..=SECURE_GUARD_OP_MAX).contains(&op)
 }
 
 // Gates de binding para ops vendor Fase6 (Sec.9.4 + `binding.rs`).

@@ -139,6 +139,16 @@ pub const OP_WALLET_ADDR: u8 = 0x37;
 pub const WALLET_OP_MIN: u8 = OP_WALLET_GEN;
 pub const WALLET_OP_MAX: u8 = OP_WALLET_ADDR;
 
+/// Opcodes Secure Guard (0x3A..0x3E).
+pub const OP_SECURE_GUARD_STATUS: u8 = 0x3A;
+pub const OP_SECURE_GUARD_UNLOCK: u8 = 0x3B;
+pub const OP_SECURE_GUARD_LOCK: u8 = 0x3C;
+pub const OP_SECURE_GUARD_CONFIG: u8 = 0x3D;
+pub const OP_SECURE_GUARD_WIPE_SELECTIVE: u8 = 0x3E;
+/// Limites da faixa Secure Guard.
+pub const SECURE_GUARD_OP_MIN: u8 = OP_SECURE_GUARD_STATUS;
+pub const SECURE_GUARD_OP_MAX: u8 = OP_SECURE_GUARD_WIPE_SELECTIVE;
+
 /// Limite de reassemble (== envelope MAX-ESP, sem alloc extra).
 pub const CONTROL_POINT_LENGTH: usize = 512;
 /// Revisao GATT inicial (FFF4).
