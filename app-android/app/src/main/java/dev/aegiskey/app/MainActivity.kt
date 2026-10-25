@@ -3,30 +3,19 @@ package dev.aegiskey.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.VpnKey
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -34,15 +23,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.di.AppContainer
+import dev.aegiskey.app.domain.model.AppThemeMode
+import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AccountsScreen
-import dev.aegiskey.app.ui.AegisScreenColumn
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.AuthScreen
 import dev.aegiskey.app.ui.BindingWizardScreen
 import dev.aegiskey.app.ui.DeviceControlScreen
-import dev.aegiskey.app.ui.FriendlyText
 import dev.aegiskey.app.ui.ForeignDeviceScreen
 import dev.aegiskey.app.ui.LogScreen
 import dev.aegiskey.app.ui.OnboardingScreen
@@ -51,8 +41,6 @@ import dev.aegiskey.app.ui.PivScreen
 import dev.aegiskey.app.ui.RecoveryUnlockScreen
 import dev.aegiskey.app.ui.RescueScreen
 import dev.aegiskey.app.ui.ScanPairScreen
-import dev.aegiskey.app.ui.TestModeBanner
-import dev.aegiskey.app.ui.SectionTitle
 import dev.aegiskey.app.ui.SettingsScreen
 import dev.aegiskey.app.ui.SetupDeviceBleScreen
 import dev.aegiskey.app.ui.SetupDeviceUsbScreen
@@ -60,18 +48,36 @@ import dev.aegiskey.app.ui.TransferOwnershipScreen
 import dev.aegiskey.app.ui.UnbindGuideScreen
 import dev.aegiskey.app.ui.UsbScreen
 import dev.aegiskey.app.ui.VaultScreen
-import dev.aegiskey.app.ui.WelcomeScreen
 import dev.aegiskey.app.ui.WalletScreen
+import dev.aegiskey.app.ui.WelcomeScreen
 import dev.aegiskey.app.ui.WifiScreen
+import dev.aegiskey.app.ui.atomic.templates.HubDestination
+import dev.aegiskey.app.ui.atomic.templates.MainHubScaffoldTemplate
+import dev.aegiskey.app.ui.screens.ConnectedKeysRepositoryScreen
+import dev.aegiskey.app.ui.screens.FriendlySettingsAndThemeScreen
+import dev.aegiskey.app.ui.screens.KeyVaultHubScreen
+import dev.aegiskey.app.ui.screens.OnboardingWizardScreen
+import dev.aegiskey.app.ui.screens.TotpDedicatedScreen
+import dev.aegiskey.app.ui.viewmodel.AppThemeViewModel
+import dev.aegiskey.app.ui.viewmodel.ConnectedKeysViewModel
+import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
+import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
+import dev.aegiskey.app.ui.viewmodel.TotpAuthenticatorViewModel
 
 class MainActivity : ComponentActivity() {
+    private lateinit var container: AppContainer
     private lateinit var ble: AegisBleClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyScreenshotProtection(window)
-        ble = AegisBleClient(applicationContext)
-        setContent { AegisApp(ble) }
+
+        container = AppContainer.getInstance(applicationContext)
+        ble = container.bleClient
+
+        setContent {
+            AegisApp(container = container, client = ble)
+        }
     }
 
     override fun onDestroy() {
@@ -80,214 +86,231 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Destination(val route: String, val label: String, val icon: ImageVector)
-
 /**
- * Facilidade (licao: botoes de baixo encavalando):
- * - Barra inferior com 5 itens (maximo confortavel Material3), labels curtas
- *   com ellipsis/maxLines, alwaysShowLabel=false (so a selecionada mostra).
- * - Todas as rotas seguem no NavHost; as secundarias (scan/usb/wifi/log/
- *   settings) saem do hub "Conectar" — sem sobreposicao de conteudo
- *   (Scaffold innerPadding respeitado em TODAS as telas via AegisScreenColumn
- *   ou Modifier.padding(inner) + scroll).
+ * Função utilitária para obter ViewModel com factory desacoplada de forma segura e idiomática.
  */
-private val BOTTOM_DESTINATIONS = listOf(
-    Destination("welcome", "Inicio", Icons.Filled.Home),
-    Destination("accounts", "Chaves", Icons.Filled.VpnKey),
-    Destination("auth", "Auth", Icons.Filled.Fingerprint),
-    Destination("vault", "Cofre", Icons.Filled.Lock),
-    Destination("connect", "Conectar", Icons.Filled.Link),
-)
+@Composable
+private inline fun <reified VM : ViewModel> aegisViewModel(factory: ViewModelProvider.Factory): VM {
+    val context = LocalContext.current
+    val owner = context as? ViewModelStoreOwner
+        ?: error("Context não implementa ViewModelStoreOwner")
+    return remember(owner, VM::class.java) {
+        ViewModelProvider(owner, factory)[VM::class.java]
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AegisApp(client: AegisBleClient) {
-    val nav = rememberNavController()
-    // Prova de navegação no Log: cada troca de tela vira "tela=<rota>".
-    DisposableEffect(nav) {
-        val listener = NavController.OnDestinationChangedListener { _, dest, _ ->
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "tela=" + (dest.route ?: "?"))
-        }
-        nav.addOnDestinationChangedListener(listener)
-        onDispose { nav.removeOnDestinationChangedListener(listener) }
+fun AegisApp(container: AppContainer, client: AegisBleClient) {
+    val themeViewModel = aegisViewModel<AppThemeViewModel>(AppThemeViewModel.provideFactory(container))
+    val onboardingViewModel = aegisViewModel<OnboardingWizardViewModel>(OnboardingWizardViewModel.provideFactory(container))
+    val keysViewModel = aegisViewModel<ConnectedKeysViewModel>(ConnectedKeysViewModel.provideFactory(container))
+    val vaultViewModel = aegisViewModel<KeyVaultViewModel>(KeyVaultViewModel.provideFactory(container))
+    val totpViewModel = aegisViewModel<TotpAuthenticatorViewModel>(TotpAuthenticatorViewModel.provideFactory(container))
+
+    val themePref by themeViewModel.themePreference.collectAsState()
+    val isSystemDark = isSystemInDarkTheme()
+    val darkTheme = when (themePref.mode) {
+        AppThemeMode.SYSTEM -> isSystemDark
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
     }
-    AegisTheme {
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    val entry by nav.currentBackStackEntryAsState()
-                    val current = entry?.destination?.route
-                    val activeTop = when (current) {
-                        "onboarding", "setup-usb", "setup-ble" -> "welcome"
-                        "scan", "control", "usb", "wifi", "settings", "log", "binding", "foreign", "transfer", "unbind", "recovery", "rescue", "wallet", "piv", "ota" -> "connect"
-                        else -> current
+
+    val hasAnyKey by keysViewModel.hasAnyConnectedKey.collectAsState()
+    val activeKey by keysViewModel.activeKey.collectAsState()
+
+    AegisTheme(darkTheme = darkTheme, dynamicColor = themePref.useDynamicColors) {
+        // Guarda Reativo de Navegação:
+        // Se o usuário ainda não conectou nenhuma chave física ou desconectou todas as chaves,
+        // exibe imediatamente a jornada guiada de Boas-vindas (Onboarding Wizard) em tela cheia.
+        if (!hasAnyKey) {
+            OnboardingWizardScreen(
+                viewModel = onboardingViewModel,
+                onFinished = {
+                    // A conclusão do onboarding já cadastra a chave no repositório,
+                    // fazendo hasAnyKey transitar automaticamente para true.
+                }
+            )
+        } else {
+            val nav = rememberNavController()
+
+            DisposableEffect(nav) {
+                val listener = NavController.OnDestinationChangedListener { _, dest, _ ->
+                    DeviceLog.append(DeviceLog.Category.SYSTEM, "tela=" + (dest.route ?: "?"))
+                }
+                nav.addOnDestinationChangedListener(listener)
+                onDispose { nav.removeOnDestinationChangedListener(listener) }
+            }
+
+            val navBackStackEntry by nav.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry?.destination?.route ?: HubDestination.VAULT.route
+
+            val currentDestination = when (currentRoute) {
+                HubDestination.VAULT.route -> HubDestination.VAULT
+                HubDestination.CODES.route -> HubDestination.CODES
+                HubDestination.KEYS.route -> HubDestination.KEYS
+                HubDestination.SETTINGS.route -> HubDestination.SETTINGS
+                else -> when (currentRoute) {
+                    "accounts", "control", "scan", "binding", "foreign", "transfer", "unbind" -> HubDestination.KEYS
+                    "setup-usb", "setup-ble", "welcome", "vault-legacy" -> HubDestination.VAULT
+                    else -> HubDestination.SETTINGS
+                }
+            }
+
+            val transportLabel = when (activeKey?.transportType) {
+                ConnectionTransportType.BLE -> "Bluetooth"
+                ConnectionTransportType.USB -> "Cabo USB / UART"
+                ConnectionTransportType.WIFI -> "Rede Wi-Fi"
+                ConnectionTransportType.SIMULATOR -> "Simulador Virtual"
+                null -> "Chave Física"
+            }
+
+            MainHubScaffoldTemplate(
+                currentDestination = currentDestination,
+                onNavigateToDestination = { destination ->
+                    nav.navigate(destination.route) {
+                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
-                    for (dest in BOTTOM_DESTINATIONS) {
-                        NavigationBarItem(
-                            selected = activeTop == dest.route,
-                            onClick = {
-                                nav.navigate(dest.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(dest.icon, contentDescription = dest.label) },
-                            label = {
-                                Text(dest.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            },
-                            // Cofre sempre rotulado: o tab precisa ser achavel/tocavel
-                            // pelo nome ("Cofre") mesmo quando nao selecionado
-                            // (achado do smoke: tap por texto nao aterrissava no item).
-                            alwaysShowLabel = (dest.route == "vault"),
+                },
+                activeKeyName = activeKey?.displayName ?: "Minha AegisKey",
+                isConnected = activeKey?.isCurrentlyConnected == true,
+                transportLabel = transportLabel,
+                onSwitchKeyClick = {
+                    nav.navigate(HubDestination.KEYS.route) {
+                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                onToggleThemeClick = {
+                    themeViewModel.cycleThemeMode()
+                },
+            ) { innerPadding ->
+                NavHost(
+                    navController = nav,
+                    startDestination = HubDestination.VAULT.route,
+                    modifier = Modifier.padding(innerPadding)
+                ) {
+                    // --- 4 Destinos Principais da Barra Inferior ---
+                    composable(HubDestination.VAULT.route) {
+                        KeyVaultHubScreen(
+                            viewModel = vaultViewModel,
+                            onNavigateToBackup = { nav.navigate("transfer") },
+                            onNavigateToOta = { nav.navigate("ota") }
                         )
                     }
+                    composable(HubDestination.CODES.route) {
+                        TotpDedicatedScreen(
+                            viewModel = totpViewModel
+                        )
+                    }
+                    composable(HubDestination.KEYS.route) {
+                        ConnectedKeysRepositoryScreen(
+                            viewModel = keysViewModel,
+                            onConnectNewKey = { nav.navigate("onboarding-wizard") }
+                        )
+                    }
+                    composable(HubDestination.SETTINGS.route) {
+                        FriendlySettingsAndThemeScreen(
+                            themeViewModel = themeViewModel,
+                            keysViewModel = keysViewModel,
+                            client = client,
+                            onNavigateToBackup = { nav.navigate("recovery") },
+                            onNavigateToTransfer = { nav.navigate("transfer") },
+                            onNavigateToOta = { nav.navigate("ota") },
+                            onNavigateToRescue = { nav.navigate("rescue") },
+                            onNavigateToPiv = { nav.navigate("piv") },
+                            onNavigateToLogs = { nav.navigate("log") },
+                            onNavigateToWifi = { nav.navigate("wifi") },
+                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") }
+                        )
+                    }
+
+                    // --- Wizard de Pareamento Chamável a Qualquer Momento ---
+                    composable("onboarding-wizard") {
+                        OnboardingWizardScreen(
+                            viewModel = onboardingViewModel,
+                            onFinished = {
+                                nav.navigate(HubDestination.VAULT.route) {
+                                    popUpTo(HubDestination.VAULT.route) { inclusive = false }
+                                }
+                            }
+                        )
+                    }
+
+                    // --- Rotas de Ferramentas Avançadas & Legadas Mantidas ---
+                    composable("setup-usb") {
+                        SetupDeviceUsbScreen(
+                            onDone = { nav.navigate(HubDestination.VAULT.route) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+                    composable("setup-ble") {
+                        SetupDeviceBleScreen(
+                            onDone = { nav.navigate(HubDestination.VAULT.route) },
+                            onBack = { nav.popBackStack() },
+                            onOpenScan = { nav.navigate("scan") },
+                            client = client,
+                        )
+                    }
+                    composable("onboarding") {
+                        OnboardingScreen(
+                            onStart = { nav.navigate("scan") },
+                            onOpenKeys = { nav.navigate("accounts") },
+                            onOpenVault = { nav.navigate(HubDestination.VAULT.route) },
+                            onOpenLog = { nav.navigate("log") },
+                            client = client
+                        )
+                    }
+                    composable("scan") {
+                        ScanPairScreen(client, onOpenControl = { nav.navigate("control") })
+                    }
+                    composable("control") {
+                        DeviceControlScreen(
+                            client = client,
+                            onOpenKeys = { nav.navigate("accounts") },
+                            onOpenAuth = { nav.navigate("auth") },
+                            onOpenVault = { nav.navigate(HubDestination.VAULT.route) },
+                            onOpenWallet = { nav.navigate("wallet") },
+                            onOpenPiv = { nav.navigate("piv") },
+                            onOpenLog = { nav.navigate("log") },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+                    composable("accounts") { AccountsScreen(client) }
+                    composable("wallet") { WalletScreen(client) }
+                    composable("piv") { PivScreen(client, onOpenPairing = { nav.navigate("scan") }) }
+                    composable("auth") { AuthScreen(client) }
+                    composable("vault-legacy") { VaultScreen(client) }
+                    composable("usb") { UsbScreen(onUseBle = { nav.navigate("scan") }) }
+                    composable("wifi") { WifiScreen() }
+                    composable("log") { LogScreen(client) }
+                    composable("settings-legacy") { SettingsScreen(onOpenLog = { nav.navigate("log") }, client = client) }
+                    composable("binding") {
+                        BindingWizardScreen(client, onDone = { nav.navigate(HubDestination.VAULT.route) }, onForeignDevice = { nav.navigate("foreign") })
+                    }
+                    composable("foreign") {
+                        ForeignDeviceScreen(onUseUsb = { nav.navigate("usb") }, onBack = { nav.navigate(HubDestination.VAULT.route) })
+                    }
+                    composable("transfer") {
+                        TransferOwnershipScreen(client, onDone = { nav.navigate(HubDestination.VAULT.route) })
+                    }
+                    composable("unbind") {
+                        UnbindGuideScreen(onDone = { nav.navigate(HubDestination.KEYS.route) })
+                    }
+                    composable("recovery") {
+                        RecoveryUnlockScreen(client, onReclaim = { nav.navigate("binding") }, onBack = { nav.navigate(HubDestination.VAULT.route) })
+                    }
+                    composable("rescue") {
+                        RescueScreen(client, onBack = { nav.navigate(HubDestination.VAULT.route) })
+                    }
+                    composable("ota") {
+                        OtaScreen(client, onBack = { nav.popBackStack() })
+                    }
                 }
-            }
-        ) { inner ->
-            NavHost(nav, startDestination = "welcome", Modifier.padding(inner)) {
-                composable("welcome") {
-                    WelcomeScreen(
-                        onUsb = { nav.navigate("setup-usb") },
-                        onBle = { nav.navigate("setup-ble") },
-                        onOpenVault = { nav.navigate("vault") },
-                        client = client,
-                    )
-                }
-                composable("setup-usb") {
-                    SetupDeviceUsbScreen(
-                        onDone = { nav.navigate("vault") },
-                        onBack = { nav.popBackStack() },
-                    )
-                }
-                composable("setup-ble") {
-                    SetupDeviceBleScreen(
-                        onDone = { nav.navigate("vault") },
-                        onBack = { nav.popBackStack() },
-                        onOpenScan = { nav.navigate("scan") },
-                        client = client,
-                    )
-                }
-                composable("onboarding") { OnboardingScreen(onStart = { nav.navigate("scan") }, onOpenKeys = { nav.navigate("accounts") }, onOpenVault = { nav.navigate("vault") }, onOpenLog = { nav.navigate("log") }, client = client) }
-                composable("scan") { ScanPairScreen(client, onOpenControl = { nav.navigate("control") }) }
-                composable("control") {
-                    DeviceControlScreen(
-                        client = client,
-                        onOpenKeys = { nav.navigate("accounts") },
-                        onOpenAuth = { nav.navigate("auth") },
-                        onOpenVault = { nav.navigate("vault") },
-                        onOpenWallet = { nav.navigate("wallet") },
-                        onOpenPiv = { nav.navigate("piv") },
-                        onOpenLog = { nav.navigate("log") },
-                        onBack = { nav.popBackStack() },
-                    )
-                }
-                composable("accounts") { AccountsScreen(client) }
-                composable("wallet") { WalletScreen(client) }
-                composable("piv") { PivScreen(client, onOpenPairing = { nav.navigate("scan") }) }
-                composable("auth") { AuthScreen(client) }
-                composable("vault") { VaultScreen(client) }
-                composable("usb") { UsbScreen(onUseBle = { nav.navigate("scan") }) }
-                composable("wifi") { WifiScreen() }
-                composable("connect") { ConnectHub(nav, client) }
-                composable("log") { LogScreen(client) }
-                composable("settings") { SettingsScreen(onOpenLog = { nav.navigate("log") }, client = client) }
-                composable("binding") { BindingWizardScreen(client, onDone = { nav.navigate("connect") }, onForeignDevice = { nav.navigate("foreign") }) }
-                composable("foreign") { ForeignDeviceScreen(onUseUsb = { nav.navigate("usb") }, onBack = { nav.navigate("connect") }) }
-                composable("transfer") { TransferOwnershipScreen(client, onDone = { nav.navigate("connect") }) }
-                composable("unbind") { UnbindGuideScreen(onDone = { nav.navigate("connect") }) }
-                composable("recovery") { RecoveryUnlockScreen(client, onReclaim = { nav.navigate("binding") }, onBack = { nav.navigate("connect") }) }
-                composable("rescue") { RescueScreen(client, onBack = { nav.navigate("connect") }) }
-                composable("ota") { OtaScreen(client, onBack = { nav.popBackStack() }) }
             }
         }
     }
 }
-
-/** Hub Conectar: BLE + USB + WiFi + ajustes (evita 7+ itens na barra). */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ConnectHub(nav: NavController, client: AegisBleClient) {
-    androidx.compose.material3.Scaffold(
-        topBar = { androidx.compose.material3.TopAppBar(title = { Text("Conectar", maxLines = 1, overflow = TextOverflow.Ellipsis) }) },
-    ) { inner ->
-        AegisScreenColumn(inner = inner) {
-            TestModeBanner(client)
-            SectionTitle("Como ligar o dispositivo")
-            FriendlyText(
-                text = "BLE e o caminho principal. USB via cabo e WiFi sao alternativos.",
-                maxLines = 3,
-            )
-            Button(
-                onClick = { nav.navigate("scan") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("BLE: procurar e parear", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            Button(
-                onClick = { nav.navigate("control") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Controle: usar após parear", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("usb") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("USB: conectar via cabo", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("wifi") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("WiFi: endereco e redes", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 8.dp))
-            SectionTitle("Dono e vinculo")
-            FriendlyText(
-                text = "Uma chave no celular prova que este app e o dono. Sem ela, o dispositivo e de outra pessoa.",
-                maxLines = 3,
-            )
-            Button(
-                onClick = { nav.navigate("binding") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Primeira configuracao (ser dono)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("transfer") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Transferir posse p/ outro celular", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("unbind") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Desfazer vinculo", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("recovery") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Perdi meu app - recuperar com senha", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            FriendlyText(
-                text = "Instalou de novo? Use a senha de 4 a 6 numeros + o botao do dispositivo.",
-                maxLines = 2,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            )
-            SectionTitle("Ajustes e diagnostico")
-            OutlinedButton(
-                onClick = { nav.navigate("settings") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Ajustes", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("log") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Log do dispositivo", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("rescue") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Resgate: ping e diagnostico", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            OutlinedButton(
-                onClick = { nav.navigate("ota") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Atualizar firmware (OTA)", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            FriendlyText(
-                text = "Dica nao-tecnica: segure o botao do dispositivo 5s para parear; confirme o codigo na tela BLE.",
-                maxLines = 4,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
-}
-
-// Mantem Arrangement import usado pelo hub via FQN; evita warning de unused.
-@Suppress("unused")
-private val HubSpacing = Arrangement.spacedBy(12.dp)
-

@@ -1,6 +1,7 @@
 package dev.aegiskey.app.security
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.util.Base64
 import android.view.Window
 import android.view.WindowManager
@@ -19,7 +20,7 @@ import java.security.SecureRandom
  *   metadata (e.g. user-chosen device label) under EncryptedSharedPreferences.
  * - [SanitizedLog] records fixed event names only — never values, accounts,
  *   codes, SSIDs or envelopes. Safe to display in Settings.
- * - Code screens run under FLAG_SECURE (set once in MainActivity).
+ * - Code screens run under FLAG_SECURE (set once in MainActivity, disabled in debug/QA).
  */
 object SanitizedLog {
     enum class Event {
@@ -123,9 +124,13 @@ class SecureStore(context: Context) {
     }
 }
 
-/** Blocks screenshots / recent-apps thumbnails on code screens. */
-fun applyScreenshotProtection(window: Window) {
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+/** Blocks screenshots / recent-apps thumbnails on code screens when enabled (disabled in debug/QA). */
+fun applyScreenshotProtection(window: Window, forceEnable: Boolean = false) {
+    if (!dev.aegiskey.app.BuildConfig.DEBUG || forceEnable) {
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    } else {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
 }
 
 /**
@@ -218,4 +223,3 @@ object PlayIntegrity {
         }
     }
 }
-

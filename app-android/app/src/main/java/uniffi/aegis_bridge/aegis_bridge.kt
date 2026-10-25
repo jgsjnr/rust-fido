@@ -737,6 +737,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -774,6 +778,10 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_aegis_bridge_fn_func_oath_remaining_seconds(`unixSeconds`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    fun uniffi_aegis_bridge_fn_func_otpauth_extract_label_and_secret(`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_totp_format_display(`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_aegis_bridge_fn_func_wallet_address(`network`: RustBuffer.ByValue,`pubkeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_aegis_bridge_fn_func_wifi_password_valid(`password`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -912,6 +920,10 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_aegis_bridge_checksum_func_oath_remaining_seconds(
     ): Short
+    fun uniffi_aegis_bridge_checksum_func_otpauth_extract_label_and_secret(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_totp_format_display(
+    ): Short
     fun uniffi_aegis_bridge_checksum_func_wallet_address(
     ): Short
     fun uniffi_aegis_bridge_checksum_func_wifi_password_valid(
@@ -964,6 +976,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aegis_bridge_checksum_func_oath_remaining_seconds() != 39562.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_otpauth_extract_label_and_secret() != 4633.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_totp_format_display() != 20263.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aegis_bridge_checksum_func_wallet_address() != 62802.toShort()) {
@@ -1297,6 +1315,50 @@ public object FfiConverterTypeOathCode: FfiConverterRustBuffer<OathCode> {
 
 
 
+data class OtpAuthParsed (
+    var `issuer`: kotlin.String, 
+    var `accountName`: kotlin.String, 
+    var `secretBase32`: kotlin.String, 
+    var `digits`: kotlin.UByte, 
+    var `period`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOtpAuthParsed: FfiConverterRustBuffer<OtpAuthParsed> {
+    override fun read(buf: ByteBuffer): OtpAuthParsed {
+        return OtpAuthParsed(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: OtpAuthParsed) = (
+            FfiConverterString.allocationSize(value.`issuer`) +
+            FfiConverterString.allocationSize(value.`accountName`) +
+            FfiConverterString.allocationSize(value.`secretBase32`) +
+            FfiConverterUByte.allocationSize(value.`digits`) +
+            FfiConverterUInt.allocationSize(value.`period`)
+    )
+
+    override fun write(value: OtpAuthParsed, buf: ByteBuffer) {
+            FfiConverterString.write(value.`issuer`, buf)
+            FfiConverterString.write(value.`accountName`, buf)
+            FfiConverterString.write(value.`secretBase32`, buf)
+            FfiConverterUByte.write(value.`digits`, buf)
+            FfiConverterUInt.write(value.`period`, buf)
+    }
+}
+
+
+
 
 
 sealed class BridgeException(message: String): kotlin.Exception(message) {
@@ -1574,6 +1636,25 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_oath_remaining_seconds(
         FfiConverterULong.lower(`unixSeconds`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `otpauthExtractLabelAndSecret`(`input`: kotlin.String): OtpAuthParsed {
+            return FfiConverterTypeOtpAuthParsed.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_otpauth_extract_label_and_secret(
+        FfiConverterString.lower(`input`),_status)
+}
+    )
+    }
+    
+ fun `totpFormatDisplay`(`code`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_totp_format_display(
+        FfiConverterString.lower(`code`),_status)
 }
     )
     }

@@ -17,6 +17,15 @@ object AegisBridge {
     /** Display-only TOTP entry (mirrors the `OathCode` UDL record). */
     data class OathEntry(val account: String, val code: String, val remainingSeconds: Int)
 
+    /** Parsed OTP input (URI or raw Base32 secret). */
+    data class ParsedOtpInput(
+        val issuer: String,
+        val accountName: String,
+        val secretBase32: String,
+        val digits: Int,
+        val period: Int
+    )
+
     val nativeLoaded: Boolean =
         try {
             System.loadLibrary("aegis_bridge")
@@ -86,6 +95,118 @@ object AegisBridge {
         path.substringAfter('?', "").split('&')
             .firstOrNull { it.startsWith("account=") }
             ?.removePrefix("account=")?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Formata um código numérico de 6 a 8 dígitos para exibição amigável (ex: "123456" -> "123 456", "12345678" -> "1234 5678").
+     * Usa o bridge nativo UniFFI se carregado, com fallback seguro e puro em Kotlin.
+     */
+    fun formatTotpDisplay(code: String): String {
+        if (nativeLoaded) {
+            runCatching { uniffi.aegis_bridge.totpFormatDisplay(code) }.getOrNull()?.let { return it }
+        }
+        val clean = code.filter { !it.isWhitespace() }
+        return if (clean.length in 6..8 && clean.all { it.isDigit() }) {
+            val mid = clean.length / 2
+            clean.substring(0, mid) + " " + clean.substring(mid)
+        } else {
+            code
+        }
+    }
+
+    /**
+     * Faz parse seguro tanto de uma URI `otpauth://totp/...` quanto de um segredo Base32 puro
+     * digitado/colado pelo usuário, limpando espaços e convertendo para maiúsculas.
+     * Retorna `ParsedOtpInput` ou `null` se a entrada for inválida.
+     * Usa o bridge nativo UniFFI se carregado, com fallback seguro e puro em Kotlin.
+     */
+    fun parseOtpInput(raw: String): ParsedOtpInput? {
+        if (nativeLoaded) {
+            val res = runCatching {
+                val p = uniffi.aegis_bridge.otpauthExtractLabelAndSecret(raw)
+                ParsedOtpInput(
+                    issuer = p.issuer,
+                    accountName = p.accountName,
+                    secretBase32 = p.secretBase32,
+                    digits = p.digits.toInt(),
+                    period = p.period.toInt()
+                )
+            }.getOrNull()
+            if (res != null) return res
+        }
+        return parseOtpInputFallback(raw)
+    }
+
+    private fun parseOtpInputFallback(raw: String): ParsedOtpInput? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+
+        fun cleanBase32(s: String): String? {
+            val clean = s.filter { !it.isWhitespace() && it != '-' }.uppercase()
+            val unpadded = clean.trimEnd('=')
+            if (unpadded.isEmpty()) return null
+            val valid = unpadded.all { it in 'A'..'Z' || it in '2'..'7' }
+            return if (valid) unpadded else null
+        }
+
+        if (trimmed.startsWith("otpauth://", ignoreCase = true)) {
+            val rest = trimmed.substring(10)
+            val slashIdx = rest.indexOf('/')
+            if (slashIdx < 0) return null
+            val type = rest.substring(0, slashIdx).trim().lowercase()
+            if (type != "totp" && type != "hotp") return null
+
+            val afterType = rest.substring(slashIdx + 1).trimStart('/')
+            val qIdx = afterType.indexOf('?')
+            val rawLabel = if (qIdx >= 0) afterType.substring(0, qIdx) else afterType
+            val queryStr = if (qIdx >= 0) afterType.substring(qIdx + 1) else ""
+
+            val decodedLabel = runCatching { java.net.URLDecoder.decode(rawLabel, "UTF-8") }.getOrDefault(rawLabel)
+            val colonIdx = decodedLabel.indexOf(':')
+            val (lblIssuer, lblAccount) = if (colonIdx >= 0) {
+                decodedLabel.substring(0, colonIdx).trim() to decodedLabel.substring(colonIdx + 1).trim()
+            } else {
+                "" to decodedLabel.trim()
+            }
+
+            var queryIssuer = ""
+            var rawSecret = ""
+            var digits = 6
+            var period = 30
+
+            for (pair in queryStr.split('&')) {
+                if (pair.isEmpty()) continue
+                val eqIdx = pair.indexOf('=')
+                val key = (if (eqIdx >= 0) pair.substring(0, eqIdx) else pair).trim().lowercase()
+                val value = if (eqIdx >= 0) pair.substring(eqIdx + 1).trim() else ""
+                val decodedVal = runCatching { java.net.URLDecoder.decode(value, "UTF-8") }.getOrDefault(value)
+                when (key) {
+                    "secret" -> rawSecret = decodedVal
+                    "issuer" -> queryIssuer = decodedVal.trim()
+                    "digits" -> decodedVal.toIntOrNull()?.let { if (it in 6..8) digits = it }
+                    "period" -> decodedVal.toIntOrNull()?.let { if (it > 0) period = it }
+                }
+            }
+
+            val secretBase32 = cleanBase32(rawSecret) ?: return null
+            val issuer = if (queryIssuer.isNotEmpty()) queryIssuer else lblIssuer
+            return ParsedOtpInput(
+                issuer = issuer,
+                accountName = lblAccount,
+                secretBase32 = secretBase32,
+                digits = digits,
+                period = period
+            )
+        } else {
+            val secretBase32 = cleanBase32(trimmed) ?: return null
+            return ParsedOtpInput(
+                issuer = "",
+                accountName = "",
+                secretBase32 = secretBase32,
+                digits = 6,
+                period = 30
+            )
+        }
+    }
 
     /**
      * Sela [plaintext] num envelope AEGN (chave/nonce transitorios do chamador;

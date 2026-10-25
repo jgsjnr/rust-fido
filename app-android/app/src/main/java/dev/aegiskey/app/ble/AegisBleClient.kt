@@ -27,8 +27,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -58,7 +61,13 @@ class AegisBleClient(private val context: Context) {
 
     enum class Connection { IDLE, SCANNING, CONNECTING, READY, ERROR }
 
-    data class FoundDevice(val name: String, val address: String)
+    data class FoundDevice(
+        val name: String,
+        val address: String,
+        val rssi: Int = -60,
+        val isBonded: Boolean = false,
+        val isAegisMatch: Boolean = true
+    )
 
     data class UiState(
         val connection: Connection = Connection.IDLE,
@@ -73,6 +82,10 @@ class AegisBleClient(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    val devices: StateFlow<List<FoundDevice>> = _state
+        .map { it.devices }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     private val deviceCache = mutableMapOf<String, BluetoothDevice>()
     private var gatt: BluetoothGatt? = null
@@ -181,33 +194,130 @@ class AegisBleClient(private val context: Context) {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device ?: return
-            deviceCache[device.address] = device
-            val label = result.scanRecord?.deviceName ?: device.name ?: "AegisKey"
+            val address = device.address ?: return
+            deviceCache[address] = device
+
+            val record = result.scanRecord
+            val rawName = record?.deviceName ?: runCatching { device.name }.getOrNull()
+            val rssi = result.rssi
+
+            // Verifica se anuncia 0xFFFD ou 0xFFFE
+            val serviceUuids = record?.serviceUuids?.map { it.uuid } ?: emptyList()
+            val has0xFFFD = serviceUuids.any { it == BleContract.SERVICE_UUID }
+            val has0xFFFE = serviceUuids.any {
+                it.toString().contains("fffe", ignoreCase = true) ||
+                    (it.mostSignificantBits and 0x0000FFFF00000000L) == 0x0000FFFE00000000L
+            }
+
+            val nameOrFallback = rawName?.takeIf { it.isNotBlank() } ?: "Chave Bluetooth ($address)"
+            val isAegisName = nameOrFallback.contains("Aegis", ignoreCase = true) ||
+                nameOrFallback.contains("FIDO", ignoreCase = true) ||
+                nameOrFallback.contains("ESP", ignoreCase = true) ||
+                nameOrFallback.contains("Key", ignoreCase = true)
+
+            val isAegisMatch = has0xFFFD || has0xFFFE || isAegisName
+
             var isNew = false
             _state.update { current ->
-                if (current.devices.any { it.address == device.address }) current
-                else {
+                val existingIndex = current.devices.indexOfFirst { it.address == address }
+                val updatedDevice = FoundDevice(
+                    name = nameOrFallback.take(48),
+                    address = address,
+                    rssi = rssi,
+                    isBonded = current.devices.getOrNull(existingIndex)?.isBonded ?: false,
+                    isAegisMatch = isAegisMatch
+                )
+
+                val updatedList = if (existingIndex >= 0) {
+                    current.devices.toMutableList().apply { set(existingIndex, updatedDevice) }
+                } else {
                     isNew = true
-                    current.copy(devices = current.devices + FoundDevice(label.take(48), device.address))
+                    current.devices + updatedDevice
                 }
+
+                val sortedList = updatedList.sortedWith(
+                    compareByDescending<FoundDevice> { it.isAegisMatch }
+                        .thenByDescending { it.isBonded }
+                        .thenByDescending { it.rssi }
+                )
+
+                current.copy(devices = sortedList)
             }
-            // Só o primeiro avistamento (filtro 0xFFFD já é no hardware).
-            if (isNew) DeviceLog.append(DeviceLog.Category.BLE, "scan achou: " + label.take(24))
+
+            if (isNew) {
+                DeviceLog.append(DeviceLog.Category.BLE, "scan achou: " + nameOrFallback.take(24) + " (RSSI $rssi)")
+            }
+        }
+
+        override fun onBatchScanResults(results: MutableList<ScanResult>?) {
+            results?.forEach { onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            DeviceLog.append(DeviceLog.Category.BLE, "scan falhou: codigo=$errorCode")
+            _state.update { it.copy(connection = Connection.ERROR, error = "Falha no scan Bluetooth (código $errorCode)") }
         }
     }
 
     fun startScan() {
-        val scanner = adapter()?.bluetoothLeScanner ?: return
-        _state.update { it.copy(connection = Connection.SCANNING, devices = emptyList(), error = null) }
-        val filter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(BleContract.SERVICE_UUID))
-            .build()
+        val btAdapter = runCatching { adapter() }.getOrNull()
+        if (btAdapter == null || !btAdapter.isEnabled) {
+            _state.update { it.copy(connection = Connection.IDLE, error = "Bluetooth desligado ou indisponível") }
+            return
+        }
+
+        // 1. Lê imediatamente dispositivos já pareados no Bluetooth do Android
+        val bonded = runCatching {
+            btAdapter.bondedDevices?.mapNotNull { dev ->
+                val addr = dev.address ?: return@mapNotNull null
+                deviceCache[addr] = dev
+                val rawName = runCatching { dev.name }.getOrNull()
+                val label = rawName?.takeIf { it.isNotBlank() } ?: "Chave Pareada ($addr)"
+                val isAegis = label.contains("Aegis", ignoreCase = true) ||
+                    label.contains("FIDO", ignoreCase = true) ||
+                    label.contains("ESP", ignoreCase = true) ||
+                    label.contains("Key", ignoreCase = true)
+                FoundDevice(
+                    name = label.take(48),
+                    address = addr,
+                    rssi = 0,
+                    isBonded = true,
+                    isAegisMatch = isAegis
+                )
+            }
+        }.getOrNull() ?: emptyList()
+
+        val initialDevices = bonded.sortedWith(
+            compareByDescending<FoundDevice> { it.isAegisMatch }.thenBy { it.name }
+        )
+
+        _state.update { it.copy(connection = Connection.SCANNING, devices = initialDevices, error = null) }
+
+        val scanner = runCatching { btAdapter.bluetoothLeScanner }.getOrNull()
+        if (scanner == null) {
+            _state.update { it.copy(connection = Connection.IDLE, error = "Scanner BLE indisponível") }
+            return
+        }
+
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
-        scanner.startScan(listOf(filter), settings, scanCallback)
-        SanitizedLog.record(SanitizedLog.Event.SCAN_STARTED)
-        DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD started")
+
+        // 2. Inicia scan sem filtro de hardware restritivo para detectar qualquer dispositivo BLE
+        val scanResult = runCatching {
+            scanner.startScan(null, settings, scanCallback)
+        }.recoverCatching {
+            scanner.startScan(emptyList(), settings, scanCallback)
+        }
+
+        if (scanResult.isSuccess) {
+            SanitizedLog.record(SanitizedLog.Event.SCAN_STARTED)
+            DeviceLog.append(DeviceLog.Category.BLE, "scan BLE aberto iniciado (${initialDevices.size} pareados)")
+        } else {
+            val err = scanResult.exceptionOrNull()
+            _state.update { it.copy(connection = Connection.IDLE, error = "Permissão Bluetooth necessária ou rádio ocupado") }
+            DeviceLog.append(DeviceLog.Category.BLE, "scan failed: " + (err?.localizedMessage ?: "SecurityException"))
+        }
     }
 
     fun stopScan() {
@@ -230,18 +340,27 @@ class AegisBleClient(private val context: Context) {
         deviceCache[address] = device
         _state.update { it.copy(connection = Connection.CONNECTING, error = null) }
         stopScan()
-        // Transporte LE explicito (overload disponivel desde sempre; minSdk 31).
-        gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-        DeviceLog.append(DeviceLog.Category.BLE, "BLE connect requested")
+        val gattResult = runCatching {
+            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        }
+        if (gattResult.isSuccess) {
+            gatt = gattResult.getOrNull()
+            DeviceLog.append(DeviceLog.Category.BLE, "BLE connect requested")
+        } else {
+            _state.update { it.copy(connection = Connection.ERROR, error = "Permissao de conexao Bluetooth necessaria") }
+            DeviceLog.append(DeviceLog.Category.BLE, "connectGatt failed: " + (gattResult.exceptionOrNull()?.localizedMessage ?: "SecurityException"))
+        }
     }
 
     fun ensureBonded(address: String) {
-        deviceCache[address]?.let { device ->
-            if (device.bondState != BluetoothDevice.BOND_BONDED) {
-                DeviceLog.append(DeviceLog.Category.PAIRING, "bond solicitado")
-                device.createBond()
-            } else {
-                DeviceLog.append(DeviceLog.Category.PAIRING, "ja pareado")
+        runCatching {
+            deviceCache[address]?.let { device ->
+                if (device.bondState != BluetoothDevice.BOND_BONDED) {
+                    DeviceLog.append(DeviceLog.Category.PAIRING, "bond solicitado")
+                    device.createBond()
+                } else {
+                    DeviceLog.append(DeviceLog.Category.PAIRING, "ja pareado")
+                }
             }
         }
     }

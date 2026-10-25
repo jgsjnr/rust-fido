@@ -42,6 +42,7 @@ import androidx.core.content.ContextCompat
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BleContract
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.security.BlePermissions
 import dev.aegiskey.app.security.SanitizedLog
 import dev.aegiskey.app.security.SdkGate
 import kotlinx.coroutines.Dispatchers
@@ -49,15 +50,15 @@ import kotlinx.coroutines.launch
 
 /**
  * Scan/Pair + proximidade A7 (contrato secoes 1, 2, 4 + plano A7):
- * 0xFFFD scan/bond, FFF4 revisao, FFF2 subscribe. UP fica no botao do device.
+ * 0xFFFD scan/bond normal, FFF4 revisao, FFF2 subscribe. UP fica no botao do device.
  * Proximidade: pares bonded com anuncio 0xFFFE, walkaway com trava em
  * -75 dBm por 10 s (voltar NAO destrava), USB ativo veta BLE-proximidade
  * por desenho. Sem par = ExternalBlocked honesto (sem fantasma).
  *
- * Gates: toda acao passa por SdkGate.requireProximity(); denies viram
- * aviso proprio da tela (nunca crash, nunca GateBanner emprestado).
- * Sem telemetria inventada: sem RSSI ao vivo, sem beacon fantasma.
- * Sem segredo em log: so tokens fixos (ver DeviceLog/SanitizedLog).
+ * Scan BLE normal (0xFFFD) e pareamento inicial sao DESACOPLADOS do gate de
+ * proximidade (SdkGate.requireProximity()), permitindo escanear e parear chaves
+ * novas sem bloqueio indevido. O gate de proximidade restringe exclusivamente
+ * os fluxos de walkaway e reconexao automatica baseada em 0xFFFE.
  *
  * Permissoes (minSdk 31 / target 34, API 31+):
  * - BLUETOOTH_SCAN (neverForLocation) + BLUETOOTH_CONNECT via
@@ -65,10 +66,7 @@ import kotlinx.coroutines.launch
  * - ACCESS_FINE/COARSE_LOCATION nunca pedida: filtro 0xFFFD nao precisa
  *   e o app nunca deriva localizacao fisica.
  */
-private val REQUIRED_BT_PERMISSIONS = arrayOf(
-    Manifest.permission.BLUETOOTH_SCAN,
-    Manifest.permission.BLUETOOTH_CONNECT,
-)
+private val REQUIRED_BT_PERMISSIONS = BlePermissions.REQUIRED
 
 /** Anuncio de proximidade: so par bonded ve 0xFFFE (nunca inventado). */
 private const val PROXIMITY_ADV_UUID16 = 0xFFFE
@@ -82,15 +80,10 @@ private const val USB_VID = 0x303A
 private const val USB_PID = 0xAE61
 
 private fun hasBtPermissions(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
-        PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
-        PackageManager.PERMISSION_GRANTED
+    BlePermissions.hasPermissions(context)
 
-private fun shouldShowBtRationale(activity: Activity?): Boolean {
-    if (activity == null) return false
-    return REQUIRED_BT_PERMISSIONS.any { activity.shouldShowRequestPermissionRationale(it) }
-}
+private fun shouldShowBtRationale(activity: Activity?): Boolean =
+    BlePermissions.shouldShowRationale(activity)
 
 private fun openAppSettings(context: Context) {
     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -239,50 +232,58 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
         return true
     }
 
-    fun gatedStartScan() {
-        if (!checkProximityGate()) return
-        if (!checkCoex()) return
+    // --- Ações de Scan e Pareamento Normal (0xFFFD) - Desacopladas de Proximity ---
+    fun startScan() {
         if (granted) {
-            proximityNotice = null
             client.startScan()
-            DeviceLog.append(DeviceLog.Category.BLE, "proximity scan started")
+            DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD started")
         } else {
             requestScanPermissions()
         }
     }
 
-    fun gatedStopScan() {
-        if (!checkProximityGate()) return
+    fun stopScan() {
         client.stopScan()
-        DeviceLog.append(DeviceLog.Category.BLE, "proximity scan stopped")
+        DeviceLog.append(DeviceLog.Category.BLE, "scan 0xFFFD stopped")
     }
 
-    fun gatedPair(address: String, name: String) {
-        if (!checkProximityGate()) return
-        if (!checkCoex()) return
-        // Sem segredo em log: so prefixo fixo do nome, nunca endereco/segredo.
-        DeviceLog.append(DeviceLog.Category.PAIRING, "proximity pair tocado: " + name.take(24))
+    fun pair(address: String, name: String) {
+        DeviceLog.append(DeviceLog.Category.PAIRING, "pair 0xFFFD tocado: " + name.take(24))
         client.ensureBonded(address)
         client.connect(address)
     }
 
-    fun gatedResubscribe() {
-        if (!checkProximityGate()) return
-        if (!checkCoex()) return
-        proximityNotice = null
+    fun resubscribe() {
         client.resubscribe()
-        DeviceLog.append(DeviceLog.Category.BLE, "proximity resubscribe")
+        DeviceLog.append(DeviceLog.Category.BLE, "resubscribe")
     }
 
-    fun gatedCancelUp() {
-        if (!checkProximityGate()) return
+    fun cancelUp() {
         scope.launch(Dispatchers.IO) {
             client.cancel()
             SanitizedLog.record(SanitizedLog.Event.DEVICE_PRESS_CANCELLED)
         }
     }
 
-    // Sonda do gate uma vez (efeito, nao composicao) + estado USB inicial.
+    // --- Ação de Reconexão de Proximidade (0xFFFE / Walkaway) ---
+    fun proximityReconnect(address: String, name: String) {
+        if (!checkProximityGate()) return
+        if (!checkCoex()) return
+        DeviceLog.append(DeviceLog.Category.PAIRING, "proximity reconnect tocado: " + name.take(24))
+        client.ensureBonded(address)
+        client.connect(address)
+    }
+
+    // Solicita permissões BLE automaticamente ao entrar e inicia scan aberto
+    LaunchedEffect(granted) {
+        if (!granted && !permanentlyDenied) {
+            launcher.launch(REQUIRED_BT_PERMISSIONS)
+        } else if (granted && state.devices.isEmpty() && state.connection != AegisBleClient.Connection.SCANNING) {
+            client.startScan()
+        }
+    }
+
+    // Sonda do gate de proximidade informativa (efeito, nao composicao) + estado USB inicial.
     LaunchedEffect(Unit) {
         val warning = proximityGateNotice(SdkGate.requireProximity())
         proximityNotice = warning
@@ -323,15 +324,15 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
             if (state.status == BleContract.STATUS_UP_NEEDED) {
                 PressDeviceSheet(
                     statusLabel = BleContract.statusLabel(state.status),
-                    onCancel = { gatedCancelUp() },
+                    onCancel = { cancelUp() },
                 )
             }
             if (state.connection == AegisBleClient.Connection.READY) {
                 Button(onClick = onOpenControl) { Text("Abrir controle") }
-                OutlinedButton(onClick = { gatedResubscribe() }) { Text("Re-assinar avisos") }
+                OutlinedButton(onClick = { resubscribe() }) { Text("Re-assinar avisos") }
             }
             if (state.connection == AegisBleClient.Connection.ERROR) {
-                OutlinedButton(onClick = { gatedResubscribe() }) { Text("Tentar de novo (re-assinar)") }
+                OutlinedButton(onClick = { resubscribe() }) { Text("Tentar de novo (re-assinar)") }
                 OutlinedButton(onClick = onOpenControl) { Text("Abrir controle") }
             }
             if (!granted) {
@@ -347,9 +348,9 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
                     onRetry = { launcher.launch(REQUIRED_BT_PERMISSIONS) },
                 )
             }
-            Button(onClick = { gatedStartScan() }) { Text("Scan 0xFFFD") }
+            Button(onClick = { startScan() }) { Text("Scan 0xFFFD") }
             OutlinedButton(
-                onClick = { gatedStopScan() },
+                onClick = { stopScan() },
                 enabled = state.connection == AegisBleClient.Connection.SCANNING && granted,
             ) { Text("Stop") }
             for (device in state.devices) {
@@ -357,7 +358,7 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
                     name = device.name,
                     address = device.address,
                     gated = granted,
-                    onPair = { gatedPair(device.address, device.name) },
+                    onPair = { pair(device.address, device.name) },
                     onNeedPermissions = { requestScanPermissions() },
                 )
             }
@@ -401,11 +402,16 @@ fun ScanPairScreen(client: AegisBleClient, onOpenControl: () -> Unit = {}) {
             if (walkawayLocked) {
                 Text(
                     "Travado por afastamento (walkaway): voltar sozinho NAO destrava. " +
-                        "Toque em Pair/Conectar do par bonded para liberar.",
+                        "Toque em Reconectar do par bonded para liberar.",
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
+                for (device in state.devices) {
+                    Button(onClick = { proximityReconnect(device.address, device.name) }) {
+                        Text("Reconectar (gate proximidade)")
+                    }
+                }
             }
             proximityNotice?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, maxLines = 4, overflow = TextOverflow.Ellipsis)
