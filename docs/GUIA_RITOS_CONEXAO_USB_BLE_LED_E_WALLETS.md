@@ -17,7 +17,8 @@ Este documento estabelece a especificação canônica e empírica da chave cript
 6. O **cálculo criptográfico de códigos TOTP direto no chip (`0x26 OP_OATH_CODE`)**;
 7. A refatoração da camada de transporte e repositórios do **Aplicativo Android**;
 8. Os **resultados integrais das 9 Etapas HIL** executadas pelo script `tools/hil_emulate_full_app_on_board.py` no silício com o firmware recém-gravado (`aegis-app-freertos-s3-testmode.bin`);
-9. A **bateria completa de testes 25/25 PASS (17/17 BLE + 8/8 Wi-Fi)** no silício real com `bleak.BleakScanner`, fragmentação MTU e endpoints HTTP SoftAP (`tools/hil_test_wifi_and_ble_battery.py`).
+9. A **bateria completa de testes 25/25 PASS (17/17 BLE + 8/8 Wi-Fi)** no silício real com `bleak.BleakScanner`, fragmentação MTU e endpoints HTTP SoftAP (`tools/hil_test_wifi_and_ble_battery.py`);
+10. A **Interface Web Material 3 Completa de Gestão da Chave & Carteira Web3 (`http://127.0.0.1:5678/`)**, servida ao vivo com 4 modos de conexão, telemetria do LED WS2812, atalhos de ritos e cobertura integral 26/26 PASS (`tools/test_web_dashboard_endpoints.py`).
 
 ```
 +-------------------------------------------------------------------------------------------------------+
@@ -340,10 +341,123 @@ Para garantir confiabilidade máxima sem travar a interface:
 
 ---
 
-## 8. Relação com Outros Documentos do Repositório
+## 8. Interface Web Material 3 de Gestão da Chave & Carteira Web3 (`http://127.0.0.1:5678/`)
+
+Além do aplicativo móvel Android, o ecossistema AegisKey conta com uma **Interface Web Universal e Autônoma** desenvolvida sob as diretrizes do Material Design 3, servida diretamente pelo daemon de ponte `tools/host_hardware_android_bridge.py`:
+
+```
+======================================================================
+  INTERFACE WEB MATERIAL 3 — SERVIÇO ATIVO & ENDPOINTS HOMOLOGADOS
+======================================================================
+  URL Local Primária : http://127.0.0.1:5678/ (ou http://127.0.0.1:5678/dashboard)
+  Arquivo Fonte      : tools/web_dashboard/index.html (1.718 linhas)
+  Bateria de Testes  : tools/test_web_dashboard_endpoints.py -> 26/26 PASS (100%)
+  Plataformas        : Windows, Linux, macOS, Android (Chrome/Edge/Firefox/Safari)
+======================================================================
+```
+
+---
+
+### 8.1. Como Acessar a Interface Web
+1. **Via Servidor Integrado (Recomendado):**  
+   Inicie o bridge com `python tools/host_hardware_android_bridge.py` e abra no navegador:  
+   `http://127.0.0.1:5678/` ou `http://127.0.0.1:5678/dashboard`
+2. **Via Arquivo Estático:**  
+   Abra diretamente o arquivo `tools/web_dashboard/index.html` em qualquer navegador com suporte a WebBluetooth ou WebSerial.
+
+---
+
+### 8.2. Os 4 Modos de Conexão Suportados
+A interface implementa uma barra de seleção de transporte superior que alterna dinamicamente o backend de comunicação sem recarregar a aplicação:
+
+| Modo de Conexão | Tecnologia de Acesso | Protocolo no Fio | Cenário de Uso |
+|---|---|---|---|
+| **1. Ponte Hardware (Host Bridge)** | `http://127.0.0.1:5678` | REST / JSON / HTTP | Padrão no desktop conectado via USB nativo (`303A:AE61`) ou UART CP210x (`COM7`). |
+| **2. WebBluetooth** | `navigator.bluetooth` | BLE GATT UUID `0xFFFD` | Acesso sem fios direto pelo navegador sem instalar drivers ou bridges (Chrome/Edge). |
+| **3. WebSerial** | `navigator.serial` | Serial 115200 8N1 | Conexão serial USB direta sem intermediários no navegador. |
+| **4. Wi-Fi SoftAP** | `http://192.168.4.1` | HTTP REST embutido | Acesso direto quando conectado à rede Wi-Fi `AegisKey-AP` da própria chave. |
+
+---
+
+### 8.3. Monitor Visual do LED RGB WS2812 (GPIO 48) e Ações Rápidas de Hardware
+No cabeçalho do Dashboard, o usuário visualiza:
+- **Simulador do LED RGB em Tempo Real:** Um componente visual animado que espelha fielmente a cor e o efeito ativo na chave física (Ciano respirando, Verde sólido, Âmbar pulsante, Azul de pareamento, Vermelho de erro/lockout ou Branco estroboscópico);
+- **Botões de Ação Rápida dos Ritos Físicos:**
+  - `[Abrir Pareamento (60s)]`: Envia o opcode `0x2F` e abre a janela de vínculo BLE;
+  - `[Toque de Presença (UP)]`: Dispara a confirmação física no sensor de toque do GPIO 0;
+  - `[Autenticar PIN]`: Submete e valida a senha mestra no hardware via `0x2D`;
+  - `[Localizar Chave (Wink)]`: Dispara 5 flashes brancos no LED WS2812 físico (`CMD_WINK 0x88`).
+
+---
+
+### 8.4. As 4 Abas Principais da Interface Web
+
+#### Aba 1: Cofre & Carteiras Web3 (`tab-vault`)
+- **Gestão Unificada das 8 Classes de Chaves:** Exibe cartões detalhados para Passkeys FIDO2, Vendor Keys, Carteiras (Bitcoin, Ethereum, Solana, Polkadot), Slots PIV e Envelopes AEGN v1;
+- **Modais Contextuais Personalizados:**
+  - *Passkey FIDO:* Exibe curva COSE, atestação e campo para assinatura de desafio WebAuthn;
+  - *Carteira Cripto:* Exibe endereço completo (`bc1q...`, `0x...`, Base58), derivação BIP e assinatura de transações;
+  - *PIV Smartcard:* Configuração e alteração de PIN e PUK para slots 9A/9C/9D/9E;
+  - *Envelope AEGN:* Cifragem e decifragem de segredos protegidos com AES-256-GCM.
+- **Criação e Exclusão Segura:** Botão `[+ Nova Credencial]` com alocação automática de slots (0 a 31) e diálogo de confirmação com sanitização irreversível (`0x23`).
+
+#### Aba 2: Códigos 2FA TOTP/HOTP (`tab-totp`)
+- **Cálculo Criptográfico On-Chip (`0x26 OP_OATH_CODE`):** Os códigos temporários de 6 ou 8 dígitos são calculados dentro do microcontrolador com o segredo HMAC residente na Flash NVS;
+- **Anel Regressivo Trifásico:** Animação circular indicando o tempo restante (Verde $> 10\text{s}$, Âmbar $6\text{s}$ a $10\text{s}$, Vermelho $\le 5\text{s}$);
+- **Suporte HOTP (+1):** Botão interativo para avançar o contador atômico em hardware;
+- **Cadastro Guiado:** Modal para inserção de segredos Base32 ou importação de URIs `otpauth://`.
+
+#### Aba 3: Conexões Sem Fio Wi-Fi & BLE (`tab-wireless`)
+- **Scanner Bluetooth Low Energy:** Varredura no ar listando dispositivos FIDO `0xFFFD` com nível de sinal RSSI;
+- **Configuração do Access Point SoftAP:** Alteração de SSID, aplicação de senha WPA2 (com validação estrita $\ge 8$ caracteres), seleção de canal de rádio (1, 6 ou 11) e controle de potência de transmissão (TX Power).
+
+#### Aba 4: Cockpit de Hardware (`tab-hardware`)
+- **Telemetria de Baixo Nível:** Uptime do processador, contadores de pânico, versão do firmware e estado da memória NVS;
+- **Logs de Auditoria em Tempo Real (`0x38 OP_FW_LOG`):** Leitura contínua do ring-buffer de eventos de segurança;
+- **Desvinculação e Transferência de Propriedade (`0x2B OP_BIND_RELEASE`):** Procedimento de sanitização segura de fábrica.
+
+---
+
+### 8.5. Resultados da Bateria de Testes Automatizados (26/26 PASS — 100%)
+
+A bateria de testes `tools/test_web_dashboard_endpoints.py` foi executada contra a ponte conectada à placa ESP32-S3 física (`COM7`), alcançando **100% de aproveitamento em todos os 26 endpoints**:
+
+| Grupo de Testes | Endpoint / Rota | Método | Descrição e Validação Realizada | Status |
+|---|---|---|---|---|
+| **1. Servidor Web** | `/` | `GET` | Entrega do HTML completo do Dashboard Material 3 | `PASS` (`200 OK`) |
+| | `/dashboard` | `GET` | Rota alternativa de acesso à interface | `PASS` (`200 OK`) |
+| **2. Telemetria** | `/bridge/info` | `GET` | Status da ponte, transporte ativo e presença de hardware | `PASS` (`200 OK`) |
+| | `/status` | `GET` | Estado do rádio Wi-Fi, canal, SSID e slots de chave | `PASS` (`200 OK`) |
+| **3. Wi-Fi SoftAP**| `/wifi/config` | `POST` | Atualização de SSID, canal 11 e senha WPA2 | `PASS` (`200 OK`) |
+| | `/wifi/nets` | `GET` | Listagem de redes salvas no dispositivo | `PASS` (`200 OK`) |
+| **4. Bluetooth** | `/ble/scan` | `GET` | Descoberta de rádio BLE FIDO `0xFFFD` | `PASS` (`200 OK`) |
+| | `/ble/chars` | `GET` | Verificação de descritores GATT `FFF1..FFF4` | `PASS` (`200 OK`) |
+| | `/ble/write_notify`| `POST` | PING `0x81` fragmentado com eco perfeito | `PASS` (`200 OK`) |
+| **5. Ritos Físicos**| `/bridge/pairing_open`| `POST` | Abertura de janela de pareamento de 60s (`0x2F`) | `PASS` (`200 OK`) |
+| | `/bridge/touch_up` | `POST` | Acionamento de presença física no sensor GPIO 0 | `PASS` (`200 OK`) |
+| | `/bridge/pin_auth` | `POST` | Autenticação de PIN de hardware (`0x2D`) | `PASS` (`200 OK`) |
+| | `/bridge/wink` | `POST` | Estrobo visual do LED WS2812 (`0x88`) | `PASS` (`200 OK`) |
+| **6. Cofre Físico** | `/api/vault` | `GET` | Listagem unificada dos 8 tipos de chaves no silício | `PASS` (`200 OK`) |
+| | `/api/key/create` | `POST` | Criação de Passkey Ed25519 (`0x20`) no chip | `PASS` (`200 OK`) |
+| | `/api/key/sign` | `POST` | Assinatura criptográfica com consentimento de toque | `PASS` (`200 OK`) |
+| | `/api/key/delete` | `POST` | Exclusão do slot no chip (`0x23`) com sanitização | `PASS` (`200 OK`) |
+| **7. Carteiras** | `/api/wallet/list` | `GET` | Listagem de endereços de carteiras Web3 no chip | `PASS` (`200 OK`) |
+| | `/api/wallet/create`| `POST` | Derivação de carteira Ethereum EIP-55 (`0x35`) | `PASS` (`200 OK`) |
+| **8. OATH TOTP** | `/api/oath/list` | `GET` | Contas cadastradas e códigos gerados on-device | `PASS` (`200 OK`) |
+| | `/api/oath/put` | `POST` | Cadastro de nova conta TOTP (`0x24`) | `PASS` (`200 OK`) |
+| | `/oath/code` | `GET` | Cálculo dinâmico de OTP de 6 dígitos (`0x26`) | `PASS` (`200 OK`) |
+| | `/api/oath/delete` | `POST` | Exclusão de conta OATH (`0x27`) | `PASS` (`200 OK`) |
+| **9. PIV Smartcard**| `/api/piv/enroll` | `POST` | Matrícula de PIN/PUK para slots NIST 9A/9C/9D/9E | `PASS` (`200 OK`) |
+| **10. Auditoria** | `/api/fw/logs` | `GET` | Leitura do ring-buffer de eventos do firmware (`0x38`) | `PASS` (`200 OK`) |
+| **11. Reset** | `/api/reset` | `POST` | Liberação de vínculo da chave (`0x2B OP_BIND_RELEASE`) | `PASS` (`200 OK`) |
+
+---
+
+## 9. Relação com Outros Documentos do Repositório
 
 - [APP_ANDROID_KEY_LIFECYCLE.md](file:///e:/projetos/fido/docs/APP_ANDROID_KEY_LIFECYCLE.md): Ciclo de vida completo das 8 credenciais, curvas COSE e envelopes criptográficos selados.
 - [APP_ANDROID_UX_ARCHITECTURE.md](file:///e:/projetos/fido/docs/APP_ANDROID_UX_ARCHITECTURE.md): Arquitetura de interface e navegação reativa `RootNavigationGate`.
 - [APP-INTEGRACAO.md](file:///e:/projetos/fido/docs/APP-INTEGRACAO.md): Especificação canônica de opcodes, envelopes e gates de transporte.
 - [COMMS-map.md](file:///e:/projetos/fido/docs/COMMS-map.md): Matriz de mapeamento de canais físicos, opcodes e frames FIDO/Vendor.
+
 
