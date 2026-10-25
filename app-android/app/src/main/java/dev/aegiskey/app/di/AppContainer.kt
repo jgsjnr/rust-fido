@@ -7,7 +7,18 @@ import dev.aegiskey.app.data.local.ThemePreferencesStore
 import dev.aegiskey.app.data.repository.ConnectedKeysRepositoryImpl
 import dev.aegiskey.app.data.repository.KeyVaultRepositoryImpl
 import dev.aegiskey.app.data.repository.PairingWizardRepositoryImpl
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import dev.aegiskey.app.data.repository.ThemeRepositoryImpl
+import dev.aegiskey.app.domain.repository.SecureGuardRepository
+import dev.aegiskey.app.domain.usecase.ChangeSecureGuardPinUseCase
+import dev.aegiskey.app.domain.usecase.GetSecureGuardStatusUseCase
+import dev.aegiskey.app.domain.usecase.LockSecureGuardUseCase
+import dev.aegiskey.app.domain.usecase.ProvisionSecureGuardUseCase
+import dev.aegiskey.app.domain.usecase.RecoverSecureGuardUseCase
+import dev.aegiskey.app.domain.usecase.TriggerSelectiveWipeTestUseCase
+import dev.aegiskey.app.domain.usecase.UnlockSecureGuardUseCase
+import dev.aegiskey.app.domain.usecase.UpdateSecureGuardPolicyUseCase
+import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
 import dev.aegiskey.app.data.repository.TotpRepositoryImpl
 import dev.aegiskey.app.data.system.SystemSecurityService
 import dev.aegiskey.app.data.transport.BleKeyTransport
@@ -122,6 +133,36 @@ class AppContainer(val context: Context) {
 
     val themeRepository: ThemeRepository by lazy {
         ThemeRepositoryImpl(themeStore)
+    }
+
+    val secureGuardRepository: SecureGuardRepository by lazy {
+        SecureGuardRepositoryImpl(hostUsbUartBridgeClient, usbCtaphid)
+    }
+
+    // --- Casos de Uso: Secure Guard (Zero-Trust On-Device Authority) ---
+    val getSecureGuardStatusUseCase: GetSecureGuardStatusUseCase by lazy {
+        GetSecureGuardStatusUseCase(secureGuardRepository)
+    }
+    val provisionSecureGuardUseCase: ProvisionSecureGuardUseCase by lazy {
+        ProvisionSecureGuardUseCase(secureGuardRepository)
+    }
+    val unlockSecureGuardUseCase: UnlockSecureGuardUseCase by lazy {
+        UnlockSecureGuardUseCase(secureGuardRepository)
+    }
+    val lockSecureGuardUseCase: LockSecureGuardUseCase by lazy {
+        LockSecureGuardUseCase(secureGuardRepository)
+    }
+    val changeSecureGuardPinUseCase: ChangeSecureGuardPinUseCase by lazy {
+        ChangeSecureGuardPinUseCase(secureGuardRepository)
+    }
+    val recoverSecureGuardUseCase: RecoverSecureGuardUseCase by lazy {
+        RecoverSecureGuardUseCase(secureGuardRepository)
+    }
+    val updateSecureGuardPolicyUseCase: UpdateSecureGuardPolicyUseCase by lazy {
+        UpdateSecureGuardPolicyUseCase(secureGuardRepository)
+    }
+    val triggerSelectiveWipeTestUseCase: TriggerSelectiveWipeTestUseCase by lazy {
+        TriggerSelectiveWipeTestUseCase(secureGuardRepository)
     }
 
     // --- Casos de Uso: Inicialização e Navegação ---
@@ -296,6 +337,19 @@ class AppContainer(val context: Context) {
             securityService = securityService,
             incrementHotpCounterUseCase = incrementHotpCounterUseCase,
             keysStore = keysStore,
+        )
+    }
+
+    val secureGuardViewModel: SecureGuardViewModel by lazy {
+        SecureGuardViewModel(
+            getSecureGuardStatusUseCase = getSecureGuardStatusUseCase,
+            provisionSecureGuardUseCase = provisionSecureGuardUseCase,
+            unlockSecureGuardUseCase = unlockSecureGuardUseCase,
+            lockSecureGuardUseCase = lockSecureGuardUseCase,
+            changeSecureGuardPinUseCase = changeSecureGuardPinUseCase,
+            recoverSecureGuardUseCase = recoverSecureGuardUseCase,
+            updateSecureGuardPolicyUseCase = updateSecureGuardPolicyUseCase,
+            triggerSelectiveWipeTestUseCase = triggerSelectiveWipeTestUseCase,
         )
     }
 

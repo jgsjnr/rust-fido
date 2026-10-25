@@ -111,6 +111,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
     val onboardingViewModel = container.onboardingWizardViewModel
     val keysViewModel = container.connectedKeysViewModel
     val vaultViewModel = container.keyVaultViewModel
+    val secureGuardViewModel = container.secureGuardViewModel
     val totpViewModel = container.totpAuthenticatorViewModel
 
     val themePref by themeViewModel.themePreference.collectAsState()
@@ -202,6 +203,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                     composable(HubDestination.VAULT.route) {
                         KeyVaultHubScreen(
                             viewModel = vaultViewModel,
+                            secureGuardViewModel = secureGuardViewModel,
                             onNavigateToBackup = { nav.navigate("transfer") },
                             onNavigateToOta = { nav.navigate("ota") }
                         )

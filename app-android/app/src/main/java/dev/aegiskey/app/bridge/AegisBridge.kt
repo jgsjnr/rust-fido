@@ -319,4 +319,61 @@ object AegisBridge {
      * inconsistente).
      */
     private const val SEARCH_GUARD_BYTES = 1048576
+
+    fun secureGuardParseStatus(payload: ByteArray): Result<uniffi.aegis_bridge.SecureGuardStatusDto> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardParseStatus(payload.map { it.toUByte() })
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeProvision(
+        pin: ByteArray,
+        recoveryCode: ByteArray = ByteArray(0),
+        wipeOn5Failures: Boolean = false,
+        testMode: Boolean = false
+    ): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeProvision(
+            pin.map { it.toUByte() },
+            recoveryCode.map { it.toUByte() },
+            wipeOn5Failures,
+            testMode
+        ).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeUnlock(pin: ByteArray): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeUnlock(pin.map { it.toUByte() })
+            .map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeChangePin(currentPin: ByteArray, newPin: ByteArray): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeChangePin(
+            currentPin.map { it.toUByte() },
+            newPin.map { it.toUByte() }
+        ).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeRecover(recoveryCode: ByteArray, newPin: ByteArray): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeRecover(
+            recoveryCode.map { it.toUByte() },
+            newPin.map { it.toUByte() }
+        ).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeLock(): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeLock().map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeConfig(policy: uniffi.aegis_bridge.SecureGuardPolicyDto): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeConfig(policy).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
+
+    fun secureGuardEncodeWipe(scope: Int, confirmToken: String): Result<ByteArray> = runCatching {
+        checkNative()
+        uniffi.aegis_bridge.secureGuardEncodeWipe(scope.toUByte(), confirmToken).map { it.toByte() }.toByteArray()
+    }.recoverCatching { throw sanitize(it) }
 }

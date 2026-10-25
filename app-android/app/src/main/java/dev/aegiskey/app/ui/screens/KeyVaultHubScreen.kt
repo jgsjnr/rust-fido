@@ -72,11 +72,14 @@ import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
 import dev.aegiskey.app.ui.atomic.molecules.VaultEntryCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.organisms.KeyGenerationDialogOrganism
+import dev.aegiskey.app.ui.atomic.organisms.SecureGuardCardOrganism
+import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
 import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
 
 @Composable
 fun KeyVaultHubScreen(
     viewModel: KeyVaultViewModel,
+    secureGuardViewModel: SecureGuardViewModel? = null,
     onNavigateToBackup: () -> Unit = {},
     onNavigateToOta: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -197,6 +200,25 @@ fun KeyVaultHubScreen(
                             color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         )
                     }
+                }
+            }
+
+            // Painel Secure Guard (Zero-Trust On-Device Authority)
+            if (secureGuardViewModel != null) {
+                item {
+                    val sgState by secureGuardViewModel.uiState.collectAsState()
+                    SecureGuardCardOrganism(
+                        uiState = sgState,
+                        onProvision = { pin, rc, pol -> secureGuardViewModel.provision(pin, rc, pol) },
+                        onUnlock = { pin -> secureGuardViewModel.unlock(pin) },
+                        onLock = { secureGuardViewModel.lock() },
+                        onChangePin = { curr, next -> secureGuardViewModel.changePin(curr, next) },
+                        onRecover = { rc, next -> secureGuardViewModel.recover(rc, next) },
+                        onUpdatePolicy = { pol -> secureGuardViewModel.updatePolicy(pol) },
+                        onWipeSelective = { scope, token -> secureGuardViewModel.wipeSelective(scope, token) },
+                        onRefresh = { secureGuardViewModel.refreshStatus() },
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
                 }
             }
 

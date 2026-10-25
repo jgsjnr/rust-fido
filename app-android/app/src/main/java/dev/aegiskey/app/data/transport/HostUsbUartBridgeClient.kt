@@ -500,6 +500,102 @@ class HostUsbUartBridgeClient(
         )
     }
 
+    // --- SECURE GUARD ZERO-TRUST HTTP ENDPOINTS ---
+
+    private fun postSecureGuardJson(endpoint: String, body: JSONObject): JSONObject? {
+        val host = resolveActiveHost() ?: return null
+        return try {
+            val url = URL("$host$endpoint")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                connectTimeout = 3000
+                readTimeout = 5000
+            }
+            conn.outputStream.use { os ->
+                os.write(body.toString().toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
+            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+            val str = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            JSONObject(str)
+        } catch (t: Throwable) {
+            android.util.Log.w("SecureGuard", "HTTP POST $endpoint falhou: ${t.message}")
+            null
+        }
+    }
+
+    suspend fun fetchSecureGuardStatus(): JSONObject? = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost() ?: return@withContext null
+        try {
+            val url = URL("$host/api/secure-guard/status")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json")
+                connectTimeout = 2000
+                readTimeout = 3000
+            }
+            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+            val str = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            JSONObject(str)
+        } catch (t: Throwable) {
+            android.util.Log.w("SecureGuard", "Erro ao consultar status HTTP bridge: ${t.message}")
+            null
+        }
+    }
+
+    suspend fun provisionSecureGuard(
+        pin: String,
+        recoveryCode: String? = null,
+        policyJson: JSONObject? = null
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("pin", pin)
+            if (!recoveryCode.isNullOrBlank()) put("recovery_code", recoveryCode)
+            if (policyJson != null) put("policy", policyJson)
+        }
+        postSecureGuardJson("/api/secure-guard/provision", body)
+    }
+
+    suspend fun unlockSecureGuard(pin: String): JSONObject? = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply { put("pin", pin) }
+        postSecureGuardJson("/api/secure-guard/unlock", body)
+    }
+
+    suspend fun lockSecureGuard(): JSONObject? = withContext(Dispatchers.IO) {
+        postSecureGuardJson("/api/secure-guard/lock", JSONObject())
+    }
+
+    suspend fun changeSecureGuardPin(currentPin: String, newPin: String): JSONObject? = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("current_pin", currentPin)
+            put("new_pin", newPin)
+        }
+        postSecureGuardJson("/api/secure-guard/change-pin", body)
+    }
+
+    suspend fun recoverSecureGuard(recoveryCode: String, newPin: String): JSONObject? = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("recovery_code", recoveryCode)
+            put("new_pin", newPin)
+        }
+        postSecureGuardJson("/api/secure-guard/recover", body)
+    }
+
+    suspend fun configureSecureGuard(policyJson: JSONObject): JSONObject? = withContext(Dispatchers.IO) {
+        postSecureGuardJson("/api/secure-guard/config", policyJson)
+    }
+
+    suspend fun wipeSelectiveSecureGuard(scope: Int, confirmationToken: String): JSONObject? = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("scope", scope)
+            put("confirmation", confirmationToken)
+        }
+        postSecureGuardJson("/api/secure-guard/wipe-selective", body)
+    }
+
     companion object {
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 

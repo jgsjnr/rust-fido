@@ -741,6 +741,22 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -779,6 +795,22 @@ internal interface UniffiLib : Library {
     fun uniffi_aegis_bridge_fn_func_oath_remaining_seconds(`unixSeconds`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     fun uniffi_aegis_bridge_fn_func_otpauth_extract_label_and_secret(`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_change_pin(`currentPin`: RustBuffer.ByValue,`newPin`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_config(`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_lock(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_provision(`pin`: RustBuffer.ByValue,`recoveryCode`: RustBuffer.ByValue,`wipeOn5Failures`: Byte,`testMode`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_recover(`recoveryCode`: RustBuffer.ByValue,`newPin`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_unlock(`pin`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_encode_wipe(`scope`: Byte,`confirmToken`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_aegis_bridge_fn_func_secure_guard_parse_status(`payload`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_aegis_bridge_fn_func_totp_format_display(`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -922,6 +954,22 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_aegis_bridge_checksum_func_otpauth_extract_label_and_secret(
     ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_change_pin(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_config(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_lock(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_provision(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_recover(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_unlock(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_encode_wipe(
+    ): Short
+    fun uniffi_aegis_bridge_checksum_func_secure_guard_parse_status(
+    ): Short
     fun uniffi_aegis_bridge_checksum_func_totp_format_display(
     ): Short
     fun uniffi_aegis_bridge_checksum_func_wallet_address(
@@ -979,6 +1027,30 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aegis_bridge_checksum_func_otpauth_extract_label_and_secret() != 4633.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_change_pin() != 42214.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_config() != 19907.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_lock() != 36556.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_provision() != 51863.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_recover() != 36080.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_unlock() != 45164.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_encode_wipe() != 55510.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aegis_bridge_checksum_func_secure_guard_parse_status() != 61851.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aegis_bridge_checksum_func_totp_format_display() != 20263.toShort()) {
@@ -1359,6 +1431,126 @@ public object FfiConverterTypeOtpAuthParsed: FfiConverterRustBuffer<OtpAuthParse
 
 
 
+data class SecureGuardPolicyDto (
+    var `wipeOn5Failures`: kotlin.Boolean, 
+    var `sessionDurationMs`: kotlin.ULong, 
+    var `inactivityTimeoutMs`: kotlin.ULong, 
+    var `protectKeysAndAegn`: kotlin.Boolean, 
+    var `protectOath`: kotlin.Boolean, 
+    var `testModeNonDestructiveWipe`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSecureGuardPolicyDto: FfiConverterRustBuffer<SecureGuardPolicyDto> {
+    override fun read(buf: ByteBuffer): SecureGuardPolicyDto {
+        return SecureGuardPolicyDto(
+            FfiConverterBoolean.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SecureGuardPolicyDto) = (
+            FfiConverterBoolean.allocationSize(value.`wipeOn5Failures`) +
+            FfiConverterULong.allocationSize(value.`sessionDurationMs`) +
+            FfiConverterULong.allocationSize(value.`inactivityTimeoutMs`) +
+            FfiConverterBoolean.allocationSize(value.`protectKeysAndAegn`) +
+            FfiConverterBoolean.allocationSize(value.`protectOath`) +
+            FfiConverterBoolean.allocationSize(value.`testModeNonDestructiveWipe`)
+    )
+
+    override fun write(value: SecureGuardPolicyDto, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`wipeOn5Failures`, buf)
+            FfiConverterULong.write(value.`sessionDurationMs`, buf)
+            FfiConverterULong.write(value.`inactivityTimeoutMs`, buf)
+            FfiConverterBoolean.write(value.`protectKeysAndAegn`, buf)
+            FfiConverterBoolean.write(value.`protectOath`, buf)
+            FfiConverterBoolean.write(value.`testModeNonDestructiveWipe`, buf)
+    }
+}
+
+
+
+data class SecureGuardStatusDto (
+    var `state`: kotlin.UByte, 
+    var `stateName`: kotlin.String, 
+    var `isProvisioned`: kotlin.Boolean, 
+    var `isUnlocked`: kotlin.Boolean, 
+    var `failedAttempts`: kotlin.UByte, 
+    var `remainingAttempts`: kotlin.UByte, 
+    var `maxAttempts`: kotlin.UByte, 
+    var `rateLimitRemainingMs`: kotlin.ULong, 
+    var `sessionRemainingMs`: kotlin.ULong, 
+    var `policy`: SecureGuardPolicyDto, 
+    var `lastWipeSimulated`: kotlin.Boolean, 
+    var `auditCount`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSecureGuardStatusDto: FfiConverterRustBuffer<SecureGuardStatusDto> {
+    override fun read(buf: ByteBuffer): SecureGuardStatusDto {
+        return SecureGuardStatusDto(
+            FfiConverterUByte.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterTypeSecureGuardPolicyDto.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SecureGuardStatusDto) = (
+            FfiConverterUByte.allocationSize(value.`state`) +
+            FfiConverterString.allocationSize(value.`stateName`) +
+            FfiConverterBoolean.allocationSize(value.`isProvisioned`) +
+            FfiConverterBoolean.allocationSize(value.`isUnlocked`) +
+            FfiConverterUByte.allocationSize(value.`failedAttempts`) +
+            FfiConverterUByte.allocationSize(value.`remainingAttempts`) +
+            FfiConverterUByte.allocationSize(value.`maxAttempts`) +
+            FfiConverterULong.allocationSize(value.`rateLimitRemainingMs`) +
+            FfiConverterULong.allocationSize(value.`sessionRemainingMs`) +
+            FfiConverterTypeSecureGuardPolicyDto.allocationSize(value.`policy`) +
+            FfiConverterBoolean.allocationSize(value.`lastWipeSimulated`) +
+            FfiConverterULong.allocationSize(value.`auditCount`)
+    )
+
+    override fun write(value: SecureGuardStatusDto, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`state`, buf)
+            FfiConverterString.write(value.`stateName`, buf)
+            FfiConverterBoolean.write(value.`isProvisioned`, buf)
+            FfiConverterBoolean.write(value.`isUnlocked`, buf)
+            FfiConverterUByte.write(value.`failedAttempts`, buf)
+            FfiConverterUByte.write(value.`remainingAttempts`, buf)
+            FfiConverterUByte.write(value.`maxAttempts`, buf)
+            FfiConverterULong.write(value.`rateLimitRemainingMs`, buf)
+            FfiConverterULong.write(value.`sessionRemainingMs`, buf)
+            FfiConverterTypeSecureGuardPolicyDto.write(value.`policy`, buf)
+            FfiConverterBoolean.write(value.`lastWipeSimulated`, buf)
+            FfiConverterULong.write(value.`auditCount`, buf)
+    }
+}
+
+
+
 
 
 sealed class BridgeException(message: String): kotlin.Exception(message) {
@@ -1378,6 +1570,8 @@ sealed class BridgeException(message: String): kotlin.Exception(message) {
         class CryptoException(message: String) : BridgeException(message)
         
         class InvalidAddress(message: String) : BridgeException(message)
+        
+        class SecureGuardException(message: String) : BridgeException(message)
         
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<BridgeException> {
@@ -1400,6 +1594,7 @@ public object FfiConverterTypeBridgeError : FfiConverterRustBuffer<BridgeExcepti
             6 -> BridgeException.InvalidOath(FfiConverterString.read(buf))
             7 -> BridgeException.CryptoException(FfiConverterString.read(buf))
             8 -> BridgeException.InvalidAddress(FfiConverterString.read(buf))
+            9 -> BridgeException.SecureGuardException(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
         
@@ -1441,6 +1636,10 @@ public object FfiConverterTypeBridgeError : FfiConverterRustBuffer<BridgeExcepti
             }
             is BridgeException.InvalidAddress -> {
                 buf.putInt(8)
+                Unit
+            }
+            is BridgeException.SecureGuardException -> {
+                buf.putInt(9)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -1646,6 +1845,86 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
     uniffiRustCallWithError(BridgeException) { _status ->
     UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_otpauth_extract_label_and_secret(
         FfiConverterString.lower(`input`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeChangePin`(`currentPin`: List<kotlin.UByte>, `newPin`: List<kotlin.UByte>): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_change_pin(
+        FfiConverterSequenceUByte.lower(`currentPin`),FfiConverterSequenceUByte.lower(`newPin`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeConfig`(`policy`: SecureGuardPolicyDto): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_config(
+        FfiConverterTypeSecureGuardPolicyDto.lower(`policy`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeLock`(): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_lock(
+        _status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeProvision`(`pin`: List<kotlin.UByte>, `recoveryCode`: List<kotlin.UByte>, `wipeOn5Failures`: kotlin.Boolean, `testMode`: kotlin.Boolean): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_provision(
+        FfiConverterSequenceUByte.lower(`pin`),FfiConverterSequenceUByte.lower(`recoveryCode`),FfiConverterBoolean.lower(`wipeOn5Failures`),FfiConverterBoolean.lower(`testMode`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeRecover`(`recoveryCode`: List<kotlin.UByte>, `newPin`: List<kotlin.UByte>): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_recover(
+        FfiConverterSequenceUByte.lower(`recoveryCode`),FfiConverterSequenceUByte.lower(`newPin`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeUnlock`(`pin`: List<kotlin.UByte>): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_unlock(
+        FfiConverterSequenceUByte.lower(`pin`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardEncodeWipe`(`scope`: kotlin.UByte, `confirmToken`: kotlin.String): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_encode_wipe(
+        FfiConverterUByte.lower(`scope`),FfiConverterString.lower(`confirmToken`),_status)
+}
+    )
+    }
+    
+
+    @Throws(BridgeException::class) fun `secureGuardParseStatus`(`payload`: List<kotlin.UByte>): SecureGuardStatusDto {
+            return FfiConverterTypeSecureGuardStatusDto.lift(
+    uniffiRustCallWithError(BridgeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_aegis_bridge_fn_func_secure_guard_parse_status(
+        FfiConverterSequenceUByte.lower(`payload`),_status)
 }
     )
     }
