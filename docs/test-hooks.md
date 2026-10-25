@@ -68,6 +68,7 @@ nunca se auto-estimula. SDK espelha os 13 nomes em
 | TEST_LED_GREEN | linha `TEST_LED_GREEN` | legado trava verde; FreeRTOS so ack sem latch | linha ignorada | unit run/mod.rs; led_probe.py |
 | TEST_LED_BLUE | linha `TEST_LED_BLUE` | legado trava azul; FreeRTOS so ack sem latch | linha ignorada | unit run/mod.rs; led_probe.py |
 | TEST_LED_OFF | linha `TEST_LED_OFF` | legado apaga; FreeRTOS so ack sem latch | linha ignorada | unit run/mod.rs; led_probe.py |
+| TEST_LED_ON | linha `TEST_LED_ON` (compat HIL) | ack `led_set TEST_LED_ON` sem latch/cor nos dois loops (sem residual) | linha ignorada | unit pairing_led + run/mod.rs | HIL test_l2 |
 | TEST_LED_RELEASE | linha `TEST_LED_RELEASE` | legado `led_test_hold=None` + ack `led_set released`; FreeRTOS mesmo ack sem efeito | linha ignorada | unit run/mod.rs; led_probe.py |
 | TEST_BLE_PREINIT (DRIFT: fora de `TEST_COMMANDS`, do SDK e da base) | linha `TEST_BLE_PREINIT` (FreeRTOS, CTAPHID quieto) | log heap + `esp_ble_preinit()` on-demand; rc==0 arma `ble_preinit_ok`; ack `ble_preinit rc=<rc>`; gate `test-mode`+espidf | A-CONFIRMAR R1 | nenhum encontrado |
 | TEST_WIFI_* | AUSENTE (grep repo-wide zero matches) | sem hook; WiFi de bancada via `TEST_PAIRING_CLOSE` (shutdown AP) | n/a | n/a |

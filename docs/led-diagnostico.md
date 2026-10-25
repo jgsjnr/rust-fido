@@ -61,3 +61,23 @@ Olhos do usuário: idle alterna azul/verde separados (não ciano fundido)
    (loop WDT, 7 resets/15s, morre no splash)** — revertida; sem trava
    de IRQ nos bindings (só `vPortExitCritical` existe, par assimétrico).
 A validar: idle deve voltar a ciano fundido; `led_probe.py` nas primárias.
+
+## Achado 24/10 — regressão do latch (ON→RED + FreeRTOS com latch)
+
+Causa raiz (worktree `fd/hil-usb-tests`, diff `210e980..HEAD` + não-commitado):
+1. `TEST_LED_ON` aliado a `Solid RED` nos dois loops (compat HIL virou cor);
+   o HIL envia ON após `PAIRING_OPEN+UP` sem `RELEASE` → vermelho residual
+   sobre o azul do pairing e o âmbar do UP nas sessões seguintes.
+2. Bloco device-side no FreeRTOS forçando `led_test_hold` (contrariando o
+   contrato "FreeRTOS só ack, latch vive no legado" em `run/mod.rs` e
+   `test-hooks.md`): RED cobria boot-rainbow, UP-Prompt, sucesso, erro e TOTP.
+3. Latch legado reaplicado incondicional todo poll, sem expiração.
+
+Fix: ON = só ack nos dois loops (sem cor, sem residual); latch FreeRTOS
+removido (jornada manda sempre); latch legado reaplicado só no idle livre
+(`IdleStandby` + pairing `Idle` + sem bond), com expiração 60 s e liberação
+em `TEST_PAIRING_CLOSE`. Classificador puro `classify_test_led_line`
+(comparação exata, sem `starts_with`) com testes host. Matriz esperada
+restaurada: boot rainbow → idle ciano respirando → arming âmbar pulsante →
+pairing azul respirando → bond verde sólido → locked vermelho (sólido no
+headless / `ErrorFlash` na tela); UP PromptTouch âmbar; TOTP azul sólido.

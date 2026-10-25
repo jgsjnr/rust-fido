@@ -2002,3 +2002,13 @@ Achados p/ pré-F6: (a) serial no fio = AEGIS-S3-0001, Rust diz 0002 (lado C nã
 - [PASS] B02b janela pareamento — aberta
 - [PASS] B03 MC [812ms] — 744B
 - [PASS] B04 GA [947ms] — 170B
+
+### 24/10 22:01 — phase=all-safe only=T13
+- [DIVERGENTE] T13 KEY_GEN e2e-t1 real — status=0x03 slot=None
+
+### 24/10 22:02 — phase=all-safe only=T17
+- [PASS] T17 MakeCredential rp e2e — status=0x00 bytes=744
+- [PASS] T17n MC gravou residente (persiste no NVS!) — credencial e2e criada
+
+### 24/10 22:02 — phase=all-safe only=T18
+- [PASS] T18 GetAssertion rp e2e — status=0x00 bytes=170
