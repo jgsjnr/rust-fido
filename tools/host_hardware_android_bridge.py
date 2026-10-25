@@ -247,7 +247,7 @@ class HardwareBridgeManager:
         with self.lock:
             self.ensure_connected()
 
-            # Privileged write ops that require user presence (UP) and/or active pairing mode
+            # Privileged write/wallet ops that require user presence (UP) and/or active pairing mode
             WRITE_OPS = {
                 0x20,  # KEY_GEN
                 0x21,  # KEY_IMPORT
@@ -256,6 +256,8 @@ class HardwareBridgeManager:
                 0x27,  # OATH_DELETE
                 0x2C,  # RECOVERY_SET
                 0x35,  # WALLET_GEN
+                0x36,  # WALLET_LIST
+                0x37,  # WALLET_ADDR
                 0x39,  # PIV_ENROLL
             }
 
@@ -305,6 +307,11 @@ class HardwareBridgeManager:
                 # If status is STATUS_NEED_UP (0x01), auto-latch UP and retry once
                 if status == 0x01 and self.transport == "UART":
                     print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_UP (0x01); armando TEST_UP...")
+                    self._touch_up_internal()
+                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
+                elif status == 0x05 and self.transport == "UART":
+                    print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_BINDING (0x05); armando TEST_PAIRING_OPEN + TEST_UP...")
+                    self._pairing_open_internal()
                     self._touch_up_internal()
                     status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
 

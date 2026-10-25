@@ -71,7 +71,7 @@ class AppContainer(val context: Context) {
     val hostUsbUartBridgeClient: HostUsbUartBridgeClient by lazy { HostUsbUartBridgeClient() }
 
     val bleTransport: BleKeyTransport by lazy { BleKeyTransport(bleClient) }
-    val usbTransport: UsbKeyTransport by lazy { UsbKeyTransport(usbCtaphid) }
+    val usbTransport: UsbKeyTransport by lazy { UsbKeyTransport(usbCtaphid, hostUsbUartBridgeClient) }
 
     // --- Repositórios ---
     val connectedKeysRepository: ConnectedKeysRepository by lazy {
@@ -93,8 +93,8 @@ class AppContainer(val context: Context) {
     val keyVaultRepository: KeyVaultRepository by lazy {
         KeyVaultRepositoryImpl(
             keysStore = keysStore,
-            bleClient = bleClient,
-            hostBridgeClient = hostUsbUartBridgeClient,
+            usbKeyTransport = usbTransport,
+            bleKeyTransport = bleTransport,
             simulatedRenodeTransport = simulatedRenodeTransport,
             connectedKeysRepository = connectedKeysRepository
         )
@@ -103,8 +103,8 @@ class AppContainer(val context: Context) {
     val totpRepository: TotpRepository by lazy {
         TotpRepositoryImpl(
             keysStore = keysStore,
-            bleClient = bleClient,
-            hostBridgeClient = hostUsbUartBridgeClient,
+            usbKeyTransport = usbTransport,
+            bleKeyTransport = bleTransport,
             simulatedRenodeTransport = simulatedRenodeTransport,
             connectedKeysRepository = connectedKeysRepository
         )
