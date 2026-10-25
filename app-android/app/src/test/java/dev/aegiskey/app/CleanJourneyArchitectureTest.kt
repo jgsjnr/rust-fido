@@ -504,7 +504,7 @@ class CleanJourneyArchitectureTest {
             connectedKeysRepository = connectedKeysRepo
         )
 
-        val passkeyResult = vaultRepo.generateAccessKey(
+        val passkeyResult = vaultRepo.generateNewAccessKey(
             keyId = device.id,
             label = "GitHub Passkey",
             type = AccessKeyType.PASSKEY_FIDO,
@@ -559,7 +559,7 @@ class CleanJourneyArchitectureTest {
             connectedKeysRepository = connectedKeysRepo
         )
 
-        val walletResult = vaultRepo.generateAccessKey(
+        val walletResult = vaultRepo.generateNewAccessKey(
             keyId = device.id,
             label = "Carteira Ethereum",
             type = AccessKeyType.CRYPTO_WALLET_ETH,

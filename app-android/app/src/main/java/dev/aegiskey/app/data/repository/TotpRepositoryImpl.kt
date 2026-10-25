@@ -3,6 +3,7 @@ package dev.aegiskey.app.data.repository
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.transport.BleKeyTransport
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
@@ -78,22 +79,31 @@ class TotpRepositoryImpl(
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
+        if (activeKey?.isCurrentlyConnected == false) {
+            return null
+        }
         val addr = activeKey?.hardwareAddressOrId ?: ""
         return when {
             addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
                 usbKeyTransport?.sendVendor(opcode, payload)
+                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
             }
             activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
                 usbKeyTransport?.sendVendor(opcode, payload)
+                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
             }
             activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
                 simulatedRenodeTransport.sendVendor(opcode, payload)
             }
             activeKey?.transportType == ConnectionTransportType.BLE -> {
-                bleKeyTransport?.sendVendor(opcode, payload) ?: usbKeyTransport?.sendVendor(opcode, payload)
+                bleKeyTransport?.sendVendor(opcode, payload)
+                    ?: usbKeyTransport?.sendVendor(opcode, payload)
+                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
             }
             else -> {
-                usbKeyTransport?.sendVendor(opcode, payload) ?: bleKeyTransport?.sendVendor(opcode, payload)
+                usbKeyTransport?.sendVendor(opcode, payload)
+                    ?: bleKeyTransport?.sendVendor(opcode, payload)
+                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
             }
         }
     }
