@@ -234,6 +234,72 @@ def sanitize_log(name: str, byte_count: int = 0) -> str:
     return "[hil] %s" % name
 
 
+def list_serial_holder(port: str = DEFAULT_UART) -> str:
+    """Lista o holder de uma porta serial (somente leitura; nunca mata).
+
+    Windows: `mode <port> /status` + PnP (`Get-CimInstance Win32_SerialPort`)
+    + `handle.exe -a <port>` se presente (Sysinternals, so lista). POSIX:
+    `lsof`/`fuser` se presentes. NUNCA abre a porta, NUNCA toca DTR/RTS,
+    NUNCA mata processo: retorna texto p/ hint manual. Vazio se nada util.
+    """
+    import shutil as _sh
+    import subprocess as _sp
+    bits: list = []
+    try:
+        if os.name == "nt":
+            try:
+                out = _sp.run(["mode", str(port), "/status"], capture_output=True,
+                              text=True, timeout=5)
+                txt = ((out.stdout or "") + (out.stderr or "")).strip()
+                if txt:
+                    bits.append(txt[:1500])
+            except Exception as e:
+                bits.append("mode indisponivel: %s" % e)
+            try:
+                ps = _sp.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "Get-CimInstance Win32_SerialPort | "
+                     "Select-Object DeviceID,Name,Description | Out-String"],
+                    capture_output=True, text=True, timeout=8)
+                txt = (ps.stdout or "").strip()
+                lines = [l.strip() for l in txt.splitlines()
+                         if str(port).upper() in l.upper()]
+                if lines:
+                    bits.append("PnP: " + " / ".join(lines)[:1000])
+            except Exception:
+                pass
+            h = (_sh.which("handle.exe") or _sh.which("handle64.exe")
+                 or _sh.which("handle"))
+            if h:
+                try:
+                    out = _sp.run([h, "-a", str(port), "-nobanner"],
+                                  capture_output=True, text=True, timeout=8)
+                    txt = (out.stdout or "").strip()
+                    if txt:
+                        bits.append(txt[:2000])
+                except Exception as e:
+                    bits.append("handle indisponivel: %s" % e)
+            else:
+                bits.append("(handle.exe ausente: Process Explorer > "
+                            "Find Handle > %s manual; nunca matar alheio)"
+                            % port)
+        else:
+            for tool, args in (("lsof", ["lsof", str(port)]),
+                               ("fuser", ["fuser", "-v", str(port)])):
+                if _sh.which(tool):
+                    try:
+                        out = _sp.run(args, capture_output=True, text=True,
+                                      timeout=5)
+                        txt = ((out.stdout or "") + (out.stderr or "")).strip()
+                        if txt:
+                            bits.append("%s: %s" % (tool, txt[:1500]))
+                    except Exception as e:
+                        bits.append("%s indisponivel: %s" % (tool, e))
+    except Exception as e:
+        return "listagem serial indisponivel: %s" % e
+    return "\n".join(bits).strip()
+
+
 class SerialLink:
     """UART 115200 8N1 sem DTR/RTS.
 
@@ -259,7 +325,17 @@ class SerialLink:
             else:
                 self._open_posix()
         except OSError as e:
-            raise HwMissingError("uart %s inacessivel: %s (holder? fechar monitor/Renode; re-plugar cabo dados; retry 1x)" % (self.port, e)) from e
+            try:
+                holder = list_serial_holder(self.port)
+            except Exception:
+                holder = ""
+            hint = (" holder [%s]" % holder.replace("\n", " | ")[:800]) if holder else ""
+            raise HwMissingError("uart %s inacessivel: %s%s (listar holder? fechar monitor/Renode; re-plugar cabo dados; retry 1x; nunca DTR/RTS)" % (self.port, e, hint)) from e
+        # Purge-RX no open: descarta ticks/logs residuais do boot ou de
+        # sessão anterior. Abrir nunca reseta o device (sem DTR/RTS); só
+        # limpa o fio local para o resync (`_read_framed_packet` + INIT
+        # broadcast que limpa assembly órfã no firmware) partir de zero.
+        self.flush_input()
 
     def _open_win(self) -> None:  # sem DTR/RTS por construcao
         import ctypes
@@ -534,6 +610,9 @@ class SerialLink:
         """
         if self.handle is None and self.fd is None:
             raise HwMissingError("uart %s nao aberto" % self.port)
+        # Purge pré-troca: remove ticks `[FREERTOS]`/logs entre sessões para
+        # o INIT começar alinhado (espelho do purge-RX no open; sem reset).
+        self.flush_input()
         packets = frame_message(cid, cmd, payload)
         print(sanitize_log("CTAP_SENT cmd=%02x pkts=%d" % (cmd, len(packets)),
                            len(payload)), flush=True)
@@ -571,6 +650,46 @@ class SerialLink:
                     print(sanitize_log("TEXT_DRAINED_LINES", drained), flush=True)
                 return rcid, rcmd, bytes(body)
         raise TimeoutError("no CTAP response op=%s" % op)
+
+    def reconnect(self) -> None:
+        """Reabre a UART (1x; sem DTR/RTS, sem reset no device).
+
+        Cobre o wedge L2 (INIT UART -> ERROR 0x0B persistente após linha
+        curta TEST_*): purge + reopen + novo INIT recupera quando o wedge
+        é só RX local; wedge no firmware exige power-cycle/reflash
+        (hint no erro final; nunca alterna DTR/RTS por software).
+        """
+        try:
+            self.close()
+        finally:
+            pass
+        _time.sleep(0.5)
+        self.open()
+
+    def exchange_read_retry(self, cid: int, cmd: int, payload: bytes,
+                            timeout_s: float = 10.0, op: str = "op") -> tuple:
+        """Troca read-only com 1 retry (reopen + INIT novo + timeout maior).
+
+        Só para leituras idempotentes (GetInfo): o ponto do wedge L2 é o
+        INIT desalinhado pós-texto curto. MC/GA e escritas NUNCA usam este
+        retry (não-idempotentes).
+        """
+        try:
+            return self.exchange(cid, cmd, payload, timeout_s=timeout_s, op=op)
+        except (TimeoutError, ValueError) as first:
+            print("[hil] RETRY_REOPEN op=%s (%s)" % (op, first), flush=True)
+            self.reconnect()
+            new_cid, _ = self.cmd_init()
+            try:
+                return self.exchange(new_cid, cmd, payload,
+                                     timeout_s=max(timeout_s, 20.0),
+                                     op="%s-retry" % op)
+            except (TimeoutError, ValueError) as second:
+                raise TimeoutError(
+                    "uart %s op=%s sem resposta apos retry "
+                    "(purge+reopen+INIT novo); se persistir, power-cycle / "
+                    "re-plugar o AEGIS-S3-0002 e repetir isolado: %s"
+                    % (self.port, op, second)) from second
 
     def cmd_init(self, cid: int = BROADCAST_CID,
                  nonce: bytes | None = None) -> tuple:
@@ -612,7 +731,13 @@ class SerialLink:
 
     def get_info(self, cid: int, timeout_s: float = 10.0) -> tuple:
         """GetInfo (0x04): corpo CBOR retornado opaco (contagem em log)."""
-        return self.ctap(cid, CTAP_GET_INFO, b"", timeout_s=timeout_s, op="get_info")
+        rcid, rcmd, raw = self.exchange_read_retry(
+            cid, CMD_CBOR, bytes((CTAP_GET_INFO,)),
+            timeout_s=timeout_s, op="get_info")
+        _ = rcid
+        if rcmd != CMD_CBOR:
+            raise ValueError("bad get_info response (cmd=%02x)" % rcmd)
+        return parse_ctap_response(raw)
 
     def make_credential(self, cid: int, cbor: bytes, timeout_s: float = 30.0) -> tuple:
         return self.ctap(cid, CTAP_MAKE_CREDENTIAL, cbor,

@@ -20,6 +20,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import struct as _struct
 import sys
@@ -36,12 +37,92 @@ from python_hil.link_serial import (
     Reassembler,
     frame_message,
     is_text_chunk,
+    list_serial_holder,
 )
 
 BROADCAST_CID = 0xFFFFFFFF
 INIT_NONCE_LEN = 8
 READ_TIMEOUT_S = 8.0
 BOOT_MARKERS = (b"ONLINE", b"ACTIVE")
+
+# PIDs de filhos criados por este piloto (únicos que podemos encerrar).
+# QEMU/Renode externos nunca entram aqui: sem listar, nunca matar alheio.
+_OWN_PIDS: set = set()
+
+
+def list_port_holder(port: int) -> str:
+    """Lista o holder de uma porta TCP (somente leitura; nunca mata).
+
+    Windows: `netstat -ano | findstr :<port>`; POSIX: `ss -ltnp`.
+    Retorna o texto cru para o hint (sem segredo); vazio se nada escuta.
+    """
+    import subprocess
+    import shutil
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=5)
+            lines = [l for l in (out.stdout or "").splitlines()
+                     if (":%d" % port) in l]
+            return "\n".join(lines).strip()
+        ss = shutil.which("ss")
+        if ss:
+            out = subprocess.run(
+                [ss, "-ltnp"], capture_output=True, text=True, timeout=5)
+            lines = [l for l in (out.stdout or "").splitlines()
+                     if (":%d" % port) in l]
+            return "\n".join(lines).strip()
+    except Exception as e:
+        return "listagem indisponivel: %s" % e
+    return ""
+
+
+def free_own_holder(port: int) -> bool:
+    """Libera a porta SOMENTE se o holder for processo próprio rastreado.
+
+    Nunca mata processo alheio: só PIDs em `_OWN_PIDS` (filhos deste
+    piloto) são sinalizados; qualquer outro holder vira hint de listagem
+    (`list_port_holder`) para encerramento manual. Retorna True se liberou.
+    """
+    import subprocess
+    if not _OWN_PIDS:
+        return False
+    holder = list_port_holder(port)
+    for pid in list(_OWN_PIDS):
+        if str(pid) in holder:
+            try:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                                   capture_output=True, timeout=5)
+                else:
+                    os.kill(int(pid), 15)
+                _OWN_PIDS.discard(pid)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def list_all_holders(uart: str = "COM7",
+                     tcp_ports: tuple = (5678, 1234)) -> str:
+    """Lista holders COM7 + TCP (somente leitura; nunca mata).
+
+    Agrega `list_serial_holder` (UART) + `list_port_holder` (:5678/:1234)
+    num relatorio unico p/ o operador decidir manualmente.
+    """
+    parts: list = []
+    try:
+        sh = list_serial_holder(uart)
+    except Exception as e:
+        sh = "listagem serial indisponivel: %s" % e
+    parts.append("COM %s: %s" % (uart, sh.replace("\n", " | ")[:1200] if sh else "(sem info)"))
+    for p in tcp_ports:
+        try:
+            h = list_port_holder(int(p))
+        except Exception as e:
+            h = "listagem indisponivel: %s" % e
+        parts.append(":%d: %s" % (p, h.replace("\n", " | ")[:1200] if h else "(livre/nada escuta)"))
+    return "\n".join(parts)
 
 
 class PilotFail(OSError):
@@ -111,9 +192,21 @@ def tcp_pilot(host: str = "127.0.0.1", port: int = 5678) -> dict:
     try:
         sock = socket.create_connection((host, port), timeout=5)
     except OSError as e:
+        holder = list_port_holder(port)
+        hint = ("holder :%d [%s]" % (port, holder)) if holder else ("porta :%d livre" % port)
+        # Renode também prende o monitor :1234 (AddressAlreadyInUse externo);
+        # lista junto para o operador decidir (nunca kill alheio aqui).
+        mon = list_port_holder(1234)
+        if mon:
+            hint += " | monitor :1234 [%s]" % mon
+        # Só libera holder próprio rastreado; alheio vira hint (nunca kill).
+        if holder and free_own_holder(port):
+            raise PilotFail(
+                "TCP %s:%d recusado; holder proprio liberado, repetir: %s"
+                % (host, port, e)) from e
         raise PilotFail(
-            "TCP %s:%d recusado (Renode/QEMU ligado? porta certa?) : %s"
-            % (host, port, e)) from e
+            "TCP %s:%d recusado (Renode/QEMU ligado? porta certa? %s) : %s"
+            % (host, port, hint, e)) from e
     sock.settimeout(1.0)
     try:
         ev.update(boot_check(sock, time.monotonic() + READ_TIMEOUT_S))
@@ -152,7 +245,15 @@ def uart_pilot(port: str = "COM7", baud: int = 115200) -> dict:
     """Mesmo roteiro via UART fisica (COM7, sem DTR/RTS)."""
     from python_hil.link_serial import SerialLink
     link = SerialLink(port, baud)
-    link.open()
+    try:
+        link.open()
+    except OSError as e:
+        try:
+            sh = list_serial_holder(port)
+        except Exception:
+            sh = ""
+        hint = (" holder [%s]" % sh.replace("\n", " | ")[:800]) if sh else ""
+        raise PilotFail("UART %s inacessivel%s (COM presa? fechar monitor/Renode; re-plugar cabo dados): %s" % (port, hint, e)) from e
     ev: dict = {"transport": "uart", "port": port}
     try:
         blob = b""
@@ -165,7 +266,7 @@ def uart_pilot(port: str = "COM7", baud: int = 115200) -> dict:
             if len(blob) > 65536:
                 break
         if b"ONLINE" not in blob or b"ACTIVE" not in blob:
-            raise PilotFail("boot-check UART falhou (COM7 com HW? cabo dados?)")
+            raise PilotFail("boot-check UART falhou (COM7 com HW? cabo dados?) bytes=%d" % len(blob))
         ev["boot_bytes"] = len(blob)
         cid, _ = link.cmd_init()
         ev["cid"] = "0x%08X" % cid
@@ -262,8 +363,13 @@ def main(argv=None) -> int:
     ap.add_argument("--tcp", default=None, help="host:port, ex. 127.0.0.1:5678")
     ap.add_argument("--uart", default=None, help="porta serial, ex. COM7")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--list-holders", action="store_true",
+                    help="lista holders COM7/:5678/:1234 (somente leitura; nunca mata)")
     args = ap.parse_args(argv)
     try:
+        if args.list_holders:
+            print(list_all_holders("COM7", (5678, 1234)), flush=True)
+            return 0
         if args.self_test:
             self_test()
         elif args.tcp:
