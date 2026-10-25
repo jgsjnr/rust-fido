@@ -155,6 +155,51 @@ fun KeyVaultHubScreen(
                 )
             }
 
+            // Resumo de Proximidade RSSI & Dynamic Lock (Celular ↔ PC)
+            item {
+                val hostBridgeClient = remember { dev.aegiskey.app.data.transport.HostUsbUartBridgeClient() }
+                var proximityStatus by remember { mutableStateOf(dev.aegiskey.app.data.transport.HostUsbUartBridgeClient.ProximityLockStatus()) }
+                LaunchedEffect(Unit) {
+                    proximityStatus = hostBridgeClient.fetchProximityStatus()
+                }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (proximityStatus.locked) {
+                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.LockPerson,
+                                contentDescription = null,
+                                tint = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Dynamic Lock PC",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Text(
+                            text = if (proximityStatus.locked) "LOCKED (PC Travado)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
             // Painel Resumo do Gestor de Hardware
             item {
                 HardwareManagerSummaryPanel(

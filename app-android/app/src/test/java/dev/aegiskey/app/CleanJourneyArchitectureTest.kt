@@ -8,21 +8,34 @@ import dev.aegiskey.app.data.repository.PairingWizardRepositoryImpl
 import dev.aegiskey.app.data.repository.ThemeRepositoryImpl
 import dev.aegiskey.app.data.repository.TotpRepositoryImpl
 import dev.aegiskey.app.data.system.SystemSecurityService
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
+import dev.aegiskey.app.domain.model.OnboardingStep
 import dev.aegiskey.app.domain.model.SecurityToggles
+import dev.aegiskey.app.domain.usecase.ConnectCandidateUseCase
 import dev.aegiskey.app.domain.usecase.GetAppStartDestinationUseCase
+import dev.aegiskey.app.domain.usecase.PerformBiometricBindingUseCase
+import dev.aegiskey.app.domain.usecase.SimulateButtonHoldUseCase
+import dev.aegiskey.app.domain.usecase.SimulateButtonSingleTouchUseCase
+import dev.aegiskey.app.domain.usecase.StartDiscoveryUseCase
+import dev.aegiskey.app.domain.usecase.StopDiscoveryUseCase
+import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -45,6 +58,8 @@ class CleanJourneyArchitectureTest {
 
     @Before
     fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+
         // Inicializa com null context para ativar armazenamento determinístico em memória
         keysStore = EncryptedKeysStore(context = null)
         keysStore.clearAll()
@@ -60,6 +75,11 @@ class CleanJourneyArchitectureTest {
         )
         themeRepo = ThemeRepositoryImpl(themeStore)
         getStartDestinationUseCase = GetAppStartDestinationUseCase(connectedKeysRepo)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     @Test
@@ -569,5 +589,147 @@ class CleanJourneyArchitectureTest {
         val entry = walletResult.getOrThrow()
         assertEquals(AccessKeyType.CRYPTO_WALLET_ETH, entry.type)
         assertEquals("Carteira Ethereum", entry.label)
+    }
+
+    @Test
+    fun testOnboardingWizard_persistsSteps1To4_andOnlyMutatesConnectedKeysAtStep5() = runTest {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = true
+        val wizardRepo = PairingWizardRepositoryImpl(
+            bleClient = null,
+            usbCtaphid = null,
+            simulatedRenodeTransport = simulatedTransport,
+            securityService = securityService,
+            connectedKeysRepository = connectedKeysRepo,
+            keysStore = keysStore,
+            scope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        val wizardVm = OnboardingWizardViewModel(
+            pairingWizardRepository = wizardRepo,
+            startDiscoveryUseCase = StartDiscoveryUseCase(wizardRepo),
+            stopDiscoveryUseCase = StopDiscoveryUseCase(wizardRepo),
+            connectCandidateUseCase = ConnectCandidateUseCase(wizardRepo),
+            simulateButtonHoldUseCase = SimulateButtonHoldUseCase(wizardRepo),
+            simulateButtonSingleTouchUseCase = SimulateButtonSingleTouchUseCase(wizardRepo),
+            performBiometricBindingUseCase = PerformBiometricBindingUseCase(wizardRepo),
+        )
+
+        // Inicial: Passo 1, nenhuma chave cadastrada
+        assertEquals(OnboardingStep.WELCOME_TRANSPORT, wizardVm.uiState.value.currentStep)
+        assertFalse("Nenhuma chave deve estar conectada inicialmente", connectedKeysRepo.hasAnyConnectedKey.value)
+
+        // Passo 1 -> Passo 2: Seleciona USB e avança
+        wizardVm.selectTransport(ConnectionTransportType.USB)
+        wizardVm.nextStep()
+        testScheduler.advanceUntilIdle()
+        assertEquals(OnboardingStep.HOLD_PHYSICAL_BUTTON, wizardVm.uiState.value.currentStep)
+        assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 2", connectedKeysRepo.hasAnyConnectedKey.value)
+
+        // Passo 2 -> Passo 3: Avança para descoberta
+        wizardVm.nextStep()
+        testScheduler.advanceUntilIdle()
+        assertEquals(OnboardingStep.DISCOVER_AND_CONNECT, wizardVm.uiState.value.currentStep)
+        assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 3", connectedKeysRepo.hasAnyConnectedKey.value)
+
+        // Passo 3 -> Passo 4: Conecta ao candidato USB
+        val mockUsb = dev.aegiskey.app.data.debug.DebugHardwareChipMock.MOCK_USB_CANDIDATE
+        assertNotNull(mockUsb)
+        wizardVm.selectCandidateAndConnect(mockUsb)
+        testScheduler.advanceUntilIdle()
+        wizardVm.nextStep()
+        testScheduler.advanceUntilIdle()
+        var attempts = 0
+        while (wizardVm.uiState.value.currentStep != OnboardingStep.TOUCH_AND_BIOMETRIC_BIND && attempts < 20) {
+            Thread.sleep(50)
+            testScheduler.advanceUntilIdle()
+            attempts++
+        }
+        assertEquals(OnboardingStep.TOUCH_AND_BIOMETRIC_BIND, wizardVm.uiState.value.currentStep)
+        assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 4", connectedKeysRepo.hasAnyConnectedKey.value)
+
+        // Passo 4 -> Passo 5: Confirma toque físico
+        wizardVm.nextStep()
+        testScheduler.advanceUntilIdle()
+        attempts = 0
+        while (wizardVm.uiState.value.currentStep != OnboardingStep.NAME_AND_FINISH && attempts < 20) {
+            Thread.sleep(50)
+            testScheduler.advanceUntilIdle()
+            attempts++
+        }
+        assertEquals(OnboardingStep.NAME_AND_FINISH, wizardVm.uiState.value.currentStep)
+        assertFalse("Chave ainda NÃO pode ser cadastrada antes de concluir o Passo 5", connectedKeysRepo.hasAnyConnectedKey.value)
+
+        // Passo 5: Conclui com nome personalizado e abre cofre
+        var onCompletedCalled = false
+        wizardVm.completeWizardWithCustomName("Minha Chave USB Corporativa") {
+            onCompletedCalled = true
+        }
+        testScheduler.advanceUntilIdle()
+        attempts = 0
+        while (!connectedKeysRepo.hasAnyConnectedKey.value && attempts < 20) {
+            Thread.sleep(50)
+            testScheduler.advanceUntilIdle()
+            attempts++
+        }
+
+        assertTrue("Callback de conclusão deve ser chamado", onCompletedCalled)
+        assertTrue("hasAnyConnectedKey DEVE mudar para true apenas no Passo 5", connectedKeysRepo.hasAnyConnectedKey.value)
+        assertEquals("Minha Chave USB Corporativa", connectedKeysRepo.activeKey.value?.displayName)
+        assertTrue(wizardVm.uiState.value.isCompleted)
+    }
+
+    @Test
+    fun testProximityAndDynamicLock_nearAwayLockedTransitionAndUnlock() = runTest {
+        val bridgeClient = HostUsbUartBridgeClient()
+
+        // 1. Configura a política de Dynamic Lock (limiar -75 dBm, 6 segundos, histerese 5 dB)
+        val configOk = bridgeClient.configureProximityLock(
+            enabled = true,
+            thresholdDbm = -75,
+            lockSeconds = 6,
+            enforceWindowsLock = false
+        )
+        assertTrue(configOk)
+
+        // 2. Consulta estado inicial
+        val initialStatus = bridgeClient.fetchProximityStatus()
+        assertTrue(initialStatus.enabled)
+        assertEquals(-75, initialStatus.thresholdDbm)
+        assertEquals(6.0, initialStatus.lockSeconds, 0.01)
+
+        // 3. Celular próximo (-32 dBm) -> Estado NEAR, locked=false
+        val nearStatus = bridgeClient.sendPhoneRssiAndEvaluate(rssiDbm = -32, elapsedSeconds = 2.0)
+        assertEquals("NEAR", nearStatus.state)
+        assertFalse(nearStatus.locked)
+        assertEquals(0.0, nearStatus.awaySeconds, 0.01)
+
+        // 4. Sinal na banda de histerese (-72 dBm entre -75 e -70 dBm) -> Mantém NEAR sem travar
+        val hystStatus = bridgeClient.sendPhoneRssiAndEvaluate(rssiDbm = -72, elapsedSeconds = 1.0)
+        assertFalse(hystStatus.locked)
+
+        // 5. Usuário se afasta com o celular (-84 dBm) por 2 segundos -> Estado AWAY (não travado ainda)
+        val awayStep1 = bridgeClient.sendPhoneRssiAndEvaluate(rssiDbm = -84, elapsedSeconds = 2.0)
+        assertEquals("AWAY", awayStep1.state)
+        assertFalse(awayStep1.locked)
+        assertEquals(2.0, awayStep1.awaySeconds, 0.01)
+
+        // 6. Usuário continua afastado (-90 dBm) por mais 5 segundos (total 7s > 6s) -> Transição para LOCKED!
+        val lockedStatus = bridgeClient.sendPhoneRssiAndEvaluate(rssiDbm = -90, elapsedSeconds = 5.0)
+        assertEquals("LOCKED", lockedStatus.state)
+        assertTrue("Dynamic Lock deve estar ATIVO (locked=true)", lockedStatus.locked)
+
+        // 7. Mesmo com novas amostras fracas, trava é mantida (latch)
+        val latchStatus = bridgeClient.sendPhoneRssiAndEvaluate(rssiDbm = -95, elapsedSeconds = 2.0)
+        assertTrue(latchStatus.locked)
+        assertEquals("LOCKED", latchStatus.state)
+
+        // 8. Retorno e destravamento com Toque UP + PIN
+        val unlockOk = bridgeClient.unlockProximitySession("12345678")
+        assertTrue("Destravamento de proximidade deve ter sucesso", unlockOk)
+
+        val restoredStatus = bridgeClient.fetchProximityStatus()
+        assertFalse("locked deve voltar a false", restoredStatus.locked)
+        assertEquals("NEAR", restoredStatus.state)
+        assertEquals(0.0, restoredStatus.awaySeconds, 0.01)
     }
 }

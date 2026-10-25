@@ -80,6 +80,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onDestroy() {
         ble.release()
         super.onDestroy()
@@ -102,11 +107,11 @@ private inline fun <reified VM : ViewModel> aegisViewModel(factory: ViewModelPro
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AegisApp(container: AppContainer, client: AegisBleClient) {
-    val themeViewModel = aegisViewModel<AppThemeViewModel>(AppThemeViewModel.provideFactory(container))
-    val onboardingViewModel = aegisViewModel<OnboardingWizardViewModel>(OnboardingWizardViewModel.provideFactory(container))
-    val keysViewModel = aegisViewModel<ConnectedKeysViewModel>(ConnectedKeysViewModel.provideFactory(container))
-    val vaultViewModel = aegisViewModel<KeyVaultViewModel>(KeyVaultViewModel.provideFactory(container))
-    val totpViewModel = aegisViewModel<TotpAuthenticatorViewModel>(TotpAuthenticatorViewModel.provideFactory(container))
+    val themeViewModel = container.appThemeViewModel
+    val onboardingViewModel = container.onboardingWizardViewModel
+    val keysViewModel = container.connectedKeysViewModel
+    val vaultViewModel = container.keyVaultViewModel
+    val totpViewModel = container.totpAuthenticatorViewModel
 
     val themePref by themeViewModel.themePreference.collectAsState()
     val isSystemDark = isSystemInDarkTheme()

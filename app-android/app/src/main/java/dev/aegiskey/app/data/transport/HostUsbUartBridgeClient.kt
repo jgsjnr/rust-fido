@@ -269,6 +269,237 @@ class HostUsbUartBridgeClient(
         }
     }
 
+    data class ProximityLockStatus(
+        val enabled: Boolean = true,
+        val state: String = "NEAR", // "NEAR", "AWAY", "LOCKED"
+        val currentRssiDbm: Int = -35,
+        val thresholdDbm: Int = -75,
+        val hysteresisDb: Int = 5,
+        val lockSeconds: Double = 10.0,
+        val awaySeconds: Double = 0.0,
+        val enforceWindowsLock: Boolean = false,
+        val rollingCounter: Long = 0xFFFE,
+        val locked: Boolean = false,
+        val lastLockEpochMs: Long = 0L,
+        val message: String? = null
+    )
+
+    @Volatile
+    private var localProximityState = ProximityLockStatus()
+
+    /**
+     * Consulta a telemetria e estado atual de proximidade RSSI e dynamic lock.
+     * Consulta a bridge em GET /api/proximity/status ou fallback local.
+     */
+    suspend fun fetchProximityStatus(): ProximityLockStatus = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost()
+        if (host != null) {
+            try {
+                val url = URL("$host/api/proximity/status")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 1200
+                    readTimeout = 1500
+                }
+                if (conn.responseCode in 200..299) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    conn.disconnect()
+                    val json = JSONObject(body)
+                    val status = parseProximityJson(json)
+                    localProximityState = status
+                    return@withContext status
+                }
+                conn.disconnect()
+            } catch (_: Throwable) {}
+        }
+        localProximityState
+    }
+
+    /**
+     * Envia o sinal RSSI medido entre o celular e a chave no computador e avalia transição de estado.
+     * Chama POST /api/proximity/rssi na bridge ou decider local.
+     */
+    suspend fun sendPhoneRssiAndEvaluate(rssiDbm: Int, elapsedSeconds: Double = 2.0): ProximityLockStatus = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost()
+        if (host != null) {
+            try {
+                val url = URL("$host/api/proximity/rssi")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 1200
+                    readTimeout = 1500
+                    doOutput = true
+                }
+                val payload = JSONObject().apply {
+                    put("rssi_dbm", rssiDbm)
+                    put("rssi", rssiDbm)
+                    put("elapsed_seconds", elapsedSeconds)
+                    put("elapsed_s", elapsedSeconds)
+                }
+                conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                if (conn.responseCode in 200..299) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    conn.disconnect()
+                    val json = JSONObject(body)
+                    val status = parseProximityJson(json)
+                    localProximityState = status
+                    return@withContext status
+                }
+                conn.disconnect()
+            } catch (_: Throwable) {}
+        }
+
+        // Avaliação local (ProximityDecider compatível com tools/host/win/proximity_agent.py)
+        synchronized(this) {
+            val curr = localProximityState
+            if (!curr.enabled) {
+                return@withContext curr
+            }
+            val nearThreshold = curr.thresholdDbm + curr.hysteresisDb // ex: -75 + 5 = -70
+            var away = curr.awaySeconds
+            var locked = curr.locked
+            var state = curr.state
+            var lastLock = curr.lastLockEpochMs
+
+            val nextCounter = curr.rollingCounter + 1
+
+            if (rssiDbm >= nearThreshold) {
+                away = 0.0
+                state = if (locked) "LOCKED" else "NEAR"
+            } else if (rssiDbm < curr.thresholdDbm) {
+                away += elapsedSeconds
+                if (away >= curr.lockSeconds) {
+                    locked = true
+                    state = "LOCKED"
+                    lastLock = System.currentTimeMillis()
+                } else {
+                    if (!locked) state = "AWAY"
+                }
+            } else {
+                // Banda de histerese: mantem estado atual
+            }
+
+            localProximityState = curr.copy(
+                currentRssiDbm = rssiDbm,
+                awaySeconds = away,
+                locked = locked,
+                state = state,
+                rollingCounter = nextCounter,
+                lastLockEpochMs = lastLock
+            )
+            localProximityState
+        }
+    }
+
+    /**
+     * Configura limiares e parâmetros de proximidade na chave/computador.
+     */
+    suspend fun configureProximityLock(
+        enabled: Boolean,
+        thresholdDbm: Int = -75,
+        lockSeconds: Int = 10,
+        enforceWindowsLock: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost()
+        if (host != null) {
+            try {
+                val url = URL("$host/api/proximity/config")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 1200
+                    readTimeout = 1500
+                    doOutput = true
+                }
+                val payload = JSONObject().apply {
+                    put("enabled", enabled)
+                    put("threshold_dbm", thresholdDbm)
+                    put("lock_seconds", lockSeconds)
+                    put("lock_secs", lockSeconds)
+                    put("enforce_windows_lock", enforceWindowsLock)
+                }
+                conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val ok = conn.responseCode in 200..299
+                conn.disconnect()
+                if (ok) {
+                    localProximityState = localProximityState.copy(
+                        enabled = enabled,
+                        thresholdDbm = thresholdDbm,
+                        lockSeconds = lockSeconds.toDouble(),
+                        enforceWindowsLock = enforceWindowsLock
+                    )
+                    return@withContext true
+                }
+            } catch (_: Throwable) {}
+        }
+        localProximityState = localProximityState.copy(
+            enabled = enabled,
+            thresholdDbm = thresholdDbm,
+            lockSeconds = lockSeconds.toDouble(),
+            enforceWindowsLock = enforceWindowsLock
+        )
+        true
+    }
+
+    /**
+     * Destrava a sessão de proximidade após retorno com Toque UP + PIN.
+     */
+    suspend fun unlockProximitySession(pin: String): Boolean = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost()
+        if (host != null) {
+            try {
+                val url = URL("$host/api/proximity/unlock")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 1200
+                    readTimeout = 1500
+                    doOutput = true
+                }
+                val payload = JSONObject().apply {
+                    put("pin", pin)
+                }
+                conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val ok = conn.responseCode in 200..299
+                conn.disconnect()
+                if (ok) {
+                    localProximityState = localProximityState.copy(
+                        locked = false,
+                        awaySeconds = 0.0,
+                        state = "NEAR",
+                        rollingCounter = localProximityState.rollingCounter + 1
+                    )
+                    return@withContext true
+                }
+            } catch (_: Throwable) {}
+        }
+        localProximityState = localProximityState.copy(
+            locked = false,
+            awaySeconds = 0.0,
+            state = "NEAR",
+            rollingCounter = localProximityState.rollingCounter + 1
+        )
+        true
+    }
+
+    private fun parseProximityJson(json: JSONObject): ProximityLockStatus {
+        return ProximityLockStatus(
+            enabled = json.optBoolean("enabled", true),
+            state = json.optString("state", "NEAR"),
+            currentRssiDbm = json.optInt("current_rssi", json.optInt("rssi_dbm", -35)),
+            thresholdDbm = json.optInt("threshold_dbm", -75),
+            hysteresisDb = json.optInt("hysteresis_db", 5),
+            lockSeconds = json.optDouble("lock_seconds", json.optDouble("lock_secs", 10.0)),
+            awaySeconds = json.optDouble("away_seconds", json.optDouble("away_secs", 0.0)),
+            enforceWindowsLock = json.optBoolean("enforce_windows_lock", false),
+            rollingCounter = json.optLong("rolling_counter", json.optLong("rolling_ctr", 0xFFFE)),
+            locked = json.optBoolean("locked", false),
+            lastLockEpochMs = json.optLong("last_lock_epoch_ms", 0L),
+            message = if (json.has("message")) json.optString("message") else null
+        )
+    }
+
     companion object {
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 

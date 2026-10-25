@@ -141,4 +141,22 @@ class BleKeyTransport(
     override suspend fun cancel(): Boolean {
         return client.cancel()
     }
+
+    val bridgeClient: HostUsbUartBridgeClient get() = hostBridgeClient
+
+    suspend fun fetchProximityStatus(): HostUsbUartBridgeClient.ProximityLockStatus =
+        hostBridgeClient.fetchProximityStatus()
+
+    suspend fun sendPhoneRssiAndEvaluate(rssiDbm: Int, elapsedSeconds: Double = 2.0): HostUsbUartBridgeClient.ProximityLockStatus =
+        hostBridgeClient.sendPhoneRssiAndEvaluate(rssiDbm, elapsedSeconds)
+
+    suspend fun configureProximityLock(
+        enabled: Boolean,
+        thresholdDbm: Int = -75,
+        lockSeconds: Int = 10,
+        enforceWindowsLock: Boolean = false
+    ): Boolean = hostBridgeClient.configureProximityLock(enabled, thresholdDbm, lockSeconds, enforceWindowsLock)
+
+    suspend fun unlockProximitySession(pin: String): Boolean =
+        hostBridgeClient.unlockProximitySession(pin)
 }
