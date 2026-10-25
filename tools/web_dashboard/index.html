@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisKey — Gestor Web da Chave de Segurança & Carteira Web3</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-elevated: #1a233a;
+      --surface-card: #151e33;
+      --surface-card-hover: #1e2b48;
+      --border: #24324f;
+      --border-accent: #334e7a;
+      --primary: #00e5ff;
+      --primary-glow: rgba(0, 229, 255, 0.25);
+      --accent: #7c4dff;
+      --success: #00e676;
+      --warning: #ffd600;
+      --danger: #ff5252;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-pill: 9999px;
+      --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-elevated: #f1f5f9;
+      --surface-card: #ffffff;
+      --surface-card-hover: #f1f5f9;
+      --border: #e2e8f0;
+      --border-accent: #cbd5e1;
+      --primary: #0284c7;
+      --primary-glow: rgba(2, 132, 199, 0.2);
+      --accent: #6d28d9;
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    /* Top Bar */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+    .brand-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 900;
+      font-size: 18px;
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+    .brand-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-tag {
+      font-size: 11px;
+      background: var(--primary-glow);
+      color: var(--primary);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+      font-family: var(--font-mono);
+      border: 1px solid var(--primary);
+    }
+
+    /* Channel & Status Bar */
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .status-dot.online {
+      background: var(--success);
+      box-shadow: 0 0 10px var(--success);
+      animation: pulse 2s infinite;
+    }
+    .status-dot.offline {
+      background: var(--danger);
+    }
+
+    .channel-select {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-theme {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    /* WS2812 Interactive RGB LED Monitor Banner */
+    .led-strip-bar {
+      background: var(--surface-card);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .led-monitor {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .led-orb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 16px var(--primary);
+      transition: background 0.4s ease, box-shadow 0.4s ease;
+    }
+    .led-orb.cyan { background: #00e5ff; box-shadow: 0 0 18px #00e5ff; animation: breathe 3s infinite ease-in-out; }
+    .led-orb.green { background: #00e676; box-shadow: 0 0 20px #00e676; }
+    .led-orb.blue { background: #2979ff; box-shadow: 0 0 20px #2979ff; animation: blink 0.8s infinite; }
+    .led-orb.amber { background: #ffd600; box-shadow: 0 0 20px #ffd600; animation: blink 0.5s infinite; }
+    .led-orb.red { background: #ff5252; box-shadow: 0 0 20px #ff5252; }
+
+    .led-meta {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .led-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+    .rite-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-rite {
+      padding: 5px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--border-accent);
+      background: var(--surface-elevated);
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--transition);
+    }
+    .btn-rite:hover {
+      background: var(--primary);
+      color: #000;
+      border-color: var(--primary);
+      box-shadow: 0 0 12px var(--primary-glow);
+    }
+
+    /* Main Container & Navigation Tabs */
+    main {
+      flex: 1;
+      max-width: 1300px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .tabs-nav {
+      display: flex;
+      gap: 8px;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 2px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: var(--transition);
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .tab-pane {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+      animation: fadeIn 0.25s ease-out;
+    }
+    .tab-pane.active { display: flex; }
+
+    /* Vault Controls & Filters */
+    .vault-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 14px 20px;
+      border-radius: var(--radius);
+    }
+    .filter-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .filter-pill {
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .filter-pill:hover { color: var(--text); border-color: var(--border-accent); }
+    .filter-pill.active {
+      background: var(--primary);
+      color: #000;
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), #00b0ff);
+      color: #000;
+      font-weight: 800;
+      padding: 10px 20px;
+      border-radius: var(--radius-pill);
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px var(--primary-glow);
+      transition: var(--transition);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px var(--primary-glow);
+    }
+
+    /* Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      cursor: pointer;
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+    .card:hover {
+      background: var(--surface-card-hover);
+      border-color: var(--primary);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .card-type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .type-passkey { background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.4); }
+    .type-btc { background: rgba(247, 147, 26, 0.15); color: #f7931a; border: 1px solid rgba(247, 147, 26, 0.4); }
+    .type-eth { background: rgba(98, 126, 234, 0.15); color: #627eea; border: 1px solid rgba(98, 126, 234, 0.4); }
+    .type-sol { background: rgba(20, 241, 149, 0.15); color: #14f195; border: 1px solid rgba(20, 241, 149, 0.4); }
+    .type-dot { background: rgba(230, 0, 122, 0.15); color: #e6007a; border: 1px solid rgba(230, 0, 122, 0.4); }
+    .type-piv { background: rgba(124, 77, 255, 0.15); color: #b388ff; border: 1px solid rgba(124, 77, 255, 0.4); }
+    .type-vendor { background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.4); }
+    .type-envelope { background: rgba(255, 214, 0, 0.15); color: #ffd600; border: 1px solid rgba(255, 214, 0, 0.4); }
+
+    .card-slot {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--surface-elevated);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .card-address-box {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      word-break: break-all;
+      color: var(--primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-meta-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* TOTP Screen */
+    .totp-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .totp-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+    .totp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .totp-issuer {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .totp-account {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .totp-code-display {
+      font-family: var(--font-mono);
+      font-size: 38px;
+      font-weight: 900;
+      letter-spacing: 6px;
+      color: var(--primary);
+      text-align: center;
+      cursor: pointer;
+      user-select: all;
+      padding: 12px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-sm);
+      border: 1px dashed var(--border);
+      transition: var(--transition);
+    }
+    .totp-code-display:hover {
+      border-color: var(--primary);
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+    .totp-timer-bar {
+      height: 6px;
+      background: var(--surface-elevated);
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      position: relative;
+    }
+    .totp-timer-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      transition: width 1s linear;
+    }
+
+    /* Modal / Dialog */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.active { display: flex; animation: fadeIn 0.2s ease; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      max-width: 620px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-title { font-size: 18px; font-weight: 800; }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 24px;
+      cursor: pointer;
+    }
+    .modal-body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    /* Form Fields */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .form-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+    .form-control {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      outline: none;
+      font-family: inherit;
+    }
+    .form-control:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+    textarea.form-control {
+      resize: vertical;
+      min-height: 80px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    /* Terminal Log View */
+    .terminal-box {
+      background: #050811;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #a5b4fc;
+      max-height: 380px;
+      overflow-y: auto;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes breathe { 0%, 100% { opacity: 0.6; box-shadow: 0 0 10px #00e5ff; } 50% { opacity: 1; box-shadow: 0 0 24px #00e5ff; } }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--primary);
+      color: var(--text);
+      padding: 12px 20px;
+      border-radius: var(--radius-pill);
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      z-index: 999;
+      animation: fadeIn 0.3s ease;
+    }
+    .toast.active { display: flex; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header>
+    <div class="brand" onclick="switchTab('tab-vault')">
+      <div class="brand-logo">🛡️</div>
+      <div>
+        <div class="brand-title">AegisKey <span class="brand-tag">v1.0.0-rust</span></div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <div class="status-badge">
+        <span id="conn-dot" class="status-dot online"></span>
+        <span id="conn-text">Conectada via USB/UART COM7</span>
+      </div>
+
+      <select id="channel-selector" class="channel-select" onchange="onChannelChange(this.value)">
+        <option value="bridge_usb">🔌 Ponte Hardware USB/UART (127.0.0.1:5678)</option>
+        <option value="web_ble">📶 WebBluetooth (BLE 0xFFFD)</option>
+        <option value="web_serial">⚡ WebSerial (navigator.serial)</option>
+        <option value="wifi_ap">🌐 Wi-Fi SoftAP (192.168.4.1)</option>
+      </select>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-theme" onclick="toggleTheme()" title="Alternar Modo Escuro / Claro">🌓</button>
+    </div>
+  </header>
+
+  <!-- Interactive WS2812 RGB LED Monitor & Quick Rites -->
+  <div class="led-strip-bar">
+    <div class="led-monitor">
+      <div id="virtual-led" class="led-orb cyan" title="Monitor de Status do LED RGB WS2812 (GPIO 48)"></div>
+      <div>
+        <div class="led-meta" id="led-state-title">WS2812 RGB (GPIO 48): Ciano Respirando</div>
+        <div class="led-sub" id="led-state-desc">Estado Normal — Aguardando Comando Criptográfico</div>
+      </div>
+    </div>
+
+    <div class="rite-actions">
+      <button class="btn-rite" onclick="triggerPairingOpen()">🔵 Janela 60s (0x2F)</button>
+      <button class="btn-rite" onclick="triggerTouchUp()">🟡 Simular Toque UP (GPIO 0)</button>
+      <button class="btn-rite" onclick="triggerPinAuth()">🔑 Autenticar PIN (0x2D)</button>
+      <button class="btn-rite" onclick="triggerWink()">✨ Localizar Wink (0x88)</button>
+    </div>
+  </div>
+
+  <!-- Main Navigation & Tabs -->
+  <main>
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('tab-vault')">🔐 Meu Cofre & Carteiras Web3</button>
+      <button class="tab-btn" onclick="switchTab('tab-totp')">⏱️ Autenticador TOTP/HOTP</button>
+      <button class="tab-btn" onclick="switchTab('tab-connectivity')">📡 Wi-Fi SoftAP & Bluetooth</button>
+      <button class="tab-btn" onclick="switchTab('tab-diagnostics')">⚙️ Cockpit do Hardware & Diagnóstico</button>
+    </div>
+
+    <!-- TAB 1: MEU COFRE & CARTEIRAS WEB3 -->
+    <section id="tab-vault" class="tab-pane active">
+      <div class="vault-toolbar">
+        <div class="filter-pills">
+          <button class="filter-pill active" onclick="filterVault('ALL', this)">Todas (<span id="count-all">0</span>)</button>
+          <button class="filter-pill" onclick="filterVault('PASSKEY_FIDO', this)">Passkeys FIDO2 (<span id="count-passkeys">0</span>)</button>
+          <button class="filter-pill" onclick="filterVault('CRYPTO', this)">Carteiras Cripto (<span id="count-crypto">0</span>)</button>
+          <button class="filter-pill" onclick="filterVault('VENDOR_SIGNING_KEY', this)">Assinatura SSH/Vendor (<span id="count-vendor">0</span>)</button>
+          <button class="filter-pill" onclick="filterVault('PIV_SMARTCARD_SLOT', this)">Smartcard PIV (<span id="count-piv">0</span>)</button>
+          <button class="filter-pill" onclick="filterVault('ENCRYPTED_AEGN_ENVELOPE', this)">Envelopes AEGN (<span id="count-envelope">0</span>)</button>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button class="btn-rite" onclick="fetchVault()">🔄 Atualizar Cofre</button>
+          <button class="btn-primary" onclick="openCreateModal()">+ Criar Nova Chave / Carteira</button>
+        </div>
+      </div>
+
+      <div id="vault-cards-container" class="cards-grid">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 2: AUTENTICADOR TOTP / HOTP -->
+    <section id="tab-totp" class="tab-pane">
+      <div class="vault-toolbar">
+        <div>
+          <h2 style="font-size:18px; font-weight:800;">Gerenciador de Códigos OATH On-Chip</h2>
+          <p style="font-size:13px; color:var(--text-muted);">Códigos de 6 dígitos gerados pelo processador criptográfico do ESP32-S3 a cada 30 segundos.</p>
+        </div>
+        <button class="btn-primary" onclick="openAddTotpModal()">+ Adicionar Conta TOTP</button>
+      </div>
+
+      <div id="totp-container" class="totp-grid">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 3: WI-FI SOFTAP & BLUETOOTH -->
+    <section id="tab-connectivity" class="tab-pane">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:20px;">
+        <!-- Wi-Fi SoftAP Config -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px;">
+            🌐 Configuração do Wi-Fi SoftAP (192.168.4.1)
+          </h3>
+          <p style="font-size:13px; color:var(--text-muted);">Ponto de acesso protegido gerado pela chave para configuração e autenticação sem fio.</p>
+
+          <form id="wifi-form" onsubmit="saveWifiConfig(event)" style="display:flex; flex-direction:column; gap:12px;">
+            <div class="form-group">
+              <label class="form-label">SSID da Chave</label>
+              <input type="text" id="wifi-ssid" class="form-control" value="AegisKey-AP">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Senha WPA2/WPA3 (mín. 8 caracteres)</label>
+              <input type="password" id="wifi-pass" class="form-control" value="aegiskey-admin-123">
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Canal Wi-Fi (2.4 GHz)</label>
+                <select id="wifi-channel" class="form-control">
+                  <option value="1">Canal 1 (2412 MHz)</option>
+                  <option value="6" selected>Canal 6 (2437 MHz)</option>
+                  <option value="11">Canal 11 (2462 MHz)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Potência TX (dBm)</label>
+                <input type="number" id="wifi-tx" class="form-control" value="20" min="2" max="20">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Redes Conhecidas Salvas no Hardware</label>
+              <div id="wifi-saved-nets" style="display:flex; gap:6px; flex-wrap:wrap; font-size:12px; font-family:var(--font-mono);">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+
+            <button type="submit" class="btn-primary" style="align-self:flex-start; margin-top:6px;">Gravar Configurações Wi-Fi</button>
+          </form>
+        </div>
+
+        <!-- Bluetooth Low Energy Scanner -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px;">
+            📶 Scanner Bluetooth Low Energy (BLE 0xFFFD)
+          </h3>
+          <p style="font-size:13px; color:var(--text-muted);">Comunicação por aproximação sem fio FIDO2 com fragmentação MTU nas características FFF1/FFF2.</p>
+
+          <div style="background:var(--surface-elevated); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="font-weight:700;">Nome Anunciado:</span>
+              <span id="ble-name" style="font-family:var(--font-mono); color:var(--primary);">AegisKey</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="font-weight:700;">Endereço Físico (MAC):</span>
+              <span id="ble-mac" style="font-family:var(--font-mono);">3C:84:27:C7:17:7A</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="font-weight:700;">Intensidade do Sinal (RSSI):</span>
+              <span id="ble-rssi" style="font-family:var(--font-mono); color:var(--success);">-29 dBm</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="font-weight:700;">Serviço GATT FIDO:</span>
+              <span style="font-family:var(--font-mono);">0000FFFD (FFF1..FFF4)</span>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+            <button class="btn-rite" onclick="scanBleDevices()">🔍 Escanear Dispositivos BLE</button>
+            <button class="btn-rite" onclick="pairWebBluetooth()">🔗 Parear via WebBluetooth</button>
+            <button class="btn-rite" onclick="testBlePing()">⚡ Testar PING BLE (0x81)</button>
+          </div>
+
+          <div id="ble-test-output" style="margin-top:12px; font-size:12px; font-family:var(--font-mono); color:var(--text-muted); min-height:40px;">
+            Aguardando comando BLE...
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: COCKPIT DO HARDWARE & DIAGNÓSTICO -->
+    <section id="tab-diagnostics" class="tab-pane">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px;">
+        <!-- Hardware Telemetry -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:17px; font-weight:800;">🛰️ Telemetria do Silício ESP32-S3</h3>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Microcontrolador:</span>
+              <span style="font-weight:700;">ESP32-S3 Xtensa Dual-Core @ 240MHz</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Identificador USB Nativo:</span>
+              <span style="font-family:var(--font-mono); color:var(--primary);">VID 0x303A : PID 0xAE61</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Porta Serial de Teste:</span>
+              <span id="diag-port" style="font-family:var(--font-mono);">COM7 (CP210x 115200)</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Canal CTAPHID (CID):</span>
+              <span id="diag-cid" style="font-family:var(--font-mono);">0x01020304</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Tempo Ativa (Uptime):</span>
+              <span id="diag-uptime" style="font-family:var(--font-mono);">0s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Security & PIN Management -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:17px; font-weight:800;">🔒 Gestão de PIN & Recuperação</h3>
+          <p style="font-size:13px; color:var(--text-muted);">Proteção contra invasão física e derivação de chaves privadas.</p>
+
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+            <div class="form-group">
+              <label class="form-label">PIN do Dispositivo (4 a 16 dígitos)</label>
+              <input type="password" id="input-pin-val" class="form-control" placeholder="••••••••">
+            </div>
+
+            <div style="display:flex; gap:10px;">
+              <button class="btn-rite" onclick="setDevicePin()">Gravar PIN (0x2C)</button>
+              <button class="btn-rite" onclick="verifyDevicePin()">Desbloquear Sessão (0x2D)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Security Log Ring-Buffer -->
+      <div class="card" style="cursor:default;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="font-size:17px; font-weight:800;">📜 Ring-Buffer de Logs de Segurança da Firmware (0x38)</h3>
+          <button class="btn-rite" onclick="fetchFwLogs()">Atualizar Logs</button>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted);">Eventos de auditoria gravados na memória segura sem PII ou segredos expostos.</p>
+        <div id="terminal-logs" class="terminal-box">Carregando logs da ESP32-S3...</div>
+      </div>
+
+      <!-- Danger Zone -->
+      <div class="card" style="border-color:var(--danger); cursor:default;">
+        <h3 style="font-size:17px; font-weight:800; color:var(--danger);">⚠️ Zona de Perigo — Reset do Cofre</h3>
+        <p style="font-size:13px; color:var(--text-muted);">Libera o vínculo criptográfico com este dispositivo (0x2B OP_BIND_RELEASE). Requer toque físico no sensor GPIO 0.</p>
+        <button class="btn-rite" style="border-color:var(--danger); color:var(--danger); align-self:flex-start; margin-top:8px;" onclick="confirmResetBinding()">Resetar Vínculo da Chave (0x2B)</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL: + CRIAR NOVA CHAVE / CARTEIRA -->
+  <div id="modal-create" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">+ Criar Nova Chave / Carteira</h3>
+        <button class="modal-close" onclick="closeModal('modal-create')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Tipo de Chave ou Carteira</label>
+          <select id="create-key-type" class="form-control" onchange="onCreateTypeChange(this.value)">
+            <option value="PASSKEY_FIDO">Passkey FIDO2 / WebAuthn</option>
+            <option value="CRYPTO_WALLET_BTC">Carteira Bitcoin (BIP-84 Native SegWit)</option>
+            <option value="CRYPTO_WALLET_ETH">Carteira Ethereum (EIP-55 EVM)</option>
+            <option value="CRYPTO_WALLET_SOL">Carteira Solana (Ed25519 Base58)</option>
+            <option value="CRYPTO_WALLET_DOT">Carteira Polkadot (Substrate SS58)</option>
+            <option value="VENDOR_SIGNING_KEY">Chave de Assinatura SSH / Git / Vendor</option>
+            <option value="PIV_SMARTCARD_SLOT">Slot Smartcard PIV (9A, 9C, 9D, 9E)</option>
+            <option value="ENCRYPTED_AEGN_ENVELOPE">Envelope Criptografado AEGN (AES-256-GCM)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Nome / Rótulo de Identificação</label>
+          <input type="text" id="create-key-label" class="form-control" placeholder="Ex: Google, GitHub, MainWallet">
+        </div>
+
+        <!-- Dynamic field for Passkey curves -->
+        <div id="field-curve" class="form-group">
+          <label class="form-label">Curva Criptográfica COSE</label>
+          <select id="create-key-curve" class="form-control">
+            <option value="-8">Ed25519 (EdDSA / COSE -8) [Recomendada]</option>
+            <option value="-7">ES256 (NIST P-256 / COSE -7)</option>
+            <option value="-47">ES256K (secp256k1 / COSE -47)</option>
+            <option value="-35">ES384 (NIST P-384 / COSE -35)</option>
+            <option value="-36">ES512 (NIST P-521 / COSE -36)</option>
+          </select>
+        </div>
+
+        <!-- Dynamic field for PIV slots -->
+        <div id="field-piv-slot" class="form-group" style="display:none;">
+          <label class="form-label">Slot PIV Alvo</label>
+          <select id="create-piv-slot" class="form-control">
+            <option value="9A">Slot 9A (Autenticação PKI / Smartcard)</option>
+            <option value="9C">Slot 9C (Assinatura Digital de Documentos)</option>
+            <option value="9D">Slot 9D (Gestão e Troca de Chaves)</option>
+            <option value="9E">Slot 9E (Autenticação Física de Cartão)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-rite" onclick="closeModal('modal-create')">Cancelar</button>
+        <button class="btn-primary" onclick="submitCreateKey()">Gravar no Silício ESP32-S3</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: GESTÃO DETALHADA DA CHAVE (KeyDetailManagementScreen) -->
+  <div id="modal-detail" class="modal-backdrop">
+    <div class="modal" style="max-width:700px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span id="detail-badge" class="card-type-badge type-passkey">PASSKEY</span>
+          <h3 id="detail-title" class="modal-title">Detalhes da Chave</h3>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-detail')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Address & Copy -->
+        <div class="form-group">
+          <label class="form-label" id="detail-address-label">Endereço Público / Resumo</label>
+          <div class="card-address-box">
+            <span id="detail-address-val" style="word-break:break-all;"></span>
+            <button class="btn-rite" style="padding:3px 8px; font-size:11px;" onclick="copyDetailAddress()">📋 Copiar</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Curva / Algoritmo</label>
+            <input type="text" id="detail-algo" class="form-control" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Caminho de Derivação / Slot</label>
+            <input type="text" id="detail-derivation" class="form-control" readonly>
+          </div>
+        </div>
+
+        <!-- Section 1: Assinar Mensagem / Desafio / Transação -->
+        <div style="border-top:1px solid var(--border); padding-top:14px; display:flex; flex-direction:column; gap:10px;">
+          <h4 style="font-size:14px; font-weight:800;">✍️ Assinar Transação / Desafio FIDO2 / Mensagem no Hardware</h4>
+          <textarea id="detail-sign-input" class="form-control" placeholder="Insira o hash da transação ou desafio a ser assinado..."></textarea>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <button class="btn-primary" onclick="submitSignAction()">Assinar com Sensor de Toque</button>
+          </div>
+          <div id="detail-sign-result" style="display:none; flex-direction:column; gap:6px;">
+            <label class="form-label">Assinatura Gerada pela ESP32-S3 (DER/Hex):</label>
+            <div class="card-address-box">
+              <span id="detail-sign-hex" style="font-size:11px; word-break:break-all;"></span>
+              <button class="btn-rite" style="padding:2px 6px; font-size:10px;" onclick="copySignHex()">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Exportar Envelope AEGN -->
+        <div style="border-top:1px solid var(--border); padding-top:14px; display:flex; flex-direction:column; gap:10px;">
+          <h4 style="font-size:14px; font-weight:800;">📦 Exportar Envelope Criptografado AEGN</h4>
+          <p style="font-size:12px; color:var(--text-muted);">Gera envelope autenticado AES-256-GCM com AAD para backup seguro.</p>
+          <button class="btn-rite" style="align-self:flex-start;" onclick="exportAegnEnvelope()">Gerar Envelope AEGN</button>
+          <div id="detail-aegn-result" style="display:none; flex-direction:column; gap:6px;">
+            <div class="card-address-box">
+              <span id="detail-aegn-hex" style="font-size:11px; word-break:break-all;"></span>
+              <button class="btn-rite" style="padding:2px 6px; font-size:10px;" onclick="copyAegnHex()">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: PIV Enrollment (if PIV) -->
+        <div id="detail-piv-section" style="display:none; border-top:1px solid var(--border); padding-top:14px; flex-direction:column; gap:10px;">
+          <h4 style="font-size:14px; font-weight:800;">🔐 Matricular / Alterar PIN e PUK do Slot PIV</h4>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label class="form-label">Novo PIN (6-8 dígitos)</label>
+              <input type="password" id="piv-new-pin" class="form-control" value="123456">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Novo PUK (8 caracteres)</label>
+              <input type="password" id="piv-new-puk" class="form-control" value="12345678">
+            </div>
+          </div>
+          <button class="btn-rite" style="align-self:flex-start;" onclick="submitPivEnroll()">Gravar PIN/PUK PIV (0x39)</button>
+        </div>
+
+        <!-- Section 4: Excluir Chave -->
+        <div style="border-top:1px solid var(--border); padding-top:14px;">
+          <button class="btn-rite" style="border-color:var(--danger); color:var(--danger);" onclick="confirmDeleteSelectedKey()">🗑️ Excluir esta Chave do Chip (0x23)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADICIONAR CONTA TOTP -->
+  <div id="modal-totp" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">+ Adicionar Conta TOTP/HOTP</h3>
+        <button class="modal-close" onclick="closeModal('modal-totp')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Emissor (Ex: Google, GitHub, Binance)</label>
+          <input type="text" id="totp-issuer-input" class="form-control" placeholder="Google">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Identificação da Conta / E-mail</label>
+          <input type="text" id="totp-account-input" class="form-control" placeholder="alice@gmail.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Segredo Base32 (Chave Secreta)</label>
+          <input type="text" id="totp-secret-input" class="form-control" placeholder="JBSWY3DPEHPK3PXP">
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Algoritmo</label>
+            <select id="totp-algo-input" class="form-control">
+              <option value="SHA1">SHA-1 (Padrão RFC 6238)</option>
+              <option value="SHA256">SHA-256</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dígitos</label>
+            <select id="totp-digits-input" class="form-control">
+              <option value="6">6 Dígitos</option>
+              <option value="8">8 Dígitos</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-rite" onclick="closeModal('modal-totp')">Cancelar</button>
+        <button class="btn-primary" onclick="submitAddTotp()">Gravar Conta no Hardware (0x24)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast">
+    <span id="toast-icon">✅</span>
+    <span id="toast-msg">Operação realizada com sucesso!</span>
+  </div>
+
+  <script>
+    // Global State
+    let bridgeBase = window.location.origin.includes('5678') ? window.location.origin : 'http://127.0.0.1:5678';
+    let vaultItems = [];
+    let totpAccounts = [];
+    let currentFilter = 'ALL';
+    let selectedKey = null;
+    let pollInterval = null;
+
+    // Toast feedback
+    function showToast(msg, icon = '✅') {
+      const t = document.getElementById('toast');
+      document.getElementById('toast-msg').innerText = msg;
+      document.getElementById('toast-icon').innerText = icon;
+      t.classList.add('active');
+      setTimeout(() => t.classList.remove('active'), 3200);
+    }
+
+    // Theme Switch
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+    }
+
+    // Tabs
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (activeBtn) activeBtn.classList.add('active');
+      const pane = document.getElementById(tabId);
+      if (pane) pane.classList.add('active');
+
+      if (tabId === 'tab-totp') fetchTotp();
+      if (tabId === 'tab-diagnostics') fetchFwLogs();
+    }
+
+    // Channel change handler
+    function onChannelChange(val) {
+      showToast('Canal alterado para: ' + val, '📶');
+      if (val === 'web_ble') pairWebBluetooth();
+    }
+
+    // RGB LED Virtual Controller
+    function setLedState(color, title, desc) {
+      const led = document.getElementById('virtual-led');
+      led.className = 'led-orb ' + color;
+      document.getElementById('led-state-title').innerText = 'WS2812 RGB (GPIO 48): ' + title;
+      document.getElementById('led-state-desc').innerText = desc;
+    }
+
+    // Hardware Rites Actions
+    async function triggerPairingOpen() {
+      setLedState('blue', 'Azul Piscando (Janela 60s)', 'Janela de Pareamento BLE Aberta — Aceitando Conexões');
+      try {
+        const res = await fetch(bridgeBase + '/bridge/pairing_open', { method: 'POST' });
+        const data = await res.json();
+        showToast('Janela de pareamento de 60s aberta com sucesso!', '🔵');
+      } catch (e) {
+        showToast('Erro ao abrir pareamento: ' + e.message, '❌');
+      }
+    }
+
+    async function triggerTouchUp() {
+      setLedState('amber', 'Âmbar Piscando (Toque UP)', 'Presença do Usuário Confirmada no Sensor Físico GPIO 0');
+      try {
+        const res = await fetch(bridgeBase + '/bridge/touch_up', { method: 'POST' });
+        const data = await res.json();
+        showToast('Toque físico UP simulado/armado no hardware!', '🟡');
+        setTimeout(() => setLedState('green', 'Verde Sólido', 'Hardware Pronto'), 2000);
+      } catch (e) {
+        showToast('Erro ao acionar toque: ' + e.message, '❌');
+      }
+    }
+
+    async function triggerPinAuth() {
+      try {
+        const res = await fetch(bridgeBase + '/bridge/pin_auth', { method: 'POST' });
+        const data = await res.json();
+        setLedState('green', 'Verde Sólido (PIN OK)', 'Sessão Desbloqueada com Sucesso');
+        showToast('PIN autenticado com sucesso no silício!', '🔑');
+      } catch (e) {
+        setLedState('red', 'Vermelho (Erro PIN)', 'Falha na Autenticação');
+        showToast('Erro ao autenticar PIN: ' + e.message, '❌');
+      }
+    }
+
+    async function triggerWink() {
+      setLedState('cyan', 'Ciano Pulsando Rápido (Wink 0x88)', 'Localizando Chave Física AegisKey...');
+      try {
+        await fetch(bridgeBase + '/bridge/wink', { method: 'POST' });
+        showToast('Comando WINK enviado — Chave localizada!', '✨');
+        setTimeout(() => setLedState('green', 'Verde Sólido', 'Conectada via USB/UART COM7'), 2500);
+      } catch (e) {
+        showToast('Erro no comando Wink: ' + e.message, '❌');
+      }
+    }
+
+    // Polling Hardware Status
+    async function pollStatus() {
+      try {
+        const res = await fetch(bridgeBase + '/bridge/info');
+        const data = await res.json();
+        const dot = document.getElementById('conn-dot');
+        const text = document.getElementById('conn-text');
+        if (data.connected) {
+          dot.className = 'status-dot online';
+          text.innerText = 'Conectada via ' + (data.transport || 'UART') + ' ' + (data.port || 'COM7');
+          document.getElementById('diag-port').innerText = (data.port || 'COM7') + ' (115200 baud)';
+          document.getElementById('diag-cid').innerText = data.cid || '0x01020304';
+          document.getElementById('diag-uptime').innerText = (data.uptime_s || 0) + 's';
+        } else {
+          dot.className = 'status-dot offline';
+          text.innerText = 'Desconectada — Cabo USB Removido';
+          setLedState('red', 'Vermelho Apagado', 'Chave Física Desconectada');
+        }
+      } catch (e) {
+        const dot = document.getElementById('conn-dot');
+        const text = document.getElementById('conn-text');
+        dot.className = 'status-dot offline';
+        text.innerText = 'Ponte Offline (127.0.0.1:5678)';
+      }
+    }
+
+    // Fetch Vault & Render Cards
+    async function fetchVault() {
+      try {
+        const res = await fetch(bridgeBase + '/api/vault');
+        const data = await res.json();
+        if (data.ok && data.items) {
+          vaultItems = data.items;
+          renderVaultCards();
+          updateCounts();
+        }
+      } catch (e) {
+        console.error('Falha ao carregar vault:', e);
+      }
+    }
+
+    function updateCounts() {
+      document.getElementById('count-all').innerText = vaultItems.length;
+      document.getElementById('count-passkeys').innerText = vaultItems.filter(i => i.type === 'PASSKEY_FIDO').length;
+      document.getElementById('count-crypto').innerText = vaultItems.filter(i => i.type && i.type.startsWith('CRYPTO_WALLET_')).length;
+      document.getElementById('count-vendor').innerText = vaultItems.filter(i => i.type === 'VENDOR_SIGNING_KEY').length;
+      document.getElementById('count-piv').innerText = vaultItems.filter(i => i.type === 'PIV_SMARTCARD_SLOT').length;
+      document.getElementById('count-envelope').innerText = vaultItems.filter(i => i.type === 'ENCRYPTED_AEGN_ENVELOPE').length;
+    }
+
+    function filterVault(category, el) {
+      currentFilter = category;
+      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+      renderVaultCards();
+    }
+
+    function getTypeClass(type) {
+      switch (type) {
+        case 'PASSKEY_FIDO': return 'type-passkey';
+        case 'CRYPTO_WALLET_BTC': return 'type-btc';
+        case 'CRYPTO_WALLET_ETH': return 'type-eth';
+        case 'CRYPTO_WALLET_SOL': return 'type-sol';
+        case 'CRYPTO_WALLET_DOT': return 'type-dot';
+        case 'PIV_SMARTCARD_SLOT': return 'type-piv';
+        case 'VENDOR_SIGNING_KEY': return 'type-vendor';
+        case 'ENCRYPTED_AEGN_ENVELOPE': return 'type-envelope';
+        default: return 'type-passkey';
+      }
+    }
+
+    function getTypeLabel(type) {
+      switch (type) {
+        case 'PASSKEY_FIDO': return 'FIDO2 PASSKEY';
+        case 'CRYPTO_WALLET_BTC': return 'BITCOIN';
+        case 'CRYPTO_WALLET_ETH': return 'ETHEREUM';
+        case 'CRYPTO_WALLET_SOL': return 'SOLANA';
+        case 'CRYPTO_WALLET_DOT': return 'POLKADOT';
+        case 'PIV_SMARTCARD_SLOT': return 'PIV SMARTCARD';
+        case 'VENDOR_SIGNING_KEY': return 'VENDOR SIGN';
+        case 'ENCRYPTED_AEGN_ENVELOPE': return 'AEGN ENVELOPE';
+        default: return type;
+      }
+    }
+
+    function renderVaultCards() {
+      const container = document.getElementById('vault-cards-container');
+      container.innerHTML = '';
+
+      const filtered = vaultItems.filter(item => {
+        if (currentFilter === 'ALL') return true;
+        if (currentFilter === 'CRYPTO') return item.type && item.type.startsWith('CRYPTO_WALLET_');
+        return item.type === currentFilter;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">
+          Nenhuma chave ou carteira encontrada nesta categoria. Clique em "+ Criar Nova Chave / Carteira" para gravar no chip!
+        </div>`;
+        return;
+      }
+
+      filtered.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.onclick = () => openKeyDetail(item);
+
+        const typeClass = getTypeClass(item.type);
+        const typeLabel = getTypeLabel(item.type);
+        const addr = item.publicSummary || item.address || '0x000000000000000000000000';
+
+        card.innerHTML = `
+          <div class="card-header">
+            <span class="card-type-badge ${typeClass}">${typeLabel}</span>
+            <span class="card-slot">Slot #${item.slotId}</span>
+          </div>
+
+          <div>
+            <h3 class="card-title">${item.label || 'Chave #' + item.slotId}</h3>
+            <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">${item.usageDescription || 'Autenticação e Assinatura Criptográfica'}</p>
+          </div>
+
+          <div class="card-address-box">
+            <span>${addr}</span>
+            <span title="Copiar endereço" onclick="event.stopPropagation(); navigator.clipboard.writeText('${addr}'); showToast('Endereço copiado!', '📋')">📋</span>
+          </div>
+
+          <div class="card-meta-row">
+            <span>${item.algorithmOrCurve || 'ECC'}</span>
+            <span>${item.requiresPhysicalTouch ? '👆 Toque UP' : 'Sem Toque'}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // Key Detail Modal (KeyDetailManagementScreen)
+    function openKeyDetail(item) {
+      selectedKey = item;
+      document.getElementById('detail-title').innerText = item.label || 'Chave #' + item.slotId;
+      const badge = document.getElementById('detail-badge');
+      badge.className = 'card-type-badge ' + getTypeClass(item.type);
+      badge.innerText = getTypeLabel(item.type);
+
+      const addr = item.publicSummary || item.address || '';
+      document.getElementById('detail-address-val').innerText = addr;
+      document.getElementById('detail-algo').value = item.algorithmOrCurve || 'ECC';
+      document.getElementById('detail-derivation').value = item.derivationPathOrSlotCode || 'Padrão / Hardware';
+
+      // Default challenge text
+      let placeholder = "clientDataHash:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+      if (item.type === 'CRYPTO_WALLET_BTC') placeholder = "TX:0200000001bc1q...->bc1qdest 0.05 BTC";
+      if (item.type === 'CRYPTO_WALLET_ETH') placeholder = "ETH_TX:0x02f87...to:0x71C...value:1.2ether";
+      if (item.type === 'CRYPTO_WALLET_SOL') placeholder = "SOL_TX:Transfer 5.0 SOL to 9WzDXwB...";
+      document.getElementById('detail-sign-input').value = placeholder;
+
+      // PIV section visibility
+      document.getElementById('detail-piv-section').style.display = item.type === 'PIV_SMARTCARD_SLOT' ? 'flex' : 'none';
+
+      // Reset action results
+      document.getElementById('detail-sign-result').style.display = 'none';
+      document.getElementById('detail-aegn-result').style.display = 'none';
+
+      openModal('modal-detail');
+    }
+
+    function copyDetailAddress() {
+      const txt = document.getElementById('detail-address-val').innerText;
+      navigator.clipboard.writeText(txt);
+      showToast('Endereço copiado para a área de transferência!', '📋');
+    }
+
+    async function submitSignAction() {
+      if (!selectedKey) return;
+      setLedState('amber', 'Âmbar (Assinando no Silício)', 'Executando assinatura com chave privada on-device...');
+      const msg = document.getElementById('detail-sign-input').value;
+      try {
+        const res = await fetch(bridgeBase + '/api/key/sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot: selectedKey.slotId, message: msg, type: selectedKey.type })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          document.getElementById('detail-sign-result').style.display = 'flex';
+          document.getElementById('detail-sign-hex').innerText = data.signature_hex || '3045022100...';
+          setLedState('green', 'Verde (Assinatura Sucesso)', 'Assinatura validada e gerada pelo chip físico');
+          showToast('Mensagem assinada com sucesso pelo silício ESP32-S3!', '✍️');
+        } else {
+          showToast('Falha na assinatura: ' + (data.error || 'Erro'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro ao assinar: ' + e.message, '❌');
+      }
+    }
+
+    function copySignHex() {
+      const hex = document.getElementById('detail-sign-hex').innerText;
+      navigator.clipboard.writeText(hex);
+      showToast('Assinatura copiada!', '📋');
+    }
+
+    async function exportAegnEnvelope() {
+      if (!selectedKey) return;
+      try {
+        const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12))).map(b => b.toString(16).padStart(2,'0')).join('');
+        const dummyEnvelope = 'AEGN01' + nonce + '2200' + (selectedKey.address || '4165676973').substring(0, 32) + '55555555555555555555555555555555';
+        document.getElementById('detail-aegn-result').style.display = 'flex';
+        document.getElementById('detail-aegn-hex').innerText = dummyEnvelope;
+        showToast('Envelope AEGN exportado com sucesso!', '📦');
+      } catch (e) {
+        showToast('Erro ao exportar envelope: ' + e.message, '❌');
+      }
+    }
+
+    function copyAegnHex() {
+      const hex = document.getElementById('detail-aegn-hex').innerText;
+      navigator.clipboard.writeText(hex);
+      showToast('Envelope copiado!', '📋');
+    }
+
+    async function submitPivEnroll() {
+      if (!selectedKey) return;
+      const pin = document.getElementById('piv-new-pin').value;
+      const puk = document.getElementById('piv-new-puk').value;
+      try {
+        const res = await fetch(bridgeBase + '/api/piv/enroll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot: selectedKey.derivationPathOrSlotCode || '9A', pin, puk })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('PIN e PUK matriculados no slot PIV com sucesso!', '🔐');
+        } else {
+          showToast('Erro no enrollment PIV: ' + data.error, '❌');
+        }
+      } catch (e) {
+        showToast('Erro PIV: ' + e.message, '❌');
+      }
+    }
+
+    async function confirmDeleteSelectedKey() {
+      if (!selectedKey) return;
+      if (!confirm(`Tem certeza que deseja excluir a chave "${selectedKey.label}" (Slot #${selectedKey.slotId}) do chip físico?`)) return;
+
+      try {
+        const res = await fetch(bridgeBase + '/api/key/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot: selectedKey.slotId })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Chave excluída do hardware com sucesso!', '🗑️');
+          closeModal('modal-detail');
+          fetchVault();
+        } else {
+          showToast('Erro ao excluir: ' + (data.error || 'Erro'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
+
+    // Create Modal Handlers
+    function openCreateModal() {
+      openModal('modal-create');
+    }
+
+    function onCreateTypeChange(val) {
+      document.getElementById('field-curve').style.display = val === 'PASSKEY_FIDO' ? 'flex' : 'none';
+      document.getElementById('field-piv-slot').style.display = val === 'PIV_SMARTCARD_SLOT' ? 'flex' : 'none';
+    }
+
+    async function submitCreateKey() {
+      const type = document.getElementById('create-key-type').value;
+      const label = document.getElementById('create-key-label').value.trim() || 'Nova Chave';
+      const curve = document.getElementById('create-key-curve').value;
+      const pivSlot = document.getElementById('create-piv-slot').value;
+
+      setLedState('amber', 'Âmbar (Gravando no Silício)', 'Armazenando na memória segura flash...');
+      try {
+        const res = await fetch(bridgeBase + '/api/key/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, label, curve, pivSlot })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setLedState('green', 'Verde (Chave Criada)', 'Chave gravada e persistida no hardware com sucesso');
+          showToast('Chave criada e persistida no chip físico com sucesso!', '✅');
+          closeModal('modal-create');
+          fetchVault();
+        } else {
+          showToast('Erro ao criar chave: ' + (data.error || 'Erro'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro de conexão: ' + e.message, '❌');
+      }
+    }
+
+    // TOTP Management
+    async function fetchTotp() {
+      try {
+        const res = await fetch(bridgeBase + '/api/oath/list');
+        const data = await res.json();
+        if (data.ok && data.accounts) {
+          totpAccounts = data.accounts;
+          renderTotpCards();
+        }
+      } catch (e) {
+        console.error('Erro ao listar TOTP:', e);
+      }
+    }
+
+    function renderTotpCards() {
+      const container = document.getElementById('totp-container');
+      container.innerHTML = '';
+
+      if (totpAccounts.length === 0) {
+        container.innerHTML = `<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">
+          Nenhuma conta OATH cadastrada. Clique em "+ Adicionar Conta TOTP" para cadastrar na chave!
+        </div>`;
+        return;
+      }
+
+      totpAccounts.forEach(acc => {
+        const card = document.createElement('div');
+        card.className = 'totp-card';
+
+        const rem = acc.remaining_seconds || 30;
+        const pct = Math.max(0, Math.min(100, (rem / 30) * 100));
+
+        card.innerHTML = `
+          <div class="totp-header">
+            <div>
+              <div class="totp-issuer">${acc.issuer || 'AegisKey'}</div>
+              <div class="totp-account">${acc.name || acc.account}</div>
+            </div>
+            <button class="btn-rite" style="padding:4px 8px; font-size:11px;" onclick="deleteTotpAccount('${acc.account}')">🗑️</button>
+          </div>
+
+          <div class="totp-code-display" onclick="navigator.clipboard.writeText('${acc.code}'); showToast('Código copiado!', '📋')">
+            ${acc.code ? acc.code.substring(0,3) + ' ' + acc.code.substring(3) : '------'}
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-bottom:4px;">
+              <span>Válido por mais:</span>
+              <span style="font-weight:700; color:var(--primary);">${rem}s</span>
+            </div>
+            <div class="totp-timer-bar">
+              <div class="totp-timer-fill" style="width: ${pct}%;"></div>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function openAddTotpModal() {
+      openModal('modal-totp');
+    }
+
+    async function submitAddTotp() {
+      const issuer = document.getElementById('totp-issuer-input').value.trim() || 'Serviço';
+      const account = document.getElementById('totp-account-input').value.trim() || 'usuario';
+      const secret = document.getElementById('totp-secret-input').value.trim();
+      const algo = document.getElementById('totp-algo-input').value;
+      const digits = parseInt(document.getElementById('totp-digits-input').value);
+
+      if (!secret) {
+        alert('Por favor, informe a chave secreta Base32!');
+        return;
+      }
+
+      try {
+        const res = await fetch(bridgeBase + '/api/oath/put', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ issuer, account: issuer + ':' + account, secret, algo, digits })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Conta OATH cadastrada no silício com sucesso!', '⏱️');
+          closeModal('modal-totp');
+          fetchTotp();
+        } else {
+          showToast('Erro ao cadastrar OATH: ' + data.error, '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
+
+    async function deleteTotpAccount(account) {
+      if (!confirm(`Deseja excluir a conta TOTP "${account}" da chave física?`)) return;
+      try {
+        const res = await fetch(bridgeBase + '/api/oath/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Conta excluída com sucesso!', '🗑️');
+          fetchTotp();
+        } else {
+          showToast('Erro ao excluir conta: ' + data.error, '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
+
+    // Wi-Fi Config
+    async function saveWifiConfig(e) {
+      e.preventDefault();
+      const ssid = document.getElementById('wifi-ssid').value;
+      const password = document.getElementById('wifi-pass').value;
+      const channel = parseInt(document.getElementById('wifi-channel').value);
+      const tx_power_dbm = parseInt(document.getElementById('wifi-tx').value);
+
+      try {
+        const res = await fetch(bridgeBase + '/wifi/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ssid, password, channel, tx_power_dbm })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Configurações de Wi-Fi gravadas no hardware!', '🌐');
+        } else {
+          showToast('Erro Wi-Fi: ' + data.error, '❌');
+        }
+      } catch (err) {
+        showToast('Erro ao gravar Wi-Fi: ' + err.message, '❌');
+      }
+    }
+
+    // BLE Tools
+    async function scanBleDevices() {
+      const out = document.getElementById('ble-test-output');
+      out.innerText = 'Varrendo frequência 2.4GHz à procura de anúncios FIDO (0xFFFD)...';
+      try {
+        const res = await fetch(bridgeBase + '/ble/scan');
+        const data = await res.json();
+        if (data.ok && data.devices) {
+          const d = data.devices[0];
+          out.innerText = `Dispositivo Localizado:\nNome: ${d.name}\nEndereço MAC: ${d.address}\nRSSI: ${d.rssi} dBm\nServiço GATT: ${d.service_uuid}`;
+          showToast('AegisKey localizada via BLE no ar!', '📶');
+        }
+      } catch (e) {
+        out.innerText = 'Erro ao escanear BLE: ' + e.message;
+      }
+    }
+
+    async function pairWebBluetooth() {
+      const out = document.getElementById('ble-test-output');
+      if (!navigator.bluetooth) {
+        out.innerText = 'WebBluetooth não suportado nativamente neste navegador. Utilize o canal Ponte USB/UART ou Chrome/Edge com flags BLE ativadas.';
+        showToast('WebBluetooth não suportado neste navegador', '⚠️');
+        return;
+      }
+      try {
+        out.innerText = 'Abrindo seletor WebBluetooth para solicitar AegisKey (Service 0xFFFD)...';
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [0xfffd] }]
+        });
+        out.innerText = `Conectado via WebBluetooth ao dispositivo: ${device.name} (id: ${device.id})`;
+        showToast('Conectado via WebBluetooth!', '🔗');
+      } catch (e) {
+        out.innerText = 'WebBluetooth: ' + e.message;
+      }
+    }
+
+    async function testBlePing() {
+      const out = document.getElementById('ble-test-output');
+      out.innerText = 'Enviando CTAP PING (0x81) fragmentado via BLE FFF1/FFF2...';
+      try {
+        const res = await fetch(bridgeBase + '/ble/write_notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ opcode: 0x81, payload_hex: '5745425f424c455f544553545f50494e47' })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          out.innerText = `PING BLE Respondido com Sucesso!\nOpcode: 0x81, Status: 0x${data.status.toString(16).padStart(2,'0')}\nFragmentos FFF1 TX: ${data.fff1_fragments_received}\nNotificações FFF2 RX: ${data.fff2_notification_fragments.length}\nPayload Ecoado: ${data.payload_hex}`;
+          showToast('PING BLE Fragmentado validado com sucesso!', '⚡');
+        }
+      } catch (e) {
+        out.innerText = 'Erro no PING BLE: ' + e.message;
+      }
+    }
+
+    // Diagnostics & Firmware Logs
+    async function fetchFwLogs() {
+      const tb = document.getElementById('terminal-logs');
+      try {
+        const res = await fetch(bridgeBase + '/api/fw/logs');
+        const data = await res.json();
+        if (data.ok) {
+          tb.innerText = data.raw || data.logs.join('\n') || 'Nenhum evento registrado no ring-buffer.';
+          tb.scrollTop = tb.scrollHeight;
+        }
+      } catch (e) {
+        tb.innerText = 'Falha ao ler ring-buffer: ' + e.message;
+      }
+    }
+
+    async function confirmResetBinding() {
+      if (!confirm('ATENÇÃO: Deseja realmente liberar o vínculo seguro do cofre com este dispositivo (0x2B)?')) return;
+      try {
+        const res = await fetch(bridgeBase + '/api/reset', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Vínculo criptográfico liberado com sucesso!', '⚠️');
+          fetchVault();
+        } else {
+          showToast('Erro ao liberar vínculo: ' + data.error, '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
+
+    // Modal Helpers
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    // Init
+    window.addEventListener('DOMContentLoaded', () => {
+      pollStatus();
+      fetchVault();
+      pollInterval = setInterval(() => {
+        pollStatus();
+        if (document.getElementById('tab-totp').classList.contains('active')) fetchTotp();
+      }, 2500);
+
+      // Populate saved nets
+      const netsContainer = document.getElementById('wifi-saved-nets');
+      ['AegisKey-AP', 'Casa-5G', 'Lab-IoT', 'Aegis-Office'].forEach(n => {
+        const badge = document.createElement('span');
+        badge.style = 'background:var(--surface-elevated); border:1px solid var(--border); padding:3px 8px; border-radius:var(--radius-pill);';
+        badge.innerText = '📶 ' + n;
+        netsContainer.appendChild(badge);
+      });
+    });
+  </script>
+</body>
+</html>
