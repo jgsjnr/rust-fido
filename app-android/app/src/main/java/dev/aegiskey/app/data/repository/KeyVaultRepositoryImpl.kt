@@ -1,11 +1,12 @@
 package dev.aegiskey.app.data.repository
 
-import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.transport.BleKeyTransport
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
+import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
@@ -26,12 +27,30 @@ import java.security.SecureRandom
 
 class KeyVaultRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
-    private val bleClient: AegisBleClient? = null,
-    private val hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
+    private val usbKeyTransport: UsbKeyTransport? = null,
+    private val bleKeyTransport: BleKeyTransport? = null,
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val connectedKeysRepository: ConnectedKeysRepository,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : KeyVaultRepository {
+
+    // Construtor de compatibilidade para chamadas legadas e testes unitários
+    @Suppress("UNUSED_PARAMETER")
+    constructor(
+        keysStore: EncryptedKeysStore,
+        bleClient: dev.aegiskey.app.ble.AegisBleClient? = null,
+        hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
+        simulatedRenodeTransport: SimulatedRenodeTransport,
+        connectedKeysRepository: ConnectedKeysRepository,
+        scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    ) : this(
+        keysStore = keysStore,
+        usbKeyTransport = null,
+        bleKeyTransport = if (bleClient != null) BleKeyTransport(bleClient, scope) else null,
+        simulatedRenodeTransport = simulatedRenodeTransport,
+        connectedKeysRepository = connectedKeysRepository,
+        scope = scope
+    )
 
     private val _vaultEntries = MutableStateFlow<List<VaultKeyEntry>>(emptyList())
     override val vaultEntries: StateFlow<List<VaultKeyEntry>> = _vaultEntries.asStateFlow()
@@ -53,17 +72,20 @@ class KeyVaultRepositoryImpl(
         val activeKey = connectedKeysRepository.activeKey.value
         val addr = activeKey?.hardwareAddressOrId ?: ""
         return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB -> {
-                hostBridgeClient.sendVendor(opcode, payload)
+            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
+                usbKeyTransport?.sendVendor(opcode, payload)
             }
             activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                hostBridgeClient.sendVendor(opcode, payload)
+                usbKeyTransport?.sendVendor(opcode, payload)
             }
             activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
                 simulatedRenodeTransport.sendVendor(opcode, payload)
             }
+            activeKey?.transportType == ConnectionTransportType.BLE -> {
+                bleKeyTransport?.sendVendor(opcode, payload) ?: usbKeyTransport?.sendVendor(opcode, payload)
+            }
             else -> {
-                bleClient?.sendVendor(opcode, payload)
+                usbKeyTransport?.sendVendor(opcode, payload) ?: bleKeyTransport?.sendVendor(opcode, payload)
             }
         }
     }
@@ -72,48 +94,119 @@ class KeyVaultRepositoryImpl(
         val activeKey = connectedKeysRepository.activeKey.value
         val addr = activeKey?.hardwareAddressOrId ?: ""
         return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB -> {
-                hostBridgeClient.sendVendor(0x83, payload)
+            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
+                usbKeyTransport?.sendMsg(payload)
             }
             activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                hostBridgeClient.sendVendor(0x83, payload)
+                usbKeyTransport?.sendMsg(payload)
             }
             activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
                 simulatedRenodeTransport.sendMsg(payload)
             }
-            else -> {
-                bleClient?.sendMsg(payload)
+            activeKey?.transportType == ConnectionTransportType.BLE -> {
+                bleKeyTransport?.sendMsg(payload) ?: usbKeyTransport?.sendMsg(payload)
             }
+            else -> {
+                usbKeyTransport?.sendMsg(payload) ?: bleKeyTransport?.sendMsg(payload)
+            }
+        }
+    }
+
+    private data class ParsedWalletEntry(val slot: Int, val label: String, val address: String)
+
+    private fun parseWalletList(tlv: ByteArray): List<ParsedWalletEntry> {
+        val chunks = mutableListOf<MutableList<VendorOps.Tlv>>()
+        for (r in VendorOps.parseTlvRecords(tlv)) {
+            if (r.tag == 0x01) chunks.add(mutableListOf()) // 0x01 TAG_WALLET_SLOT
+            if (chunks.isEmpty()) chunks.add(mutableListOf())
+            chunks.last().add(r)
+        }
+        return chunks.mapNotNull { chunk ->
+            val slotBytes = VendorOps.findTlv(chunk, 0x01)
+            val slot = if (slotBytes != null && slotBytes.size == 1) slotBytes[0].toInt() and 0xFF else null
+            if (slot == null) return@mapNotNull null
+            val label = VendorOps.findTlv(chunk, 0x02)?.let {
+                runCatching { it.toString(Charsets.UTF_8).take(32) }.getOrDefault("slot $slot")
+            } ?: "slot $slot"
+            val address = VendorOps.findTlv(chunk, 0x07)?.let {
+                runCatching { it.toString(Charsets.UTF_8) }.getOrDefault("")
+            } ?: ""
+            ParsedWalletEntry(slot, label, address)
         }
     }
 
     override suspend fun refreshVault(keyId: String): Result<List<VaultKeyEntry>> = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = sendVendor(VendorOps.OP_KEY_LIST, ByteArray(0))
+            val rawKeyList = sendVendor(VendorOps.OP_KEY_LIST, ByteArray(0))
+            val rawWalletList = sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
             val currentCached = keysStore.loadVaultEntries(keyId).associateBy { it.slotId }
 
-            if (raw != null && raw.size >= 2 && raw[1].toInt() == VendorOps.STATUS_OK) {
-                val tlv = raw.copyOfRange(2, raw.size)
+            val mergedEntries = mutableListOf<VaultKeyEntry>()
+
+            // 1. Processa chaves FIDO / Vendor / Outras do OP_KEY_LIST (0x22)
+            if (rawKeyList != null && rawKeyList.size >= 2 && rawKeyList[1].toInt() == VendorOps.STATUS_OK) {
+                val tlv = rawKeyList.copyOfRange(2, rawKeyList.size)
                 val deviceKeys = VendorOps.parseKeyList(tlv)
-                val merged = deviceKeys.map { dk ->
+                for (dk in deviceKeys) {
                     val cached = currentCached[dk.slot]
                     if (cached != null) {
-                        cached.copy(label = dk.label)
+                        mergedEntries.add(cached.copy(label = dk.label))
                     } else {
-                        VaultKeyEntry(
-                            slotId = dk.slot,
-                            label = dk.label,
-                            type = AccessKeyType.PASSKEY_FIDO,
-                            publicSummary = "Secured on AegisKey slot #${dk.slot}",
-                            createdAtEpochMs = System.currentTimeMillis()
+                        mergedEntries.add(
+                            VaultKeyEntry(
+                                slotId = dk.slot,
+                                label = dk.label,
+                                type = AccessKeyType.PASSKEY_FIDO,
+                                publicSummary = "Secured on AegisKey slot #${dk.slot}",
+                                createdAtEpochMs = System.currentTimeMillis()
+                            )
                         )
                     }
                 }
-                keysStore.saveVaultEntries(keyId, merged)
-                _vaultEntries.value = merged
-                merged
+            }
+
+            // 2. Processa carteiras on-device do OP_WALLET_LIST (0x36)
+            if (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK) {
+                val tlv = rawWalletList.copyOfRange(2, rawWalletList.size)
+                val deviceWallets = parseWalletList(tlv)
+                for (dw in deviceWallets) {
+                    val cached = currentCached[dw.slot]
+                    val inferredType = when {
+                        cached != null -> cached.type
+                        dw.address.startsWith("bc1") || dw.label.contains("btc", ignoreCase = true) || dw.label.contains("bitcoin", ignoreCase = true) -> AccessKeyType.CRYPTO_WALLET_BTC
+                        dw.address.startsWith("0x") || dw.label.contains("eth", ignoreCase = true) || dw.label.contains("ethereum", ignoreCase = true) -> AccessKeyType.CRYPTO_WALLET_ETH
+                        dw.label.contains("sol", ignoreCase = true) || dw.label.contains("solana", ignoreCase = true) -> AccessKeyType.CRYPTO_WALLET_SOL
+                        else -> AccessKeyType.CRYPTO_WALLET_BTC
+                    }
+                    val curve = when (inferredType) {
+                        AccessKeyType.CRYPTO_WALLET_BTC -> "secp256k1 (Bitcoin)"
+                        AccessKeyType.CRYPTO_WALLET_ETH -> "secp256k1 (Ethereum)"
+                        AccessKeyType.CRYPTO_WALLET_SOL -> "Ed25519 (Solana)"
+                        else -> "secp256k1"
+                    }
+                    val summary = if (dw.address.isNotBlank()) dw.address else (cached?.publicSummary ?: "Carteira Slot #${dw.slot}")
+
+                    mergedEntries.removeAll { it.slotId == dw.slot }
+                    mergedEntries.add(
+                        VaultKeyEntry(
+                            slotId = dw.slot,
+                            label = dw.label,
+                            type = inferredType,
+                            publicSummary = summary,
+                            createdAtEpochMs = cached?.createdAtEpochMs ?: System.currentTimeMillis(),
+                            algorithmOrCurve = curve,
+                            usageDescription = "Custódia e assinatura de transações",
+                            derivationPathOrSlotCode = cached?.derivationPathOrSlotCode ?: "slot #${dw.slot}"
+                        )
+                    )
+                }
+            }
+
+            if (mergedEntries.isNotEmpty()) {
+                keysStore.saveVaultEntries(keyId, mergedEntries)
+                _vaultEntries.value = mergedEntries
+                mergedEntries
             } else {
-                // Fallback para cache local se offline
                 val local = keysStore.loadVaultEntries(keyId)
                 _vaultEntries.value = local
                 local
@@ -143,6 +236,7 @@ class KeyVaultRepositoryImpl(
         runCatching {
             val current = keysStore.loadVaultEntries(keyId)
             val nextSlot = (current.maxOfOrNull { it.slotId } ?: -1) + 1
+            var actualSlot = nextSlot
 
             var resolvedAlgCurve = algorithmOrCurve
             var resolvedUsage = "Autenticação e Assinatura"
@@ -181,58 +275,112 @@ class KeyVaultRepositoryImpl(
                     }
                 }
 
-                AccessKeyType.CRYPTO_WALLET_BTC -> {
-                    resolvedAlgCurve = "secp256k1 (Bitcoin)"
-                    resolvedUsage = "Custódia e assinatura de transações Bitcoin"
-                    if (derivationOrSlot.isBlank()) derivationOrSlot = "m/84'/0'/0'/0/0"
-                    summary = "Bitcoin Native SegWit ($derivationOrSlot)"
-
-                    val req = VendorOps.writeTlv(0x01, byteArrayOf(nextSlot.toByte())) +
-                        VendorOps.writeTlv(0x02, label.take(25).toByteArray(Charsets.UTF_8)) +
-                        VendorOps.writeTlv(0x08, byteArrayOf(0x01.toByte()))
-                    val resp = sendVendor(VendorOps.OP_WALLET_GEN, req)
-                        ?: sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, VendorOps.genRequest(nextSlot, label.take(32), -47, VendorOps.USAGE_SIGN))
-                        ?: throw IllegalStateException("Sem resposta da chave para criação de carteira Bitcoin")
-
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao criar carteira Bitcoin: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                AccessKeyType.CRYPTO_WALLET_BTC, AccessKeyType.CRYPTO_WALLET_ETH, AccessKeyType.CRYPTO_WALLET_SOL -> {
+                    val netTag = when (type) {
+                        AccessKeyType.CRYPTO_WALLET_BTC -> 0x01
+                        AccessKeyType.CRYPTO_WALLET_ETH -> 0x02
+                        AccessKeyType.CRYPTO_WALLET_SOL -> 0x03
+                        else -> 0x01
                     }
-                }
-
-                AccessKeyType.CRYPTO_WALLET_ETH -> {
-                    resolvedAlgCurve = "secp256k1 (Ethereum)"
-                    resolvedUsage = "Custódia e assinatura de transações Ethereum e Smart Contracts"
-                    if (derivationOrSlot.isBlank()) derivationOrSlot = "m/44'/60'/0'/0/0"
-                    summary = "Ethereum EIP-55 Signer ($derivationOrSlot)"
-
-                    val req = VendorOps.writeTlv(0x01, byteArrayOf(nextSlot.toByte())) +
-                        VendorOps.writeTlv(0x02, label.take(25).toByteArray(Charsets.UTF_8)) +
-                        VendorOps.writeTlv(0x08, byteArrayOf(0x02.toByte()))
-                    val resp = sendVendor(VendorOps.OP_WALLET_GEN, req)
-                        ?: sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, VendorOps.genRequest(nextSlot, label.take(32), -47, VendorOps.USAGE_SIGN))
-                        ?: throw IllegalStateException("Sem resposta da chave para criação de carteira Ethereum")
-
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao criar carteira Ethereum: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                    resolvedAlgCurve = when (type) {
+                        AccessKeyType.CRYPTO_WALLET_BTC -> "secp256k1 (Bitcoin)"
+                        AccessKeyType.CRYPTO_WALLET_ETH -> "secp256k1 (Ethereum)"
+                        AccessKeyType.CRYPTO_WALLET_SOL -> "Ed25519 (Solana)"
+                        else -> "secp256k1"
                     }
-                }
-
-                AccessKeyType.CRYPTO_WALLET_SOL -> {
-                    resolvedAlgCurve = "Ed25519 (Solana)"
-                    resolvedUsage = "Custódia e assinatura de transações Solana SPL"
-                    if (derivationOrSlot.isBlank()) derivationOrSlot = "m/44'/501'/0'/0'"
-                    summary = "Solana Ed25519 Wallet ($derivationOrSlot)"
-
-                    val req = VendorOps.writeTlv(0x01, byteArrayOf(nextSlot.toByte())) +
-                        VendorOps.writeTlv(0x02, label.take(25).toByteArray(Charsets.UTF_8)) +
-                        VendorOps.writeTlv(0x08, byteArrayOf(0x03.toByte()))
-                    val resp = sendVendor(VendorOps.OP_WALLET_GEN, req)
-                        ?: sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, VendorOps.genRequest(nextSlot, label.take(32), -8, VendorOps.USAGE_SIGN))
-                        ?: throw IllegalStateException("Sem resposta da chave para criação de carteira Solana")
-
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao criar carteira Solana: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                    resolvedUsage = when (type) {
+                        AccessKeyType.CRYPTO_WALLET_BTC -> "Custódia e assinatura de transações Bitcoin"
+                        AccessKeyType.CRYPTO_WALLET_ETH -> "Custódia e assinatura de transações Ethereum e Smart Contracts"
+                        AccessKeyType.CRYPTO_WALLET_SOL -> "Custódia e assinatura de transações Solana SPL"
+                        else -> "Custódia e assinatura"
                     }
+                    if (derivationOrSlot.isBlank()) {
+                        derivationOrSlot = when (type) {
+                            AccessKeyType.CRYPTO_WALLET_BTC -> "m/84'/0'/0'/0/0"
+                            AccessKeyType.CRYPTO_WALLET_ETH -> "m/44'/60'/0'/0/0"
+                            AccessKeyType.CRYPTO_WALLET_SOL -> "m/44'/501'/0'/0'"
+                            else -> ""
+                        }
+                    }
+
+                    // 1. Consulta OP_WALLET_LIST (0x36) para obter slots ocupados na chave física
+                    val rawWalletList = sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
+                    val occupiedSlots = mutableSetOf<Int>()
+                    if (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK) {
+                        val tlv = rawWalletList.copyOfRange(2, rawWalletList.size)
+                        occupiedSlots.addAll(parseWalletList(tlv).map { it.slot })
+                    }
+                    occupiedSlots.addAll(current.map { it.slotId })
+
+                    // Seleciona o primeiro slot livre de 0..31
+                    var chosenSlot = (0..31).firstOrNull { it !in occupiedSlots } ?: nextSlot
+
+                    // 2. Tenta gerar a carteira no hardware com retry em caso de STATUS_NO_SLOT (0x03)
+                    var genSuccess = false
+                    var derivedAddress = ""
+                    val candidateSlots = listOf(chosenSlot) + (0..31).filter { it != chosenSlot && it !in occupiedSlots }
+
+                    for (slotCandidate in candidateSlots) {
+                        val req = VendorOps.writeTlv(0x01, byteArrayOf(slotCandidate.toByte())) +
+                            VendorOps.writeTlv(0x02, label.take(32).toByteArray(Charsets.UTF_8)) +
+                            VendorOps.writeTlv(0x08, byteArrayOf(netTag.toByte()))
+
+                        val resp = sendVendor(VendorOps.OP_WALLET_GEN, req)
+                        if (resp == null) continue
+
+                        val respStatus = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+                        if (respStatus == VendorOps.STATUS_OK) {
+                            chosenSlot = slotCandidate
+                            genSuccess = true
+                            if (resp.size > 2) {
+                                val tlv = resp.copyOfRange(2, resp.size)
+                                val entries = parseWalletList(tlv)
+                                derivedAddress = entries.firstOrNull()?.address ?: ""
+                            }
+                            break
+                        } else if (respStatus == VendorOps.STATUS_NO_SLOT) {
+                            // Slot ocupado no chip físico; tenta o próximo slot livre
+                            continue
+                        } else {
+                            throw IllegalStateException("Erro ao gerar carteira: " + VendorOps.statusLabel(respStatus))
+                        }
+                    }
+
+                    if (!genSuccess) {
+                        // Fallback se OP_WALLET_GEN não for suportado no transporte (ex: chave antiga): tenta OP_KEY_GEN_ONDEVICE
+                        val coseAlg = if (type == AccessKeyType.CRYPTO_WALLET_SOL) -8 else -47
+                        val req = VendorOps.genRequest(chosenSlot, label.take(32), coseAlg, VendorOps.USAGE_SIGN)
+                        val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+                            ?: throw IllegalStateException("Sem resposta da chave para criação de carteira")
+                        if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
+                            throw IllegalStateException("Erro ao criar carteira: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                        }
+                    }
+
+                    // Se não veio endereço na resposta de OP_WALLET_GEN, consulta OP_WALLET_ADDR (0x37)
+                    if (derivedAddress.isBlank()) {
+                        val addrReq = VendorOps.writeTlv(0x01, byteArrayOf(chosenSlot.toByte()))
+                        val addrResp = sendVendor(VendorOps.OP_WALLET_ADDR, addrReq)
+                        if (addrResp != null && addrResp.size >= 2 && addrResp[1].toInt() == VendorOps.STATUS_OK) {
+                            val addrTlv = addrResp.copyOfRange(2, addrResp.size)
+                            derivedAddress = VendorOps.findTlv(VendorOps.parseTlvRecords(addrTlv), 0x07)?.let {
+                                runCatching { it.toString(Charsets.UTF_8) }.getOrNull()
+                            } ?: ""
+                        }
+                    }
+
+                    val prefix = when (type) {
+                        AccessKeyType.CRYPTO_WALLET_BTC -> "Bitcoin Native SegWit"
+                        AccessKeyType.CRYPTO_WALLET_ETH -> "Ethereum EIP-55"
+                        AccessKeyType.CRYPTO_WALLET_SOL -> "Solana Ed25519"
+                        else -> "Crypto"
+                    }
+                    summary = if (derivedAddress.isNotBlank()) {
+                        derivedAddress
+                    } else {
+                        "$prefix ($derivationOrSlot)"
+                    }
+                    actualSlot = chosenSlot
                 }
 
                 AccessKeyType.CRYPTO_WALLET_DOT -> {
@@ -299,7 +447,7 @@ class KeyVaultRepositoryImpl(
             }
 
             val newEntry = VaultKeyEntry(
-                slotId = nextSlot,
+                slotId = actualSlot,
                 label = label.take(32),
                 type = type,
                 publicSummary = summary,

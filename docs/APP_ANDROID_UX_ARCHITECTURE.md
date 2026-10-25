@@ -161,3 +161,36 @@ ui/atomic/
 - **Sem Quebra de Linhas ou Encavalamentos:** Todos os componentes foram validados em resolução compacta e padrão (1080x2400) com respeito estrito aos `PaddingValues` do Compose.
 - **Segurança Fail-Closed:** Acesso às operações sensíveis exige sempre a presença física (UP) ou autenticação biométrica em hardware.
 - **Zero Mocks em Release:** Módulos de simulação e hooks de depuração são ativados unicamente em compilações `BuildConfig.DEBUG`, garantindo binários de produção limpos e enxutos.
+
+---
+
+## 7. Feedback Físico e Sensorial: Integração de UX com o LED RGB WS2812 e Ritos de Hardware
+
+A experiência do usuário no AegisKey transcende a tela do smartphone: a interface gráfica trabalha em total sincronia com a sinalização do hardware (LED RGB WS2812 no GPIO 48 e botão físico BOOT no GPIO 0).
+
+> [!NOTE]
+> Para a especificação técnica completa dos 4 canais físicos (USB nativo vs WUDF lock, UART 115200 40ms, BLE GATT `0xFFFD` e Wi-Fi `192.168.4.1`), consulte:  
+> [GUIA_RITOS_CONEXAO_USB_BLE_LED_E_WALLETS.md](file:///e:/projetos/fido/docs/GUIA_RITOS_CONEXAO_USB_BLE_LED_E_WALLETS.md).
+
+### 7.1. Sincronia entre Componentes de UI e Estados Visuais do LED
+
+| Estado na Interface Android | Componente UI Ativo | Estado e Cor do LED WS2812 | Comportamento Físico Esperado |
+|---|---|---|---|
+| **Abertura do App / Splash** | Splash Screen / Transição de Boot | `RainbowCycle` (Espectro RGB) | Hardware executa autoteste de periféricos e RNG |
+| **Hub do Cofre em Espera** | `KeyVaultHubScreen` / Aba 1 | `Breathing Cyan` (`#00FFFF`) | Chave pronta e aguardando requisições |
+| **Conexão Estabelecida** | TopAppBar: Chip "Conectada" | `Solid Green` (`#00FF00`) | Canal seguro estabelecido e sessão autenticada |
+| **Wizard Passo 2 (Pareamento)** | `PhysicalButtonPromptCardMolecule` (5s) | `Amber Blink 5s` $\rightarrow$ `Breathing Blue` | Usuário segura botão 5s; chave abre janela de 60s (Rito 1) |
+| **Wizard Passo 4 / Assinatura** | `PhysicalButtonPromptCardMolecule` (UP) | `PromptTouch` (`#FF8C00`) | Chave pulsa em âmbar aguardando toque físico curto (Rito 2) |
+| **Operação Criptográfica Concluída** | SnackBar / Diálogo de Sucesso | `AuthSuccessPulse` (`#00FF00`) | Chave emite flash verde brilhante de 500 ms |
+| **Erro de Validação / PIN Incorreto** | Diálogo de Erro / Alerta Vermelho | `ErrorFlash` (`#FF0000`) | 3 flashes vermelhos rápidos no dispositivo |
+| **Dispositivo Bloqueado por Tentativas**| Banner Crítico de Bloqueio | `Solid Red` (`#FF0000`) | Trava de segurança ativa (resgate via PIN 0x2D ou reset) |
+| **Ação "Localizar Minha Chave"** | Botão `[Piscar Chave]` | `Wink` (`#FFFFFF`) | 5 estrobos brancos de alta intensidade (CTAPHID 0x88) |
+| **App Fechado / Walkaway Lock** | Notificação de Bloqueio por Afastamento| `Off` (`#000000`) | Chave apaga o LED e entra em modo de proteção contra roubo |
+
+### 7.2. Suporte a Canais Físicos Reais na Camada de Apresentação
+
+O aplicativo foi projetado para operar com transparência absoluta independentemente do canal conectado:
+1. **USB Host Direct (`UsbKeyTransport`):** Se conectado via cabo OTG a um smartphone ou tablet Android, a UI comunica-se diretamente sem travas de driver (diferente do Windows 11 desktop com trava WUDF/WebAuthn);
+2. **Ponte de Bancada (`HostUsbUartBridgeClient`):** Durante testes no emulador, a UI desvia requisições de forma imperceptível para a chave física conectada à porta serial do computador (`COM7`), executando os mesmos ritos de silício real;
+3. **Bluetooth Low Energy (`BleKeyTransport`):** Gerencia a descoberta de periféricos FIDO `0xFFFD`, leitura de MTU e ritos automáticos de repetição em caso de pedido de presença (`0x01`) ou janela de pareamento fechada (`0x05`).
+

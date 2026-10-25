@@ -4,8 +4,10 @@ import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.transport.BleKeyTransport
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
+import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
@@ -26,12 +28,30 @@ import javax.crypto.spec.SecretKeySpec
 
 class TotpRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
-    private val bleClient: AegisBleClient? = null,
-    private val hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
+    private val usbKeyTransport: UsbKeyTransport? = null,
+    private val bleKeyTransport: BleKeyTransport? = null,
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val connectedKeysRepository: ConnectedKeysRepository,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : TotpRepository {
+
+    // Construtor de compatibilidade para chamadas legadas e testes unitários
+    @Suppress("UNUSED_PARAMETER")
+    constructor(
+        keysStore: EncryptedKeysStore,
+        bleClient: AegisBleClient? = null,
+        hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
+        simulatedRenodeTransport: SimulatedRenodeTransport,
+        connectedKeysRepository: ConnectedKeysRepository,
+        scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    ) : this(
+        keysStore = keysStore,
+        usbKeyTransport = null,
+        bleKeyTransport = if (bleClient != null) BleKeyTransport(bleClient, scope) else null,
+        simulatedRenodeTransport = simulatedRenodeTransport,
+        connectedKeysRepository = connectedKeysRepository,
+        scope = scope
+    )
 
     private val _accounts = MutableStateFlow<List<TotpAccountItem>>(emptyList())
     override val accounts: StateFlow<List<TotpAccountItem>> = _accounts.asStateFlow()
@@ -60,17 +80,20 @@ class TotpRepositoryImpl(
         val activeKey = connectedKeysRepository.activeKey.value
         val addr = activeKey?.hardwareAddressOrId ?: ""
         return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB -> {
-                hostBridgeClient.sendVendor(opcode, payload)
+            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
+                usbKeyTransport?.sendVendor(opcode, payload)
             }
             activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                hostBridgeClient.sendVendor(opcode, payload)
+                usbKeyTransport?.sendVendor(opcode, payload)
             }
             activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
                 simulatedRenodeTransport.sendVendor(opcode, payload)
             }
+            activeKey?.transportType == ConnectionTransportType.BLE -> {
+                bleKeyTransport?.sendVendor(opcode, payload) ?: usbKeyTransport?.sendVendor(opcode, payload)
+            }
             else -> {
-                bleClient?.sendVendor(opcode, payload)
+                usbKeyTransport?.sendVendor(opcode, payload) ?: bleKeyTransport?.sendVendor(opcode, payload)
             }
         }
     }
