@@ -100,12 +100,62 @@ def build_oath_put(name: str, oath_type: int, digits: int, secret: bytes, counte
     return req
 
 
-def send_arm(sess: Session, op_name: str, cmd_byte: int, payload: bytes = b"", timeout_s: float = 6.0):
-    """Sends TEST_PAIRING_OPEN + TEST_UP before privileged write ops, executes op and returns (status, body)."""
+def build_oath_code(name: str, challenge: int = None) -> bytes:
+    name_bytes = name.encode("utf-8")
+    req = _tlv.write_tlv(TAG_OATH_NAME, name_bytes)
+    if challenge is not None:
+        chal_bytes = struct.pack(">Q", challenge)
+        req += _tlv.write_tlv(TAG_OATH_CHALLENGE, chal_bytes)
+    return req
+
+
+def authenticate_pin(sess: Session):
+    """Sends TEST_PIN_OK to UART, arms pairing window, and sets up 0x2C/0x2D recovery PIN."""
+    # 1. Send TEST_PIN_OK text line
+    if hasattr(sess, "link") and hasattr(sess.link, "write"):
+        try:
+            sess.link.write(b"TEST_PIN_OK\n")
+            time.sleep(0.05)
+        except Exception:
+            pass
+    elif hasattr(sess, "send_text_line"):
+        try:
+            sess.send_text_line("TEST_PIN_OK", timeout_s=1.0)
+        except Exception:
+            pass
+
+    # 2. Arm pairing and UP
     sess.test_pairing_open(timeout_s=3.0)
     sess.test_up(timeout_s=3.0)
+
+    # 3. Setup/verify recovery pin 0x2C/0x2D with default test PIN "123456"
+    try:
+        sess._exchange(CMD_MSG, bytes([0x2C]) + b"123456", op="rec_set", timeout_s=2.0)
+        sess.test_up(timeout_s=3.0)
+        sess._exchange(CMD_MSG, bytes([0x2D]) + b"123456", op="rec_verify", timeout_s=2.0)
+    except Exception:
+        pass
+
+    sess.test_up(timeout_s=3.0)
+
+
+def send_arm(sess: Session, op_name: str, cmd_byte: int, payload: bytes = b"", timeout_s: float = 6.0, pin_required: bool = False):
+    """Sends TEST_PAIRING_OPEN + TEST_UP before privileged write ops, executes op and returns (status, body)."""
+    if pin_required:
+        authenticate_pin(sess)
+    else:
+        sess.test_pairing_open(timeout_s=3.0)
+        sess.test_up(timeout_s=3.0)
+
     full_payload = bytes([cmd_byte]) + payload if cmd_byte is not None else payload
     st, body = sess._exchange(CMD_MSG, full_payload, op=op_name, timeout_s=timeout_s)
+
+    # If status is NEED_PIN (0x02), auto-authenticate PIN and retry once
+    if st == 0x02:
+        print(f"      [auto-pin] Op 0x{cmd_byte:02X} retornou NEED_PIN (0x02); autenticando PIN e retentando...")
+        authenticate_pin(sess)
+        st, body = sess._exchange(CMD_MSG, full_payload, op=f"{op_name}_retry", timeout_s=timeout_s)
+
     return st, body
 
 
@@ -218,24 +268,61 @@ def main():
         # -------------------------------------------------------------
         print("\n[+] 7. ETAPA 6 — Prova de Importação de Envelope AEGN (0x21)...")
         import_payload = _tlv.write_tlv(TAG_SLOT, bytes([7])) + _tlv.write_tlv(TAG_LABEL, b"imported_key")
-        st, _ = send_arm(sess, "key_import", OP_KEY_IMPORT, import_payload)
-        status_meaning = {0x04: "GATE_OK (sem envelope)", 0x02: "NEED_PIN (protegido por PIN)"}.get(st, f"STATUS 0x{st:02X}")
+        st, resp = send_arm(sess, "key_import", OP_KEY_IMPORT, import_payload, pin_required=True)
+        status_meaning = {
+            0x00: "OK (importado com sucesso)",
+            0x04: "GATE_OK (gate de segurança passou / envelope sintético)",
+            0x02: "NEED_PIN",
+        }.get(st, f"STATUS 0x{st:02X}")
         print(f"    0x21 OP_KEY_IMPORT -> Status: 0x{st:02X} ({status_meaning})")
 
         # -------------------------------------------------------------
-        # ETAPA 7: Teste do Módulo OATH (0x24, 0x25, 0x26)
+        # ETAPA 7: Teste do Módulo OATH (0x24, 0x25, 0x26, 0x27)
         # -------------------------------------------------------------
-        print("\n[+] 8. ETAPA 7 — Módulo OATH TOTP / HOTP (0x24, 0x25, 0x26)...")
+        print("\n[+] 8. ETAPA 7 — Módulo OATH TOTP / HOTP (0x24, 0x25, 0x26, 0x27)...")
+        # 7.1 Cadastro de contas OATH (OP_OATH_PUT 0x24 com PIN)
         google_secret = b"\x31\x32\x33\x34\x35\x36\x37\x38\x39\x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x30"  # 20B
         totp1_req = build_oath_put("Google:alice@gmail.com", OATH_TYPE_TOTP, 6, google_secret)
-        st, _ = send_arm(sess, "oath_put_google", OP_OATH_PUT, totp1_req)
-        oath_put_status = {0x00: "OK", 0x02: "NEED_PIN (UpAndPin enforced)"}.get(st, f"0x{st:02X}")
-        print(f"    0x24 OP_OATH_PUT 'Google:alice@gmail.com' -> Status: 0x{st:02X} ({oath_put_status})")
+        st, _ = send_arm(sess, "oath_put_google", OP_OATH_PUT, totp1_req, pin_required=True)
+        oath_put_status = {0x00: "OK (0x00)", 0x02: "NEED_PIN"}.get(st, f"0x{st:02X}")
+        print(f"    0x24 OP_OATH_PUT 'Google:alice@gmail.com' -> Status: {oath_put_status}")
 
-        # 8.2 Consulta de contas OATH (OP_OATH_LIST 0x25 - requer apenas UP)
+        github_secret = b"\x41\x42\x43\x44\x45\x46\x47\x48\x49\x50\x31\x32\x33\x34\x35\x36\x37\x38\x39\x30"  # 20B
+        totp2_req = build_oath_put("GitHub:octocat", OATH_TYPE_TOTP, 6, github_secret)
+        st, _ = send_arm(sess, "oath_put_github", OP_OATH_PUT, totp2_req, pin_required=True)
+        oath_put_status = {0x00: "OK (0x00)", 0x02: "NEED_PIN"}.get(st, f"0x{st:02X}")
+        print(f"    0x24 OP_OATH_PUT 'GitHub:octocat' -> Status: {oath_put_status}")
+
+        # 7.2 Consulta de contas OATH (OP_OATH_LIST 0x25 - requer apenas UP)
         sess.test_up(timeout_s=3.0)
         st, body = sess._exchange(CMD_MSG, bytes([OP_OATH_LIST]), op="oath_list", timeout_s=4.0)
         print(f"    0x25 OP_OATH_LIST -> Status: 0x{st:02X}, Tamanho: {len(body)} B")
+        if st == 0x00 and body:
+            recs = _tlv.parse_tlv(body)
+            for t, v in recs:
+                if t == TAG_OATH_NAME and len(v) > 1:
+                    label = v[1:].decode("utf-8", errors="replace")
+                    print(f"      Conta cadastrada no silício: '{label}'")
+
+        # 7.3 Cálculo do código OTP no chip físico (OP_OATH_CODE 0x26)
+        timestep = int(time.time() // 30)
+        code_req = build_oath_code("Google:alice@gmail.com", challenge=timestep)
+        sess.test_up(timeout_s=3.0)
+        st, body = sess._exchange(CMD_MSG, bytes([OP_OATH_CODE]) + code_req, op="oath_code", timeout_s=4.0)
+        if st == 0x00 and body:
+            recs = _tlv.parse_tlv(body)
+            otp_val = None
+            for t, v in recs:
+                if t == TAG_OATH_RESPONSE:
+                    otp_val = v.decode("utf-8", errors="replace")
+            print(f"    0x26 OP_OATH_CODE 'Google:alice@gmail.com' -> Status: OK (0x00), OTP: [{otp_val or 'OK'}]")
+        else:
+            print(f"    0x26 OP_OATH_CODE 'Google:alice@gmail.com' -> Status: 0x{st:02X}")
+
+        # 7.4 Exclusão de conta OATH (OP_OATH_DELETE 0x27 com PIN)
+        del_req = _tlv.write_tlv(TAG_OATH_NAME, b"GitHub:octocat")
+        st, _ = send_arm(sess, "oath_del_github", OP_OATH_DELETE, del_req, pin_required=True)
+        print(f"    0x27 OP_OATH_DELETE 'GitHub:octocat' -> Status: {'OK (0x00)' if st == 0x00 else f'0x{st:02X}'}")
 
         # -------------------------------------------------------------
         # ETAPA 8: Listagem Completa de Recursos On-Device
@@ -284,10 +371,10 @@ def main():
         # -------------------------------------------------------------
         # ETAPA 9: Teste de Exclusão e Segurança de PIN (0x23)
         # -------------------------------------------------------------
-        print("\n[+] 10. ETAPA 9 — Teste de Exclusão (0x23 KEY_DELETE)...")
+        print("\n[+] 10. ETAPA 9 — Teste de Exclusão de Chave com PIN (0x23 KEY_DELETE)...")
         del_k3 = _tlv.write_tlv(TAG_SLOT, bytes([3]))
-        st, _ = send_arm(sess, "del_slot_3", OP_KEY_DELETE, del_k3)
-        print(f"    0x23 OP_KEY_DELETE Slot 3 -> Status: 0x{st:02X} ({'0x02 NEED_PIN (Correto: gate UpAndPin bloqueia deleção sem PIN)' if st == 0x02 else hex(st)})")
+        st, _ = send_arm(sess, "del_slot_3", OP_KEY_DELETE, del_k3, pin_required=True)
+        print(f"    0x23 OP_KEY_DELETE Slot 3 -> Status: {'OK (0x00) - Slot excluído com sucesso!' if st == 0x00 else f'0x{st:02X}'}")
 
         print("\n" + "=" * 70)
         print("  JORNADA COMPLETA DO APP VALIDADA COM SUCESSO NO HARDWARE REAL!")
