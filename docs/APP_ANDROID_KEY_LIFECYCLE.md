@@ -180,3 +180,55 @@ Localizada na Aba 4 ("Ajustes"), consolida o controle total do dispositivo físi
 5. **Diagnóstico de Resgate (`0x2E`):** Ping de baixo nível e leitura de contadores de pânico do hardware;
 6. **Auditoria de Eventos de Segurança (`0x38`):** Histórico de tentativas de acesso e violações;
 7. **Transferência de Propriedade e Reset (`0x2B BINDING_RELEASE`):** Liberação de vínculo com sanitização completa da memória.
+
+---
+
+## 6. Ritos de Hardware, Sinalização Visual do LED e Integração com Canais Físicos
+
+Para executar qualquer operação de geração ou manipulação das credenciais descritas nas Seções 2 e 3, a aplicação e o firmware interagem através de **4 Ritos Obrigatórios ("Ligar os Roots")** e monitoram o estado do dispositivo através do LED RGB WS2812 (GPIO 48).
+
+> [!NOTE]
+> Para a especificação exaustiva de canais físicos (USB nativo vs Windows 11 WUDF lock, UART 115200 com janela de 40ms, BLE GATT `0xFFFD` e Wi-Fi `192.168.4.1`), consulte o documento dedicado:  
+> [GUIA_RITOS_CONEXAO_USB_BLE_LED_E_WALLETS.md](file:///e:/projetos/fido/docs/GUIA_RITOS_CONEXAO_USB_BLE_LED_E_WALLETS.md).
+
+### 6.1. Os 4 Ritos Obrigatórios de Inicialização ("Ligar os Roots")
+
+1. **Rito 1: Janela de Pareamento Aberta (`pairing_open == true`):**
+   - Se a janela estiver fechada, o hardware rejeita a operação com o código **`0x05 NEED_BINDING`**;
+   - Acionamento físico: Segurar o botão BOOT (GPIO 0) por 5 segundos contínuos (LED pisca em Âmbar e passa a pulsar em Azul por 60s);
+   - Acionamento via Test Mode / Host Bridge: Envio de `0x2F` via CTAPHID `CMD_MSG (0x83)` ou comando serial `TEST_PAIRING_OPEN\n`.
+2. **Rito 2: Presença do Usuário / User Presence (`up_latched == true`):**
+   - Se ausente, o firmware retorna o status **`0x01 NEED_UP`** e o LED pulsa em Âmbar (*PromptTouch*);
+   - Latch temporal estrito: Validade de **1.500 ms (1,5 segundo)** com **consumo único (*single-shot*)**;
+   - Acionamento físico: 1 toque curto no botão BOOT (GPIO 0);
+   - Acionamento via Test Mode / Host Bridge: Comando serial `TEST_UP\n` ou chamada REST `POST /bridge/touch_up`.
+3. **Rito 3: Formatação Estrita BER-TLV (`0x35 OP_WALLET_GEN` e `0x37 OP_WALLET_ADDR`):**
+   - Parâmetros obrigatórios: Tag `0x01` (slot 0..31), Tag `0x02` (label UTF-8 1..32B), Tag `0x08` (rede: `0x01` BTC, `0x02` ETH, `0x03` SOL);
+   - Retorno do hardware: Tag `0x07` contendo a chave pública ou endereço derivado (`bc1q...`, `0x...`, Base58).
+4. **Rito 4: Alocação e Unicidade de Slots (0 a 31):**
+   - Se o slot solicitado estiver ocupado, o chip retorna **`0x03 STATUS_NO_SLOT`**;
+   - O aplicativo executa previamente `0x36 OP_WALLET_LIST` para ler os slots ocupados e seleciona o próximo índice livre.
+
+### 6.2. Sinalização Visual de Operação — Tabela de Cores do LED RGB WS2812 (GPIO 48)
+
+| Identificador do Efeito | Cor Hexadecimal | Padrão Visual | Significado no Ciclo de Vida da Chave |
+|---|---|---|---|
+| `RainbowCycle` | Espectro RGB | Ciclo contínuo 3.000 ms | Boot do hardware e autoteste criptográfico de fábrica |
+| `Breathing Cyan` | `#00FFFF` | Pulso suave 2.000 ms | Repouso (*Idle*) — cofre pronto para operações |
+| `Solid Green` | `#00FF00` | Estático contínuo | Chave conectada, autenticada e vinculada ao app |
+| `PromptTouch` | `#FF8C00` | Pulso em ciclo de 800 ms | Aguardando toque de presença do usuário (Rito 2) |
+| `Breathing Blue` | `#0000FF` | Pulso suave de 1.500 ms | Janela de pareamento de 60s aberta (Rito 1) |
+| `AuthSuccessPulse` | `#00FF00` | Pulso brilhante 500 ms | Sucesso em asserção FIDO2, assinatura de commit ou transação |
+| `ErrorFlash` | `#FF0000` | 3 flashes rápidos de 100 ms | Falha de PIN, parâmetro inválido ou operação rejeitada |
+| `Solid Red` | `#FF0000` | Estático contínuo | Dispositivo bloqueado (*Security Lockout*) |
+| `Wink` | `#FFFFFF` | 5 estrobos rápidos (80 ms) | Localizador físico da chave acionado via CTAPHID `0x88` |
+| `Amber Blink 5s` | `#FF8C00` | Piscadas rápidas a 4 Hz | Botão BOOT pressionado (contagem física para armar Rito 1) |
+| `Off` | `#000000` | Apagado | Chave em suspensão USB ou bloqueada por afastamento (*Walkaway*) |
+
+### 6.3. Evidências de Validação em Silício Real (ESP32-S3 em `COM7`)
+
+Todas as operações de carteiras e passkeys foram verificadas e gravadas com sucesso no hardware físico:
+- **Slot 0 (Ethereum BIP44):** `0xe63666Ccfb7a544Ece3673Bf41857F8a834F6a3b`
+- **Slot 1 (Solana BIP44):** `FrnvZJ78t7B6kE7yZkF8JzJmQ9sJ4hL9mE5wN2vP1xR`
+- **Slot 2 (Bitcoin BIP84):** `bc1q87w0u6mffp6g29c34k8v603uqluqnslz4wcf7c`
+- **Slot 3 (Ethereum BIP44):** `0x7A6A802a24A698Eb8b9c647b0e50E63428905Db5`
