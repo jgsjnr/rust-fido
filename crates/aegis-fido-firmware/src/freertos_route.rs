@@ -377,8 +377,8 @@ pub fn route_ctaphid_event(
                         responses: Vec::new(),
                         origin: Some(origin),
                         consumed_up: false,
-            arm_up: false,
-            pin_verified: false,
+                        arm_up: false,
+                        pin_verified: false,
                     };
                 }
                 let mut nonce = [0u8; 8];
@@ -397,8 +397,8 @@ pub fn route_ctaphid_event(
                     responses: vec![pkt],
                     origin: Some(origin),
                     consumed_up: false,
-            arm_up: false,
-            pin_verified: false,
+                    arm_up: false,
+                    pin_verified: false,
                 };
             }
             if msg.cmd == CMD_PING {
@@ -406,8 +406,8 @@ pub fn route_ctaphid_event(
                     responses: CtapHidFramer::frame_ping(msg.cid, &msg.payload),
                     origin: Some(origin),
                     consumed_up: false,
-            arm_up: false,
-            pin_verified: false,
+                    arm_up: false,
+                    pin_verified: false,
                 };
             }
             if msg.cmd == CMD_WINK {
@@ -415,8 +415,8 @@ pub fn route_ctaphid_event(
                     responses: CtapHidFramer::frame_message(msg.cid, CMD_WINK, &[]),
                     origin: Some(origin),
                     consumed_up: false,
-            arm_up: false,
-            pin_verified: false,
+                    arm_up: false,
+                    pin_verified: false,
                 };
             }
             // Vendor/bind-mgmt/wallet/fw-log/rescue/pairing serial no
@@ -449,7 +449,7 @@ pub fn route_ctaphid_event(
                 return CtaphidDispatch {
                     responses: CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
                     arm_up: false,
-            pin_verified: false,
+                    pin_verified: false,
                     origin: Some(origin),
                     consumed_up: consumed,
                 };
@@ -458,8 +458,8 @@ pub fn route_ctaphid_event(
                 responses: vec![CtapHidFramer::frame_error(msg.cid, 0x01)],
                 origin: Some(origin),
                 consumed_up: false,
-            arm_up: false,
-            pin_verified: false,
+                arm_up: false,
+                pin_verified: false,
             }
         }
     }
@@ -802,7 +802,9 @@ mod tests {
         use aegis_fido_core::credential::key_manager::KeyManager;
         use aegis_fido_core::oath::OathApplet;
         use aegis_fido_core::otp::rescue::RescueEngine;
-        use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardPolicy, SecureGuardState};
+        use aegis_fido_core::secure_guard::{
+            SecureGuardEngine, SecureGuardPolicy, SecureGuardState,
+        };
         use aegis_fido_core::wallet::WalletStore;
         use aegis_fido_usb::ctaphid::CMD_MSG;
         use ciborium::value::Value;
@@ -831,7 +833,10 @@ mod tests {
 
         // 1. Provisiona Secure Guard via 0x3B
         let prov_map = vec![
-            (Value::Text("action".into()), Value::Text("provision".into())),
+            (
+                Value::Text("action".into()),
+                Value::Text("provision".into()),
+            ),
             (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
         ];
         let mut prov_cbor = Vec::new();
@@ -875,7 +880,10 @@ mod tests {
         );
         assert!(!out_prov.responses.is_empty());
         assert_eq!(out_prov.responses[0][7], 0x00); // Sucesso provisionamento!
-        assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Locked);
+        assert_eq!(
+            vendor.secure_guard.as_ref().unwrap().state(),
+            SecureGuardState::Locked
+        );
         assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
 
         // 2. Tenta OP_WALLET_LIST (0x36) com Secure Guard LOCKED -> Deve ser BLOQUEADO pela barreira (0x36 PIN_REQUIRED)!
@@ -922,7 +930,10 @@ mod tests {
         );
         assert!(!out_unlock.responses.is_empty());
         assert_eq!(out_unlock.responses[0][7], 0x00); // Desbloqueado com sucesso!
-        assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Unlocked);
+        assert_eq!(
+            vendor.secure_guard.as_ref().unwrap().state(),
+            SecureGuardState::Unlocked
+        );
 
         // 4. Agora chama OP_WALLET_LIST (0x36) com Secure Guard UNLOCKED -> PERMITIDO!
         let raw_wallet_ok = init_raw(0x1122_3344, CMD_MSG, &[OP_WALLET_LIST]);
@@ -958,7 +969,10 @@ mod tests {
         );
         assert_eq!(out_expired.responses.len(), 1);
         assert_eq!(out_expired.responses[0][7], 0x36); // Expirou sessão e bloqueou!
-        assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Locked);
+        assert_eq!(
+            vendor.secure_guard.as_ref().unwrap().state(),
+            SecureGuardState::Locked
+        );
     }
 
     #[test]
@@ -969,7 +983,9 @@ mod tests {
         use aegis_fido_core::credential::key_manager::KeyManager;
         use aegis_fido_core::oath::OathApplet;
         use aegis_fido_core::otp::rescue::RescueEngine;
-        use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardPolicy, SecureGuardState};
+        use aegis_fido_core::secure_guard::{
+            SecureGuardEngine, SecureGuardPolicy, SecureGuardState,
+        };
         use aegis_fido_core::wallet::WalletStore;
         use aegis_fido_usb::ctaphid::CMD_CBOR;
 
@@ -991,7 +1007,9 @@ mod tests {
             ..Default::default()
         };
         let mut sg = SecureGuardEngine::new(policy);
-        let _ = sg.provision_pin(b"2948", [0x11; 16], b"", [0x22; 16], 1000).expect("prov");
+        let _ = sg
+            .provision_pin(b"2948", [0x11; 16], b"", [0x22; 16], 1000)
+            .expect("prov");
         // Secure Guard está LOCKED e provisionado!
         assert_eq!(sg.state(), SecureGuardState::Locked);
 

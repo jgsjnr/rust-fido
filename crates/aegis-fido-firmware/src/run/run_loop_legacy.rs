@@ -1833,7 +1833,10 @@ pub fn run_authenticator() {
                                                     ctap_engine
                                                         .pin_state
                                                         .has_valid_pin_uv_session()
-                                                        || (cfg!(feature = "test-mode") && (pairing_mgr.is_pairing_window_open(now_ms) || touch_latched)),
+                                                        || (cfg!(feature = "test-mode")
+                                                            && (pairing_mgr
+                                                                .is_pairing_window_open(now_ms)
+                                                                || touch_latched)),
                                                     true,
                                                     now_secs,
                                                     &mut rng,

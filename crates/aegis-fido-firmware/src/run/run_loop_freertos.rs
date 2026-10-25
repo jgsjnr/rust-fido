@@ -145,13 +145,10 @@ pub fn run_authenticator_freertos() {
         #[cfg(not(any(feature = "board-t-display", feature = "board-ttgo-classic")))]
         {
             sched
-                .spawn_button_task_native(
-                    move || boot_input.is_pressed_raw(),
-                    {
-                        let key_input = EspKeyButtonInput::new();
-                        move || key_input.is_pressed_raw()
-                    },
-                )
+                .spawn_button_task_native(move || boot_input.is_pressed_raw(), {
+                    let key_input = EspKeyButtonInput::new();
+                    move || key_input.is_pressed_raw()
+                })
                 .expect("spawn ui_button native")
         }
     };
@@ -356,7 +353,7 @@ pub fn run_authenticator_freertos() {
         if !crate::vendor_exec::load_pin_state(&storage, &mut ctap_engine.pin_state) {
             kprintln!("[WARN] PIN NVS inconsistente; sem PIN.");
         }
-        let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
+        let secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
         kprintln!(
             "[INIT] Secure Guard online (state={:?}, provisioned={}).",
             secure_guard.state(),

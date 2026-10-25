@@ -695,7 +695,6 @@ pub fn secure_guard_encode_provision(
         ..Default::default()
     };
 
-
     let rc = if recovery_code.is_empty() {
         None
     } else {
@@ -718,16 +717,22 @@ pub fn secure_guard_encode_change_pin(
     current_pin: Vec<u8>,
     new_pin: Vec<u8>,
 ) -> Result<Vec<u8>, BridgeError> {
-    universal_device_sdk::secure_guard::encode_secure_guard_change_pin_request(&current_pin, &new_pin)
-        .map_err(|_| BridgeError::SecureGuardError)
+    universal_device_sdk::secure_guard::encode_secure_guard_change_pin_request(
+        &current_pin,
+        &new_pin,
+    )
+    .map_err(|_| BridgeError::SecureGuardError)
 }
 
 pub fn secure_guard_encode_recover(
     recovery_code: Vec<u8>,
     new_pin: Vec<u8>,
 ) -> Result<Vec<u8>, BridgeError> {
-    universal_device_sdk::secure_guard::encode_secure_guard_recover_request(&recovery_code, &new_pin)
-        .map_err(|_| BridgeError::SecureGuardError)
+    universal_device_sdk::secure_guard::encode_secure_guard_recover_request(
+        &recovery_code,
+        &new_pin,
+    )
+    .map_err(|_| BridgeError::SecureGuardError)
 }
 
 pub fn secure_guard_encode_lock() -> Result<Vec<u8>, BridgeError> {
@@ -1213,8 +1218,10 @@ mod tests {
 
         // URL encoded label and query param.
         let parsed3 = otpauth_extract_label_and_secret(
-            "otpauth://totp/Acme%20Corp:bob%2Btest@email.com?secret=JBSW%20Y3DP&issuer=Acme%20Corp".to_string(),
-        ).unwrap();
+            "otpauth://totp/Acme%20Corp:bob%2Btest@email.com?secret=JBSW%20Y3DP&issuer=Acme%20Corp"
+                .to_string(),
+        )
+        .unwrap();
         assert_eq!(parsed3.issuer, "Acme Corp");
         assert_eq!(parsed3.account_name, "bob+test@email.com");
         assert_eq!(parsed3.secret_base32, "JBSWY3DP");
@@ -1240,18 +1247,15 @@ mod tests {
         assert_eq!(p1.period, 30);
 
         // Lowercase with spaces.
-        let p2 =
-            otpauth_extract_label_and_secret("  jbsw y3dp ehpk 3pxp  ".to_string()).unwrap();
+        let p2 = otpauth_extract_label_and_secret("  jbsw y3dp ehpk 3pxp  ".to_string()).unwrap();
         assert_eq!(p2.secret_base32, "JBSWY3DPEHPK3PXP");
 
         // With hyphens.
-        let p3 =
-            otpauth_extract_label_and_secret("JBSW-Y3DP-EHPK-3PXP".to_string()).unwrap();
+        let p3 = otpauth_extract_label_and_secret("JBSW-Y3DP-EHPK-3PXP".to_string()).unwrap();
         assert_eq!(p3.secret_base32, "JBSWY3DPEHPK3PXP");
 
         // With padding.
-        let p4 =
-            otpauth_extract_label_and_secret("JBSWY3DPEHPK3PXP===".to_string()).unwrap();
+        let p4 = otpauth_extract_label_and_secret("JBSWY3DPEHPK3PXP===".to_string()).unwrap();
         assert_eq!(p4.secret_base32, "JBSWY3DPEHPK3PXP");
     }
 
@@ -1367,7 +1371,8 @@ mod tests {
             .expect("encode recover");
         assert!(!rec_bytes.is_empty());
 
-        let wipe_bytes = secure_guard_encode_wipe(1, "CONFIRM_WIPE".to_string()).expect("encode wipe");
+        let wipe_bytes =
+            secure_guard_encode_wipe(1, "CONFIRM_WIPE".to_string()).expect("encode wipe");
         assert!(!wipe_bytes.is_empty());
     }
 }

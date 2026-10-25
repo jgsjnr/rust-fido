@@ -131,7 +131,10 @@ mod tests {
         // Too long (> 16)
         assert!(matches!(
             policy.validate_pin(b"12345678901234567"),
-            Err(SecureGuardError::PinTooLong { max: 16, actual: 17 })
+            Err(SecureGuardError::PinTooLong {
+                max: 16,
+                actual: 17
+            })
         ));
 
         // Valid length

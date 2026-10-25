@@ -41,45 +41,30 @@ pub enum SecureGuardAuditEventType {
         remaining_attempts: u8,
     },
     /// Progressive backoff rate-limit initiated.
-    RateLimitStarted {
-        delay_ms: u64,
-        until_ms: u64,
-    },
+    RateLimitStarted { delay_ms: u64, until_ms: u64 },
     /// Rate limit delay expired, returning to Locked state.
     RateLimitExpired,
     /// Legitimate recovery code validated and new credentials established.
     RecoverySuccess,
     /// Recovery code verification failed.
-    RecoveryFailed {
-        failed_attempts: u8,
-    },
+    RecoveryFailed { failed_attempts: u8 },
     /// Transactional PIN change completed.
     PinChanged,
     /// Active session unlocked with deadline.
-    SessionUnlocked {
-        expires_at_ms: u64,
-    },
+    SessionUnlocked { expires_at_ms: u64 },
     /// Session touched by authorized activity.
-    SessionTouched {
-        last_activity_ms: u64,
-    },
+    SessionTouched { last_activity_ms: u64 },
     /// Session expired or terminated.
-    SessionExpired {
-        reason: SessionExpiryReason,
-    },
+    SessionExpired { reason: SessionExpiryReason },
     /// Scoped wipe triggered by policy.
     WipeTriggered {
         scope: SecureGuardWipeScope,
         simulated: bool,
     },
     /// Scoped wipe completed.
-    WipeCompleted {
-        simulated: bool,
-    },
+    WipeCompleted { simulated: bool },
     /// Persistent storage integrity check failure detected.
-    IntegrityFailure {
-        detail_code: u8,
-    },
+    IntegrityFailure { detail_code: u8 },
 }
 
 /// Reason for session termination or expiration.

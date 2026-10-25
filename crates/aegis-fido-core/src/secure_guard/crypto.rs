@@ -62,8 +62,8 @@ pub fn constant_time_eq_32(a: &[u8; 32], b: &[u8; 32]) -> bool {
 
 /// Computes HMAC-SHA256 of data with the given key.
 pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
-        .expect("HMAC-SHA256 accepts keys of any length");
+    let mut mac =
+        <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC-SHA256 accepts keys of any length");
     mac.update(data);
     let mut out = [0u8; 32];
     out.copy_from_slice(&mac.finalize().into_bytes());

@@ -6,10 +6,8 @@
 //! sob qualquer sinal de corrupção ou erro de integridade, transiciona determinística
 //! para `ErrorLocked`.
 
-use aegis_fido_core::secure_guard::{
-    SecureGuardEngine, SecureGuardPolicy, PERSISTENT_RECORD_SIZE,
-};
 use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
+use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardPolicy, PERSISTENT_RECORD_SIZE};
 
 /// Chave NVS para o registro persistido do Secure Guard (≤15 caracteres per ESP-IDF).
 pub const NVS_SECURE_GUARD_RECORD: &str = "sg_record_v1";
@@ -68,8 +66,8 @@ pub fn load_secure_guard_record<B: FlashStorageBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aegis_fido_core::secure_guard::SecureGuardState;
     use crate::persistence::MockFlashBackend;
+    use aegis_fido_core::secure_guard::SecureGuardState;
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x42; 32], &[0x99; 32])

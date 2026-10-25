@@ -7,11 +7,11 @@
 //! - 0x3D: OP_SECURE_GUARD_CONFIG
 //! - 0x3E: OP_SECURE_GUARD_WIPE_SELECTIVE
 
+use crate::error::SdkError;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use ciborium::value::Value;
-use crate::error::SdkError;
 
 /// Opcode 0x3A: consulta telemetria e estado da FSM
 pub const OP_SECURE_GUARD_STATUS: u8 = 0x3A;
@@ -202,12 +202,17 @@ fn get_str(entries: &[(Value, Value)], key: &str) -> Option<String> {
 
 /// Codifica a requisição de status (0x3A)
 pub fn encode_secure_guard_status_request(include_audit: bool) -> Result<Vec<u8>, SdkError> {
-    let map = vec![(Value::Text("include_audit".into()), Value::Bool(include_audit))];
+    let map = vec![(
+        Value::Text("include_audit".into()),
+        Value::Bool(include_audit),
+    )];
     to_cbor(&Value::Map(map))
 }
 
 /// Decodifica a resposta CBOR do status (0x3A)
-pub fn decode_secure_guard_status_response(payload: &[u8]) -> Result<SecureGuardStatusDto, SdkError> {
+pub fn decode_secure_guard_status_response(
+    payload: &[u8],
+) -> Result<SecureGuardStatusDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -259,29 +264,55 @@ pub fn encode_secure_guard_provision_request(
     policy: Option<&SecureGuardPolicyDto>,
 ) -> Result<Vec<u8>, SdkError> {
     let mut map = Vec::new();
-    map.push((Value::Text("action".into()), Value::Text("provision".into())));
+    map.push((
+        Value::Text("action".into()),
+        Value::Text("provision".into()),
+    ));
     map.push((Value::Text("pin".into()), Value::Bytes(pin.to_vec())));
 
     if let Some(rc) = recovery_code {
         if !rc.is_empty() {
-            map.push((Value::Text("recovery_code".into()), Value::Bytes(rc.to_vec())));
+            map.push((
+                Value::Text("recovery_code".into()),
+                Value::Bytes(rc.to_vec()),
+            ));
         }
     }
 
     if let Some(p) = policy {
-        map.push((Value::Text("wipe_on_5_failures".into()), Value::Bool(p.wipe_on_5_failures)));
-        map.push((Value::Text("protect_keys_and_aegn".into()), Value::Bool(p.protect_keys_and_aegn)));
-        map.push((Value::Text("protect_oath".into()), Value::Bool(p.protect_oath)));
-        map.push((Value::Text("test_mode_non_destructive_wipe".into()), Value::Bool(p.test_mode_non_destructive_wipe)));
-        map.push((Value::Text("session_duration_ms".into()), Value::from(p.session_duration_ms)));
-        map.push((Value::Text("inactivity_timeout_ms".into()), Value::from(p.inactivity_timeout_ms)));
+        map.push((
+            Value::Text("wipe_on_5_failures".into()),
+            Value::Bool(p.wipe_on_5_failures),
+        ));
+        map.push((
+            Value::Text("protect_keys_and_aegn".into()),
+            Value::Bool(p.protect_keys_and_aegn),
+        ));
+        map.push((
+            Value::Text("protect_oath".into()),
+            Value::Bool(p.protect_oath),
+        ));
+        map.push((
+            Value::Text("test_mode_non_destructive_wipe".into()),
+            Value::Bool(p.test_mode_non_destructive_wipe),
+        ));
+        map.push((
+            Value::Text("session_duration_ms".into()),
+            Value::from(p.session_duration_ms),
+        ));
+        map.push((
+            Value::Text("inactivity_timeout_ms".into()),
+            Value::from(p.inactivity_timeout_ms),
+        ));
     }
 
     to_cbor(&Value::Map(map))
 }
 
 /// Decodifica a resposta de provisionamento (0x3B)
-pub fn decode_secure_guard_provision_response(payload: &[u8]) -> Result<SecureGuardProvisionResultDto, SdkError> {
+pub fn decode_secure_guard_provision_response(
+    payload: &[u8],
+) -> Result<SecureGuardProvisionResultDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -311,7 +342,9 @@ pub fn encode_secure_guard_unlock_request(pin: &[u8]) -> Result<Vec<u8>, SdkErro
 }
 
 /// Decodifica a resposta de desbloqueio (0x3B)
-pub fn decode_secure_guard_unlock_response(payload: &[u8]) -> Result<SecureGuardUnlockResultDto, SdkError> {
+pub fn decode_secure_guard_unlock_response(
+    payload: &[u8],
+) -> Result<SecureGuardUnlockResultDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -319,7 +352,15 @@ pub fn decode_secure_guard_unlock_response(payload: &[u8]) -> Result<SecureGuard
     };
 
     let success = get_bool(&entries, "success", false);
-    let state = get_u8(&entries, "state", if success { STATE_UNLOCKED } else { STATE_LOCKED });
+    let state = get_u8(
+        &entries,
+        "state",
+        if success {
+            STATE_UNLOCKED
+        } else {
+            STATE_LOCKED
+        },
+    );
     let state_name = get_str(&entries, "state_name")
         .unwrap_or_else(|| String::from(state_name_from_code(state)));
     let failed_attempts = get_u8(&entries, "failed_attempts", 0);
@@ -339,17 +380,31 @@ pub fn decode_secure_guard_unlock_response(payload: &[u8]) -> Result<SecureGuard
 }
 
 /// Codifica a requisição de alteração de PIN (0x3B action="change_pin")
-pub fn encode_secure_guard_change_pin_request(current_pin: &[u8], new_pin: &[u8]) -> Result<Vec<u8>, SdkError> {
+pub fn encode_secure_guard_change_pin_request(
+    current_pin: &[u8],
+    new_pin: &[u8],
+) -> Result<Vec<u8>, SdkError> {
     let map = vec![
-        (Value::Text("action".into()), Value::Text("change_pin".into())),
-        (Value::Text("current_pin".into()), Value::Bytes(current_pin.to_vec())),
-        (Value::Text("new_pin".into()), Value::Bytes(new_pin.to_vec())),
+        (
+            Value::Text("action".into()),
+            Value::Text("change_pin".into()),
+        ),
+        (
+            Value::Text("current_pin".into()),
+            Value::Bytes(current_pin.to_vec()),
+        ),
+        (
+            Value::Text("new_pin".into()),
+            Value::Bytes(new_pin.to_vec()),
+        ),
     ];
     to_cbor(&Value::Map(map))
 }
 
 /// Decodifica a resposta de alteração de PIN (0x3B)
-pub fn decode_secure_guard_change_pin_response(payload: &[u8]) -> Result<SecureGuardChangePinResultDto, SdkError> {
+pub fn decode_secure_guard_change_pin_response(
+    payload: &[u8],
+) -> Result<SecureGuardChangePinResultDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -363,17 +418,28 @@ pub fn decode_secure_guard_change_pin_response(payload: &[u8]) -> Result<SecureG
 }
 
 /// Codifica a requisição de recuperação (0x3B action="recover")
-pub fn encode_secure_guard_recover_request(recovery_code: &[u8], new_pin: &[u8]) -> Result<Vec<u8>, SdkError> {
+pub fn encode_secure_guard_recover_request(
+    recovery_code: &[u8],
+    new_pin: &[u8],
+) -> Result<Vec<u8>, SdkError> {
     let map = vec![
         (Value::Text("action".into()), Value::Text("recover".into())),
-        (Value::Text("recovery_code".into()), Value::Bytes(recovery_code.to_vec())),
-        (Value::Text("new_pin".into()), Value::Bytes(new_pin.to_vec())),
+        (
+            Value::Text("recovery_code".into()),
+            Value::Bytes(recovery_code.to_vec()),
+        ),
+        (
+            Value::Text("new_pin".into()),
+            Value::Bytes(new_pin.to_vec()),
+        ),
     ];
     to_cbor(&Value::Map(map))
 }
 
 /// Decodifica a resposta de recuperação (0x3B)
-pub fn decode_secure_guard_recover_response(payload: &[u8]) -> Result<SecureGuardRecoverResultDto, SdkError> {
+pub fn decode_secure_guard_recover_response(
+    payload: &[u8],
+) -> Result<SecureGuardRecoverResultDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -398,7 +464,9 @@ pub fn encode_secure_guard_lock_request() -> Result<Vec<u8>, SdkError> {
 }
 
 /// Decodifica a resposta de bloqueio de sessão (0x3C)
-pub fn decode_secure_guard_lock_response(payload: &[u8]) -> Result<SecureGuardLockResultDto, SdkError> {
+pub fn decode_secure_guard_lock_response(
+    payload: &[u8],
+) -> Result<SecureGuardLockResultDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -412,20 +480,42 @@ pub fn decode_secure_guard_lock_response(payload: &[u8]) -> Result<SecureGuardLo
 }
 
 /// Codifica a requisição de configuração de políticas (0x3D)
-pub fn encode_secure_guard_config_request(policy: &SecureGuardPolicyDto) -> Result<Vec<u8>, SdkError> {
+pub fn encode_secure_guard_config_request(
+    policy: &SecureGuardPolicyDto,
+) -> Result<Vec<u8>, SdkError> {
     let map = vec![
-        (Value::Text("wipe_on_5_failures".into()), Value::Bool(policy.wipe_on_5_failures)),
-        (Value::Text("protect_keys_and_aegn".into()), Value::Bool(policy.protect_keys_and_aegn)),
-        (Value::Text("protect_oath".into()), Value::Bool(policy.protect_oath)),
-        (Value::Text("test_mode_non_destructive_wipe".into()), Value::Bool(policy.test_mode_non_destructive_wipe)),
-        (Value::Text("session_duration_ms".into()), Value::from(policy.session_duration_ms)),
-        (Value::Text("inactivity_timeout_ms".into()), Value::from(policy.inactivity_timeout_ms)),
+        (
+            Value::Text("wipe_on_5_failures".into()),
+            Value::Bool(policy.wipe_on_5_failures),
+        ),
+        (
+            Value::Text("protect_keys_and_aegn".into()),
+            Value::Bool(policy.protect_keys_and_aegn),
+        ),
+        (
+            Value::Text("protect_oath".into()),
+            Value::Bool(policy.protect_oath),
+        ),
+        (
+            Value::Text("test_mode_non_destructive_wipe".into()),
+            Value::Bool(policy.test_mode_non_destructive_wipe),
+        ),
+        (
+            Value::Text("session_duration_ms".into()),
+            Value::from(policy.session_duration_ms),
+        ),
+        (
+            Value::Text("inactivity_timeout_ms".into()),
+            Value::from(policy.inactivity_timeout_ms),
+        ),
     ];
     to_cbor(&Value::Map(map))
 }
 
 /// Decodifica a resposta de configuração de políticas (0x3D)
-pub fn decode_secure_guard_config_response(payload: &[u8]) -> Result<SecureGuardPolicyDto, SdkError> {
+pub fn decode_secure_guard_config_response(
+    payload: &[u8],
+) -> Result<SecureGuardPolicyDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -443,16 +533,24 @@ pub fn decode_secure_guard_config_response(payload: &[u8]) -> Result<SecureGuard
 }
 
 /// Codifica a requisição de wipe seletivo (0x3E)
-pub fn encode_secure_guard_wipe_request(scope: u8, confirm_token: &str) -> Result<Vec<u8>, SdkError> {
+pub fn encode_secure_guard_wipe_request(
+    scope: u8,
+    confirm_token: &str,
+) -> Result<Vec<u8>, SdkError> {
     let map = vec![
         (Value::Text("scope".into()), Value::from(scope)),
-        (Value::Text("confirmation".into()), Value::Text(confirm_token.into())),
+        (
+            Value::Text("confirmation".into()),
+            Value::Text(confirm_token.into()),
+        ),
     ];
     to_cbor(&Value::Map(map))
 }
 
 /// Decodifica a resposta de wipe seletivo (0x3E)
-pub fn decode_secure_guard_wipe_response(payload: &[u8]) -> Result<SecureGuardWipeResultDto, SdkError> {
+pub fn decode_secure_guard_wipe_response(
+    payload: &[u8],
+) -> Result<SecureGuardWipeResultDto, SdkError> {
     let val = from_cbor(payload)?;
     let entries = match val {
         Value::Map(m) => m,
@@ -489,19 +587,37 @@ mod tests {
     fn test_status_response_roundtrip() {
         let map = vec![
             (Value::Text("state".into()), Value::from(STATE_LOCKED)),
-            (Value::Text("state_name".into()), Value::Text("Locked".into())),
+            (
+                Value::Text("state_name".into()),
+                Value::Text("Locked".into()),
+            ),
             (Value::Text("provisioned".into()), Value::Bool(true)),
             (Value::Text("unlocked".into()), Value::Bool(false)),
             (Value::Text("failed_attempts".into()), Value::from(2u8)),
             (Value::Text("remaining_attempts".into()), Value::from(3u8)),
             (Value::Text("max_attempts".into()), Value::from(5u8)),
-            (Value::Text("rate_limit_remaining_ms".into()), Value::from(2000u64)),
-            (Value::Text("session_remaining_ms".into()), Value::from(0u64)),
+            (
+                Value::Text("rate_limit_remaining_ms".into()),
+                Value::from(2000u64),
+            ),
+            (
+                Value::Text("session_remaining_ms".into()),
+                Value::from(0u64),
+            ),
             (Value::Text("wipe_on_5_failures".into()), Value::Bool(true)),
-            (Value::Text("protect_keys_and_aegn".into()), Value::Bool(true)),
+            (
+                Value::Text("protect_keys_and_aegn".into()),
+                Value::Bool(true),
+            ),
             (Value::Text("protect_oath".into()), Value::Bool(false)),
-            (Value::Text("test_mode_non_destructive_wipe".into()), Value::Bool(false)),
-            (Value::Text("last_wipe_simulated".into()), Value::Bool(false)),
+            (
+                Value::Text("test_mode_non_destructive_wipe".into()),
+                Value::Bool(false),
+            ),
+            (
+                Value::Text("last_wipe_simulated".into()),
+                Value::Bool(false),
+            ),
             (Value::Text("audit_count".into()), Value::from(14u64)),
         ];
 
@@ -523,13 +639,20 @@ mod tests {
     #[test]
     fn test_provision_request_and_response() {
         let policy = SecureGuardPolicyDto::default();
-        let encoded = encode_secure_guard_provision_request(b"4927", Some(b"custom_rec_code"), Some(&policy))
-            .expect("encode provision");
+        let encoded =
+            encode_secure_guard_provision_request(b"4927", Some(b"custom_rec_code"), Some(&policy))
+                .expect("encode provision");
         assert!(!encoded.is_empty());
 
         let resp_map = vec![
-            (Value::Text("status".into()), Value::Text("provisioned".into())),
-            (Value::Text("recovery_code".into()), Value::Text("a1b2c3d4e5f60718".into())),
+            (
+                Value::Text("status".into()),
+                Value::Text("provisioned".into()),
+            ),
+            (
+                Value::Text("recovery_code".into()),
+                Value::Text("a1b2c3d4e5f60718".into()),
+            ),
             (Value::Text("state".into()), Value::from(STATE_LOCKED)),
             (Value::Text("unlocked".into()), Value::Bool(false)),
         ];
@@ -552,7 +675,10 @@ mod tests {
         let ok_map = vec![
             (Value::Text("success".into()), Value::Bool(true)),
             (Value::Text("state".into()), Value::from(STATE_UNLOCKED)),
-            (Value::Text("state_name".into()), Value::Text("Unlocked".into())),
+            (
+                Value::Text("state_name".into()),
+                Value::Text("Unlocked".into()),
+            ),
             (Value::Text("failed_attempts".into()), Value::from(0u8)),
             (Value::Text("remaining_attempts".into()), Value::from(5u8)),
         ];
@@ -567,11 +693,20 @@ mod tests {
         let fail_map = vec![
             (Value::Text("success".into()), Value::Bool(false)),
             (Value::Text("state".into()), Value::from(STATE_RATE_LIMITED)),
-            (Value::Text("state_name".into()), Value::Text("RateLimited".into())),
+            (
+                Value::Text("state_name".into()),
+                Value::Text("RateLimited".into()),
+            ),
             (Value::Text("failed_attempts".into()), Value::from(3u8)),
             (Value::Text("remaining_attempts".into()), Value::from(2u8)),
-            (Value::Text("rate_limit_remaining_ms".into()), Value::from(5000u64)),
-            (Value::Text("error".into()), Value::Text("RateLimited".into())),
+            (
+                Value::Text("rate_limit_remaining_ms".into()),
+                Value::from(5000u64),
+            ),
+            (
+                Value::Text("error".into()),
+                Value::Text("RateLimited".into()),
+            ),
         ];
 
         let fail_cbor = to_cbor(&Value::Map(fail_map)).expect("serialize");
@@ -594,7 +729,8 @@ mod tests {
         let lock_enc = encode_secure_guard_lock_request().expect("lock");
         assert!(!lock_enc.is_empty());
 
-        let cfg_enc = encode_secure_guard_config_request(&SecureGuardPolicyDto::default()).expect("config");
+        let cfg_enc =
+            encode_secure_guard_config_request(&SecureGuardPolicyDto::default()).expect("config");
         assert!(!cfg_enc.is_empty());
 
         let wipe_enc = encode_secure_guard_wipe_request(1, "CONFIRM_WIPE").expect("wipe");

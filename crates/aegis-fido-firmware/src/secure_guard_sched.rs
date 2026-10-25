@@ -5,8 +5,8 @@
 //! integração com o watchdog por tarefa (TWDT) e expiração automática de sessão
 //! e janelas de rate-limit.
 
-use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardState};
 use crate::freertos_sched::PerTaskWatchdog;
+use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardState};
 
 /// Prioridade da tarefa dedicada Secure Guard no FreeRTOS (intermediária entre Housekeeping=2 e UI=4).
 pub const SECURE_GUARD_TASK_PRIO: u8 = 3;

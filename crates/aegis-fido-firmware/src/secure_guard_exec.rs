@@ -8,17 +8,17 @@
 //! - 0x3D: OP_SECURE_GUARD_CONFIG
 //! - 0x3E: OP_SECURE_GUARD_WIPE_SELECTIVE
 
+use ciborium::value::Value;
+use rand_core::{CryptoRng, RngCore};
 use std::format;
 use std::string::String;
 use std::vec::Vec;
-use ciborium::value::Value;
-use rand_core::{CryptoRng, RngCore};
 
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::secure_guard::{
-    SecureGuardEngine, SecureGuardState, MAX_ATTEMPTS,
-    OP_SECURE_GUARD_CONFIG, OP_SECURE_GUARD_LOCK, OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK,
+    SecureGuardEngine, SecureGuardState, MAX_ATTEMPTS, OP_SECURE_GUARD_CONFIG,
+    OP_SECURE_GUARD_LOCK, OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK,
     OP_SECURE_GUARD_WIPE_SELECTIVE,
 };
 use aegis_fido_core::wallet::WalletStore;
@@ -80,9 +80,9 @@ where
 {
     match op {
         OP_SECURE_GUARD_STATUS => handle_status(engine, now_ms),
-        OP_SECURE_GUARD_UNLOCK => handle_unlock_or_mgmt(
-            engine, storage, wallet, key_mgr, oath, payload, now_ms, rng,
-        ),
+        OP_SECURE_GUARD_UNLOCK => {
+            handle_unlock_or_mgmt(engine, storage, wallet, key_mgr, oath, payload, now_ms, rng)
+        }
         OP_SECURE_GUARD_LOCK => handle_lock(engine, storage, now_ms),
         OP_SECURE_GUARD_CONFIG => handle_config(engine, storage, payload, now_ms),
         OP_SECURE_GUARD_WIPE_SELECTIVE => {
@@ -204,14 +204,8 @@ where
             // Se não for mapa CBOR, pode ser PIN raw (UTF-8 direto)
             if !payload.is_empty() {
                 vec![
-                    (
-                        Value::Text("action".into()),
-                        Value::Text("unlock".into()),
-                    ),
-                    (
-                        Value::Text("pin".into()),
-                        Value::Bytes(payload.to_vec()),
-                    ),
+                    (Value::Text("action".into()), Value::Text("unlock".into())),
+                    (Value::Text("pin".into()), Value::Bytes(payload.to_vec())),
                 ]
             } else {
                 return (CTAP2_ERR_PIN_REQUIRED, Vec::new());
@@ -284,7 +278,10 @@ where
             Ok(rec_code) => {
                 let _ = save_secure_guard_record(storage, engine);
                 let out_map = vec![
-                    (Value::Text("status".into()), Value::Text("provisioned".into())),
+                    (
+                        Value::Text("status".into()),
+                        Value::Text("provisioned".into()),
+                    ),
                     (
                         Value::Text("recovery_code".into()),
                         Value::Text(hex_encode(&rec_code)),
@@ -297,7 +294,10 @@ where
                 ];
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
             }
-            Err(e) => (CTAP2_ERR_PIN_AUTH_INVALID, to_cbor_bytes(&cbor_err(&format!("{:?}", e)))),
+            Err(e) => (
+                CTAP2_ERR_PIN_AUTH_INVALID,
+                to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+            ),
         }
     } else if is_change_pin {
         // --- 2. CHANGE PIN ---
@@ -319,7 +319,10 @@ where
         match res {
             Ok(()) => {
                 let out_map = vec![
-                    (Value::Text("status".into()), Value::Text("pin_changed".into())),
+                    (
+                        Value::Text("status".into()),
+                        Value::Text("pin_changed".into()),
+                    ),
                     (
                         Value::Text("state".into()),
                         Value::from(engine.state().wire_code()),
@@ -327,7 +330,10 @@ where
                 ];
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
             }
-            Err(e) => (CTAP2_ERR_PIN_AUTH_INVALID, to_cbor_bytes(&cbor_err(&format!("{:?}", e)))),
+            Err(e) => (
+                CTAP2_ERR_PIN_AUTH_INVALID,
+                to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+            ),
         }
     } else if is_recover {
         // --- 3. RECOVER WITH CODE ---
@@ -356,7 +362,10 @@ where
         match res {
             Ok(new_state) => {
                 let mut out_map = Vec::new();
-                out_map.push((Value::Text("status".into()), Value::Text("recovered".into())));
+                out_map.push((
+                    Value::Text("status".into()),
+                    Value::Text("recovered".into()),
+                ));
                 out_map.push((
                     Value::Text("state".into()),
                     Value::from(new_state.wire_code()),
@@ -369,13 +378,21 @@ where
                 }
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
             }
-            Err(e) => (CTAP2_ERR_PIN_AUTH_INVALID, to_cbor_bytes(&cbor_err(&format!("{:?}", e)))),
+            Err(e) => (
+                CTAP2_ERR_PIN_AUTH_INVALID,
+                to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+            ),
         }
     } else {
         // --- 4. UNLOCK (Padrão) ---
         let pin = match get_field(&entries, "pin").and_then(extract_bytes) {
             Some(p) => p,
-            None => return (CTAP2_ERR_PIN_REQUIRED, to_cbor_bytes(&cbor_err("missing_pin"))),
+            None => {
+                return (
+                    CTAP2_ERR_PIN_REQUIRED,
+                    to_cbor_bytes(&cbor_err("missing_pin")),
+                )
+            }
         };
 
         let res = engine.unlock_with_pin(&pin, now_ms);
@@ -514,7 +531,10 @@ fn handle_config<B: FlashStorageBackend>(
     }
 
     let out_map = vec![
-        (Value::Text("status".into()), Value::Text("config_updated".into())),
+        (
+            Value::Text("status".into()),
+            Value::Text("config_updated".into()),
+        ),
         (
             Value::Text("wipe_on_5_failures".into()),
             Value::Bool(engine.policy().wipe_on_5_failures),
@@ -641,8 +661,8 @@ fn hex_val(c: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aegis_fido_core::secure_guard::SecureGuardPolicy;
     use crate::persistence::MockFlashBackend;
+    use aegis_fido_core::secure_guard::SecureGuardPolicy;
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x11; 32], &[0x22; 32])
@@ -664,10 +684,7 @@ mod tests {
                 Some(&Value::Bool(false))
             );
             assert_eq!(get_field(&entries, "unlocked"), Some(&Value::Bool(false)));
-            assert_eq!(
-                get_field(&entries, "max_attempts"),
-                Some(&Value::from(5u8))
-            );
+            assert_eq!(get_field(&entries, "max_attempts"), Some(&Value::from(5u8)));
         } else {
             panic!("expected cbor map");
         }
@@ -688,7 +705,10 @@ mod tests {
 
         // 1. Provision via 0x3B CBOR
         let prov_map = vec![
-            (Value::Text("action".into()), Value::Text("provision".into())),
+            (
+                Value::Text("action".into()),
+                Value::Text("provision".into()),
+            ),
             (Value::Text("pin".into()), Value::Text("5839".into())),
         ];
         let prov_cbor = to_cbor_bytes(&Value::Map(prov_map));

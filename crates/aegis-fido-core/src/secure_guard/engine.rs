@@ -522,8 +522,7 @@ impl SecureGuardEngine {
         self.policy.validate_pin(new_pin)?;
 
         // 3. Transactional update
-        let new_verifier =
-            derive_verifier(new_pin, &new_pin_salt, self.policy.pbkdf2_iterations);
+        let new_verifier = derive_verifier(new_pin, &new_pin_salt, self.policy.pbkdf2_iterations);
         self.pin_salt = new_pin_salt;
         self.pin_verifier = new_verifier;
         self.failed_attempts = 0;
@@ -616,10 +615,7 @@ impl SecureGuardEngine {
     ///
     /// In non-destructive test mode, performs the entire rite and marks `last_wipe_simulated = true`
     /// without erasing real key material. In standard mode, zeroes verifiers and returns Unprovisioned.
-    pub fn execute_wipe(
-        &mut self,
-        now_ms: u64,
-    ) -> Result<SecureGuardWipeScope, SecureGuardError> {
+    pub fn execute_wipe(&mut self, now_ms: u64) -> Result<SecureGuardWipeScope, SecureGuardError> {
         let _ = self.transition_to(SecureGuardState::WipeInProgress, now_ms);
 
         let simulated = self.policy.test_mode_non_destructive_wipe;

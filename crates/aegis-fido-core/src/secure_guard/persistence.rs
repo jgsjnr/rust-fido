@@ -111,13 +111,17 @@ impl SecureGuardPersistentRecord {
 
         // 2. Check Magic
         if bytes[0..8] != PERSISTENCE_MAGIC {
-            return Err(SecureGuardError::PersistenceCorrupted("Invalid magic bytes"));
+            return Err(SecureGuardError::PersistenceCorrupted(
+                "Invalid magic bytes",
+            ));
         }
 
         // 3. Check Version
         let version = u16::from_be_bytes([bytes[8], bytes[9]]);
         if version != PERSISTENCE_VERSION {
-            return Err(SecureGuardError::PersistenceCorrupted("Unsupported version"));
+            return Err(SecureGuardError::PersistenceCorrupted(
+                "Unsupported version",
+            ));
         }
 
         let is_provisioned = bytes[10] != 0;
@@ -143,30 +147,27 @@ impl SecureGuardPersistentRecord {
         let mut recovery_verifier = [0u8; 32];
         recovery_verifier.copy_from_slice(&bytes[86..118]);
 
-        let policy = SecureGuardPolicy {
-            wipe_on_5_failures: bytes[118] != 0,
-            protect_keys_and_aegn: bytes[119] != 0,
-            protect_oath: bytes[120] != 0,
-            test_mode_non_destructive_wipe: bytes[121] != 0,
-            min_pin_len: bytes[122],
-            max_pin_len: bytes[123],
-            reject_trivial_pins: bytes[124] != 0,
-            session_duration_ms: u64::from_be_bytes(
-                bytes[126..134]
-                    .try_into()
-                    .map_err(|_| SecureGuardError::PersistenceCorrupted("Bad session duration"))?,
-            ),
-            inactivity_timeout_ms: u64::from_be_bytes(
-                bytes[134..142]
-                    .try_into()
-                    .map_err(|_| SecureGuardError::PersistenceCorrupted("Bad inactivity timeout"))?,
-            ),
-            pbkdf2_iterations: u32::from_be_bytes(
-                bytes[142..146]
-                    .try_into()
-                    .map_err(|_| SecureGuardError::PersistenceCorrupted("Bad PBKDF2 iterations"))?,
-            ),
-        };
+        let policy =
+            SecureGuardPolicy {
+                wipe_on_5_failures: bytes[118] != 0,
+                protect_keys_and_aegn: bytes[119] != 0,
+                protect_oath: bytes[120] != 0,
+                test_mode_non_destructive_wipe: bytes[121] != 0,
+                min_pin_len: bytes[122],
+                max_pin_len: bytes[123],
+                reject_trivial_pins: bytes[124] != 0,
+                session_duration_ms: u64::from_be_bytes(
+                    bytes[126..134].try_into().map_err(|_| {
+                        SecureGuardError::PersistenceCorrupted("Bad session duration")
+                    })?,
+                ),
+                inactivity_timeout_ms: u64::from_be_bytes(bytes[134..142].try_into().map_err(
+                    |_| SecureGuardError::PersistenceCorrupted("Bad inactivity timeout"),
+                )?),
+                pbkdf2_iterations: u32::from_be_bytes(bytes[142..146].try_into().map_err(
+                    |_| SecureGuardError::PersistenceCorrupted("Bad PBKDF2 iterations"),
+                )?),
+            };
 
         Ok(Self {
             is_provisioned,
@@ -229,7 +230,10 @@ mod tests {
         bytes[20] ^= 0xFF;
 
         let err = SecureGuardPersistentRecord::from_bytes(&bytes);
-        assert!(matches!(err, Err(SecureGuardError::PersistenceCorrupted(_))));
+        assert!(matches!(
+            err,
+            Err(SecureGuardError::PersistenceCorrupted(_))
+        ));
     }
 
     #[test]
@@ -243,6 +247,11 @@ mod tests {
         bytes[252..256].copy_from_slice(&crc.to_be_bytes());
 
         let err = SecureGuardPersistentRecord::from_bytes(&bytes);
-        assert!(matches!(err, Err(SecureGuardError::PersistenceCorrupted("Invalid magic bytes"))));
+        assert!(matches!(
+            err,
+            Err(SecureGuardError::PersistenceCorrupted(
+                "Invalid magic bytes"
+            ))
+        ));
     }
 }

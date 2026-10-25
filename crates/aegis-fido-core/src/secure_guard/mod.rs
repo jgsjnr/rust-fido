@@ -415,7 +415,10 @@ mod tests {
 
         // 1. Wrong recovery code fails
         let bad_rec = engine.recover_with_code(b"wrong_code", b"7412", [0x40; 16], time);
-        assert!(matches!(bad_rec, Err(SecureGuardError::InvalidRecoveryCode)));
+        assert!(matches!(
+            bad_rec,
+            Err(SecureGuardError::InvalidRecoveryCode)
+        ));
         assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
 
         // 2. Legitimate recovery with valid code
@@ -479,17 +482,11 @@ mod tests {
         ));
 
         // 4. OATH is not protected by default
-        assert_eq!(
-            engine.authorize_vendor_opcode(OP_OATH_CODE, 1000),
-            Ok(())
-        );
+        assert_eq!(engine.authorize_vendor_opcode(OP_OATH_CODE, 1000), Ok(()));
 
         // 5. Unlock session: all protected resources now authorized
         engine.unlock_with_pin(TEST_PIN, 2000).unwrap();
-        assert_eq!(
-            engine.authorize_vendor_opcode(OP_WALLET_GEN, 2100),
-            Ok(())
-        );
+        assert_eq!(engine.authorize_vendor_opcode(OP_WALLET_GEN, 2100), Ok(()));
         assert_eq!(
             engine.authorize_vendor_opcode(OP_KEY_GEN_ONDEVICE, 2100),
             Ok(())

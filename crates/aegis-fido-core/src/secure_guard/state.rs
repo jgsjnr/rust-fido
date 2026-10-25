@@ -68,7 +68,9 @@ impl SecureGuardState {
 
         match self {
             Self::Unprovisioned => matches!(target, Self::Provisioning),
-            Self::Provisioning => matches!(target, Self::Locked | Self::Unlocked | Self::Unprovisioned),
+            Self::Provisioning => {
+                matches!(target, Self::Locked | Self::Unlocked | Self::Unprovisioned)
+            }
             Self::Locked => matches!(
                 target,
                 Self::Authenticating
@@ -85,7 +87,9 @@ impl SecureGuardState {
                     | Self::WipePending
             ),
             Self::Unlocked => matches!(target, Self::Locked | Self::Authenticating),
-            Self::RecoveryRequired => matches!(target, Self::Authenticating | Self::Locked | Self::Unlocked),
+            Self::RecoveryRequired => {
+                matches!(target, Self::Authenticating | Self::Locked | Self::Unlocked)
+            }
             Self::RateLimited => matches!(target, Self::Locked),
             Self::WipePending => matches!(target, Self::WipeInProgress),
             Self::WipeInProgress => matches!(target, Self::Unprovisioned | Self::Locked),
@@ -166,9 +170,13 @@ mod tests {
         assert!(!SecureGuardState::Unlocked.can_transition_to(SecureGuardState::Unprovisioned));
 
         // RecoveryRequired
-        assert!(SecureGuardState::RecoveryRequired.can_transition_to(SecureGuardState::Authenticating));
+        assert!(
+            SecureGuardState::RecoveryRequired.can_transition_to(SecureGuardState::Authenticating)
+        );
         assert!(SecureGuardState::RecoveryRequired.can_transition_to(SecureGuardState::Locked));
-        assert!(!SecureGuardState::RecoveryRequired.can_transition_to(SecureGuardState::RateLimited));
+        assert!(
+            !SecureGuardState::RecoveryRequired.can_transition_to(SecureGuardState::RateLimited)
+        );
 
         // RateLimited
         assert!(SecureGuardState::RateLimited.can_transition_to(SecureGuardState::Locked));

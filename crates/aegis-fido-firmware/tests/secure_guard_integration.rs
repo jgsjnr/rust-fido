@@ -7,8 +7,8 @@
 //! 4. 5 falhas consecutivas levando ao wipe seletivo de carteiras preservando credenciais FIDO2
 //! 5. Coexistência sem bloqueio com MakeCredential e GetAssertion FIDO2
 
-use std::vec::Vec;
 use ciborium::value::Value;
+use std::vec::Vec;
 
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_MAKE_CREDENTIAL};
@@ -151,7 +151,10 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
 
     // 2. Provisionamento via 0x3B (action: "provision")
     let prov_map = vec![
-        (Value::Text("action".into()), Value::Text("provision".into())),
+        (
+            Value::Text("action".into()),
+            Value::Text("provision".into()),
+        ),
         (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
     ];
     let prov_cbor = to_cbor(&Value::Map(prov_map));
@@ -172,7 +175,10 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
     assert!(!out.responses.is_empty());
     assert_eq!(out.responses[0][7], 0x00);
     assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
-    assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Locked);
+    assert_eq!(
+        vendor.secure_guard.as_ref().unwrap().state(),
+        SecureGuardState::Locked
+    );
 
     // 3. Tentativa de chamar OP_WALLET_LIST (0x36) com SG Locked -> Barreira DEVE bloquear com 0x36!
     let raw_wallet = init_raw(0x1000, CMD_MSG, &[OP_WALLET_LIST]);
@@ -187,7 +193,10 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         Some(&mut vendor),
     );
     assert_eq!(out.responses.len(), 1);
-    assert_eq!(out.responses[0][7], 0x36, "Acesso deve ser bloqueado quando Locked");
+    assert_eq!(
+        out.responses[0][7], 0x36,
+        "Acesso deve ser bloqueado quando Locked"
+    );
 
     // 4. Desbloqueia com PIN correto via 0x3B (action: "unlock")
     let unlock_map = vec![
@@ -226,7 +235,10 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         Some(&mut vendor),
     );
     assert_eq!(out.responses.len(), 1);
-    assert_eq!(out.responses[0][7], 0x00, "Acesso deve ser permitido quando Unlocked");
+    assert_eq!(
+        out.responses[0][7], 0x00,
+        "Acesso deve ser permitido quando Unlocked"
+    );
 
     // 6. Bloqueio manual via 0x3C (OP_SECURE_GUARD_LOCK)
     let raw_lock = init_raw(0x1000, CMD_MSG, &[OP_SECURE_GUARD_LOCK]);
@@ -242,7 +254,10 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
     );
     assert_eq!(out.responses.len(), 1);
     assert_eq!(out.responses[0][7], 0x00);
-    assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Locked);
+    assert_eq!(
+        vendor.secure_guard.as_ref().unwrap().state(),
+        SecureGuardState::Locked
+    );
 
     // 7. Nova tentativa em carteira -> bloqueado novamente
     let raw_wallet_blocked2 = init_raw(0x1000, CMD_MSG, &[OP_WALLET_LIST]);
@@ -287,7 +302,9 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
     };
     let mut sg = SecureGuardEngine::new(policy);
     let correct_pin = b"5521";
-    let _ = sg.provision_pin(correct_pin, [0x10; 16], b"", [0x20; 16], 1000).unwrap();
+    let _ = sg
+        .provision_pin(correct_pin, [0x10; 16], b"", [0x20; 16], 1000)
+        .unwrap();
 
     let mut vendor = SerialVendorCtx {
         pairing_open: true,
@@ -337,7 +354,10 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
 
     // Após a 5ª tentativa com wipe_on_5_failures == true:
     // 1. O Secure Guard foi resetado para Unprovisioned
-    assert_eq!(vendor.secure_guard.as_ref().unwrap().state(), SecureGuardState::Unprovisioned);
+    assert_eq!(
+        vendor.secure_guard.as_ref().unwrap().state(),
+        SecureGuardState::Unprovisioned
+    );
     // 2. A carteira Web3 foi LIMPA pelo wipe seletivo!
     assert_eq!(vendor.wallet.list(true).unwrap().len(), 0);
 

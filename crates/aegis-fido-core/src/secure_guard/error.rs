@@ -24,38 +24,23 @@ pub enum SecureGuardError {
     /// PIN is already provisioned; re-provisioning is prohibited without wipe.
     AlreadyProvisioned,
     /// PIN length is below the minimum required by policy.
-    PinTooShort {
-        min: u8,
-        actual: u8,
-    },
+    PinTooShort { min: u8, actual: u8 },
     /// PIN length exceeds the maximum allowed by policy.
-    PinTooLong {
-        max: u8,
-        actual: u8,
-    },
+    PinTooLong { max: u8, actual: u8 },
     /// PIN was rejected by policy complexity checks (e.g., trivial repetition or sequence).
     TrivialPinRejected,
     /// PIN verification failed; includes remaining attempts before lockout/wipe.
-    InvalidPin {
-        remaining_attempts: u8,
-    },
+    InvalidPin { remaining_attempts: u8 },
     /// PIN verification is temporarily blocked by progressive backoff rate-limiting.
-    RateLimited {
-        remaining_ms: u64,
-    },
+    RateLimited { remaining_ms: u64 },
     /// PIN verification failed 5 consecutive times and policy requires recovery code.
     MaxAttemptsReachedRecoveryRequired,
     /// PIN verification failed 5 consecutive times and scoped wipe was triggered.
-    MaxAttemptsWipeTriggered {
-        simulated: bool,
-    },
+    MaxAttemptsWipeTriggered { simulated: bool },
     /// Recovery code was rejected or invalid.
     InvalidRecoveryCode,
     /// Access denied to protected resource because Secure Guard is locked.
-    AccessDeniedLocked {
-        state: SecureGuardState,
-        opcode: u8,
-    },
+    AccessDeniedLocked { state: SecureGuardState, opcode: u8 },
     /// Session expired due to inactivity or absolute timeout.
     SessionExpired,
     /// Operation requires an active unlocked session.
@@ -89,18 +74,10 @@ impl core::fmt::Display for SecureGuardError {
             }
             Self::TrivialPinRejected => write!(f, "Trivial PIN rejected by policy"),
             Self::InvalidPin { remaining_attempts } => {
-                write!(
-                    f,
-                    "Invalid PIN ({} attempts remaining)",
-                    remaining_attempts
-                )
+                write!(f, "Invalid PIN ({} attempts remaining)", remaining_attempts)
             }
             Self::RateLimited { remaining_ms } => {
-                write!(
-                    f,
-                    "Authentication rate limited, wait {} ms",
-                    remaining_ms
-                )
+                write!(f, "Authentication rate limited, wait {} ms", remaining_ms)
             }
             Self::MaxAttemptsReachedRecoveryRequired => {
                 write!(f, "Maximum PIN attempts reached: recovery code required")
