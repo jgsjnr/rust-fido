@@ -210,6 +210,28 @@ def run_battery():
         except Exception as e:
             log_test("6.4 POST /api/key/delete (Excluir Chave 0x23)", False, str(e))
 
+    # 7. Crypto Wallets Web3 (Ensure Secure Guard is unlocked if enabled)
+    try:
+        st_sg, _, sg_raw = http_get("/api/secure-guard/status")
+        sg_st = json.loads(sg_raw.decode("utf-8"))
+        if not sg_st.get("unlocked", False):
+            for test_pin in ("123456", "112233"):
+                try:
+                    http_post_json("/api/secure-guard/unlock", {"pin": test_pin})
+                    break
+                except Exception:
+                    pass
+            else:
+                try:
+                    http_post_json("/api/secure-guard/provision", {
+                        "pin": "123456",
+                        "policy": {"test_mode_non_destructive_wipe": True}
+                    })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     # 7. Crypto Wallets Web3
     try:
         st, _, wresp = http_get("/api/wallet/list")
@@ -351,6 +373,140 @@ def run_battery():
         log_test("12.5 POST /api/proximity/unlock (Toque Físico UP + PIN no ESP32-S3)", ok, f"unlocked={p_unl.get('unlocked')}, touch_up={p_unl.get('touch_up')}, state={p_unl.get('state')}")
     except Exception as e:
         log_test("12.5 POST /api/proximity/unlock (Toque Físico UP + PIN no ESP32-S3)", False, str(e))
+
+    # 13. Secure Guard Zero-Trust On-Device Authority Vault
+    recovery_code_saved = ""
+    try:
+        st, _, sg_stat = http_get("/api/secure-guard/status")
+        stat_data = json.loads(sg_stat.decode("utf-8"))
+        ok = (st == 200) and (stat_data.get("ok") is True) and ("state" in stat_data)
+        log_test("13.1 GET /api/secure-guard/status (Telemetria Inicial)", ok, f"state={stat_data.get('state_name')}, prov={stat_data.get('provisioned')}")
+    except Exception as e:
+        log_test("13.1 GET /api/secure-guard/status (Telemetria Inicial)", False, str(e))
+
+    try:
+        st, _, sg_prov = http_post_json("/api/secure-guard/provision", {
+            "pin": "123456",
+            "policy": {
+                "wipe_on_5_failures": False,
+                "protect_keys_and_aegn": True,
+                "test_mode_non_destructive_wipe": True,
+            }
+        })
+        recovery_code_saved = sg_prov.get("recovery_code", "")
+        ok = (st == 200) and (sg_prov.get("ok") is True) and (sg_prov.get("unlocked") is True) and (len(recovery_code_saved) >= 16)
+        log_test("13.2 POST /api/secure-guard/provision (Provisionar PIN 123456 + Recovery Code)", ok, f"state={sg_prov.get('state')}, rc={recovery_code_saved}")
+    except Exception as e:
+        log_test("13.2 POST /api/secure-guard/provision (Provisionar PIN 123456 + Recovery Code)", False, str(e))
+
+    try:
+        st, _, sg_cfg = http_post_json("/api/secure-guard/config", {
+            "wipe_on_5_failures": False,
+            "session_duration_ms": 300000,
+            "inactivity_timeout_ms": 120000,
+            "protect_keys_and_aegn": True,
+            "protect_oath": False,
+            "test_mode_non_destructive_wipe": True,
+        })
+        ok = (st == 200) and (sg_cfg.get("ok") is True) and (sg_cfg.get("policy", {}).get("test_mode_non_destructive_wipe") is True)
+        log_test("13.3 POST /api/secure-guard/config (Atualizar Políticas NVS)", ok, f"policy={sg_cfg.get('policy')}")
+    except Exception as e:
+        log_test("13.3 POST /api/secure-guard/config (Atualizar Políticas NVS)", False, str(e))
+
+    try:
+        st, _, sg_lock = http_post_json("/api/secure-guard/lock", {})
+        ok = (st == 200) and (sg_lock.get("ok") is True) and (sg_lock.get("state") == 2)  # STATE_LOCKED = 2
+        log_test("13.4 POST /api/secure-guard/lock (Bloquear Sessão Imediata)", ok, f"state={sg_lock.get('state')}, locked={sg_lock.get('locked')}")
+    except Exception as e:
+        log_test("13.4 POST /api/secure-guard/lock (Bloquear Sessão Imediata)", False, str(e))
+
+    # 13.5 Fail-Closed Barrier Test: Wallets must be blocked with HTTP 403 when Locked
+    try:
+        wallet_blocked = False
+        try:
+            http_get("/api/wallet/list")
+        except urllib.error.HTTPError as he:
+            wallet_blocked = (he.code == 403)
+        log_test("13.5 GET /api/wallet/list (Fail-Closed Barrier: 403 quando Locked)", wallet_blocked, "Bloqueado com sucesso (403 CTAP2_ERR_PIN_REQUIRED)")
+    except Exception as e:
+        log_test("13.5 GET /api/wallet/list (Fail-Closed Barrier: 403 quando Locked)", False, str(e))
+
+    # 13.6 Wrong PIN Attempt -> Rate Limiting / Decrement attempts
+    try:
+        wrong_rejected = False
+        try:
+            http_post_json("/api/secure-guard/unlock", {"pin": "999999"})
+        except urllib.error.HTTPError as he:
+            wrong_rejected = (he.code == 401)
+        log_test("13.6 POST /api/secure-guard/unlock (PIN Incorreto -> 401 / Penalidade)", wrong_rejected, "PIN incorreto rejeitado corretamente")
+    except Exception as e:
+        log_test("13.6 POST /api/secure-guard/unlock (PIN Incorreto -> 401 / Penalidade)", False, str(e))
+
+    # Wait for rate limit backoff (1s for first wrong attempt)
+    time.sleep(1.2)
+
+    # 13.7 Correct PIN Unlock
+    try:
+        st, _, sg_unl = http_post_json("/api/secure-guard/unlock", {"pin": "123456"})
+        ok = (st == 200) and (sg_unl.get("ok") is True) and (sg_unl.get("state") == 4)  # STATE_UNLOCKED = 4
+        log_test("13.7 POST /api/secure-guard/unlock (PIN Correto -> Desbloqueado)", ok, f"state={sg_unl.get('state')}, attempts_reset={sg_unl.get('failed_attempts')}")
+    except Exception as e:
+        log_test("13.7 POST /api/secure-guard/unlock (PIN Correto -> Desbloqueado)", False, str(e))
+
+    # 13.8 Wallet Unblocked Test: When Unlocked, wallets must be accessible
+    try:
+        st, _, w_data = http_get("/api/wallet/list")
+        wallets = json.loads(w_data.decode("utf-8"))
+        ok = (st == 200) and (wallets.get("ok") is True)
+        log_test("13.8 GET /api/wallet/list (Acesso Liberado quando Unlocked)", ok, f"wallets_count={len(wallets.get('wallets', []))}")
+    except Exception as e:
+        log_test("13.8 GET /api/wallet/list (Acesso Liberado quando Unlocked)", False, str(e))
+
+    # 13.9 Change PIN
+    try:
+        st, _, sg_chg = http_post_json("/api/secure-guard/change-pin", {
+            "current_pin": "123456",
+            "new_pin": "654321",
+        })
+        ok = (st == 200) and (sg_chg.get("ok") is True) and (sg_chg.get("status") == "pin_changed")
+        log_test("13.9 POST /api/secure-guard/change-pin (Troca Autenticada de PIN)", ok, f"status={sg_chg.get('status')}")
+    except Exception as e:
+        log_test("13.9 POST /api/secure-guard/change-pin (Troca Autenticada de PIN)", False, str(e))
+
+    # 13.10 Emergency Recovery with saved recovery code
+    try:
+        st, _, sg_rec = http_post_json("/api/secure-guard/recover", {
+            "recovery_code": recovery_code_saved,
+            "new_pin": "112233",
+        })
+        ok = (st == 200) and (sg_rec.get("ok") is True) and (sg_rec.get("status") == "recovered")
+        log_test("13.10 POST /api/secure-guard/recover (Recuperação de Emergência)", ok, f"status={sg_rec.get('status')}, new_rc={sg_rec.get('new_recovery_code')}")
+    except Exception as e:
+        log_test("13.10 POST /api/secure-guard/recover (Recuperação de Emergência)", False, str(e))
+
+    # 13.11 Selective Wipe Test
+    try:
+        st, _, sg_wipe = http_post_json("/api/secure-guard/wipe-selective", {
+            "scope": 0,
+            "confirmation": "CONFIRM_WIPE_AEGIS_GUARD",
+        })
+        ok = (st == 200) and (sg_wipe.get("ok") is True) and (sg_wipe.get("state") == 0)  # STATE_UNPROVISIONED = 0
+        log_test("13.11 POST /api/secure-guard/wipe-selective (Wipe Seguro / Simulado)", ok, f"state={sg_wipe.get('state')}, simulated={sg_wipe.get('simulated')}")
+    except Exception as e:
+        log_test("13.11 POST /api/secure-guard/wipe-selective (Wipe Seguro / Simulado)", False, str(e))
+
+    # Teardown / Restore unlocked state with PIN 123456 for repeatable runs
+    try:
+        http_post_json("/api/secure-guard/provision", {
+            "pin": "123456",
+            "policy": {
+                "wipe_on_5_failures": False,
+                "protect_keys_and_aegn": True,
+                "test_mode_non_destructive_wipe": True,
+            }
+        })
+    except Exception:
+        pass
 
     print("=" * 70)
     print(f" RESUMO DA BATERIA: {passed_tests} PASS / {failed_tests} FAIL (Total: {passed_tests + failed_tests})")
