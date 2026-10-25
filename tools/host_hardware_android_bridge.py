@@ -150,6 +150,12 @@ class HardwareBridgeManager:
         with self.lock:
             if self.is_connected and self.session and self.session.link:
                 return True
+            if self.session:
+                try:
+                    self.session.close()
+                except Exception:
+                    pass
+                self.session = None
 
             # 1. Try Serial UART ports first (enables TEST_PAIRING_OPEN and TEST_UP hooks)
             candidate_ports = []
@@ -351,6 +357,12 @@ class HardwareBridgeManager:
                 return status, resp_payload
             except Exception as e:
                 self.is_connected = False
+                if self.session:
+                    try:
+                        self.session.close()
+                    except Exception:
+                        pass
+                    self.session = None
                 raise e
 
     def send_vendor(self, opcode, payload=b""):
@@ -434,8 +446,14 @@ class HardwareBridgeManager:
 
                 return status, resp_payload
             except Exception as e:
-                # If communication failed, mark disconnected so next call will reconnect
+                # If communication failed, mark disconnected and clean up session so next call will reconnect cleanly
                 self.is_connected = False
+                if self.session:
+                    try:
+                        self.session.close()
+                    except Exception:
+                        pass
+                    self.session = None
                 raise e
 
     def lifetime_dump(self):
