@@ -162,7 +162,7 @@ def is_text_chunk(pkt):
         if b == 0x00:
             continue
         seen = True
-        if not (b in (0x09, 0x0A, 0x0D) or 0x20 <= b <= 0x7E):
+        if not (b in (0x09, 0x0A, 0x0D, 0x1B) or 0x20 <= b <= 0x7E):
             return False
     return seen
 
@@ -259,7 +259,7 @@ class SerialStreamReader:
     def _is_text_line(self, raw):
         if not raw or b"\x00" in raw:
             return False
-        return all(b in (0x09, 0x0A, 0x0D) or 0x20 <= b <= 0x7E for b in raw)
+        return all(b in (0x09, 0x0A, 0x0D, 0x1B) or 0x20 <= b <= 0x7E for b in raw)
 
     def next_frame(self, deadline_s=2.0, deadline_total_s=30.0, op="op"):
         """Return the next 64B frame, skipping interleaved text lines.
@@ -767,8 +767,9 @@ class Session:
         stream = SerialStreamReader(self.link, expected_cid=self.cid)
         end = time.monotonic() + timeout_s
         up_announced = False
+        per_byte_deadline = max(2.0, min(10.0, timeout_s))
         while time.monotonic() < end:
-            raw = stream.next_frame(deadline_s=2.0, op=op)
+            raw = stream.next_frame(deadline_s=per_byte_deadline, deadline_total_s=timeout_s, op=op)
             try:
                 kind, data = asm.feed(raw)
             except ValueError:
@@ -781,7 +782,7 @@ class Session:
                     raw = stream.resync(expected_cid=self.cid,
                                         poisoned=raw,
                                         require_init=(asm.cid is None),
-                                        deadline_s=2.0, op=op)
+                                        deadline_s=per_byte_deadline, op=op)
                 except TimeoutError:
                     raise
                 try:

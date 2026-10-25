@@ -28,3 +28,4 @@ app-android/.gradle/
 *.idsig
 
 tools/*.log
+.embuild/

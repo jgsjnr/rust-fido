@@ -271,10 +271,17 @@ class HardwareBridgeManager:
             }
 
     def _authenticate_pin_internal(self) -> str:
-        """Sends TEST_PIN_OK to UART, arms pairing and user presence, and configures recovery pin if needed."""
+        """Sends 0x2F trigger, TEST_PIN_OK to UART, and arms pairing and user presence."""
         res = []
         if self.session and self.transport == "UART":
-            # 1. Send TEST_PIN_OK text command
+            # 1. Trigger 0x2F host pairing trigger (sets ctx.pin_verified=true, arm_up=true, 60s window)
+            try:
+                self.session._exchange(CMD_MSG, bytes([0x2F]), op="trigger_0x2f", timeout_s=3.0)
+                res.append("trigger_0x2f_sent")
+            except Exception:
+                pass
+
+            # 2. Send TEST_PIN_OK text command
             if hasattr(self.session, "link") and hasattr(self.session.link, "write"):
                 try:
                     self.session.link.write(b"TEST_PIN_OK\n")
@@ -289,20 +296,8 @@ class HardwareBridgeManager:
                 except Exception:
                     pass
 
-            # 2. Arm pairing and UP
+            # 3. Arm pairing and UP
             self._pairing_open_internal()
-            self._touch_up_internal()
-
-            # 3. Setup/verify recovery pin 0x2C/0x2D with default test PIN "123456"
-            try:
-                self.session._exchange(CMD_MSG, bytes([0x2C]) + b"123456", op="rec_set", timeout_s=2.0)
-                self._touch_up_internal()
-                self.session._exchange(CMD_MSG, bytes([0x2D]) + b"123456", op="rec_verify", timeout_s=2.0)
-                res.append("recovery_pin_123456_configured")
-            except Exception:
-                pass
-
-            # 4. Final UP arming to ensure presence is active for subsequent command
             self._touch_up_internal()
 
         return ";".join(res) or "pin_auth_attempted"
@@ -546,7 +541,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if "application/json" in content_type or raw_body.startswith(b"{"):
                 try:
                     data = json.loads(raw_body.decode("utf-8"))
-                    op_val = data.get("opcode", 0)
+                    op_val = data.get("opcode") if data.get("opcode") is not None else data.get("op", 0)
                     if isinstance(op_val, str):
                         op_clean = op_val.strip()
                         opcode = int(op_clean, 16 if "x" in op_clean.lower() else 10)

@@ -1,11 +1,16 @@
 package dev.aegiskey.app.data.repository
 
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.transport.BleKeyTransport
+import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
+import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.SecurityToggles
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -13,12 +18,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class ConnectedKeysRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
+    private val usbKeyTransport: UsbKeyTransport? = null,
+    private val bleKeyTransport: BleKeyTransport? = null,
     scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : ConnectedKeysRepository {
+
+    constructor(
+        keysStore: EncryptedKeysStore,
+        scope: CoroutineScope
+    ) : this(keysStore, null, null, scope)
 
     private val _connectedKeys = MutableStateFlow(keysStore.loadConnectedKeys())
     override val connectedKeys: StateFlow<List<ConnectedKeyDevice>> = _connectedKeys.asStateFlow()
@@ -29,6 +43,39 @@ class ConnectedKeysRepositoryImpl(
     override val hasAnyConnectedKey: StateFlow<Boolean> = _connectedKeys
         .map { it.isNotEmpty() }
         .stateIn(scope, SharingStarted.Eagerly, _connectedKeys.value.isNotEmpty())
+
+    init {
+        if (usbKeyTransport != null || bleKeyTransport != null) {
+            val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            monitorScope.launch {
+                while (isActive) {
+                    delay(2000)
+                    val currentActive = _activeKey.value ?: continue
+                    val isConnectedReal = when (currentActive.transportType) {
+                        ConnectionTransportType.USB,
+                        ConnectionTransportType.WIFI -> {
+                            usbKeyTransport?.isPhysicallyReachable() ?: false
+                        }
+                        ConnectionTransportType.BLE -> {
+                            bleKeyTransport?.isConnected?.value ?: false
+                        }
+                        ConnectionTransportType.SIMULATOR -> {
+                            true
+                        }
+                    }
+
+                    if (currentActive.isCurrentlyConnected != isConnectedReal) {
+                        _activeKey.update { it?.copy(isCurrentlyConnected = isConnectedReal) }
+                        _connectedKeys.update { list ->
+                            list.map { key ->
+                                if (key.id == currentActive.id) key.copy(isCurrentlyConnected = isConnectedReal) else key
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private fun resolveInitialActiveKey(): ConnectedKeyDevice? {
         val initialKeys = keysStore.loadConnectedKeys()

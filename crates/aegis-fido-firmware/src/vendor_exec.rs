@@ -118,6 +118,15 @@ fn save_oath_result<B: FlashStorageBackend>(
     Ok(())
 }
 
+/// Persiste o estado das chaves e OATH via `NamespacedStore`.
+pub fn save_states<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    keys: &KeyManager,
+    oath: &OathApplet,
+) -> bool {
+    save_keys_result(storage, keys).is_ok() && save_oath_result(storage, oath).is_ok()
+}
+
 /// Persiste o estado PIN (F3: hash + retries) via `NamespacedStore`.
 ///
 /// Sessão pinUvAuth é RAM por desenho (morre no reboot). `Err` fail-closed;

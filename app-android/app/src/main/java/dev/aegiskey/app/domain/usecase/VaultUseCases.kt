@@ -39,6 +39,13 @@ class DeleteVaultEntryUseCase(
         repository.deleteVaultEntry(keyId, slotId)
 }
 
+class ResetHardwareVaultUseCase(
+    private val repository: KeyVaultRepository
+) {
+    suspend operator fun invoke(keyId: String): Result<String> =
+        repository.resetHardwareVault(keyId)
+}
+
 class RunHealthCheckUseCase(
     private val repository: KeyVaultRepository
 ) {

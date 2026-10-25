@@ -83,6 +83,8 @@ USAGE_SIGN_AUTH = 0x03
 ALG_ED25519 = -8
 ALG_ES256 = -7
 ALG_ES256K = -47
+ALG_P384 = -35
+ALG_P521 = -36
 
 OATH_TYPE_HOTP = 0x10
 OATH_TYPE_TOTP = 0x20
@@ -110,8 +112,14 @@ def build_oath_code(name: str, challenge: int = None) -> bytes:
 
 
 def authenticate_pin(sess: Session):
-    """Sends TEST_PIN_OK to UART, arms pairing window, and sets up 0x2C/0x2D recovery PIN."""
-    # 1. Send TEST_PIN_OK text line
+    """Sends 0x2F trigger, TEST_PIN_OK, TEST_PAIRING_OPEN, and TEST_UP to arm UP and set pin_verified=true."""
+    # 1. Trigger 0x2F host pairing trigger (sets ctx.pin_verified=true, arm_up=true, 60s window)
+    try:
+        sess._exchange(CMD_MSG, bytes([0x2F]), op="trigger_0x2f", timeout_s=3.0)
+    except Exception:
+        pass
+
+    # 2. Send TEST_PIN_OK text line
     if hasattr(sess, "link") and hasattr(sess.link, "write"):
         try:
             sess.link.write(b"TEST_PIN_OK\n")
@@ -124,18 +132,8 @@ def authenticate_pin(sess: Session):
         except Exception:
             pass
 
-    # 2. Arm pairing and UP
+    # 3. Arm pairing and UP
     sess.test_pairing_open(timeout_s=3.0)
-    sess.test_up(timeout_s=3.0)
-
-    # 3. Setup/verify recovery pin 0x2C/0x2D with default test PIN "123456"
-    try:
-        sess._exchange(CMD_MSG, bytes([0x2C]) + b"123456", op="rec_set", timeout_s=2.0)
-        sess.test_up(timeout_s=3.0)
-        sess._exchange(CMD_MSG, bytes([0x2D]) + b"123456", op="rec_verify", timeout_s=2.0)
-    except Exception:
-        pass
-
     sess.test_up(timeout_s=3.0)
 
 
@@ -179,6 +177,12 @@ def main():
         # ETAPA 1: Verificação do Estado Limpo Pós-Reset
         # -------------------------------------------------------------
         print("\n[+] 2. ETAPA 1 — Verificando Limpeza de Slots e Estado Inicial...")
+        # Limpeza prévia via OP_BIND_RELEASE (em test-mode faz wipe limpo das chaves/wallets/oath)
+        print("    Resetando estado inicial via OP_BIND_RELEASE (0x2B)...")
+        st_rel, _ = send_arm(sess, "clean_bind_release", OP_BIND_RELEASE, b"\x00" * 64, timeout_s=4.0)
+        print(f"    0x2B OP_BIND_RELEASE -> Status: 0x{st_rel:02X}")
+        time.sleep(0.1)
+
         sess.test_up(timeout_s=3.0)
         st, body = sess._exchange(CMD_MSG, bytes([OP_KEY_LIST]), op="key_list", timeout_s=4.0)
         print(f"    0x22 OP_KEY_LIST -> Status: 0x{st:02X}, Tamanho: {len(body)} B (esperado vazio = 0)")
@@ -188,18 +192,21 @@ def main():
         print(f"    0x25 OP_OATH_LIST -> Status: 0x{st:02X}, Tamanho: {len(body)} B (esperado vazio = 0)")
 
         # -------------------------------------------------------------
-        # ETAPA 2: Criação de Chaves PASSKEY / FIDO nas Curvas Suportadas
+        # ETAPA 2: Criação de Chaves PASSKEY / FIDO nas 5 Curvas Suportadas
         # -------------------------------------------------------------
         print("\n[+] 3. ETAPA 2 — Criação de PASSKEYS FIDO On-Device (0x20)...")
         curves = [
             (0, "passkey:ed25519", ALG_ED25519, "Ed25519 (alg -8, moderna / passkey rápida)"),
             (1, "passkey:p256", ALG_ES256, "ES256 / P-256 (alg -7, WebAuthn padrão FIDO2)"),
             (2, "passkey:secp256k1", ALG_ES256K, "ES256K / secp256k1 (alg -47, Bitcoin/Koblitz)"),
+            (3, "passkey:p384", ALG_P384, "P-384 / ES384 (alg -35, NIST Suite B)"),
+            (4, "passkey:p521", ALG_P521, "P-521 / ES512 (alg -36, Alta Segurança)"),
         ]
 
         for slot, label, alg, desc in curves:
             body = _ops.vendor_key_gen(slot, label.encode("utf-8"), alg, USAGE_SIGN_AUTH)
-            st, resp = send_arm(sess, f"gen_passkey_{slot}", OP_KEY_GEN, body)
+            t_out = 15.0 if slot in (3, 4) else 6.0
+            st, resp = send_arm(sess, f"gen_passkey_{slot}", OP_KEY_GEN, body, timeout_s=t_out)
             status_text = "OK (0x00)" if st == 0 else f"ERRO (0x{st:02X})"
             print(f"    Slot {slot} [{desc}] -> Status: {status_text}")
             if st == 0x00 and resp:
@@ -212,9 +219,9 @@ def main():
         # ETAPA 3: Criação de Chave Vendor de Assinatura Privada (0x20)
         # -------------------------------------------------------------
         print("\n[+] 4. ETAPA 3 — Criação de Chave Vendor de Assinatura (0x20)...")
-        body_vsign = _ops.vendor_key_gen(3, b"vendor:firmware_sign", ALG_ES256, USAGE_SIGN)
+        body_vsign = _ops.vendor_key_gen(5, b"vendor:firmware_sign", ALG_ES256, USAGE_SIGN)
         st, resp = send_arm(sess, "gen_vsign", OP_KEY_GEN, body_vsign)
-        print(f"    Slot 3 [Vendor Signing ES256, usage=SIGN] -> Status: 0x{st:02X} ({'OK' if st == 0 else 'ERRO'})")
+        print(f"    Slot 5 [Vendor Signing ES256, usage=SIGN] -> Status: 0x{st:02X} ({'OK' if st == 0 else 'ERRO'})")
         if st == 0x00 and resp:
             recs = _tlv.parse_tlv(resp)
             for t, v in recs:
@@ -226,9 +233,9 @@ def main():
         # -------------------------------------------------------------
         print("\n[+] 5. ETAPA 4 — Criação de Crypto Wallets On-Device (0x35) e Derivação (0x37)...")
         wallets = [
-            (4, b"BtcMainVault", 1, "Bitcoin P2WPKH (bech32)"),
-            (5, b"EthMainVault", 2, "Ethereum EVM (EIP-55 hex)"),
-            (6, b"SolMainVault", 3, "Solana Ed25519 (base58)"),
+            (6, b"BtcMainVault", 1, "Bitcoin P2WPKH (bech32)"),
+            (7, b"EthMainVault", 2, "Ethereum EVM (EIP-55 hex)"),
+            (8, b"SolMainVault", 3, "Solana Ed25519 (base58)"),
         ]
         created_wallets = []
         for slot, label, net, desc in wallets:
@@ -372,9 +379,11 @@ def main():
         # ETAPA 9: Teste de Exclusão e Segurança de PIN (0x23)
         # -------------------------------------------------------------
         print("\n[+] 10. ETAPA 9 — Teste de Exclusão de Chave com PIN (0x23 KEY_DELETE)...")
-        del_k3 = _tlv.write_tlv(TAG_SLOT, bytes([3]))
-        st, _ = send_arm(sess, "del_slot_3", OP_KEY_DELETE, del_k3, pin_required=True)
-        print(f"    0x23 OP_KEY_DELETE Slot 3 -> Status: {'OK (0x00) - Slot excluído com sucesso!' if st == 0x00 else f'0x{st:02X}'}")
+        body_tmp = _ops.vendor_key_gen(15, b"temp_key_for_del", ALG_ES256, USAGE_SIGN)
+        send_arm(sess, "gen_temp_del", OP_KEY_GEN, body_tmp)
+        del_k15 = _tlv.write_tlv(TAG_SLOT, bytes([15]))
+        st, _ = send_arm(sess, "del_slot_15", OP_KEY_DELETE, del_k15, pin_required=True)
+        print(f"    0x23 OP_KEY_DELETE Slot 15 -> Status: {'OK (0x00) - Slot excluído com sucesso!' if st == 0x00 else f'0x{st:02X}'}")
 
         print("\n" + "=" * 70)
         print("  JORNADA COMPLETA DO APP VALIDADA COM SUCESSO NO HARDWARE REAL!")

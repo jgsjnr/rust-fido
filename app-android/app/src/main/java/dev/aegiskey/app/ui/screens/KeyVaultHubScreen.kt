@@ -364,6 +364,7 @@ fun KeyVaultHubScreen(
                     onSimulateTouch = { viewModel.simulateTouchIfNeeded() },
                     onInjectSampleData = { viewModel.injectExtraSampleForDebug() },
                     onSimulatePing = { viewModel.runHealthCheck() },
+                    onResetAllKeys = { viewModel.resetHardwareVault() },
                 )
             }
 

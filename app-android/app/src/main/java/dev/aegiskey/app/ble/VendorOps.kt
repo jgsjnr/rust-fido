@@ -167,7 +167,6 @@ object VendorOps {
         return req
     }
 
-    /** Chave listada (so metadados: slot + label, nunca privada). */
     /**
      * Request OATH_PUT (0x24): 0x71 nome + 0x73 [typeAlgo, digits, segredo...]
      * + opt 0x7A contador (HOTP, 4B big-endian). O segredo vive no buffer
@@ -204,6 +203,61 @@ object VendorOps {
             )
         }
         return req
+    }
+
+    /**
+     * Monta o payload de requisição para OP_OATH_CODE (0x26).
+     * [name]: Nome composto da conta (ex: "GitHub:octocat" ou "admin")
+     * [challenge]: Timestep TOTP (nowSeconds / period) ou contador HOTP (8 bytes big-endian)
+     * [digits]: Número de dígitos (6 ou 8)
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun oathCodeRequest(
+        name: String,
+        challenge: Long? = null,
+        digits: Int = 6
+    ): ByteArray {
+        val nameBytes = name.trim().toByteArray(Charsets.UTF_8)
+        var req = writeTlv(TAG_OATH_NAME, nameBytes)
+        if (challenge != null) {
+            val chalBytes = ByteArray(8) { i -> ((challenge shr (56 - 8 * i)) and 0xFFL).toByte() }
+            req += writeTlv(TAG_OATH_CHALLENGE, chalBytes)
+        }
+        return req
+    }
+
+    /**
+     * Extrai e formata o código OTP retornado pelo hardware físico para OP_OATH_CODE (0x26).
+     */
+    fun parseOathCodeResponse(tlv: ByteArray): String? {
+        val records = parseTlvRecords(tlv)
+        val raw = (findTlv(records, TAG_OATH_RESPONSE) ?: findTlv(records, TAG_OATH_TRUNCATED))
+            ?: return null
+
+        val ascii = runCatching { raw.toString(Charsets.UTF_8) }.getOrNull()
+        if (ascii != null && ascii.length in 6..8 && ascii.all(Char::isDigit)) {
+            return ascii
+        }
+
+        if (raw.size >= 5) {
+            val numDigits = raw[0].toInt() and 0xFF
+            val codeInt = ((raw[1].toInt() and 0x7F) shl 24) or
+                ((raw[2].toInt() and 0xFF) shl 16) or
+                ((raw[3].toInt() and 0xFF) shl 8) or
+                (raw[4].toInt() and 0xFF)
+            val d = if (numDigits in 6..8) numDigits else 6
+            val modulo = Math.pow(10.0, d.toDouble()).toInt()
+            val otp = codeInt % modulo
+            return otp.toString().padStart(d, '0')
+        } else if (raw.size == 4) {
+            val codeInt = ((raw[0].toInt() and 0x7F) shl 24) or
+                ((raw[1].toInt() and 0xFF) shl 16) or
+                ((raw[2].toInt() and 0xFF) shl 8) or
+                (raw[3].toInt() and 0xFF)
+            val otp = codeInt % 1000000
+            return otp.toString().padStart(6, '0')
+        }
+        return null
     }
 
     data class KeyEntry(val slot: Int, val label: String)

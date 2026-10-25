@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
 
 /**
  * Transporte USB host encapsulando [UsbCtaphid] com fallback automático para [HostUsbUartBridgeClient].
@@ -23,6 +24,13 @@ class UsbKeyTransport(
     override val isConnected: StateFlow<Boolean> = usb.ui
         .map { it.state == UsbCtaphid.State.CONNECTED }
         .stateIn(scope, SharingStarted.Eagerly, false)
+
+    suspend fun isPhysicallyReachable(): Boolean = withContext(Dispatchers.IO) {
+        if (usb.isUsbPhysicallyPresent() && (usb.isConnected || usb.open())) {
+            return@withContext true
+        }
+        return@withContext hostBridgeClient.isBridgeAvailable(500)
+    }
 
     override suspend fun connect(target: String): Result<Unit> = runCatching {
         val device = usb.findAegisDevice() ?: usb.findDevice()

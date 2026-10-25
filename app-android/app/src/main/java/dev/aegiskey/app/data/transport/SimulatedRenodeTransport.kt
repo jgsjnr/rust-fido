@@ -221,6 +221,14 @@ class SimulatedRenodeTransport(
                 }
                 byteArrayOf(0x25.toByte(), 0x00.toByte()) + tlv
             }
+            // OATH Code (0x26)
+            VendorOps.OP_OATH_CODE -> {
+                val records = VendorOps.parseTlvRecords(payload)
+                val name = VendorOps.findTlv(records, VendorOps.TAG_OATH_NAME)?.toString(Charsets.UTF_8)
+                val codeStr = if (name?.contains("VPN", true) == true || name?.contains("admin", true) == true) "12345678" else "123456"
+                val tlv = VendorOps.writeTlv(VendorOps.TAG_OATH_RESPONSE, codeStr.toByteArray(Charsets.UTF_8))
+                byteArrayOf(0x26.toByte(), 0x00.toByte()) + tlv
+            }
             // OATH Delete (0x27)
             VendorOps.OP_OATH_DELETE -> {
                 val records = VendorOps.parseTlvRecords(payload)

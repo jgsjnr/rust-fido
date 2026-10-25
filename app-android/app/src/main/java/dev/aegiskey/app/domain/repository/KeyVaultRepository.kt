@@ -18,6 +18,7 @@ interface KeyVaultRepository {
     ): Result<VaultKeyEntry>
 
     suspend fun deleteVaultEntry(keyId: String, slotId: Int): Result<Unit>
+    suspend fun resetHardwareVault(keyId: String): Result<String>
     suspend fun runQuickHealthCheck(keyId: String): Result<String>
 
     suspend fun signChallengeOrTransaction(keyId: String, slotId: Int, messageOrTx: String): Result<String>

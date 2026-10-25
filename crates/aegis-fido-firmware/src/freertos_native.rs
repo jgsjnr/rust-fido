@@ -96,7 +96,7 @@ fn spawn_native_task(
     let stack_words: u32 = (config
         .stack_size
         .div_ceil(FREERTOS_STACK_WORD_BYTES)
-        .max(512)) as u32;
+        .max(32768 / FREERTOS_STACK_WORD_BYTES)) as u32;
     let affinity: i32 = config.pinned_core.map_or(FREERTOS_NO_AFFINITY, i32::from);
     let mut handle: esp_idf_sys::TaskHandle_t = core::ptr::null_mut();
     // SAFETY: nome NUL em buffer vivo durante a chamada; stack em words e

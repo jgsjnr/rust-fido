@@ -20,6 +20,7 @@ import dev.aegiskey.app.domain.usecase.GenerateAccessKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetVaultEntriesUseCase
 import dev.aegiskey.app.domain.usecase.RefreshVaultUseCase
+import dev.aegiskey.app.domain.usecase.ResetHardwareVaultUseCase
 import dev.aegiskey.app.domain.usecase.RunHealthCheckUseCase
 import dev.aegiskey.app.domain.usecase.SignChallengeOrTransactionUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonSingleTouchUseCase
@@ -74,6 +75,7 @@ class KeyVaultViewModel(
     private val exportKeyEnvelopeAegnUseCase: ExportKeyEnvelopeAegnUseCase? = null,
     private val enrollOrUpdatePivPinUseCase: EnrollOrUpdatePivPinUseCase? = null,
     private val fetchHardwareDiagnosticsUseCase: FetchHardwareDiagnosticsUseCase? = null,
+    private val resetHardwareVaultUseCase: ResetHardwareVaultUseCase? = null,
     private val keysStore: EncryptedKeysStore? = null,
 ) : ViewModel() {
 
@@ -303,6 +305,33 @@ class KeyVaultViewModel(
         }
     }
 
+    fun resetHardwareVault() {
+        val currentKey = activeKey.value ?: return
+        val resetUseCase = resetHardwareVaultUseCase ?: return
+        viewModelScope.launch {
+            _internalState.update { it.copy(isActionLoading = true) }
+            try {
+                val result = resetUseCase(currentKey.id)
+                result.onSuccess { msg ->
+                    _internalState.update {
+                        it.copy(
+                            selectedSlotId = null,
+                            userMessage = "Reset concluído com sucesso: $msg"
+                        )
+                    }
+                    refreshVault()
+                    loadHardwareDiagnostics()
+                }.onFailure { err ->
+                    _internalState.update {
+                        it.copy(errorMessage = "Erro ao resetar hardware: ${err.localizedMessage}")
+                    }
+                }
+            } finally {
+                _internalState.update { it.copy(isActionLoading = false) }
+            }
+        }
+    }
+
     fun loadHardwareDiagnostics() {
         val currentKey = activeKey.value ?: return
         val diagUseCase = fetchHardwareDiagnosticsUseCase ?: return
@@ -417,6 +446,7 @@ class KeyVaultViewModel(
                         exportKeyEnvelopeAegnUseCase = container.exportKeyEnvelopeAegnUseCase,
                         enrollOrUpdatePivPinUseCase = container.enrollOrUpdatePivPinUseCase,
                         fetchHardwareDiagnosticsUseCase = container.fetchHardwareDiagnosticsUseCase,
+                        resetHardwareVaultUseCase = container.resetHardwareVaultUseCase,
                         keysStore = container.keysStore,
                     ) as T
                 }
