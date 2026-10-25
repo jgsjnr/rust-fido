@@ -120,10 +120,33 @@ def fw_log_req() -> bytes:
 # ---------------------------------------------------------------------------
 # F3 item 1: OTA 0x30-0x34 (builders only; COMMIT is USB-only, never here).
 # Gate: binding -> UP -> PIN (authorize_config_op on device side).
+#
+# DIVERGENCIA DOCUMENTADA (device manifest 104 B): os builders legados
+# `ota_begin(total_len, sha256)` (TLV) e `ota_chunk(seq u16, data)` NAO
+# conversam com o fio do device — o firmware (`crates/aegis-fido-firmware/
+# src/ota.rs` + `src/stores/ota_store.rs`) exige manifesto fixo de 104 B
+# `version BE u32 || size BE u32 || sha256(32) || signature Ed25519(64)` no
+# BEGIN e CHUNK `offset BE u32 || dados` (VERIFY vazio). Os legados seguem
+# congelados p/ compat (`--self-test` os cobre); app novo DEVE usar
+# `ota_manifest_build` + `ota_chunk_at` abaixo. COMMIT (`0x33`) executa
+# SOMENTE via USB/CTAPHID (app usa HID): pelo BLE o device nega `0x04`
+# sem tocar a sessao (ver `dispatch_ble_ota`); NUNCA executar COMMIT aqui.
 # ---------------------------------------------------------------------------
 
+# Tamanho fixo do manifesto OTA no fio (ver `OTA_MANIFEST_LEN` no firmware).
+OTA_MANIFEST_LEN = 104
+# Teto BLE por CHUNK: dados uteis (sem o offset) por mensagem (control-point
+# 512 B; ver `BLE_OTA_MAX_CHUNK_BYTES` no firmware). Fail-closed nos dois
+# lados: builder nega acima do teto, device desfaz a sessao.
+BLE_OTA_MAX_CHUNK_BYTES = 512
+
+
 def ota_begin(total_len: int, sha256: bytes) -> bytes:
-    """OTA BEGIN body: TLV u32-BE total + 32B sha256 (tags 0x01/0x02 reuse)."""
+    """OTA BEGIN body: TLV u32-BE total + 32B sha256 (tags 0x01/0x02 reuse).
+
+    LEGADO/INCOMPATIVEL com o fio do device (mantido p/ `--self-test`).
+    App novo: usar `ota_manifest_build` (104 B fixos).
+    """
     import struct as _s
     digest = bytes(sha256)
     if not 0 < total_len <= 0xFFFFFF:
@@ -134,7 +157,11 @@ def ota_begin(total_len: int, sha256: bytes) -> bytes:
 
 
 def ota_chunk(seq: int, data: bytes) -> bytes:
-    """OTA CHUNK body: seq u16-BE + chunk bytes (max 512, BLE control-point)."""
+    """OTA CHUNK body: seq u16-BE + chunk bytes (max 512, BLE control-point).
+
+    LEGADO/INCOMPATIVEL com o fio do device (mantido p/ `--self-test`).
+    App novo: usar `ota_chunk_at` (offset BE u32 + dados).
+    """
     import struct as _s
     chunk = bytes(data)
     if not 0 <= seq <= 0xFFFF:
@@ -144,12 +171,61 @@ def ota_chunk(seq: int, data: bytes) -> bytes:
     return _s.pack(">H", seq) + chunk
 
 
+def ota_manifest_build(version: int, size: int, sha256: bytes, signature: bytes) -> bytes:
+    """OTA BEGIN body compativel com o device: manifesto fixo de 104 B.
+
+    Layout: `version BE u32 || size BE u32 || sha256(32) || signature(64)`.
+    Fail-closed: versao 0, tamanho 0 e comprimentos errados negam (o device
+    nega com `BadManifest`/`Downgrade`/`Overflow` + rollback).
+    """
+    import struct as _s
+    digest = bytes(sha256)
+    sig = bytes(signature)
+    if not 1 <= version <= 0xFFFFFFFF:
+        raise ValueError("version must be a non-zero u32")
+    if not 1 <= size <= 0xFFFFFFFF:
+        raise ValueError("size must be a non-zero u32")
+    if len(digest) != 32:
+        raise ValueError("sha256 must be 32 bytes")
+    if len(sig) != 64:
+        raise ValueError("signature must be 64 bytes")
+    return _s.pack(">I", version) + _s.pack(">I", size) + digest + sig
+
+
+def ota_begin_manifest(manifest104: bytes) -> bytes:
+    """BEGIN a partir de manifesto ja montado (valida os 104 B, sem TLV)."""
+    raw = bytes(manifest104)
+    if len(raw) != OTA_MANIFEST_LEN:
+        raise ValueError("manifest must be exactly 104 bytes")
+    return raw
+
+
+def ota_chunk_at(offset: int, data: bytes) -> bytes:
+    """OTA CHUNK body compativel com o device: offset BE u32 + dados.
+
+    Fail-closed: offset negativo, dado vazio e dado acima do teto BLE
+    (512 B) negam (o device nega com `OutOfOrder`/`Overflow` + rollback).
+    """
+    import struct as _s
+    chunk = bytes(data)
+    if not 0 <= offset <= 0xFFFFFFFF:
+        raise ValueError("offset must fit in u32")
+    if not 1 <= len(chunk) <= BLE_OTA_MAX_CHUNK_BYTES:
+        raise ValueError("chunk must be 1..512 bytes")
+    return _s.pack(">I", offset) + chunk
+
+
 def ota_verify() -> bytes:
     return b""
 
 
 def ota_commit() -> bytes:
-    """COMMIT marker (empty body). USB-ONLY on device; NEVER execute here."""
+    """COMMIT marker (empty body). USB-ONLY on device; NEVER execute here.
+
+    Regra (ver `dispatch_ble_ota` no firmware): `0x33` executa SOMENTE via
+    USB/CTAPHID (o app usa HID). Pelo BLE o device nega `0x04` sem tocar a
+    sessao `Verified`; a janela fisica valida o BOOT + o COMMIT via USB.
+    """
     return b""
 
 
