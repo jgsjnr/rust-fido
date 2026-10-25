@@ -459,4 +459,115 @@ class CleanJourneyArchitectureTest {
         // Com mocks desligados e sem hardware na ponte, não deve inventar dispositivos
         assertTrue("Não deve conter mock fake quando desabilitado", candidates.none { it.id == "USB:303A:AE61:01" })
     }
+
+    @Test
+    fun testPairingAndKeyCreation_viaBleTransport() = runTest {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = true
+        val wizardRepo = PairingWizardRepositoryImpl(
+            bleClient = null,
+            usbCtaphid = null,
+            simulatedRenodeTransport = simulatedTransport,
+            securityService = securityService,
+            connectedKeysRepository = connectedKeysRepo,
+            scope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        // 1. Inicia busca BLE
+        wizardRepo.startDiscovery(ConnectionTransportType.BLE)
+        val candidates = wizardRepo.discoveredCandidates.value
+        val bleCandidate = candidates.firstOrNull { it.transportType == ConnectionTransportType.BLE }
+        assertNotNull("Deve encontrar candidato BLE", bleCandidate)
+
+        // 2. Conecta ao candidato BLE
+        val connectResult = wizardRepo.connectToCandidate(bleCandidate!!)
+        assertTrue("Conexão ao BLE deve ter sucesso", connectResult.isSuccess)
+
+        // 3. Toque físico
+        wizardRepo.simulatePhysicalButtonSingleTouch()
+
+        // 4. Vínculo biométrico
+        val bindingResult = wizardRepo.performBiometricBinding(
+            keyAliasName = "Chave BLE Corporativa",
+            recoveryPin = null
+        )
+        assertTrue("Pareamento BLE deve ter sucesso", bindingResult.isSuccess)
+        val device = bindingResult.getOrThrow()
+        assertEquals(ConnectionTransportType.BLE, device.transportType)
+        assertEquals("Chave BLE Corporativa", device.displayName)
+
+        // 5. Criação de chaves no cofre via BLE
+        val vaultRepo = KeyVaultRepositoryImpl(
+            keysStore = keysStore,
+            usbKeyTransport = null,
+            bleKeyTransport = null,
+            simulatedRenodeTransport = simulatedTransport,
+            connectedKeysRepository = connectedKeysRepo
+        )
+
+        val passkeyResult = vaultRepo.generateAccessKey(
+            keyId = device.id,
+            label = "GitHub Passkey",
+            type = AccessKeyType.PASSKEY_FIDO,
+            algorithmOrCurve = "ES256 (P-256)"
+        )
+        assertTrue("Criação de Passkey via BLE deve ter sucesso", passkeyResult.isSuccess)
+        val entry = passkeyResult.getOrThrow()
+        assertEquals(AccessKeyType.PASSKEY_FIDO, entry.type)
+        assertEquals("GitHub Passkey", entry.label)
+    }
+
+    @Test
+    fun testPairingAndKeyCreation_viaWifiTransport() = runTest {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = true
+        val wizardRepo = PairingWizardRepositoryImpl(
+            bleClient = null,
+            usbCtaphid = null,
+            simulatedRenodeTransport = simulatedTransport,
+            securityService = securityService,
+            connectedKeysRepository = connectedKeysRepo,
+            scope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        // 1. Inicia busca Wi-Fi
+        wizardRepo.startDiscovery(ConnectionTransportType.WIFI)
+        val candidates = wizardRepo.discoveredCandidates.value
+        val wifiCandidate = candidates.firstOrNull { it.transportType == ConnectionTransportType.WIFI }
+        assertNotNull("Deve encontrar candidato Wi-Fi", wifiCandidate)
+
+        // 2. Conecta ao candidato Wi-Fi
+        val connectResult = wizardRepo.connectToCandidate(wifiCandidate!!)
+        assertTrue("Conexão ao Wi-Fi deve ter sucesso", connectResult.isSuccess)
+
+        // 3. Toque físico
+        wizardRepo.simulatePhysicalButtonSingleTouch()
+
+        // 4. Vínculo biométrico
+        val bindingResult = wizardRepo.performBiometricBinding(
+            keyAliasName = "AegisKey Wi-Fi AP",
+            recoveryPin = null
+        )
+        assertTrue("Pareamento Wi-Fi deve ter sucesso", bindingResult.isSuccess)
+        val device = bindingResult.getOrThrow()
+        assertEquals(ConnectionTransportType.WIFI, device.transportType)
+
+        // 5. Criação de carteira de criptomoedas no cofre via Wi-Fi
+        val vaultRepo = KeyVaultRepositoryImpl(
+            keysStore = keysStore,
+            usbKeyTransport = null,
+            bleKeyTransport = null,
+            simulatedRenodeTransport = simulatedTransport,
+            connectedKeysRepository = connectedKeysRepo
+        )
+
+        val walletResult = vaultRepo.generateAccessKey(
+            keyId = device.id,
+            label = "Carteira Ethereum",
+            type = AccessKeyType.CRYPTO_WALLET_ETH,
+            algorithmOrCurve = "secp256k1"
+        )
+        assertTrue("Criação de carteira via Wi-Fi deve ter sucesso", walletResult.isSuccess)
+        val entry = walletResult.getOrThrow()
+        assertEquals(AccessKeyType.CRYPTO_WALLET_ETH, entry.type)
+        assertEquals("Carteira Ethereum", entry.label)
+    }
 }

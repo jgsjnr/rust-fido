@@ -50,7 +50,8 @@ class PairingWizardRepositoryImpl(
     private var activeScanTransport: ConnectionTransportType? = null
     private var currentCandidate: DiscoveredKeyCandidate? = null
 
-    private fun buildBleCandidates(devices: List<AegisBleClient.FoundDevice>): List<DiscoveredKeyCandidate> {
+    @Suppress("SENSELESS_COMPARISON")
+    private suspend fun buildBleCandidates(devices: List<AegisBleClient.FoundDevice>): List<DiscoveredKeyCandidate> {
         val realCandidates = devices.map { dev ->
             DiscoveredKeyCandidate(
                 id = dev.address,
@@ -100,6 +101,7 @@ class PairingWizardRepositoryImpl(
         }.launchIn(scope)
     }
 
+    @Suppress("SENSELESS_COMPARISON", "UNNECESSARY_SAFE_CALL")
     override suspend fun startDiscovery(transport: ConnectionTransportType): Unit = withContext(Dispatchers.IO) {
         activeScanTransport = transport
         _isScanning.value = true

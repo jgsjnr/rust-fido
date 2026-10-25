@@ -435,7 +435,7 @@ fun FriendlySettingsAndThemeScreen(
                                             WifiApi.testConnection("http://192.168.4.1")
                                         }
                                         wifiTestResult = if (reachable) {
-                                            "Chave física acessível via Wi-Fi em 192.168.4.1."
+                                            "Chave física acessível via Wi-Fi em 192.168.4.1 (ou fallback 10.0.2.2)."
                                         } else {
                                             "Sem resposta no IP 192.168.4.1. Conecte ao AP AegisKey-AP."
                                         }
@@ -474,6 +474,65 @@ fun FriendlySettingsAndThemeScreen(
                         ) {
                             Text(
                                 text = "Abrir Portal Wi-Fi",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+
+                    // Ações de TOTP (/oath/code) e Configuração do AP
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    wifiTotpReading = true
+                                    wifiTestResult = "Lendo código TOTP do chip via Wi-Fi (/oath/code)..."
+                                    try {
+                                        val res = withContext(Dispatchers.IO) {
+                                            WifiApi.fetchOathCode("http://192.168.4.1", "AegisKey:admin")
+                                        }
+                                        wifiTestResult = res.fold(
+                                            onSuccess = { "TOTP via Wi-Fi: ${it.code} (${it.remainingSeconds}s restantes)" },
+                                            onFailure = { "Falha ao obter TOTP: ${it.message ?: "Erro desconhecido"}" }
+                                        )
+                                    } finally {
+                                        wifiTotpReading = false
+                                    }
+                                }
+                            },
+                            enabled = !wifiTotpReading,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (wifiTotpReading) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            Text(
+                                text = if (wifiTotpReading) "Lendo..." else "Ler TOTP via Wi-Fi",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        Button(
+                            onClick = { showWifiConfigDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                text = "Configurar Wi-Fi",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1103,6 +1162,149 @@ fun FriendlySettingsAndThemeScreen(
             },
         )
     }
+
+    // Diálogo 5: Configuração de Rede Wi-Fi / SoftAP (SSID, Senha, Canal)
+    if (showWifiConfigDialog) {
+        WifiConfigModalDialog(
+            currentSsid = wifiConfigSsid,
+            currentPassword = wifiConfigPassword,
+            currentChannel = wifiConfigChannel,
+            currentPowerSave = wifiConfigPowerSave,
+            isLoading = wifiConfiguring,
+            onDismiss = { showWifiConfigDialog = false },
+            onConfirm = { ssid, pass, channel, powerSave ->
+                wifiConfigSsid = ssid
+                wifiConfigPassword = pass
+                wifiConfigChannel = channel
+                wifiConfigPowerSave = powerSave
+                scope.launch {
+                    wifiConfiguring = true
+                    wifiTestResult = "Configurando parâmetros Wi-Fi no hardware..."
+                    try {
+                        val res = withContext(Dispatchers.IO) {
+                            WifiApi.configureWifi(
+                                baseUrl = "http://192.168.4.1",
+                                ssid = ssid,
+                                password = pass,
+                                channel = channel,
+                                powerSave = powerSave
+                            )
+                        }
+                        wifiTestResult = res.getOrElse { "Falha na configuração: ${it.localizedMessage}" }
+                    } finally {
+                        wifiConfiguring = false
+                        showWifiConfigDialog = false
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun WifiConfigModalDialog(
+    currentSsid: String,
+    currentPassword: String,
+    currentChannel: Int,
+    currentPowerSave: Boolean,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, Int, Boolean) -> Unit
+) {
+    var ssid by remember { mutableStateOf(currentSsid) }
+    var password by remember { mutableStateOf(currentPassword) }
+    var channel by remember { mutableIntStateOf(currentChannel) }
+    var powerSave by remember { mutableStateOf(currentPowerSave) }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = {
+            Text(
+                text = "Configurar Rede Wi-Fi da Chave",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Ajuste o SSID, senha WPA2 e canal da antena 2.4 GHz da AegisKey. O hardware persistirá a configuração de forma segura.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = ssid,
+                    onValueChange = { ssid = it },
+                    label = { Text("Nome da Rede (SSID)") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Senha WPA2 (mínimo 8 dígitos)") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = null
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(text = "Canal Wi-Fi (2.4 GHz)", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf(1, 6, 11).forEach { ch ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable(enabled = !isLoading) { channel = ch }
+                        ) {
+                            RadioButton(selected = channel == ch, onClick = { channel = ch }, enabled = !isLoading)
+                            Text("Canal $ch", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Modo Economia de Energia", style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = powerSave, onCheckedChange = { powerSave = it }, enabled = !isLoading)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(ssid, password, channel, powerSave) },
+                enabled = !isLoading && ssid.isNotBlank() && password.length >= 8
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text("Gravar no Hardware")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
 
 /**

@@ -21,6 +21,12 @@ class BleKeyTransport(
     scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : KeyTransport {
 
+    constructor(client: AegisBleClient, scope: CoroutineScope) : this(
+        client = client,
+        hostBridgeClient = HostUsbUartBridgeClient(),
+        scope = scope
+    )
+
     override val transportType: ConnectionTransportType = ConnectionTransportType.BLE
 
     override val isConnected: StateFlow<Boolean> = client.state

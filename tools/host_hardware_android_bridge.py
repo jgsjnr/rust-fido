@@ -1025,9 +1025,23 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if "application/json" in content_type or raw_body.startswith(b"{"):
                 try:
                     data = json.loads(raw_body.decode("utf-8"))
-                    cmd = int(data.get("cmd", CMD_CBOR))
                     p_hex = data.get("payload_hex", "") or data.get("cbor_hex", "")
                     payload = bytes.fromhex(p_hex) if p_hex else b""
+
+                    if "opcode" in data or "op" in data:
+                        op_val = data.get("opcode") if data.get("opcode") is not None else data.get("op")
+                        opcode = int(op_val.strip(), 16 if "x" in str(op_val).lower() else 10) if isinstance(op_val, str) else int(op_val)
+                        status, resp_payload = HW_MANAGER.send_vendor(opcode, payload)
+                        self.send_json({
+                            "ok": True,
+                            "opcode": opcode,
+                            "status": status,
+                            "payload_hex": resp_payload.hex(),
+                            "response_hex": (bytes([opcode, status]) + resp_payload).hex(),
+                        })
+                        return
+
+                    cmd = int(data.get("cmd", CMD_CBOR))
                 except Exception as e:
                     self.send_json({"ok": False, "error": f"JSON inválido: {e}"}, status_code=400)
                     return
