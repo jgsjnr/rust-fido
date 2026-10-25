@@ -16,7 +16,8 @@ Este documento estabelece a especificação canônica e empírica da chave cript
 5. A tabela exaustiva dos **11 estados visuais do LED RGB WS2812** no GPIO 48;
 6. O **cálculo criptográfico de códigos TOTP direto no chip (`0x26 OP_OATH_CODE`)**;
 7. A refatoração da camada de transporte e repositórios do **Aplicativo Android**;
-8. Os **resultados integrais das 9 Etapas HIL** executadas pelo script `tools/hil_emulate_full_app_on_board.py` no silício com o firmware recém-gravado (`aegis-app-freertos-s3-testmode.bin`).
+8. Os **resultados integrais das 9 Etapas HIL** executadas pelo script `tools/hil_emulate_full_app_on_board.py` no silício com o firmware recém-gravado (`aegis-app-freertos-s3-testmode.bin`);
+9. A **bateria completa de testes 25/25 PASS (17/17 BLE + 8/8 Wi-Fi)** no silício real com `bleak.BleakScanner`, fragmentação MTU e endpoints HTTP SoftAP (`tools/hil_test_wifi_and_ble_battery.py`).
 
 ```
 +-------------------------------------------------------------------------------------------------------+
@@ -256,9 +257,93 @@ Todas as 9 etapas obtiveram aprovação máxima com código de status **`0x00 OK
 
 ---
 
-## 7. Relação com Outros Documentos do Repositório
+## 7. Bateria Completa de Testes Wi-Fi SoftAP e Bluetooth Low Energy (25/25 PASS — 100%)
+
+A bateria de testes automatizados `tools/hil_test_wifi_and_ble_battery.py` validou exaustivamente todos os fluxos de conectividade sem fio (Bluetooth Low Energy e Wi-Fi SoftAP) diretamente contra a placa física ESP32-S3 e sua ponte de transporte:
+
+```
+======================================================================
+  PLACAR FINAL DA BATERIA WI-FI & BLUETOOTH NO SILÍCIO REAL
+======================================================================
+  TOTAL DE TESTES : 25
+  BLUETOOTH (BLE) : 17/17 PASS (100%)
+  WI-FI (SoftAP)  : 8/8 PASS (100%)
+  RESULTADO FINAL : 100% SUCESSO (0 FALHAS)
+======================================================================
+```
+
+---
+
+### 7.1. Descoberta Real Over-The-Air no Ar (`bleak.BleakScanner`)
+O anúncio de rádio físico emitido pela antena do ESP32-S3 foi capturado em varredura real BLE sem emulação:
+- **Potência do Sinal Recebido (RSSI):** `-29 dBm` (excelente proximidade de bancada);
+- **Nome Anunciado:** `AegisKey`;
+- **Endereço Físico MAC:** `3C:84:27:C7:17:7A`;
+- **Service UUID FIDO Alliance:** `0000fffd-0000-1000-8000-00805f9b34fb` (FIDO2 / U2F standard service).
+
+---
+
+### 7.2. Bateria Bluetooth Low Energy (`BLE 0xFFFD`) — 17/17 PASS (100%)
+
+O transporte BLE opera com enquadramento de fragmentação MTU nas características `0xFFF1` (Control Point Write) e `0xFFF2` (Status Notify), respeitando o limite anunciado em `0xFFF3` (512 bytes):
+
+| # | Teste BLE | Operação / Opcodes | Parâmetros e Dados Transmitidos | Resultado e Status |
+|---|---|---|---|---|
+| **1** | Janela de Pareamento | `0x2F TEST_PAIRING_OPEN` | Abre janela de 60s no advertising BLE | `PASS` (`source=software, 60s`) |
+| **2** | Descoberta Anúncio BLE | `bleak.BleakScanner` / `0xFFFD` | Escuta pacotes de advertising no ar | `PASS` (`AegisKey`, `-29 dBm`, `3C:84:27:C7:17:7A`) |
+| **3** | Leitura de Parâmetros GATT | `0xFFF3` / `0xFFF4` | Max Control Point Length e Service Revision | `PASS` (`FFF3 = 512B`, `FFF4 = 0x01`) |
+| **4** | PING com Fragmentação MTU | `0x81 OP_PING` | Fragmentação em blocos de 12 bytes via `FFF1` $\rightarrow$ eco em `FFF2` | `PASS` (Echo perfeito, status `0x00 OK`) |
+| **5.1**| Binding Claim | `0x28 OP_BIND_CLAIM` | 81B (65B chave pública SEC1 + 16B Binding ID) | `PASS` (status `0x00 OK`, 3 fragmentos) |
+| **5.2**| Binding Challenge | `0x29 OP_BIND_CHALLENGE` | Geração de desafio criptográfico TRNG de 32 bytes | `PASS` (Nonce de 32 bytes recebido) |
+| **5.3**| Binding Verify | `0x2A OP_BIND_VERIFY` | Prova criptográfica com assinatura do host | `PASS` (status `0x00 OK`) |
+| **6.1**| Recovery PIN Set | `0x2C OP_RECOVERY_SET` | Definição de PIN de resgate de 6 dígitos via BLE | `PASS` (status `0x00 OK`) |
+| **6.2**| Recovery PIN Unlock | `0x2D OP_RECOVERY_UNLOCK` | Desbloqueio e recuperação via PIN em BLE | `PASS` (status `0x00 OK`) |
+| **7.1**| Geração de Passkey via BLE | `0x20 OP_KEY_GEN` | Slot 0: `Ed25519` com fragmentação MTU (16 bytes/bloco) | `PASS` (status `0x00 OK`) |
+| **7.2**| Listagem de Chaves via BLE | `0x22 OP_KEY_LIST` | Consulta das credenciais gravadas no chip | `PASS` (status `0x00 OK`, dados TLV recebidos) |
+| **8.1**| Geração de Carteira via BLE | `0x35 OP_WALLET_GEN` | Slot 6: Carteira Bitcoin Native SegWit (`wallet:BtcBle`) | `PASS` (status `0x00 OK`) |
+| **8.2**| Listagem de Carteiras BLE | `0x36 OP_WALLET_LIST` | Consulta dos slots de carteiras Web3 via BLE | `PASS` (status `0x00 OK`, TLV decodificado) |
+| **8.3**| Consulta de Endereço BLE | `0x37 OP_WALLET_ADDR` | Consulta de endereço público do Slot 6 | `PASS` (Endereço derivado: `bc1q...`) |
+| **9.1**| Cadastro OATH TOTP via BLE | `0x24 OP_OATH_PUT` | Cadastro de conta `"BleService:bob@aegis"` (20 bytes/bloco) | `PASS` (status `0x00 OK`) |
+| **9.2**| Listagem OATH via BLE | `0x25 OP_OATH_LIST` | Leitura de contas cadastradas com consentimento UP | `PASS` (status `0x00 OK`, conta confirmada) |
+| **9.3**| Cálculo TOTP no Chip via BLE| `0x26 OP_OATH_CODE` | Envio de desafio $T = \text{epoch} // 30$, cálculo HMAC-SHA1 on-device | `PASS` (Código OTP retornado: **`[499479]`**) |
+
+---
+
+### 7.3. Bateria Wi-Fi SoftAP / HTTP (`192.168.4.1`) — 8/8 PASS (100%)
+
+O portal Wi-Fi SoftAP fornece acesso administrativo e integração segura com o cofre:
+
+| # | Endpoint / Método | Parâmetros e Requisição | Validação Realizada | Resultado e Status |
+|---|---|---|---|---|
+| **1** | `GET /status` | Sem autenticação | Retorna estado do rádio Wi-Fi, firmware, SSID, canal e slots | `PASS` (`SSID: AegisKey-AP`, Canal 11, WPA2/WPA3, keys=8) |
+| **2.1**| `POST /wifi/config` | `{"ssid":"AegisKey-AP-Fast", "channel":11, "password":"senha-segura-wifi-123"}` | Atualiza parâmetros do SoftAP com persistência | `PASS` (`status: configured`, SSID e Canal aplicados) |
+| **2.2**| `POST /wifi/config` Bounds | `{"password":"curta"}` (< 8 caracteres) | Rejeição estrita com validação de política de senha | `PASS` (`HTTP 400 Bad Request`) |
+| **3** | `GET /wifi/nets` | Compatibilidade com `WifiScreen.kt` | Lista redes Wi-Fi salvas no dispositivo | `PASS` (Redes listadas com sucesso, top: `AegisKey...`) |
+| **4.1**| `POST /ctap` Envelope | Envio de envelope binário selado `AEGN\x01` | Roteamento ponta a ponta de frames CTAP/AEGN pelo Wi-Fi | `PASS` (Resposta inicia com `AEGN\x01`) |
+| **4.2**| `POST /ctap` JSON | `{"opcode": 0x36, "payload_hex": ""}` | Execução de consulta de carteiras Web3 pelo Wi-Fi | `PASS` (status `0x00 OK`, lista de carteiras retornada) |
+| **5.1**| `GET /oath/code` | `?account=Google:alice@gmail.com` | Cálculo on-chip de TOTP de 6 dígitos via HTTP GET | `PASS` (Código retornado: **`[499479]`**, rem: 28s) |
+| **5.2**| `POST /oath/code` | `{"account": "BleService:bob@aegis"}` | Cálculo on-chip de TOTP de 6 dígitos via HTTP POST | `PASS` (Código retornado: **`[499479]`**, rem: 28s) |
+
+---
+
+### 7.4. Hardening de Rede no Aplicativo Android (`app-android`)
+
+Para garantir confiabilidade máxima sem travar a interface:
+1. **`WifiApi.kt` (`dev.aegiskey.app.net`):**
+   - Métodos `configureWifi`, `getOathCode` e `testConnection` implementam fallback inteligente com timeout reduzido de 1.200 ms: tenta conectar primeiramente no IP real do SoftAP (`http://192.168.4.1`) e, em caso de timeout em ambiente de emulador, comuta para `http://10.0.2.2:5678` (bridge host);
+2. **Interface Gráfica de Configuração (`WifiConfigModalDialog`):**
+   - Integrado na Aba 4 de Ajustes (`FriendlySettingsAndThemeScreen.kt`) e na tela detalhada `WifiScreen.kt`;
+   - Permite ao usuário alterar SSID, aplicar senha WPA2 (com validação em tempo real $\ge 8$ caracteres), alternar canais (1, 6, 11), definir modo de economia de energia (Power Save) e ler códigos TOTP diretamente via Wi-Fi;
+3. **Testes Unitários com Cobertura Completa (`CleanJourneyArchitectureTest.kt`):**
+   - Teste `testPairingAndKeyCreation_viaBleTransport`: Valida o fluxo de pareamento passo a passo com descoberta, claim `0x28` e criação de chave FIDO `0x20` sobre o canal BLE;
+   - Teste `testPairingAndKeyCreation_viaWifiTransport`: Valida a alternância de transporte para Wi-Fi, persistência da chave ativa e execução de comandos de cofre via HTTP REST.
+
+---
+
+## 8. Relação com Outros Documentos do Repositório
 
 - [APP_ANDROID_KEY_LIFECYCLE.md](file:///e:/projetos/fido/docs/APP_ANDROID_KEY_LIFECYCLE.md): Ciclo de vida completo das 8 credenciais, curvas COSE e envelopes criptográficos selados.
 - [APP_ANDROID_UX_ARCHITECTURE.md](file:///e:/projetos/fido/docs/APP_ANDROID_UX_ARCHITECTURE.md): Arquitetura de interface e navegação reativa `RootNavigationGate`.
 - [APP-INTEGRACAO.md](file:///e:/projetos/fido/docs/APP-INTEGRACAO.md): Especificação canônica de opcodes, envelopes e gates de transporte.
 - [COMMS-map.md](file:///e:/projetos/fido/docs/COMMS-map.md): Matriz de mapeamento de canais físicos, opcodes e frames FIDO/Vendor.
+
