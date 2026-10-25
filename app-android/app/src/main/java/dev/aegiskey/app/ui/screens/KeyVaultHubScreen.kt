@@ -1,5 +1,8 @@
 package dev.aegiskey.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +17,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockPerson
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VpnKey
@@ -32,9 +40,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -54,13 +65,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
+import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
 import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
 import dev.aegiskey.app.ui.atomic.molecules.VaultEntryCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.organisms.KeyGenerationDialogOrganism
-import dev.aegiskey.app.ui.atomic.organisms.VaultKeyType
 import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
 
 @Composable
@@ -75,6 +86,7 @@ fun KeyVaultHubScreen(
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var entryToDelete by remember { mutableStateOf<VaultKeyEntry?>(null) }
+    var isDiagnosticsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.userMessage) {
         uiState.userMessage?.let {
@@ -88,6 +100,40 @@ fun KeyVaultHubScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessages()
         }
+    }
+
+    // Se uma chave específica estiver selecionada, renderiza sua tela de gestão dedicada
+    if (uiState.selectedEntry != null) {
+        KeyDetailManagementScreen(
+            entry = uiState.selectedEntry!!,
+            onBack = { viewModel.closeKeyDetail() },
+            onCopy = { viewModel.copyIdentifier(it) },
+            onSign = { slotId, msg -> viewModel.signWithSelectedKey(slotId, msg) },
+            onExportEnvelope = { slotId -> viewModel.exportSelectedKeyEnvelope(slotId) },
+            onEnrollPivPin = { slotCode, pin, puk -> viewModel.enrollPivPin(slotCode, pin, puk) },
+            onDeleteKey = { slotId -> viewModel.deleteKeyAndCloseDetail(slotId) },
+            signatureResult = uiState.lastSignatureResult,
+            exportedEnvelope = uiState.lastExportedEnvelope,
+            isActionLoading = uiState.isActionLoading,
+            modifier = modifier
+        )
+        return
+    }
+
+    // Filtro por categoria
+    val filteredEntries = when (uiState.selectedCategoryFilter) {
+        "PASSKEYS" -> uiState.entries.filter { it.type == AccessKeyType.PASSKEY_FIDO || it.type == AccessKeyType.VENDOR_SIGNING_KEY }
+        "CRYPTO" -> uiState.entries.filter {
+            it.type in listOf(
+                AccessKeyType.CRYPTO_WALLET_BTC,
+                AccessKeyType.CRYPTO_WALLET_ETH,
+                AccessKeyType.CRYPTO_WALLET_SOL,
+                AccessKeyType.CRYPTO_WALLET_DOT
+            )
+        }
+        "PIV" -> uiState.entries.filter { it.type == AccessKeyType.PIV_SMARTCARD_SLOT }
+        "AEGN" -> uiState.entries.filter { it.type == AccessKeyType.ENCRYPTED_AEGN_ENVELOPE }
+        else -> uiState.entries
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -109,7 +155,24 @@ fun KeyVaultHubScreen(
                 )
             }
 
-            // Botão Principal: Criar Nova Chave no Cofre (46.dp)
+            // Painel Resumo do Gestor de Hardware
+            item {
+                HardwareManagerSummaryPanel(
+                    diagnostics = uiState.hardwareDiagnostics,
+                    totalOccupied = uiState.entries.size,
+                    activeTransport = uiState.activeKey?.transportType,
+                    isExpanded = isDiagnosticsExpanded,
+                    onToggleExpand = {
+                        isDiagnosticsExpanded = !isDiagnosticsExpanded
+                        if (isDiagnosticsExpanded) viewModel.loadHardwareDiagnostics()
+                    },
+                    onRunQuickCheck = { viewModel.runHealthCheck() },
+                    onNavigateToBackup = onNavigateToBackup,
+                    onNavigateToOta = onNavigateToOta
+                )
+            }
+
+            // Botão Principal: Criar Nova Chave no Cofre
             item {
                 Button(
                     onClick = { showCreateDialog = true },
@@ -126,13 +189,50 @@ fun KeyVaultHubScreen(
                         Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Criar Nova Chave de Acesso",
+                            text = "Criar Nova Chave no Hardware",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+            }
+
+            // FilterChips Horizontais Compactos
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = uiState.selectedCategoryFilter == "ALL",
+                        onClick = { viewModel.setCategoryFilter("ALL") },
+                        label = { Text("Todas (${uiState.entries.size})", style = MaterialTheme.typography.labelSmall) },
+                        colors = FilterChipDefaults.filterChipColors()
+                    )
+                    FilterChip(
+                        selected = uiState.selectedCategoryFilter == "PASSKEYS",
+                        onClick = { viewModel.setCategoryFilter("PASSKEYS") },
+                        label = { Text("Passkeys & SSH", style = MaterialTheme.typography.labelSmall) }
+                    )
+                    FilterChip(
+                        selected = uiState.selectedCategoryFilter == "CRYPTO",
+                        onClick = { viewModel.setCategoryFilter("CRYPTO") },
+                        label = { Text("Carteiras Cripto", style = MaterialTheme.typography.labelSmall) }
+                    )
+                    FilterChip(
+                        selected = uiState.selectedCategoryFilter == "PIV",
+                        onClick = { viewModel.setCategoryFilter("PIV") },
+                        label = { Text("Smartcard PIV", style = MaterialTheme.typography.labelSmall) }
+                    )
+                    FilterChip(
+                        selected = uiState.selectedCategoryFilter == "AEGN",
+                        onClick = { viewModel.setCategoryFilter("AEGN") },
+                        label = { Text("Envelopes AEGN", style = MaterialTheme.typography.labelSmall) }
+                    )
                 }
             }
 
@@ -144,7 +244,7 @@ fun KeyVaultHubScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "Guardadas no Cofre",
+                        text = "Chaves no Chip (${filteredEntries.size})",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -156,7 +256,7 @@ fun KeyVaultHubScreen(
                 }
             }
 
-            if (uiState.entries.isEmpty() && !uiState.isLoading) {
+            if (filteredEntries.isEmpty() && !uiState.isLoading) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -175,14 +275,14 @@ fun KeyVaultHubScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "Seu cofre está vazio",
+                                text = "Nenhuma chave encontrada neste filtro",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Crie sua primeira Passkey ou carteira para proteger suas contas diretamente no chip.",
+                                text = "Toque em \"Criar Nova Chave\" para gravar uma nova credencial no chip físico.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -193,12 +293,16 @@ fun KeyVaultHubScreen(
                 }
             }
 
-            items(uiState.entries, key = { it.slotId }) { entry ->
+            items(filteredEntries, key = { it.slotId }) { entry ->
                 val typeLabel = when (entry.type) {
                     AccessKeyType.PASSKEY_FIDO -> "Passkey"
+                    AccessKeyType.VENDOR_SIGNING_KEY -> "Vendor Key"
                     AccessKeyType.CRYPTO_WALLET_BTC -> "Bitcoin"
                     AccessKeyType.CRYPTO_WALLET_ETH -> "Ethereum"
                     AccessKeyType.CRYPTO_WALLET_SOL -> "Solana"
+                    AccessKeyType.CRYPTO_WALLET_DOT -> "Polkadot"
+                    AccessKeyType.PIV_SMARTCARD_SLOT -> "PIV Smartcard"
+                    AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "Envelope AEGN"
                 }
 
                 VaultEntryCardMolecule(
@@ -206,6 +310,9 @@ fun KeyVaultHubScreen(
                     subtitle = entry.publicSummary,
                     entryType = typeLabel,
                     identifierToCopy = entry.publicSummary,
+                    algorithmOrCurve = entry.algorithmOrCurve,
+                    derivationPathOrSlotCode = entry.derivationPathOrSlotCode,
+                    onOpenDetail = { viewModel.openKeyDetail(entry.slotId) },
                     onCopy = { viewModel.copyIdentifier(it) },
                     onDelete = { entryToDelete = entry },
                 )
@@ -243,102 +350,12 @@ fun KeyVaultHubScreen(
                     )
 
                     SettingToggleRowMolecule(
-                        title = "Exigir toque físico na chave",
-                        description = "Nenhuma operação é aprovada sem tocar no botão.",
+                        title = "Exigir toque para cada código",
+                        description = "Exige toque no botão da chave para autorizar.",
                         icon = Icons.Filled.TouchApp,
                         checked = toggles?.requireTouchForEveryCode ?: true,
                         onCheckedChange = { viewModel.toggleRequireTouchForCode(it) },
                     )
-                }
-            }
-
-            // Seção: Cuidados com a Chave
-            item {
-                Text(
-                    text = "Cuidados com a Chave",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Status de saúde
-                    if (!uiState.healthCheckStatus.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = uiState.healthCheckStatus ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.runHealthCheck() },
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Filled.HealthAndSafety, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Verificar Saúde da Chave", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = onNavigateToBackup,
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Filled.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Fazer Backup de Segurança", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = onNavigateToOta,
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Filled.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Atualizar Software da Chave", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                    }
                 }
             }
 
@@ -363,18 +380,17 @@ fun KeyVaultHubScreen(
         )
     }
 
-    // Diálogo de Criação de Chave
+    // Diálogo de Criação de Chave Completo
     if (showCreateDialog) {
         KeyGenerationDialogOrganism(
             onDismissRequest = { showCreateDialog = false },
-            onConfirm = { name, vaultType ->
-                val type = when (vaultType) {
-                    VaultKeyType.PASSKEY -> AccessKeyType.PASSKEY_FIDO
-                    VaultKeyType.BITCOIN -> AccessKeyType.CRYPTO_WALLET_BTC
-                    VaultKeyType.ETHEREUM -> AccessKeyType.CRYPTO_WALLET_ETH
-                    VaultKeyType.SOLANA -> AccessKeyType.CRYPTO_WALLET_SOL
-                }
-                viewModel.generateKey(name, type)
+            onConfirm = { label, type, curve, extra ->
+                viewModel.createNewKey(
+                    label = label,
+                    type = type,
+                    algorithmOrCurve = curve,
+                    extraParam = extra
+                )
                 showCreateDialog = false
             },
             isLoading = uiState.isLoading,
@@ -397,7 +413,7 @@ fun KeyVaultHubScreen(
             },
             text = {
                 Text(
-                    text = "Tem certeza de que deseja remover \"${entry.label}\"? Esta ação não pode ser desfeita.",
+                    text = "Tem certeza de que deseja remover \"${entry.label}\"? Esta ação enviará o comando de expurgo 0x23 para o hardware.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
@@ -518,6 +534,188 @@ private fun ActiveKeySummaryCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HardwareManagerSummaryPanel(
+    diagnostics: HardwareDeviceDiagnostics?,
+    totalOccupied: Int,
+    activeTransport: ConnectionTransportType?,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onRunQuickCheck: () -> Unit,
+    onNavigateToBackup: () -> Unit,
+    onNavigateToOta: () -> Unit
+) {
+    val fwVersion = diagnostics?.firmwareVersion ?: "v0.2.1-esp32s3"
+    val channel = when (activeTransport) {
+        ConnectionTransportType.BLE -> "BLE"
+        ConnectionTransportType.USB -> "USB/UART"
+        ConnectionTransportType.WIFI -> "Wi-Fi"
+        ConnectionTransportType.SIMULATOR -> "Simulador"
+        null -> "Hardware"
+    }
+    val freeSlots = diagnostics?.freeSlotsRemaining ?: (16 - totalOccupied).coerceAtLeast(0)
+
+    OutlinedCard(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Memory,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Gestor de Hardware do Chip",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                ) {
+                    Text(
+                        text = fwVersion,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            // Resumo de Canal e Slots
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Canal: $channel · Slots: $totalOccupied ocupados, $freeSlots livres",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Curvas Suportadas
+            val curvesText = diagnostics?.fido2SupportedCurves?.joinToString(", ") ?: "Ed25519, ES256, ES384, ES512, ES256K"
+            Text(
+                text = "Curvas: $curvesText",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            // Botão Expandir Diagnóstico Completo
+            OutlinedButton(
+                onClick = onToggleExpand,
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().height(36.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isExpanded) "Ocultar Diagnóstico do Chip" else "Diagnóstico Completo do Chip",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Status de Integridade: ${diagnostics?.healthStatusText ?: "Hardware 100% íntegro (ATECC608A + ESP32-S3)"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Slots PIV: ${diagnostics?.pivSlotsAvailable?.joinToString() ?: "9A, 9C, 9D, 9E"}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = "PIN em Hardware: ${if (diagnostics?.isPinConfigured == true) "Configurado" else "Padrão Ativo"}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = "Vínculo Criptográfico: ${if (diagnostics?.isBoundToThisPhone == true) "Pareado e Seguro" else "Ativo"}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+
+                    // Ações Rápidas de Hardware
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onRunQuickCheck,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f).height(32.dp)
+                        ) {
+                            Text("HealthCheck", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = onNavigateToBackup,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f).height(32.dp)
+                        ) {
+                            Text("Backup", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = onNavigateToOta,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f).height(32.dp)
+                        ) {
+                            Text("Atualizar OTA", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                    }
                 }
             }
         }

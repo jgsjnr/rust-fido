@@ -224,17 +224,62 @@ class CleanJourneyArchitectureTest {
         assertEquals(AccessKeyType.PASSKEY_FIDO, passkey.type)
         assertEquals("Google Account", passkey.label)
 
-        // Geração de Carteiras Cripto BTC, ETH e SOL
+        // Geração de Chave de Assinatura de Hardware do Vendor (Vendor Signing Key)
+        val vendorKeyResult = vaultRepo.generateNewAccessKey("sim-key-001", "Vendor Master Signer", AccessKeyType.VENDOR_SIGNING_KEY, algorithmOrCurve = "Ed25519 (moderna)")
+        assertTrue("Criação de Vendor Signing Key deve ter sucesso", vendorKeyResult.isSuccess)
+        val vendorKey = vendorKeyResult.getOrThrow()
+        assertEquals(AccessKeyType.VENDOR_SIGNING_KEY, vendorKey.type)
+        assertEquals("Vendor Master Signer", vendorKey.label)
+
+        // Geração de Carteiras Cripto BTC, ETH, SOL e DOT
         val btcResult = vaultRepo.generateNewAccessKey("sim-key-001", "Cold Wallet BTC", AccessKeyType.CRYPTO_WALLET_BTC)
         assertTrue(btcResult.isSuccess)
         val ethResult = vaultRepo.generateNewAccessKey("sim-key-001", "DeFi Wallet ETH", AccessKeyType.CRYPTO_WALLET_ETH)
         assertTrue(ethResult.isSuccess)
         val solResult = vaultRepo.generateNewAccessKey("sim-key-001", "Vault Solana", AccessKeyType.CRYPTO_WALLET_SOL)
         assertTrue(solResult.isSuccess)
+        val dotResult = vaultRepo.generateNewAccessKey("sim-key-001", "Polkadot Staking", AccessKeyType.CRYPTO_WALLET_DOT)
+        assertTrue(dotResult.isSuccess)
 
-        // Verifica lista total de credenciais do cofre
+        // Geração de Slot Smartcard PIV (NIST SP 800-73-4)
+        val pivResult = vaultRepo.generateNewAccessKey("sim-key-001", "PIV Smartcard 9A", AccessKeyType.PIV_SMARTCARD_SLOT, extraParam = "9A")
+        assertTrue(pivResult.isSuccess)
+        val pivKey = pivResult.getOrThrow()
+        assertEquals(AccessKeyType.PIV_SMARTCARD_SLOT, pivKey.type)
+
+        // Geração / Importação de Envelope AEGN v1 Selado
+        val aegnResult = vaultRepo.generateNewAccessKey("sim-key-001", "Vault Envelope Key", AccessKeyType.ENCRYPTED_AEGN_ENVELOPE)
+        assertTrue(aegnResult.isSuccess)
+        val aegnKey = aegnResult.getOrThrow()
+        assertEquals(AccessKeyType.ENCRYPTED_AEGN_ENVELOPE, aegnKey.type)
+
+        // Verifica lista total de credenciais do cofre (todas as 8 categorias cobertas)
         val allEntries = vaultRepo.vaultEntries.value
-        assertEquals(4, allEntries.size)
+        assertEquals(8, allEntries.size)
+
+        // Teste de assinatura de desafio / transação criptográfica
+        val signResult = vaultRepo.signChallengeOrTransaction("sim-key-001", passkey.slotId, "CHALLENGE_NONCE_ABC123")
+        assertTrue("Assinatura com chave do cofre deve ter sucesso", signResult.isSuccess)
+        assertNotNull(signResult.getOrThrow())
+
+        // Teste de exportação de envelope AEGN
+        val exportResult = vaultRepo.exportKeyEnvelopeAegn("sim-key-001", aegnKey.slotId)
+        assertTrue("Exportação de envelope AEGN deve ter sucesso", exportResult.isSuccess)
+        assertTrue(exportResult.getOrThrow().isNotBlank())
+
+        // Teste de configuração de PIN/PUK PIV
+        val pivPinResult = vaultRepo.enrollOrUpdatePivPin("sim-key-001", "9A", "123456", "12345678")
+        assertTrue("Configuração de PIN/PUK PIV deve ter sucesso", pivPinResult.isSuccess)
+
+        // Teste de diagnóstico completo do hardware
+        val diagResult = vaultRepo.fetchHardwareDiagnostics("sim-key-001")
+        assertTrue("Diagnóstico de hardware deve ter sucesso", diagResult.isSuccess)
+        val diagnostics = diagResult.getOrThrow()
+        assertEquals(8, diagnostics.totalVaultItems)
+        assertEquals(24, diagnostics.freeSlotsRemaining)
+        assertEquals(5, diagnostics.fido2SupportedCurves.size)
+        assertEquals(4, diagnostics.pivSlotsAvailable.size)
+        assertTrue(diagnostics.healthStatusText.contains("Hardware Conectado"))
 
         // Executa teste rápido de integridade do hardware
         val healthResult = vaultRepo.runQuickHealthCheck("sim-key-001")
@@ -250,7 +295,7 @@ class CleanJourneyArchitectureTest {
             connectedKeysRepository = connectedKeysRepo
         )
 
-        // Adiciona conta TOTP válida
+        // Adiciona conta TOTP válida (SHA1, 6 dígitos)
         val addTotpResult = totpRepo.addAccount(
             keyId = "sim-key-001",
             issuer = "GitHub",
@@ -265,9 +310,31 @@ class CleanJourneyArchitectureTest {
         assertEquals(6, totpItem.currentCode.length)
         assertTrue("Código formatado deve conter espaço central", totpItem.formattedCode.contains(" "))
 
+        // Adiciona conta HOTP baseada em evento / contador
+        val addHotpResult = totpRepo.addAccount(
+            keyId = "sim-key-001",
+            issuer = "InternalVPN",
+            accountName = "admin",
+            secretOrUri = "JBSWY3DPEHPK3PXP",
+            digits = 8,
+            isHotp = true
+        )
+        assertTrue("Cadastro HOTP deve ter sucesso", addHotpResult.isSuccess)
+        val hotpItem = addHotpResult.getOrThrow()
+        assertTrue(hotpItem.isHotp)
+        assertEquals(0L, hotpItem.counter)
+        assertEquals(8, hotpItem.currentCode.length)
+
+        // Incrementa contador do HOTP
+        val incrementResult = totpRepo.incrementHotpCounter("sim-key-001", hotpItem.id)
+        assertTrue("Incremento de contador HOTP deve ter sucesso", incrementResult.isSuccess)
+        val updatedHotp = incrementResult.getOrThrow()
+        assertEquals(1L, updatedHotp.counter)
+        assertEquals(8, updatedHotp.currentCode.length)
+
         // Verifica listagem
         val accounts = totpRepo.accounts.value
-        assertEquals(1, accounts.size)
+        assertEquals(2, accounts.size)
 
         // Testa contagem regressiva e atualização do timer de 30s
         totpRepo.tickTimer(1700000000L)

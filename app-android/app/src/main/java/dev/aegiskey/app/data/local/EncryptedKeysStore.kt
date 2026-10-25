@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
@@ -40,38 +41,12 @@ class EncryptedKeysStore(private val context: Context?) {
     private val inMemoryFallback = mutableMapOf<String, String>()
 
     init {
-        purgeResidualMockData()
+        DebugHardwareChipMock.purgeResidualMockData(this)
     }
 
-    private fun purgeResidualMockData() {
-        runCatching {
-            val allKeys = loadConnectedKeys()
-            val filteredKeys = allKeys.filterNot { key ->
-                key.hardwareAddressOrId in MOCK_IDS ||
-                    key.id in MOCK_IDS ||
-                    key.displayName.contains("Chip Simulado") ||
-                    key.displayName.contains("Chip Debug")
-            }
-            if (filteredKeys.size != allKeys.size) {
-                saveConnectedKeys(filteredKeys)
-                for (mockId in MOCK_IDS) {
-                    putString(KEY_VAULT_PREFIX + mockId, null)
-                    putString(KEY_TOTP_PREFIX + mockId, null)
-                }
-                val active = loadActiveKeyId()
-                if (active in MOCK_IDS || filteredKeys.none { it.id == active }) {
-                    saveActiveKeyId(filteredKeys.firstOrNull()?.id)
-                }
-            }
-
-            for (key in filteredKeys) {
-                val vault = loadVaultEntries(key.id)
-                val cleanVault = vault.filterNot { it.label.contains("Enterprise Passkey") }
-                if (cleanVault.size != vault.size) {
-                    saveVaultEntries(key.id, cleanVault)
-                }
-            }
-        }
+    fun removeKeyVaultAndTotp(keyId: String) {
+        putString(KEY_VAULT_PREFIX + keyId, null)
+        putString(KEY_TOTP_PREFIX + keyId, null)
     }
 
     @Synchronized
@@ -179,7 +154,12 @@ class EncryptedKeysStore(private val context: Context?) {
                         label = obj.getString("label"),
                         type = accessType,
                         publicSummary = obj.optString("publicSummary", ""),
-                        createdAtEpochMs = obj.optLong("createdAtEpochMs", System.currentTimeMillis())
+                        createdAtEpochMs = obj.optLong("createdAtEpochMs", System.currentTimeMillis()),
+                        algorithmOrCurve = obj.optString("algorithmOrCurve", "ES256 (P-256)"),
+                        usageDescription = obj.optString("usageDescription", "Autenticação e Assinatura"),
+                        derivationPathOrSlotCode = obj.optString("derivationPathOrSlotCode", ""),
+                        envelopeHex = obj.optString("envelopeHex", ""),
+                        requiresPhysicalTouch = obj.optBoolean("requiresPhysicalTouch", true)
                     )
                 )
             }
@@ -198,6 +178,11 @@ class EncryptedKeysStore(private val context: Context?) {
                 put("type", entry.type.name)
                 put("publicSummary", entry.publicSummary)
                 put("createdAtEpochMs", entry.createdAtEpochMs)
+                put("algorithmOrCurve", entry.algorithmOrCurve)
+                put("usageDescription", entry.usageDescription)
+                put("derivationPathOrSlotCode", entry.derivationPathOrSlotCode)
+                put("envelopeHex", entry.envelopeHex)
+                put("requiresPhysicalTouch", entry.requiresPhysicalTouch)
             }
             array.put(obj)
         }
@@ -223,7 +208,10 @@ class EncryptedKeysStore(private val context: Context?) {
                         remainingSeconds = obj.optInt("remainingSeconds", 30),
                         periodSeconds = obj.optInt("periodSeconds", 30),
                         digits = obj.optInt("digits", 6),
-                        requiresTouchToRefresh = obj.optBoolean("requiresTouchToRefresh", false)
+                        requiresTouchToRefresh = obj.optBoolean("requiresTouchToRefresh", false),
+                        isHotp = obj.optBoolean("isHotp", false),
+                        counter = obj.optLong("counter", 0L),
+                        algorithm = obj.optString("algorithm", "SHA1")
                     )
                 )
             }
@@ -246,6 +234,9 @@ class EncryptedKeysStore(private val context: Context?) {
                 put("periodSeconds", item.periodSeconds)
                 put("digits", item.digits)
                 put("requiresTouchToRefresh", item.requiresTouchToRefresh)
+                put("isHotp", item.isHotp)
+                put("counter", item.counter)
+                put("algorithm", item.algorithm)
             }
             array.put(obj)
         }
@@ -263,6 +254,5 @@ class EncryptedKeysStore(private val context: Context?) {
         private const val KEY_ACTIVE_KEY_ID = "active_key_id"
         private const val KEY_VAULT_PREFIX = "vault_entries_"
         private const val KEY_TOTP_PREFIX = "totp_accounts_"
-        private val MOCK_IDS = setOf("AA:BB:CC:AE:61:01", "USB:303A:AE61:01", "SIM:RENODE:5678")
     }
 }

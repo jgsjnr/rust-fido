@@ -23,6 +23,9 @@ import dev.aegiskey.app.domain.usecase.AddTotpAccountUseCase
 import dev.aegiskey.app.domain.usecase.ConnectCandidateUseCase
 import dev.aegiskey.app.domain.usecase.DeleteTotpAccountUseCase
 import dev.aegiskey.app.domain.usecase.DeleteVaultEntryUseCase
+import dev.aegiskey.app.domain.usecase.EnrollOrUpdatePivPinUseCase
+import dev.aegiskey.app.domain.usecase.ExportKeyEnvelopeAegnUseCase
+import dev.aegiskey.app.domain.usecase.FetchHardwareDiagnosticsUseCase
 import dev.aegiskey.app.domain.usecase.GenerateAccessKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetAppStartDestinationUseCase
@@ -30,6 +33,7 @@ import dev.aegiskey.app.domain.usecase.GetConnectedKeysUseCase
 import dev.aegiskey.app.domain.usecase.GetThemePreferenceUseCase
 import dev.aegiskey.app.domain.usecase.GetTotpAccountsUseCase
 import dev.aegiskey.app.domain.usecase.GetVaultEntriesUseCase
+import dev.aegiskey.app.domain.usecase.IncrementHotpCounterUseCase
 import dev.aegiskey.app.domain.usecase.PerformBiometricBindingUseCase
 import dev.aegiskey.app.domain.usecase.RefreshTotpCodesUseCase
 import dev.aegiskey.app.domain.usecase.RefreshVaultUseCase
@@ -39,6 +43,7 @@ import dev.aegiskey.app.domain.usecase.RunHealthCheckUseCase
 import dev.aegiskey.app.domain.usecase.SelectActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.SetDynamicColorsUseCase
 import dev.aegiskey.app.domain.usecase.SetThemeModeUseCase
+import dev.aegiskey.app.domain.usecase.SignChallengeOrTransactionUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonHoldUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonSingleTouchUseCase
 import dev.aegiskey.app.domain.usecase.StartDiscoveryUseCase
@@ -170,6 +175,18 @@ class AppContainer(val context: Context) {
     val runHealthCheckUseCase: RunHealthCheckUseCase by lazy {
         RunHealthCheckUseCase(keyVaultRepository)
     }
+    val signChallengeOrTransactionUseCase: SignChallengeOrTransactionUseCase by lazy {
+        SignChallengeOrTransactionUseCase(keyVaultRepository)
+    }
+    val exportKeyEnvelopeAegnUseCase: ExportKeyEnvelopeAegnUseCase by lazy {
+        ExportKeyEnvelopeAegnUseCase(keyVaultRepository)
+    }
+    val enrollOrUpdatePivPinUseCase: EnrollOrUpdatePivPinUseCase by lazy {
+        EnrollOrUpdatePivPinUseCase(keyVaultRepository)
+    }
+    val fetchHardwareDiagnosticsUseCase: FetchHardwareDiagnosticsUseCase by lazy {
+        FetchHardwareDiagnosticsUseCase(keyVaultRepository)
+    }
 
     // --- Casos de Uso: TOTP & Contas ---
     val getTotpAccountsUseCase: GetTotpAccountsUseCase by lazy {
@@ -183,6 +200,9 @@ class AppContainer(val context: Context) {
     }
     val deleteTotpAccountUseCase: DeleteTotpAccountUseCase by lazy {
         DeleteTotpAccountUseCase(totpRepository)
+    }
+    val incrementHotpCounterUseCase: IncrementHotpCounterUseCase by lazy {
+        IncrementHotpCounterUseCase(totpRepository)
     }
     val tickTotpTimerUseCase: TickTotpTimerUseCase by lazy {
         TickTotpTimerUseCase(totpRepository)

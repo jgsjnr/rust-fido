@@ -179,7 +179,7 @@ fun TotpDedicatedScreen(
                 }
             }
 
-            // Lista de Cartões TOTP com Anel Animado
+            // Lista de Cartões TOTP e HOTP
             items(uiState.accounts, key = { it.id }) { item ->
                 TotpCodeCardMolecule(
                     issuer = item.issuer,
@@ -187,6 +187,9 @@ fun TotpDedicatedScreen(
                     code = item.currentCode,
                     remainingSeconds = uiState.remainingSeconds,
                     totalSeconds = item.periodSeconds,
+                    isHotp = item.isHotp,
+                    counter = item.counter,
+                    onIncrementHotp = { viewModel.incrementHotp(item.id) },
                     onCopyCode = { code ->
                         viewModel.copyCodeToClipboard(code)
                     },
@@ -216,12 +219,19 @@ fun TotpDedicatedScreen(
         )
     }
 
-    // Diálogo Organismo de Adicionar TOTP
+    // Diálogo Organismo de Adicionar TOTP/HOTP
     if (showAddDialog) {
         AddTotpAccountDialogOrganism(
             onDismissRequest = { showAddDialog = false },
-            onSaveTotp = { issuer, account, secretOrUri ->
-                viewModel.addAccount(issuer, account, secretOrUri)
+            onSaveTotp = { issuer, account, secretOrUri, digits, periodSeconds, isHotp ->
+                viewModel.addAccount(
+                    issuer = issuer,
+                    accountName = account,
+                    secretOrUri = secretOrUri,
+                    digits = digits,
+                    periodSeconds = periodSeconds,
+                    isHotp = isHotp
+                )
                 showAddDialog = false
             },
             isLoading = uiState.isAddingAccount,

@@ -13,6 +13,7 @@ import dev.aegiskey.app.domain.usecase.AddTotpAccountUseCase
 import dev.aegiskey.app.domain.usecase.DeleteTotpAccountUseCase
 import dev.aegiskey.app.domain.usecase.GetActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetTotpAccountsUseCase
+import dev.aegiskey.app.domain.usecase.IncrementHotpCounterUseCase
 import dev.aegiskey.app.domain.usecase.RefreshTotpCodesUseCase
 import dev.aegiskey.app.domain.usecase.TickTotpTimerUseCase
 import kotlinx.coroutines.delay
@@ -51,6 +52,7 @@ class TotpAuthenticatorViewModel(
     private val deleteTotpAccountUseCase: DeleteTotpAccountUseCase,
     private val tickTotpTimerUseCase: TickTotpTimerUseCase,
     private val securityService: SystemSecurityService,
+    private val incrementHotpCounterUseCase: IncrementHotpCounterUseCase? = null,
     private val keysStore: EncryptedKeysStore? = null
 ) : ViewModel() {
 
@@ -122,7 +124,15 @@ class TotpAuthenticatorViewModel(
         }
     }
 
-    fun addAccount(issuer: String, accountName: String, secretOrUri: String) {
+    fun addAccount(
+        issuer: String,
+        accountName: String,
+        secretOrUri: String,
+        digits: Int = 6,
+        periodSeconds: Int = 30,
+        isHotp: Boolean = false,
+        algorithm: String = "SHA1"
+    ) {
         val currentKey = activeKey.value
         if (currentKey == null) {
             _internalState.update { it.copy(errorMessage = "Conecte sua AegisKey antes de adicionar um código.") }
@@ -137,11 +147,15 @@ class TotpAuthenticatorViewModel(
                     issuer = issuer.trim(),
                     accountName = accountName.trim(),
                     secretOrUri = secretOrUri.trim(),
-                    digits = 6
+                    digits = digits,
+                    periodSeconds = periodSeconds,
+                    isHotp = isHotp,
+                    algorithm = algorithm
                 )
                 result.onSuccess { item ->
+                    val typeDesc = if (isHotp) "HOTP (Contador)" else "TOTP (${periodSeconds}s)"
                     _internalState.update {
-                        it.copy(feedbackMessage = "Código para \"${item.issuer.ifBlank { item.accountName }}\" salvo na sua chave!")
+                        it.copy(feedbackMessage = "Código $typeDesc para \"${item.issuer.ifBlank { item.accountName }}\" salvo na sua chave!")
                     }
                 }.onFailure { err ->
                     _internalState.update {
@@ -150,6 +164,28 @@ class TotpAuthenticatorViewModel(
                 }
             } finally {
                 _internalState.update { it.copy(isAddingAccount = false) }
+            }
+        }
+    }
+
+    fun incrementHotp(accountId: String) {
+        val currentKey = activeKey.value ?: return
+        val incrementUseCase = incrementHotpCounterUseCase ?: return
+        viewModelScope.launch {
+            _internalState.update { it.copy(isLoading = true) }
+            try {
+                val result = incrementUseCase(currentKey.id, accountId)
+                result.onSuccess { item ->
+                    _internalState.update {
+                        it.copy(feedbackMessage = "Novo código HOTP #${item.counter} gerado no chip!")
+                    }
+                }.onFailure { err ->
+                    _internalState.update {
+                        it.copy(errorMessage = "Falha ao gerar próximo código HOTP: ${err.localizedMessage}")
+                    }
+                }
+            } finally {
+                _internalState.update { it.copy(isLoading = false) }
             }
         }
     }
@@ -204,6 +240,7 @@ class TotpAuthenticatorViewModel(
                         deleteTotpAccountUseCase = container.deleteTotpAccountUseCase,
                         tickTotpTimerUseCase = container.tickTotpTimerUseCase,
                         securityService = container.securityService,
+                        incrementHotpCounterUseCase = container.incrementHotpCounterUseCase,
                         keysStore = container.keysStore
                     ) as T
                 }

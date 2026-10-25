@@ -25,9 +25,28 @@ class AddTotpAccountUseCase(
         issuer: String,
         accountName: String,
         secretOrUri: String,
-        digits: Int = 6
+        digits: Int = 6,
+        periodSeconds: Int = 30,
+        isHotp: Boolean = false,
+        algorithm: String = "SHA1"
     ): Result<TotpAccountItem> =
-        repository.addAccount(keyId, issuer, accountName, secretOrUri, digits)
+        repository.addAccount(
+            keyId = keyId,
+            issuer = issuer,
+            accountName = accountName,
+            secretOrUri = secretOrUri,
+            digits = digits,
+            periodSeconds = periodSeconds,
+            isHotp = isHotp,
+            algorithm = algorithm
+        )
+}
+
+class IncrementHotpCounterUseCase(
+    private val repository: TotpRepository
+) {
+    suspend operator fun invoke(keyId: String, accountId: String): Result<TotpAccountItem> =
+        repository.incrementHotpCounter(keyId, accountId)
 }
 
 class DeleteTotpAccountUseCase(

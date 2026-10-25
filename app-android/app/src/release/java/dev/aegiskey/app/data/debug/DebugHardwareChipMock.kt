@@ -53,4 +53,8 @@ object DebugHardwareChipMock {
     fun injectExtraSample(keyId: String, store: EncryptedKeysStore) {
         // No-op in release
     }
+
+    fun purgeResidualMockData(store: EncryptedKeysStore) {
+        // No-op in release: Zero-mock production build has no mock data to purge
+    }
 }

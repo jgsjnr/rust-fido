@@ -233,4 +233,35 @@ object DebugHardwareChipMock {
         }
         return out.toByteArray()
     }
+
+    fun purgeResidualMockData(store: EncryptedKeysStore) {
+        runCatching {
+            val mockIds = setOf("AA:BB:CC:AE:61:01", "USB:303A:AE61:01", "SIM:RENODE:5678")
+            val allKeys = store.loadConnectedKeys()
+            val filteredKeys = allKeys.filterNot { key ->
+                key.hardwareAddressOrId in mockIds ||
+                    key.id in mockIds ||
+                    key.displayName.contains("Chip Simulado") ||
+                    key.displayName.contains("Chip Debug")
+            }
+            if (filteredKeys.size != allKeys.size) {
+                store.saveConnectedKeys(filteredKeys)
+                for (mockId in mockIds) {
+                    store.removeKeyVaultAndTotp(mockId)
+                }
+                val active = store.loadActiveKeyId()
+                if (active in mockIds || filteredKeys.none { it.id == active }) {
+                    store.saveActiveKeyId(filteredKeys.firstOrNull()?.id)
+                }
+            }
+
+            for (key in filteredKeys) {
+                val vault = store.loadVaultEntries(key.id)
+                val cleanVault = vault.filterNot { it.label.contains("Enterprise Passkey") }
+                if (cleanVault.size != vault.size) {
+                    store.saveVaultEntries(key.id, cleanVault)
+                }
+            }
+        }
+    }
 }

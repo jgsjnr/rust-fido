@@ -26,3 +26,5 @@ app-android/.gradle/
 
 *.apk
 *.idsig
+
+tools/*.log

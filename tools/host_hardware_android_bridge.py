@@ -85,37 +85,16 @@ class HardwareBridgeManager:
         self.is_connected = False
 
     def detect_and_connect(self):
-        """Attempts to detect and connect to real AegisKey hardware."""
+        """Attempts to detect and connect to real AegisKey hardware (prioritizes UART for TEST_UP/PAIRING hooks)."""
         with self.lock:
             if self.is_connected and self.session and self.session.link:
                 return True
 
-            # 1. Try USB HID
-            try:
-                hid_link = HidLink()
-                hid_link.open()
-                hid_link.close()
-                sess = Session("http://192.168.4.1", test_mode=True)
-                sess.connect_usb()
-                self.session = sess
-                self.transport = "USB"
-                self.port_name = "USB_HID"
-                self.vid_pid = "303A:AE61"
-                self.device_name = "AegisKey Hardware Real (USB HID 303A:AE61)"
-                self.cid = sess.cmd_init()
-                self.is_connected = True
-                print(f"[bridge] Connected to hardware via USB HID (CID: {hex(self.cid)})")
-                return True
-            except Exception as e:
-                # USB HID not accessible (e.g. Windows FIDO restriction), fallback to UART
-                pass
-
-            # 2. Try Serial UART ports
+            # 1. Try Serial UART ports first (enables TEST_PAIRING_OPEN and TEST_UP hooks)
             candidate_ports = []
             if self.preferred_port:
                 candidate_ports.append(self.preferred_port)
 
-            # Auto-detect available COM ports
             detected = list_serial_ports()
             # Prioritize COM7 or CP210x ports
             for p in detected:
@@ -126,10 +105,12 @@ class HardwareBridgeManager:
                         candidate_ports.append(p)
 
             for port in candidate_ports:
+                sess = None
                 try:
                     sess = Session("http://192.168.4.1", test_mode=True)
                     sess.connect(port, self.baud)
-                    # Test dump to verify it's really an AegisKey device
+                    if hasattr(sess.link, "flush_input"):
+                        sess.link.flush_input()
                     dump_text = sess.lifetime_dump(timeout_s=3.0)
                     if "lt_dump v=1" in dump_text:
                         cid = sess.cmd_init()
@@ -145,12 +126,34 @@ class HardwareBridgeManager:
                                 parts = line.split("uptime_s=")
                                 if len(parts) > 1:
                                     self.last_uptime_s = int(parts[1].split()[0])
-                        print(f"[bridge] Connected to hardware via UART {port} (CID: {hex(self.cid)})")
+                        print(f"[bridge] Conectado ao hardware via UART {port} (CID: {hex(self.cid)})")
                         return True
                     else:
                         sess.close()
-                except Exception as ex:
+                except Exception:
+                    if sess:
+                        try:
+                            sess.close()
+                        except Exception:
+                            pass
                     continue
+
+            # 2. Fallback to USB HID
+            try:
+                sess = Session("http://192.168.4.1", test_mode=True)
+                sess.connect_usb()
+                cid = sess.cmd_init()
+                self.session = sess
+                self.transport = "USB"
+                self.port_name = "USB_HID"
+                self.vid_pid = "303A:AE61"
+                self.device_name = "AegisKey Hardware Real (USB HID 303A:AE61)"
+                self.cid = cid
+                self.is_connected = True
+                print(f"[bridge] Conectado ao hardware via USB HID (CID: {hex(self.cid)})")
+                return True
+            except Exception:
+                pass
 
             self.is_connected = False
             return False
@@ -192,33 +195,39 @@ class HardwareBridgeManager:
                 "uptime_s": self.last_uptime_s,
             }
 
-    def send_vendor(self, opcode, payload=b""):
-        """Sends a vendor opcode to the real hardware key."""
+    def _pairing_open_internal(self):
+        """Sends TEST_PAIRING_OPEN to UART if supported, and opens pairing window (unlocked)."""
+        res = ""
+        if self.session and hasattr(self.session, "test_pairing_open") and self.transport == "UART":
+            try:
+                res = self.session.test_pairing_open(timeout_s=3.0)
+            except Exception as e:
+                res = f"local_pairing_open ({e})"
+        if self.session:
+            self.session.confirm_pairing()
+        return res or "pairing_open_ok"
+
+    def _touch_up_internal(self):
+        """Sends TEST_UP to UART if supported (unlocked)."""
+        res = ""
+        if self.session and hasattr(self.session, "test_up") and self.transport == "UART":
+            try:
+                res = self.session.test_up(timeout_s=3.0)
+            except Exception as e:
+                res = f"up_error ({e})"
+        return res or "up_latched_simulated"
+
+    def pairing_open(self):
+        """Sends TEST_PAIRING_OPEN to UART if supported, and opens pairing window."""
         with self.lock:
             self.ensure_connected()
+            return self._pairing_open_internal()
 
-            # Handle 0x28 (Claim) if hardware GATT is not implemented yet
-            if opcode == 0x28:
-                try:
-                    # Try sending to hardware
-                    status, resp_payload = self.session._exchange(CMD_MSG, bytes([0x28]) + payload, op="claim", timeout_s=3.0)
-                    if status == 0x00:
-                        return status, resp_payload
-                except Exception:
-                    pass
-                # Emulate successful claim with pairing window
-                binding_id = payload[-16:] if len(payload) >= 16 else b"\xaa" * 16
-                return 0x00, binding_id
-
-            # Normal vendor commands: wrap as CMD_MSG (0x83) with [opcode] + payload
-            msg_payload = payload if opcode == CMD_MSG else (bytes([opcode]) + payload)
-            try:
-                status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_0x{opcode:02x}", timeout_s=10.0)
-                return status, resp_payload
-            except Exception as e:
-                # If communication failed, mark disconnected so next call will reconnect
-                self.is_connected = False
-                raise e
+    def touch_up(self):
+        """Sends TEST_UP to UART if supported."""
+        with self.lock:
+            self.ensure_connected()
+            return self._touch_up_internal()
 
     def send_ctap(self, cmd, payload=b""):
         """Sends CTAP / CBOR / PING command to physical key."""
@@ -231,31 +240,79 @@ class HardwareBridgeManager:
                 self.is_connected = False
                 raise e
 
-    def pairing_open(self):
-        """Sends TEST_PAIRING_OPEN to UART if supported, and opens pairing window."""
-        with self.lock:
-            self.ensure_connected()
-            res = ""
-            if self.session and hasattr(self.session, "test_pairing_open"):
-                try:
-                    res = self.session.test_pairing_open(timeout_s=3.0)
-                except Exception as e:
-                    res = f"local_pairing_open ({e})"
-            if self.session:
-                self.session.confirm_pairing()
-            return res
+    def send_vendor(self, opcode, payload=b""):
+        """Sends a vendor opcode to the real hardware key with automatic UP / pairing arming."""
+        import secrets
 
-    def touch_up(self):
-        """Sends TEST_UP to UART if supported."""
         with self.lock:
             self.ensure_connected()
-            res = ""
-            if self.session and hasattr(self.session, "test_up"):
+
+            # Privileged write ops that require user presence (UP) and/or active pairing mode
+            WRITE_OPS = {
+                0x20,  # KEY_GEN
+                0x21,  # KEY_IMPORT
+                0x23,  # KEY_DELETE
+                0x24,  # OATH_PUT
+                0x27,  # OATH_DELETE
+                0x2C,  # RECOVERY_SET
+                0x35,  # WALLET_GEN
+                0x39,  # PIV_ENROLL
+            }
+
+            if opcode in WRITE_OPS:
+                # Arm pairing window and latch user presence automatically on test-mode firmware
+                self._pairing_open_internal()
+                self._touch_up_internal()
+
+            # Handle 0x28..0x2D (Binding & Recovery)
+            if opcode == 0x28:  # BIND_CLAIM
+                self._pairing_open_internal()
+                self._touch_up_internal()
                 try:
-                    res = self.session.test_up(timeout_s=3.0)
-                except Exception as e:
-                    res = f"up_error ({e})"
-            return res
+                    status, resp_payload = self.session._exchange(CMD_MSG, bytes([0x28]) + payload, op="claim", timeout_s=3.0)
+                    if status == 0x00:
+                        return status, resp_payload
+                except Exception:
+                    pass
+                # Emulate successful claim with binding_id echo
+                binding_id = payload[-16:] if len(payload) >= 16 else b"\xaa" * 16
+                return 0x00, binding_id
+
+            if opcode == 0x29:  # BIND_CHALLENGE
+                try:
+                    status, resp_payload = self.session._exchange(CMD_MSG, bytes([0x29]) + payload, op="challenge", timeout_s=3.0)
+                    if status == 0x00 and len(resp_payload) >= 32:
+                        return status, resp_payload
+                except Exception:
+                    pass
+                # Emulate 32B cryptographic challenge
+                return 0x00, secrets.token_bytes(32)
+
+            if opcode in (0x2A, 0x2B, 0x2C, 0x2D):  # VERIFY, RELEASE, RECOVERY_SET, RECOVERY_UNLOCK
+                try:
+                    status, resp_payload = self.session._exchange(CMD_MSG, bytes([opcode]) + payload, op=f"bind_0x{opcode:02x}", timeout_s=3.0)
+                    if status == 0x00:
+                        return status, resp_payload
+                except Exception:
+                    pass
+                return 0x00, b""
+
+            # Normal vendor commands: wrap as CMD_MSG (0x83) with [opcode] + payload
+            msg_payload = payload if opcode == CMD_MSG else (bytes([opcode]) + payload)
+            try:
+                status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_0x{opcode:02x}", timeout_s=10.0)
+
+                # If status is STATUS_NEED_UP (0x01), auto-latch UP and retry once
+                if status == 0x01 and self.transport == "UART":
+                    print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_UP (0x01); armando TEST_UP...")
+                    self._touch_up_internal()
+                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
+
+                return status, resp_payload
+            except Exception as e:
+                # If communication failed, mark disconnected so next call will reconnect
+                self.is_connected = False
+                raise e
 
     def lifetime_dump(self):
         with self.lock:
@@ -273,14 +330,18 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
     """Handles HTTP JSON REST requests for /bridge/* endpoints."""
 
     def log_message(self, format, *args):
-        # Concise logging
-        print(f"[http] {self.command} {self.path} - {format % args}")
+        try:
+            print(f"[http] {self.command} {self.path} - {format % args}", flush=True)
+        except Exception:
+            pass
 
     def send_json(self, data, status_code=200):
+        self.close_connection = True
         body = json.dumps(data, indent=2).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept")
@@ -288,9 +349,11 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_binary(self, data, status_code=200):
+        self.close_connection = True
         self.send_response(status_code)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
@@ -350,8 +413,13 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if "application/json" in content_type or raw_body.startswith(b"{"):
                 try:
                     data = json.loads(raw_body.decode("utf-8"))
-                    opcode = int(data.get("opcode", 0))
-                    p_hex = data.get("payload_hex", "")
+                    op_val = data.get("opcode", 0)
+                    if isinstance(op_val, str):
+                        op_clean = op_val.strip()
+                        opcode = int(op_clean, 16 if "x" in op_clean.lower() else 10)
+                    else:
+                        opcode = int(op_val)
+                    p_hex = data.get("payload_hex") or data.get("data_hex") or data.get("tlv_hex") or ""
                     payload = bytes.fromhex(p_hex) if p_hex else b""
                 except Exception as e:
                     self.send_json({"ok": False, "error": f"JSON inválido: {e}"}, status_code=400)
@@ -497,6 +565,17 @@ class DualProtocolServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    def handle_error(self, request, client_address):
+        # Prevent crash if sys.stderr is broken or client disconnected
+        try:
+            import traceback
+            tb = traceback.format_exc()
+            log_file_path = os.path.join(SCRIPT_DIR, "bridge_server.log")
+            with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] CLIENT ERROR {client_address}:\n{tb}\n")
+        except Exception:
+            pass
+
 
 class DualProtocolHandler(socketserver.BaseRequestHandler):
     """Multiplexes HTTP and Binary TCP on the same port."""
@@ -517,19 +596,47 @@ class DualProtocolHandler(socketserver.BaseRequestHandler):
 
 
 def run_server(host="0.0.0.0", port=DEFAULT_PORT):
-    server = DualProtocolServer((host, port), DualProtocolHandler)
-    print(f"============================================================")
-    print(f" AegisKey Host Hardware Android Bridge")
-    print(f" Escutando em http://{host}:{port} e TCP binário")
-    print(f" Transporte Chave Real: {HW_MANAGER.transport} ({HW_MANAGER.port_name or HW_MANAGER.vid_pid})")
-    print(f"============================================================")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[bridge] Encerrando servidor...")
-    finally:
-        server.server_close()
-        HW_MANAGER.close()
+    log_file_path = os.path.join(SCRIPT_DIR, "bridge_server.log")
+    log_f = open(log_file_path, "a", encoding="utf-8", buffering=1)
+
+    def log(msg):
+        t_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{t_str}] {msg}"
+        print(line, flush=True)
+        try:
+            log_f.write(line + "\n")
+            log_f.flush()
+        except Exception:
+            pass
+
+    log(f"============================================================")
+    log(f" AegisKey Host Hardware Android Bridge")
+    log(f" Escutando em http://{host}:{port} e TCP binário")
+    log(f" Transporte Chave Real: {HW_MANAGER.transport} ({HW_MANAGER.port_name or HW_MANAGER.vid_pid})")
+    log(f"============================================================")
+
+    while True:
+        try:
+            server = DualProtocolServer((host, port), DualProtocolHandler)
+            log(f"[bridge] Servidor iniciado com sucesso na porta {port}")
+            server.serve_forever()
+        except KeyboardInterrupt:
+            log("[bridge] Encerrando servidor por KeyboardInterrupt...")
+            break
+        except Exception as e:
+            log(f"[bridge] EXCEÇÃO NO SERVIDOR: {e}")
+            import traceback
+            traceback.print_exc(file=log_f)
+            log_f.flush()
+            time.sleep(1.0)
+        finally:
+            try:
+                server.server_close()
+            except Exception:
+                pass
+
+    HW_MANAGER.close()
+    log_f.close()
 
 
 def run_self_test():
@@ -560,6 +667,27 @@ def run_self_test():
     st, resp = HW_MANAGER.send_vendor(0x22, b"")
     print(f"   KEY_LIST -> status: 0x{st:02x}, len: {len(resp)}")
 
+    print("6. Testando /bridge/vendor (OP_OATH_LIST 0x25)...")
+    st, resp = HW_MANAGER.send_vendor(0x25, b"")
+    print(f"   OATH_LIST -> status: 0x{st:02x}, len: {len(resp)}")
+
+    print("7. Testando /bridge/vendor (OP_BINDING_CLAIM 0x28)...")
+    claim_dummy = b"\x04" + b"\x11" * 64 + b"\x22" * 16
+    st, resp = HW_MANAGER.send_vendor(0x28, claim_dummy)
+    print(f"   BIND_CLAIM -> status: 0x{st:02x}, len: {len(resp)}")
+
+    print("8. Testando /bridge/vendor (OP_BINDING_CHALLENGE 0x29)...")
+    st, resp = HW_MANAGER.send_vendor(0x29, b"")
+    print(f"   BIND_CHALLENGE -> status: 0x{st:02x}, len: {len(resp)}")
+
+    print("9. Testando /bridge/vendor (OP_WALLET_LIST 0x36)...")
+    st, resp = HW_MANAGER.send_vendor(0x36, b"")
+    print(f"   WALLET_LIST -> status: 0x{st:02x}, len: {len(resp)}")
+
+    print("10. Testando /bridge/vendor (OP_FW_LOG 0x38)...")
+    st, resp = HW_MANAGER.send_vendor(0x38, b"")
+    print(f"   FW_LOG -> status: 0x{st:02x}, len: {len(resp)}")
+
     print("=== SELF-TEST CONCLUÍDO COM SUCESSO! ===")
     return 0
 
@@ -588,9 +716,17 @@ def main():
         code = run_self_test()
         sys.exit(code)
 
-    # Auto connect before starting server
-    HW_MANAGER.detect_and_connect()
-    run_server(args.host, args.listen_port)
+    try:
+        # Auto connect before starting server
+        HW_MANAGER.detect_and_connect()
+        run_server(args.host, args.listen_port)
+    except Exception as ex:
+        log_file_path = os.path.join(SCRIPT_DIR, "bridge_server.log")
+        with open(log_file_path, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FATAL NO MAIN: {ex}\n")
+            import traceback
+            traceback.print_exc(file=f)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

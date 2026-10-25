@@ -95,9 +95,19 @@ class TotpRepositoryImpl(
                     val issuer = if (parts.size > 1) parts[0].trim() else existing?.issuer ?: ""
                     val accountName = if (parts.size > 1) parts[1].trim() else parts[0].trim()
 
+                    val isHotp = existing?.isHotp ?: false
+                    val counter = existing?.counter ?: 0L
+                    val algorithm = existing?.algorithm ?: "SHA1"
+                    val period = existing?.periodSeconds ?: 30
+                    val digits = existing?.digits ?: 6
+
                     val secret = volatileSecrets[id]
                     val code = if (secret != null) {
-                        calculateTotpCode(secret, nowSeconds, 30, existing?.digits ?: 6)
+                        if (isHotp) {
+                            calculateHotpCode(secret, counter, digits)
+                        } else {
+                            calculateTotpCode(secret, nowSeconds, period, digits)
+                        }
                     } else {
                         existing?.currentCode ?: "------"
                     }
@@ -109,10 +119,13 @@ class TotpRepositoryImpl(
                         accountName = accountName,
                         currentCode = code,
                         formattedCode = formatted,
-                        remainingSeconds = remSecs,
-                        periodSeconds = 30,
-                        digits = existing?.digits ?: 6,
-                        requiresTouchToRefresh = false
+                        remainingSeconds = if (isHotp) 0 else remSecs,
+                        periodSeconds = period,
+                        digits = digits,
+                        requiresTouchToRefresh = false,
+                        isHotp = isHotp,
+                        counter = counter,
+                        algorithm = algorithm
                     )
                 }
 
@@ -121,17 +134,21 @@ class TotpRepositoryImpl(
                 resultList
             } else {
                 val cached = keysStore.loadTotpAccounts(keyId).map { item ->
-                    val secret = volatileSecrets[item.id]
-                    val code = if (secret != null) {
-                        calculateTotpCode(secret, nowSeconds, item.periodSeconds, item.digits)
+                    if (item.isHotp) {
+                        item
                     } else {
-                        item.currentCode
+                        val secret = volatileSecrets[item.id]
+                        val code = if (secret != null) {
+                            calculateTotpCode(secret, nowSeconds, item.periodSeconds, item.digits)
+                        } else {
+                            item.currentCode
+                        }
+                        item.copy(
+                            currentCode = code,
+                            formattedCode = formatTotpCode(code),
+                            remainingSeconds = remSecs
+                        )
                     }
-                    item.copy(
-                        currentCode = code,
-                        formattedCode = formatTotpCode(code),
-                        remainingSeconds = remSecs
-                    )
                 }
                 _accounts.value = cached
                 cached
@@ -144,12 +161,15 @@ class TotpRepositoryImpl(
         issuer: String,
         accountName: String,
         secretOrUri: String,
-        digits: Int
+        digits: Int,
+        periodSeconds: Int,
+        isHotp: Boolean,
+        algorithm: String
     ): Result<TotpAccountItem> = withContext(Dispatchers.IO) {
         runCatching {
             val (resolvedIssuer, resolvedAccount, rawSecret) = parseSecretInput(issuer, accountName, secretOrUri)
             val secretBytes = decodeBase32(rawSecret)
-            require(secretBytes.size in 10..64) { "O segredo TOTP deve conter entre 10 e 64 bytes" }
+            require(secretBytes.size in 10..64) { "O segredo OATH deve conter entre 10 e 64 bytes" }
 
             val compositeName = if (resolvedIssuer.isNotBlank()) {
                 "$resolvedIssuer:$resolvedAccount"
@@ -157,24 +177,33 @@ class TotpRepositoryImpl(
                 resolvedAccount
             }.take(32)
 
-            // Monta o frame OATH_PUT (0x24) com tipo TOTP + SHA1
-            val typeAlgo = VendorOps.OATH_TYPE_TOTP or VendorOps.OATH_ALGO_SHA1
+            // Monta o frame OATH_PUT (0x24) com tipo HOTP ou TOTP + SHA1
+            val typeAlgo = if (isHotp) {
+                VendorOps.OATH_TYPE_HOTP or VendorOps.OATH_ALGO_SHA1
+            } else {
+                VendorOps.OATH_TYPE_TOTP or VendorOps.OATH_ALGO_SHA1
+            }
             val req = VendorOps.oathPutRequest(
                 name = compositeName,
                 typeAlgo = typeAlgo,
                 digits = digits,
-                secret = secretBytes
+                secret = secretBytes,
+                counter = if (isHotp) 0L else null
             )
 
             val resp = sendVendor(VendorOps.OP_OATH_PUT, req)
-                ?: throw IllegalStateException("Sem resposta da chave para cadastro TOTP")
+                ?: throw IllegalStateException("Sem resposta da chave para cadastro OATH")
             if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                throw IllegalStateException("Chave rejeitou o cadastro TOTP: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                throw IllegalStateException("Chave rejeitou o cadastro OATH: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
             }
 
             val nowSeconds = System.currentTimeMillis() / 1000L
-            val remSecs = AegisBridge.remainingSeconds(nowSeconds)
-            val code = calculateTotpCode(secretBytes, nowSeconds, 30, digits)
+            val remSecs = if (isHotp) 0 else AegisBridge.remainingSeconds(nowSeconds)
+            val code = if (isHotp) {
+                calculateHotpCode(secretBytes, 0L, digits)
+            } else {
+                calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
+            }
 
             val accountId = UUID.randomUUID().toString()
             volatileSecrets[accountId] = secretBytes.copyOf()
@@ -187,9 +216,12 @@ class TotpRepositoryImpl(
                 currentCode = code,
                 formattedCode = formatTotpCode(code),
                 remainingSeconds = remSecs,
-                periodSeconds = 30,
+                periodSeconds = periodSeconds,
                 digits = digits,
-                requiresTouchToRefresh = false
+                requiresTouchToRefresh = false,
+                isHotp = isHotp,
+                counter = 0L,
+                algorithm = algorithm
             )
 
             _accounts.update { current ->
@@ -199,6 +231,37 @@ class TotpRepositoryImpl(
             }
 
             newItem
+        }
+    }
+
+    override suspend fun incrementHotpCounter(keyId: String, accountId: String): Result<TotpAccountItem> = withContext(Dispatchers.IO) {
+        runCatching {
+            val currentList = _accounts.value
+            val target = currentList.firstOrNull { it.id == accountId }
+                ?: throw IllegalArgumentException("Conta OATH não encontrada")
+            require(target.isHotp) { "Apenas contas HOTP baseadas em contador suportam incremento manual" }
+
+            val nextCounter = target.counter + 1
+            val secret = volatileSecrets[accountId]
+            val code = if (secret != null) {
+                calculateHotpCode(secret, nextCounter, target.digits)
+            } else {
+                target.currentCode
+            }
+
+            val updatedItem = target.copy(
+                counter = nextCounter,
+                currentCode = code,
+                formattedCode = formatTotpCode(code)
+            )
+
+            _accounts.update { list ->
+                val updatedList = list.map { if (it.id == accountId) updatedItem else it }
+                keysStore.saveTotpAccounts(keyId, updatedList)
+                updatedList
+            }
+
+            updatedItem
         }
     }
 
@@ -230,17 +293,21 @@ class TotpRepositoryImpl(
 
         _accounts.update { list ->
             list.map { item ->
-                val secret = volatileSecrets[item.id]
-                val code = if (secret != null && (remSecs == 30 || item.currentCode.contains("-"))) {
-                    calculateTotpCode(secret, nowEpochSeconds, item.periodSeconds, item.digits)
+                if (item.isHotp) {
+                    item
                 } else {
-                    item.currentCode
+                    val secret = volatileSecrets[item.id]
+                    val code = if (secret != null && (remSecs == 30 || item.currentCode.contains("-"))) {
+                        calculateTotpCode(secret, nowEpochSeconds, item.periodSeconds, item.digits)
+                    } else {
+                        item.currentCode
+                    }
+                    item.copy(
+                        currentCode = code,
+                        formattedCode = formatTotpCode(code),
+                        remainingSeconds = remSecs
+                    )
                 }
-                item.copy(
-                    currentCode = code,
-                    formattedCode = formatTotpCode(code),
-                    remainingSeconds = remSecs
-                )
             }
         }
     }
@@ -304,6 +371,28 @@ class TotpRepositoryImpl(
             otp.toString().padStart(digits, '0')
         } catch (_: Throwable) {
             "000000"
+        }
+    }
+
+    private fun calculateHotpCode(
+        secret: ByteArray,
+        counter: Long,
+        digits: Int
+    ): String {
+        return try {
+            val buffer = ByteBuffer.allocate(8).putLong(counter).array()
+            val mac = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(secret, "HmacSHA1")) }
+            val hash = mac.doFinal(buffer)
+            val offset = hash[hash.size - 1].toInt() and 0x0F
+            val binary = ((hash[offset].toInt() and 0x7F) shl 24) or
+                ((hash[offset + 1].toInt() and 0xFF) shl 16) or
+                ((hash[offset + 2].toInt() and 0xFF) shl 8) or
+                (hash[offset + 3].toInt() and 0xFF)
+            val modulo = Math.pow(10.0, digits.toDouble()).toInt()
+            val otp = binary % modulo
+            otp.toString().padStart(digits, '0')
+        } catch (_: Throwable) {
+            "0".repeat(digits)
         }
     }
 

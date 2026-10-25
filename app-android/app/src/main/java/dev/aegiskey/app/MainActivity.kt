@@ -215,12 +215,16 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                     composable(HubDestination.SETTINGS.route) {
                         FriendlySettingsAndThemeScreen(
                             themeViewModel = themeViewModel,
+                            keysViewModel = keysViewModel,
+                            client = client,
                             onNavigateToBackup = { nav.navigate("recovery") },
                             onNavigateToTransfer = { nav.navigate("transfer") },
                             onNavigateToOta = { nav.navigate("ota") },
                             onNavigateToRescue = { nav.navigate("rescue") },
                             onNavigateToPiv = { nav.navigate("piv") },
-                            onNavigateToLogs = { nav.navigate("log") }
+                            onNavigateToLogs = { nav.navigate("log") },
+                            onNavigateToWifi = { nav.navigate("wifi") },
+                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") }
                         )
                     }
 
