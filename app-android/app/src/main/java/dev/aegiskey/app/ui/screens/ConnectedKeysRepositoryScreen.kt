@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
@@ -65,6 +66,13 @@ fun ConnectedKeysRepositoryScreen(
     var keyToRename by remember { mutableStateOf<ConnectedKeyDevice?>(null) }
     var newKeyName by remember { mutableStateOf("") }
     var keyToRemove by remember { mutableStateOf<ConnectedKeyDevice?>(null) }
+
+    val hostBridgeClient = remember { HostUsbUartBridgeClient() }
+    var proximityStatus by remember { mutableStateOf(HostUsbUartBridgeClient.ProximityLockStatus()) }
+
+    LaunchedEffect(Unit) {
+        proximityStatus = hostBridgeClient.fetchProximityStatus()
+    }
 
     LaunchedEffect(uiState.userFeedbackMessage) {
         uiState.userFeedbackMessage?.let {
@@ -104,6 +112,46 @@ fun ConnectedKeysRepositoryScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Resumo de Proximidade RSSI & Dynamic Lock (Celular ↔ PC)
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (proximityStatus.locked) {
+                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.VpnKey,
+                                contentDescription = null,
+                                tint = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Dynamic Lock PC",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Text(
+                            text = if (proximityStatus.locked) "LOCKED (PC Travado)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
             // Botão compacto para Conectar Nova Chave (46.dp)
             item {
                 Button(

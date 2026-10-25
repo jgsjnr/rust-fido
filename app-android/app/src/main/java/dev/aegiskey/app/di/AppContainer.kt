@@ -51,6 +51,11 @@ import dev.aegiskey.app.domain.usecase.StartDiscoveryUseCase
 import dev.aegiskey.app.domain.usecase.StopDiscoveryUseCase
 import dev.aegiskey.app.domain.usecase.TickTotpTimerUseCase
 import dev.aegiskey.app.domain.usecase.UpdateKeySecurityTogglesUseCase
+import dev.aegiskey.app.ui.viewmodel.AppThemeViewModel
+import dev.aegiskey.app.ui.viewmodel.ConnectedKeysViewModel
+import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
+import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
+import dev.aegiskey.app.ui.viewmodel.TotpAuthenticatorViewModel
 import dev.aegiskey.app.usb.UsbCtaphid
 
 /**
@@ -225,6 +230,73 @@ class AppContainer(val context: Context) {
     }
     val setDynamicColorsUseCase: SetDynamicColorsUseCase by lazy {
         SetDynamicColorsUseCase(themeRepository)
+    }
+
+    // --- ViewModels Retidos (Persistem contra recriações da Activity e diálogos USB) ---
+    val appThemeViewModel: AppThemeViewModel by lazy {
+        AppThemeViewModel(
+            getThemePreferenceUseCase = getThemePreferenceUseCase,
+            setThemeModeUseCase = setThemeModeUseCase,
+            setDynamicColorsUseCase = setDynamicColorsUseCase,
+        )
+    }
+
+    val onboardingWizardViewModel: OnboardingWizardViewModel by lazy {
+        OnboardingWizardViewModel(
+            pairingWizardRepository = pairingWizardRepository,
+            startDiscoveryUseCase = startDiscoveryUseCase,
+            stopDiscoveryUseCase = stopDiscoveryUseCase,
+            connectCandidateUseCase = connectCandidateUseCase,
+            simulateButtonHoldUseCase = simulateButtonHoldUseCase,
+            simulateButtonSingleTouchUseCase = simulateButtonSingleTouchUseCase,
+            performBiometricBindingUseCase = performBiometricBindingUseCase,
+        )
+    }
+
+    val connectedKeysViewModel: ConnectedKeysViewModel by lazy {
+        ConnectedKeysViewModel(
+            getConnectedKeysUseCase = getConnectedKeysUseCase,
+            getActiveKeyUseCase = getActiveKeyUseCase,
+            selectActiveKeyUseCase = selectActiveKeyUseCase,
+            updateKeySecurityTogglesUseCase = updateKeySecurityTogglesUseCase,
+            renameKeyUseCase = renameKeyUseCase,
+            removeKeyUseCase = removeKeyUseCase,
+            connectedKeysRepository = connectedKeysRepository,
+        )
+    }
+
+    val keyVaultViewModel: KeyVaultViewModel by lazy {
+        KeyVaultViewModel(
+            getActiveKeyUseCase = getActiveKeyUseCase,
+            getVaultEntriesUseCase = getVaultEntriesUseCase,
+            refreshVaultUseCase = refreshVaultUseCase,
+            generateAccessKeyUseCase = generateAccessKeyUseCase,
+            deleteVaultEntryUseCase = deleteVaultEntryUseCase,
+            runHealthCheckUseCase = runHealthCheckUseCase,
+            updateKeySecurityTogglesUseCase = updateKeySecurityTogglesUseCase,
+            simulateButtonSingleTouchUseCase = simulateButtonSingleTouchUseCase,
+            securityService = securityService,
+            signChallengeOrTransactionUseCase = signChallengeOrTransactionUseCase,
+            exportKeyEnvelopeAegnUseCase = exportKeyEnvelopeAegnUseCase,
+            enrollOrUpdatePivPinUseCase = enrollOrUpdatePivPinUseCase,
+            fetchHardwareDiagnosticsUseCase = fetchHardwareDiagnosticsUseCase,
+            resetHardwareVaultUseCase = resetHardwareVaultUseCase,
+            keysStore = keysStore,
+        )
+    }
+
+    val totpAuthenticatorViewModel: TotpAuthenticatorViewModel by lazy {
+        TotpAuthenticatorViewModel(
+            getActiveKeyUseCase = getActiveKeyUseCase,
+            getTotpAccountsUseCase = getTotpAccountsUseCase,
+            refreshTotpCodesUseCase = refreshTotpCodesUseCase,
+            addTotpAccountUseCase = addTotpAccountUseCase,
+            deleteTotpAccountUseCase = deleteTotpAccountUseCase,
+            tickTotpTimerUseCase = tickTotpTimerUseCase,
+            securityService = securityService,
+            incrementHotpCounterUseCase = incrementHotpCounterUseCase,
+            keysStore = keysStore,
+        )
     }
 
     companion object {

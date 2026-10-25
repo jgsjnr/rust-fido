@@ -166,18 +166,18 @@ class OnboardingWizardViewModel(
                 }
             }
             OnboardingStep.HOLD_PHYSICAL_BUTTON -> {
+                val transport = _uiState.value.selectedTransport
+                _uiState.update {
+                    it.copy(
+                        currentStep = OnboardingStep.DISCOVER_AND_CONNECT,
+                        buttonHoldDetected = true,
+                        errorMessage = null
+                    )
+                }
                 viewModelScope.launch {
-                    val transport = _uiState.value.selectedTransport
                     // Se for simulador ou emulador com mocks habilitados, simula o hold do botão
                     if (DebugHardwareChipMock.IS_MOCK_ENABLED && (transport == ConnectionTransportType.SIMULATOR || !_uiState.value.buttonHoldDetected)) {
                         simulateButtonHoldUseCase()
-                    }
-                    _uiState.update {
-                        it.copy(
-                            currentStep = OnboardingStep.DISCOVER_AND_CONNECT,
-                            buttonHoldDetected = true,
-                            errorMessage = null
-                        )
                     }
                     startDiscoveryUseCase(transport)
                 }
@@ -223,17 +223,17 @@ class OnboardingWizardViewModel(
                 }
             }
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> {
+                _uiState.update {
+                    it.copy(
+                        currentStep = OnboardingStep.NAME_AND_FINISH,
+                        buttonTouchDetected = true,
+                        errorMessage = null
+                    )
+                }
                 viewModelScope.launch {
                     val candidate = _uiState.value.selectedCandidate
                     if (DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate?.id)) {
                         simulateButtonSingleTouchUseCase()
-                    }
-                    _uiState.update {
-                        it.copy(
-                            currentStep = OnboardingStep.NAME_AND_FINISH,
-                            buttonTouchDetected = true,
-                            errorMessage = null
-                        )
                     }
                 }
             }
@@ -261,6 +261,19 @@ class OnboardingWizardViewModel(
             OnboardingStep.NAME_AND_FINISH -> OnboardingStep.TOUCH_AND_BIOMETRIC_BIND
         }
         _uiState.update { it.copy(currentStep = previous, errorMessage = null) }
+    }
+
+    fun completeWizardWithCustomName(
+        customName: String,
+        onCompleted: (ConnectedKeyDevice) -> Unit = {}
+    ) {
+        val sanitized = customName.trim().ifBlank { "Minha Chave Principal" }
+        _uiState.update { it.copy(keyAlias = sanitized) }
+        performBiometricBinding(
+            alias = sanitized,
+            recoveryPin = _uiState.value.recoveryPin.ifBlank { null },
+            onCompleted = onCompleted
+        )
     }
 
     fun performBiometricBinding(

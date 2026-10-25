@@ -88,14 +88,16 @@ class UsbCtaphid(private val context: Context) {
     fun findAegisDevice(): UsbDevice? = findDevice()
 
     fun open(): Boolean {
-        val dev = findAegisDevice() ?: return false
-        val u = usb ?: return false
-        if (!u.hasPermission(dev)) {
-            requestPermission(dev)
-            return false
-        }
-        openDevice(dev)
-        return isConnected
+        return runCatching {
+            val dev = findAegisDevice() ?: return false
+            val u = usb ?: return false
+            if (!u.hasPermission(dev)) {
+                requestPermission(dev)
+                return false
+            }
+            openDevice(dev)
+            isConnected
+        }.getOrDefault(false)
     }
 
     private val _ui = MutableStateFlow(UiState())
@@ -109,61 +111,65 @@ class UsbCtaphid(private val context: Context) {
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
-            when (intent.action) {
-                ACTION_USB_PERMISSION -> {
-                    val device: UsbDevice? =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                        }
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    if (granted && device != null) {
-                        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission granted")
-                        openDevice(device)
-                    } else {
-                        _ui.value = UiState(
-                            State.ERROR,
-                            "permissao USB negada",
-                            "Permissao negada. Toque em Desconectar e tente de novo, ou use BLE.",
-                        )
-                        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission denied")
-                    }
-                }
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    val device: UsbDevice? =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                        }
-                    if (isMatchingDevice(device) && device != null) {
-                        _isHardwareAttached.value = true
-                        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB attached")
-                        val u = usb
-                        if (u != null && u.hasPermission(device)) {
+            try {
+                when (intent.action) {
+                    ACTION_USB_PERMISSION -> {
+                        val device: UsbDevice? =
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                            }
+                        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                        if (granted && device != null) {
+                            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission granted")
                             openDevice(device)
                         } else {
-                            requestPermission(device)
+                            _ui.value = UiState(
+                                State.ERROR,
+                                "permissao USB negada",
+                                "Permissao negada. Toque em Desconectar e tente de novo, ou use BLE.",
+                            )
+                            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission denied")
+                        }
+                    }
+                    UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                        val device: UsbDevice? =
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                            }
+                        if (isMatchingDevice(device) && device != null) {
+                            _isHardwareAttached.value = true
+                            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB attached")
+                            val u = usb
+                            if (u != null && u.hasPermission(device)) {
+                                openDevice(device)
+                            } else {
+                                requestPermission(device)
+                            }
+                        }
+                    }
+                    UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                        val device: UsbDevice? =
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                            }
+                        if (isMatchingDevice(device) || findDevice() == null) {
+                            _isHardwareAttached.value = false
+                            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB detached")
+                            close()
                         }
                     }
                 }
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    val device: UsbDevice? =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                        }
-                    if (isMatchingDevice(device) || findDevice() == null) {
-                        _isHardwareAttached.value = false
-                        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB detached")
-                        close()
-                    }
-                }
+            } catch (t: Throwable) {
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "usbReceiver onReceive erro protegido: ${t.message}")
             }
         }
     }
@@ -209,117 +215,127 @@ class UsbCtaphid(private val context: Context) {
     }
 
     fun requestPermission(device: UsbDevice) {
-        val u = usb ?: return
-        if (u.hasPermission(device)) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB already granted")
-            openDevice(device)
-            return
+        runCatching {
+            val u = usb ?: return
+            if (u.hasPermission(device)) {
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB already granted")
+                openDevice(device)
+                return
+            }
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
+            val pi = PendingIntent.getBroadcast(context, 0, intent, flags)
+            u.requestPermission(device, pi)
+            _ui.value = UiState(State.PERMISSION_NEEDED, "confirme no dialogo do sistema")
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission requested")
+        }.onFailure { err ->
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB requestPermission falhou: ${err.message}")
+            _ui.value = UiState(State.ERROR, "falha permissao USB", err.localizedMessage)
         }
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
-        val pi = PendingIntent.getBroadcast(context, 0, intent, flags)
-        u.requestPermission(device, pi)
-        _ui.value = UiState(State.PERMISSION_NEEDED, "confirme no dialogo do sistema")
-        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission requested")
     }
 
     fun openDevice(device: UsbDevice) {
-        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB open started")
-        val u = usb ?: run {
-            _ui.value = UiState(
-                State.ERROR,
-                "servico USB indisponivel",
-                "Tente de novo ou use BLE.",
-            )
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB manager null")
-            return
-        }
-        val conn = u.openDevice(device) ?: run {
-            _ui.value = UiState(
-                State.ERROR,
-                "nao abriu o dispositivo",
-                "Tente de novo ou use BLE.",
-            )
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB open failed")
-            return
-        }
-        var picked: UsbInterface? = null
-        var pickedIdx = -1
-        var i = 0
-        while (i < device.interfaceCount) {
-            val itf = device.getInterface(i)
-            if (itf.interfaceClass == UsbConstants.USB_CLASS_HID && itf.endpointCount >= 2) {
-                picked = itf
-                pickedIdx = i
-                break
+        runCatching {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB open started")
+            val u = usb ?: run {
+                _ui.value = UiState(
+                    State.ERROR,
+                    "servico USB indisponivel",
+                    "Tente de novo ou use BLE.",
+                )
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB manager null")
+                return
             }
-            i += 1
-        }
-        val ctaphid = picked ?: run {
-            if (device.interfaceCount > 0) device.getInterface(0) else null
-        }
-        if (ctaphid == null) {
-            conn.close()
-            _ui.value = UiState(
-                State.ERROR,
-                "sem interface USB",
-                "Tente de novo ou use BLE.",
-            )
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB no interface")
-            return
-        }
-        val cls = ctaphid.interfaceClass
-        DeviceLog.append(
-            DeviceLog.Category.SYSTEM,
-            "USB iface idx=" + pickedIdx + " class=" + cls + " eps=" + ctaphid.endpointCount,
-        )
-        if (!conn.claimInterface(ctaphid, true)) {
-            conn.close()
-            _ui.value = UiState(
-                State.ERROR,
-                "interface ocupada",
-                "Feche outro app USB e tente de novo, ou use BLE.",
-            )
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB claim failed")
-            return
-        }
-        var inEp: UsbEndpoint? = null
-        var outEp: UsbEndpoint? = null
-        var e = 0
-        while (e < ctaphid.endpointCount) {
-            val ep = ctaphid.getEndpoint(e)
-            if (ep.maxPacketSize == PACKET_SIZE && ep.type == UsbConstants.USB_ENDPOINT_XFER_INT) {
-                if (ep.direction == UsbConstants.USB_DIR_IN) inEp = ep
-                else outEp = ep
+            val conn = u.openDevice(device) ?: run {
+                _ui.value = UiState(
+                    State.ERROR,
+                    "nao abriu o dispositivo",
+                    "Tente de novo ou use BLE.",
+                )
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB open failed")
+                return
             }
-            e += 1
-        }
-        DeviceLog.append(
-            DeviceLog.Category.SYSTEM,
-            "USB eps in=" + (inEp != null) + " out=" + (outEp != null) + " size=" + PACKET_SIZE,
-        )
-        if (inEp == null || outEp == null) {
-            conn.releaseInterface(ctaphid)
-            conn.close()
-            _ui.value = UiState(
-                State.ERROR,
-                "endpoints 64B nao achados",
-                "Tente de novo ou use BLE.",
+            var picked: UsbInterface? = null
+            var pickedIdx = -1
+            var i = 0
+            while (i < device.interfaceCount) {
+                val itf = device.getInterface(i)
+                if (itf.interfaceClass == UsbConstants.USB_CLASS_HID && itf.endpointCount >= 2) {
+                    picked = itf
+                    pickedIdx = i
+                    break
+                }
+                i += 1
+            }
+            val ctaphid = picked ?: run {
+                if (device.interfaceCount > 0) device.getInterface(0) else null
+            }
+            if (ctaphid == null) {
+                conn.close()
+                _ui.value = UiState(
+                    State.ERROR,
+                    "sem interface USB",
+                    "Tente de novo ou use BLE.",
+                )
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB no interface")
+                return
+            }
+            val cls = ctaphid.interfaceClass
+            DeviceLog.append(
+                DeviceLog.Category.SYSTEM,
+                "USB iface idx=" + pickedIdx + " class=" + cls + " eps=" + ctaphid.endpointCount,
             )
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB endpoints missing")
-            return
+            if (!conn.claimInterface(ctaphid, true)) {
+                conn.close()
+                _ui.value = UiState(
+                    State.ERROR,
+                    "interface ocupada",
+                    "Feche outro app USB e tente de novo, ou use BLE.",
+                )
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB claim failed")
+                return
+            }
+            var inEp: UsbEndpoint? = null
+            var outEp: UsbEndpoint? = null
+            var e = 0
+            while (e < ctaphid.endpointCount) {
+                val ep = ctaphid.getEndpoint(e)
+                if (ep.maxPacketSize == PACKET_SIZE && ep.type == UsbConstants.USB_ENDPOINT_XFER_INT) {
+                    if (ep.direction == UsbConstants.USB_DIR_IN) inEp = ep
+                    else outEp = ep
+                }
+                e += 1
+            }
+            DeviceLog.append(
+                DeviceLog.Category.SYSTEM,
+                "USB eps in=" + (inEp != null) + " out=" + (outEp != null) + " size=" + PACKET_SIZE,
+            )
+            if (inEp == null || outEp == null) {
+                conn.releaseInterface(ctaphid)
+                conn.close()
+                _ui.value = UiState(
+                    State.ERROR,
+                    "endpoints 64B nao achados",
+                    "Tente de novo ou use BLE.",
+                )
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB endpoints missing")
+                return
+            }
+            connection = conn
+            claimed = ctaphid
+            epIn = inEp
+            epOut = outEp
+            _isHardwareAttached.value = true
+            _ui.value = UiState(State.CONNECTED, "conectado via USB (CTAPHID 64B)")
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB connected CTAPHID 64B")
+        }.onFailure { t ->
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB openDevice falhou com excecao: ${t.message}")
+            _ui.value = UiState(State.ERROR, "falha ao conectar USB", t.localizedMessage)
         }
-        connection = conn
-        claimed = ctaphid
-        epIn = inEp
-        epOut = outEp
-        _isHardwareAttached.value = true
-        _ui.value = UiState(State.CONNECTED, "conectado via USB (CTAPHID 64B)")
-        DeviceLog.append(DeviceLog.Category.SYSTEM, "USB connected CTAPHID 64B")
     }
 
     fun close() {

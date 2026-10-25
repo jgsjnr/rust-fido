@@ -125,9 +125,8 @@ fun OnboardingWizardScreen(
                 requestBlePermissions()
                 viewModel.nextStep()
             } else if (uiState.currentStep == OnboardingStep.NAME_AND_FINISH) {
-                viewModel.performBiometricBinding(
-                    alias = uiState.keyAlias,
-                    recoveryPin = uiState.recoveryPin.ifBlank { null },
+                viewModel.completeWizardWithCustomName(
+                    customName = uiState.keyAlias,
                     onCompleted = { onFinished() }
                 )
             } else {

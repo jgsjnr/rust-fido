@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BindingOps
 import dev.aegiskey.app.ble.VendorOps
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.SecurityToggles
 import dev.aegiskey.app.net.WifiApi
@@ -161,6 +162,18 @@ fun FriendlySettingsAndThemeScreen(
     // Estado do Diagnóstico Rápido de Resgate
     var rescueRefreshing by remember { mutableStateOf(false) }
     var rescueTimestamp by remember { mutableStateOf("Agora mesmo") }
+
+    // Estado da Trava de Proximidade RSSI & Windows Dynamic Lock
+    val hostBridgeClient = remember { HostUsbUartBridgeClient() }
+    var proximityStatus by remember { mutableStateOf(HostUsbUartBridgeClient.ProximityLockStatus()) }
+    var proximityEvaluating by remember { mutableStateOf(false) }
+    var showProximityUnlockDialog by remember { mutableStateOf(false) }
+    var proximityUnlockPin by remember { mutableStateOf("12345678") }
+    var proximityFeedback by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        proximityStatus = hostBridgeClient.fetchProximityStatus()
+    }
 
     val currentUiThemeMode = when (themePref.mode) {
         AppThemeMode.SYSTEM -> ThemeMode.SYSTEM
@@ -300,6 +313,310 @@ fun FriendlySettingsAndThemeScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                        }
+                    }
+                }
+
+                // --- Cartão Interativo: Trava de Proximidade RSSI & Windows Dynamic Lock (Celular ↔ PC) ---
+                OutlinedCard(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = if (proximityStatus.locked) {
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (proximityStatus.locked) {
+                                    MaterialTheme.colorScheme.errorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Lock,
+                                        contentDescription = null,
+                                        tint = if (proximityStatus.locked) {
+                                            MaterialTheme.colorScheme.error
+                                        } else {
+                                            MaterialTheme.colorScheme.primary
+                                        },
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Dynamic Lock & Proximidade RSSI",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "Celular ↔ Computador (Windows Dynamic Lock)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Switch(
+                                checked = proximityStatus.enabled,
+                                onCheckedChange = { isEnabled ->
+                                    scope.launch {
+                                        hostBridgeClient.configureProximityLock(
+                                            enabled = isEnabled,
+                                            thresholdDbm = proximityStatus.thresholdDbm,
+                                            lockSeconds = proximityStatus.lockSeconds.toInt(),
+                                            enforceWindowsLock = proximityStatus.enforceWindowsLock
+                                        )
+                                        proximityStatus = hostBridgeClient.fetchProximityStatus()
+                                    }
+                                }
+                            )
+                        }
+
+                        // Telemetria em Tempo Real: Sinal RSSI, Estado e Rolling-Code
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "Sinal RSSI Atual",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    val rssiText = when {
+                                        proximityStatus.currentRssiDbm >= (proximityStatus.thresholdDbm + proximityStatus.hysteresisDb) ->
+                                            "${proximityStatus.currentRssiDbm} dBm (Próximo — Mesa Segura)"
+                                        proximityStatus.currentRssiDbm >= proximityStatus.thresholdDbm ->
+                                            "${proximityStatus.currentRssiDbm} dBm (Banda de Histerese)"
+                                        else ->
+                                            "${proximityStatus.currentRssiDbm} dBm (Afastado — Bloqueando PC e Cofre)"
+                                    }
+                                    val rssiColor = when {
+                                        proximityStatus.currentRssiDbm >= (proximityStatus.thresholdDbm + proximityStatus.hysteresisDb) ->
+                                            MaterialTheme.colorScheme.primary
+                                        proximityStatus.currentRssiDbm >= proximityStatus.thresholdDbm ->
+                                            MaterialTheme.colorScheme.tertiary
+                                        else ->
+                                            MaterialTheme.colorScheme.error
+                                    }
+                                    Text(
+                                        text = rssiText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = rssiColor,
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "Estado da Trava",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = when (proximityStatus.state) {
+                                                "NEAR" -> MaterialTheme.colorScheme.primaryContainer
+                                                "AWAY" -> MaterialTheme.colorScheme.tertiaryContainer
+                                                else -> MaterialTheme.colorScheme.errorContainer
+                                            },
+                                        ) {
+                                            Text(
+                                                text = proximityStatus.state,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = when (proximityStatus.state) {
+                                                    "NEAR" -> MaterialTheme.colorScheme.onPrimaryContainer
+                                                    "AWAY" -> MaterialTheme.colorScheme.onTertiaryContainer
+                                                    else -> MaterialTheme.colorScheme.onErrorContainer
+                                                },
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = "Roll: 0x%04X".format(proximityStatus.rollingCounter),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Controles de Limiar de Distância (-65, -75, -85 dBm)
+                        Text(
+                            text = "Limiar de RSSI para Bloqueio:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(-65, -75, -85).forEach { threshold ->
+                                FilterChip(
+                                    selected = proximityStatus.thresholdDbm == threshold,
+                                    onClick = {
+                                        scope.launch {
+                                            hostBridgeClient.configureProximityLock(
+                                                enabled = proximityStatus.enabled,
+                                                thresholdDbm = threshold,
+                                                lockSeconds = proximityStatus.lockSeconds.toInt(),
+                                                enforceWindowsLock = proximityStatus.enforceWindowsLock
+                                            )
+                                            proximityStatus = hostBridgeClient.fetchProximityStatus()
+                                        }
+                                    },
+                                    label = { Text("$threshold dBm") },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+
+                        // Controles de Tempo de Evasão (6s, 10s, 15s)
+                        Text(
+                            text = "Tempo de Evasão:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(6, 10, 15).forEach { secs ->
+                                FilterChip(
+                                    selected = proximityStatus.lockSeconds.toInt() == secs,
+                                    onClick = {
+                                        scope.launch {
+                                            hostBridgeClient.configureProximityLock(
+                                                enabled = proximityStatus.enabled,
+                                                thresholdDbm = proximityStatus.thresholdDbm,
+                                                lockSeconds = secs,
+                                                enforceWindowsLock = proximityStatus.enforceWindowsLock
+                                            )
+                                            proximityStatus = hostBridgeClient.fetchProximityStatus()
+                                        }
+                                    },
+                                    label = { Text("${secs}s") },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+
+                        proximityFeedback?.let { feedback ->
+                            Text(
+                                text = feedback,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        // Botões de Ação e Simulação
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        proximityEvaluating = true
+                                        proximityFeedback = "Simulando afastamento (-88 dBm)..."
+                                        try {
+                                            val updated = hostBridgeClient.sendPhoneRssiAndEvaluate(
+                                                rssiDbm = -88,
+                                                elapsedSeconds = proximityStatus.lockSeconds + 1.0
+                                            )
+                                            proximityStatus = updated
+                                            proximityFeedback = if (updated.locked) {
+                                                "PC & Cofre BLOQUEADOS por afastamento!"
+                                            } else {
+                                                "Sinal fraco detectado (${updated.awaySeconds}s acumulados)."
+                                            }
+                                        } finally {
+                                            proximityEvaluating = false
+                                        }
+                                    }
+                                },
+                                enabled = !proximityEvaluating,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("Afastar (-88 dBm)", style = MaterialTheme.typography.labelSmall)
+                            }
+
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        proximityEvaluating = true
+                                        proximityFeedback = "Confirmando presença próxima (-32 dBm)..."
+                                        try {
+                                            val updated = hostBridgeClient.sendPhoneRssiAndEvaluate(
+                                                rssiDbm = -32,
+                                                elapsedSeconds = 1.0
+                                            )
+                                            proximityStatus = updated
+                                            proximityFeedback = "Presença confirmada (Mesa segura)."
+                                        } finally {
+                                            proximityEvaluating = false
+                                        }
+                                    }
+                                },
+                                enabled = !proximityEvaluating,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("Aproximar (-32 dBm)", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+
+                        if (proximityStatus.locked) {
+                            Button(
+                                onClick = { showProximityUnlockDialog = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("Destravar Sessão com Toque UP + PIN")
+                            }
                         }
                     }
                 }
@@ -1101,6 +1418,49 @@ fun FriendlySettingsAndThemeScreen(
     }
 
     // --- Diálogos Modais Interativos ---
+
+    if (showProximityUnlockDialog) {
+        AlertDialog(
+            onDismissRequest = { showProximityUnlockDialog = false },
+            title = { Text("Destravar PC & Cofre (Toque UP + PIN)") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "O computador e o cofre foram bloqueados por evasão RSSI. Digite o PIN da chave e confirme a presença física para destravar:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    OutlinedTextField(
+                        value = proximityUnlockPin,
+                        onValueChange = { proximityUnlockPin = it.filter { ch -> ch.isDigit() }.take(8) },
+                        label = { Text("PIN da Chave") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val ok = hostBridgeClient.unlockProximitySession(proximityUnlockPin)
+                            proximityStatus = hostBridgeClient.fetchProximityStatus()
+                            showProximityUnlockDialog = false
+                            proximityFeedback = if (ok) "Sessão destravada com sucesso!" else "Falha ao destravar."
+                        }
+                    }
+                ) {
+                    Text("Destravar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showProximityUnlockDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     // Diálogo 1: Alteração do PIN do Hardware (0x2C / 0x2D)
     if (showPinDialog) {
