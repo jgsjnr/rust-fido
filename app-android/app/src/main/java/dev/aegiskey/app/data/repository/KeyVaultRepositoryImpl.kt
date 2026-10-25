@@ -226,6 +226,29 @@ class KeyVaultRepositoryImpl(
         }
     }
 
+    private suspend fun generateKeyWithSlotRetry(
+        label: String,
+        coseAlg: Int,
+        usage: Int,
+        preferredSlot: Int,
+        occupiedSlots: Set<Int>
+    ): Pair<Int, ByteArray> {
+        val candidateSlots = listOf(preferredSlot) + (0..31).filter { it != preferredSlot && it !in occupiedSlots }
+        for (slot in candidateSlots) {
+            val req = VendorOps.genRequest(slot, label.take(32), coseAlg, usage)
+            val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req) ?: continue
+            val status = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+            if (status == VendorOps.STATUS_OK) {
+                return Pair(slot, resp)
+            } else if (status == VendorOps.STATUS_NO_SLOT) {
+                continue
+            } else {
+                throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(status))
+            }
+        }
+        throw IllegalStateException("Todos os slots (0..31) estão ocupados na chave física")
+    }
+
     override suspend fun generateNewAccessKey(
         keyId: String,
         label: String,
@@ -244,35 +267,41 @@ class KeyVaultRepositoryImpl(
             var envelopeHexStr = ""
             var summary = ""
 
+            val occupiedSlots = current.map { it.slotId }.toMutableSet()
+
             when (type) {
                 AccessKeyType.PASSKEY_FIDO -> {
                     val coseAlg = parseCoseAlg(algorithmOrCurve, -7)
                     resolvedAlgCurve = VendorOps.curveForAlg(coseAlg)?.friendly ?: "ES256 (P-256)"
                     resolvedUsage = "Autenticação WebAuthn e Assinatura FIDO2"
-                    if (derivationOrSlot.isBlank()) derivationOrSlot = "fido2/resident-key/$nextSlot"
-                    summary = "Credencial WebAuthn / Passkey ($resolvedAlgCurve)"
 
-                    val req = VendorOps.genRequest(nextSlot, label.take(32), coseAlg, VendorOps.USAGE_AUTH or VendorOps.USAGE_SIGN)
-                    val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
-                        ?: throw IllegalStateException("Sem resposta da chave para geração de acesso")
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
-                    }
+                    val (slotUsed, _) = generateKeyWithSlotRetry(
+                        label = label,
+                        coseAlg = coseAlg,
+                        usage = VendorOps.USAGE_AUTH or VendorOps.USAGE_SIGN,
+                        preferredSlot = nextSlot,
+                        occupiedSlots = occupiedSlots
+                    )
+                    actualSlot = slotUsed
+                    if (derivationOrSlot.isBlank()) derivationOrSlot = "fido2/resident-key/$actualSlot"
+                    summary = "Credencial WebAuthn / Passkey ($resolvedAlgCurve) [Slot #$actualSlot]"
                 }
 
                 AccessKeyType.VENDOR_SIGNING_KEY -> {
                     val coseAlg = parseCoseAlg(algorithmOrCurve, -8)
                     resolvedAlgCurve = VendorOps.curveForAlg(coseAlg)?.friendly ?: "Ed25519 (moderna)"
                     resolvedUsage = "Assinatura de código, firmware e atestação de integridade"
-                    if (derivationOrSlot.isBlank()) derivationOrSlot = "0x" + nextSlot.toString(16).padStart(2, '0').uppercase()
-                    summary = "Chave de Assinatura de Hardware ($resolvedAlgCurve)"
 
-                    val req = VendorOps.genRequest(nextSlot, label.take(32), coseAlg, VendorOps.USAGE_SIGN)
-                    val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
-                        ?: throw IllegalStateException("Sem resposta da chave para geração de acesso")
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
-                    }
+                    val (slotUsed, _) = generateKeyWithSlotRetry(
+                        label = label,
+                        coseAlg = coseAlg,
+                        usage = VendorOps.USAGE_SIGN,
+                        preferredSlot = nextSlot,
+                        occupiedSlots = occupiedSlots
+                    )
+                    actualSlot = slotUsed
+                    if (derivationOrSlot.isBlank()) derivationOrSlot = "0x" + actualSlot.toString(16).padStart(2, '0').uppercase()
+                    summary = "Chave de Assinatura de Hardware ($resolvedAlgCurve) [Slot #$actualSlot]"
                 }
 
                 AccessKeyType.CRYPTO_WALLET_BTC, AccessKeyType.CRYPTO_WALLET_ETH, AccessKeyType.CRYPTO_WALLET_SOL -> {
@@ -305,12 +334,10 @@ class KeyVaultRepositoryImpl(
 
                     // 1. Consulta OP_WALLET_LIST (0x36) para obter slots ocupados na chave física
                     val rawWalletList = sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
-                    val occupiedSlots = mutableSetOf<Int>()
                     if (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK) {
                         val tlv = rawWalletList.copyOfRange(2, rawWalletList.size)
                         occupiedSlots.addAll(parseWalletList(tlv).map { it.slot })
                     }
-                    occupiedSlots.addAll(current.map { it.slotId })
 
                     // Seleciona o primeiro slot livre de 0..31
                     var chosenSlot = (0..31).firstOrNull { it !in occupiedSlots } ?: nextSlot
@@ -347,7 +374,7 @@ class KeyVaultRepositoryImpl(
                     }
 
                     if (!genSuccess) {
-                        // Fallback se OP_WALLET_GEN não for suportado no transporte (ex: chave antiga): tenta OP_KEY_GEN_ONDEVICE
+                        // Fallback se OP_WALLET_GEN não for suportado no transporte: tenta OP_KEY_GEN_ONDEVICE
                         val coseAlg = if (type == AccessKeyType.CRYPTO_WALLET_SOL) -8 else -47
                         val req = VendorOps.genRequest(chosenSlot, label.take(32), coseAlg, VendorOps.USAGE_SIGN)
                         val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
@@ -378,7 +405,7 @@ class KeyVaultRepositoryImpl(
                     summary = if (derivedAddress.isNotBlank()) {
                         derivedAddress
                     } else {
-                        "$prefix ($derivationOrSlot)"
+                        "$prefix ($derivationOrSlot) [Slot #$chosenSlot]"
                     }
                     actualSlot = chosenSlot
                 }
@@ -386,15 +413,17 @@ class KeyVaultRepositoryImpl(
                 AccessKeyType.CRYPTO_WALLET_DOT -> {
                     resolvedAlgCurve = "Ed25519 / Substrate"
                     resolvedUsage = "Custódia e assinatura Substrate / Polkadot"
-                    if (derivationOrSlot.isBlank()) derivationOrSlot = "m/44'/354'/0'/0'/0'"
-                    summary = "Polkadot Substrate Ed25519 Signer ($derivationOrSlot)"
 
-                    val req = VendorOps.genRequest(nextSlot, label.take(32), -8, VendorOps.USAGE_SIGN)
-                    val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
-                        ?: throw IllegalStateException("Sem resposta da chave para criação de carteira Polkadot")
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao criar carteira Polkadot: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
-                    }
+                    val (slotUsed, _) = generateKeyWithSlotRetry(
+                        label = label,
+                        coseAlg = -8,
+                        usage = VendorOps.USAGE_SIGN,
+                        preferredSlot = nextSlot,
+                        occupiedSlots = occupiedSlots
+                    )
+                    actualSlot = slotUsed
+                    if (derivationOrSlot.isBlank()) derivationOrSlot = "m/44'/354'/0'/0'/0'"
+                    summary = "Polkadot Substrate Ed25519 Signer ($derivationOrSlot) [Slot #$actualSlot]"
                 }
 
                 AccessKeyType.PIV_SMARTCARD_SLOT -> {
@@ -402,15 +431,17 @@ class KeyVaultRepositoryImpl(
                     resolvedAlgCurve = if (algorithmOrCurve.isNotBlank()) algorithmOrCurve else "ES256 (P-256)"
                     resolvedUsage = "Autenticação e Assinatura Smartcard PIV"
                     derivationOrSlot = "Slot $slotCode"
-                    summary = "PIV Smartcard Slot $slotCode (NIST SP 800-73-4)"
 
                     val coseAlg = parseCoseAlg(resolvedAlgCurve, -7)
-                    val req = VendorOps.genRequest(nextSlot, label.take(32), coseAlg, VendorOps.USAGE_AUTH or VendorOps.USAGE_SIGN)
-                    val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
-                        ?: throw IllegalStateException("Sem resposta da chave para criação de slot PIV")
-                    if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                        throw IllegalStateException("Erro ao criar slot PIV: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
-                    }
+                    val (slotUsed, _) = generateKeyWithSlotRetry(
+                        label = label,
+                        coseAlg = coseAlg,
+                        usage = VendorOps.USAGE_AUTH or VendorOps.USAGE_SIGN,
+                        preferredSlot = nextSlot,
+                        occupiedSlots = occupiedSlots
+                    )
+                    actualSlot = slotUsed
+                    summary = "PIV Smartcard Slot $slotCode (NIST SP 800-73-4) [Slot #$actualSlot]"
                 }
 
                 AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> {
@@ -480,6 +511,57 @@ class KeyVaultRepositoryImpl(
                 keysStore.saveVaultEntries(keyId, filtered)
                 filtered
             }
+        }
+    }
+
+    override suspend fun resetHardwareVault(keyId: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            var deletedSlotsCount = 0
+
+            // 1. Percorre os slots de chaves do hardware (0x22 OP_KEY_LIST -> 0x23 OP_KEY_DELETE)
+            val rawKeyList = sendVendor(VendorOps.OP_KEY_LIST, ByteArray(0))
+            if (rawKeyList != null && rawKeyList.size >= 2 && rawKeyList[1].toInt() == VendorOps.STATUS_OK) {
+                val tlv = rawKeyList.copyOfRange(2, rawKeyList.size)
+                val entries = VendorOps.parseKeyList(tlv)
+                for (entry in entries) {
+                    val req = VendorOps.writeTlv(VendorOps.TAG_SLOT, byteArrayOf(entry.slot.toByte()))
+                    sendVendor(VendorOps.OP_KEY_DELETE, req)
+                    deletedSlotsCount++
+                }
+            }
+
+            // 2. Percorre slots de carteiras on-device (0x36 OP_WALLET_LIST -> 0x23 OP_KEY_DELETE)
+            val rawWalletList = sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
+            if (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK) {
+                val tlv = rawWalletList.copyOfRange(2, rawWalletList.size)
+                val wallets = parseWalletList(tlv)
+                for (w in wallets) {
+                    val req = VendorOps.writeTlv(VendorOps.TAG_SLOT, byteArrayOf(w.slot.toByte()))
+                    sendVendor(VendorOps.OP_KEY_DELETE, req)
+                    deletedSlotsCount++
+                }
+            }
+
+            // 3. Apaga contas OATH (0x25 OP_OATH_LIST -> 0x27 OP_OATH_DELETE)
+            val rawOathList = sendVendor(VendorOps.OP_OATH_LIST, ByteArray(0))
+            if (rawOathList != null && rawOathList.size >= 2 && rawOathList[1].toInt() == VendorOps.STATUS_OK) {
+                val tlv = rawOathList.copyOfRange(2, rawOathList.size)
+                val oathEntries = VendorOps.parseOathList(tlv)
+                for (oath in oathEntries) {
+                    val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, oath.name.toByteArray(Charsets.UTF_8))
+                    sendVendor(VendorOps.OP_OATH_DELETE, req)
+                }
+            }
+
+            // 4. Envia 0x2B (OP_BIND_RELEASE) se aplicável para liberar qualquer vínculo
+            sendVendor(0x2B, ByteArray(0))
+
+            // 5. Limpa caches locais de chaves e OATH no keysStore
+            keysStore.saveVaultEntries(keyId, emptyList())
+            keysStore.saveTotpAccounts(keyId, emptyList())
+            _vaultEntries.value = emptyList()
+
+            "Chave de hardware resetada com sucesso! $deletedSlotsCount slots liberados e pronta para novas credenciais."
         }
     }
 

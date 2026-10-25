@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AegisKey S3 Authenticator: VID 0x303A (12346) / PID 0xAE61 (44641). -->
+    <!-- AegisKey USB CTAPHID nativo: VID 0x303A (12346) / PID 0xAE61 (44641) -->
     <usb-device vendor-id="12346" product-id="44641" />
+    <!-- AegisKey OTG PHY GPIO 19/20: VID 0x0483 (1155) / PID 0xA2CA (41674) -->
+    <usb-device vendor-id="1155" product-id="41674" />
+    <!-- CP2102 USB to UART Bridge: VID 0x10C4 (4292) / PID 0xEA60 (60000) -->
+    <usb-device vendor-id="4292" product-id="60000" />
 </resources>

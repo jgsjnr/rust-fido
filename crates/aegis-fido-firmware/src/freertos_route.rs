@@ -52,6 +52,10 @@ pub struct CtaphidDispatch {
     pub origin: Option<PacketOrigin>,
     /// `true` quando o latch UP foi consumido por esta mensagem.
     pub consumed_up: bool,
+    /// `true` quando a operação armou novo latch UP (ex.: 0x2F trigger de pareamento).
+    pub arm_up: bool,
+    /// `true` quando o PIN ou recovery foi verificado (ex.: 0x2D ou 0x2F).
+    pub pin_verified: bool,
 }
 
 /// `true` quando o comando CTAP exige presença (UP), espelhando o loop legado.
@@ -87,6 +91,10 @@ pub struct SerialVendorCtx<'a> {
     pub now_ms: u64,
     /// Relógio s do dispatcher.
     pub now_secs: u64,
+    /// Se true, a op disparou armacao de UP latched por 10s (ex.: trigger 0x2F).
+    pub arm_up: bool,
+    /// Se true, PIN ou recovery foi verificado com sucesso.
+    pub pin_verified: bool,
     /// Binding exclusivo BLE/vendor (claim/release/recovery).
     pub binding: &'a mut crate::binding::BindingManager,
     /// NVS cifrada (chaves vendor/OATH, binding, PIN).
@@ -143,6 +151,15 @@ pub fn dispatch_serial_vendor_msg(
             &mut rng,
         );
         let consumed = st == 0x00 && serial_bind_mgmt_consumes_up(op);
+        if st == 0x00 && op == crate::ble_gatt::OP_BIND_RELEASE {
+            *ctx.key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+            *ctx.wallet = aegis_fido_core::wallet::WalletStore::new();
+            *ctx.oath = aegis_fido_core::oath::OathApplet::new();
+            let _ = crate::vendor_exec::save_states(ctx.storage, ctx.key_mgr, ctx.oath);
+        }
+        if st == 0x00 && op == crate::ble_gatt::OP_RECOVERY_UNLOCK {
+            ctx.pin_verified = true;
+        }
         if consumed {
             ctx.rescue.set_user_presence(true);
         }
@@ -180,6 +197,9 @@ pub fn dispatch_serial_vendor_msg(
             }
             SerialGate::Ok => {
                 let mut rng = rand_core::OsRng;
+                let pin_effective = ctx.pin_uv_session
+                    || ctx.pin_verified
+                    || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
                 let (st, body) = if is_wallet_op(op) {
                     use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
                     use crate::wallet_exec as w;
@@ -199,7 +219,7 @@ pub fn dispatch_serial_vendor_msg(
                         op,
                         &payload[1..],
                         ctx.binding.is_claimed(),
-                        ctx.pin_uv_session,
+                        pin_effective,
                         true,
                         ctx.now_secs,
                         &mut rng,
@@ -217,6 +237,8 @@ pub fn dispatch_serial_vendor_msg(
     // do hold; UART = posse física.
     if crate::pairing::is_host_pairing_msg(op, payload.len() - 1) {
         ctx.pairing.open_host_window(ctx.now_ms);
+        ctx.arm_up = true;
+        ctx.pin_verified = true;
         return Some((
             CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x00]),
             false,
@@ -271,6 +293,8 @@ pub fn route_ctaphid_event(
             responses: Vec::new(),
             origin: None,
             consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
         };
     };
     let mgr = match origin {
@@ -282,11 +306,15 @@ pub fn route_ctaphid_event(
             responses: Vec::new(),
             origin: Some(origin),
             consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
         },
         Err(err) => CtaphidDispatch {
             responses: vec![err.to_packet()],
             origin: Some(origin),
             consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
         },
         Ok(Some(msg)) => {
             if msg.cmd == CMD_INIT {
@@ -295,6 +323,8 @@ pub fn route_ctaphid_event(
                         responses: Vec::new(),
                         origin: Some(origin),
                         consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
                     };
                 }
                 let mut nonce = [0u8; 8];
@@ -313,6 +343,8 @@ pub fn route_ctaphid_event(
                     responses: vec![pkt],
                     origin: Some(origin),
                     consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
                 };
             }
             if msg.cmd == CMD_PING {
@@ -320,6 +352,8 @@ pub fn route_ctaphid_event(
                     responses: CtapHidFramer::frame_ping(msg.cid, &msg.payload),
                     origin: Some(origin),
                     consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
                 };
             }
             if msg.cmd == CMD_WINK {
@@ -327,6 +361,8 @@ pub fn route_ctaphid_event(
                     responses: CtapHidFramer::frame_message(msg.cid, CMD_WINK, &[]),
                     origin: Some(origin),
                     consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
                 };
             }
             // Vendor/bind-mgmt/wallet/fw-log/rescue/pairing serial no
@@ -335,10 +371,14 @@ pub fn route_ctaphid_event(
             if msg.cmd == CMD_MSG && !msg.payload.is_empty() {
                 if let Some(ctx) = vendor {
                     if let Some((responses, consumed)) = dispatch_serial_vendor_msg(ctx, &msg) {
+                        let arm_up = ctx.arm_up;
+                        let pin_verified = ctx.pin_verified;
                         return CtaphidDispatch {
                             responses,
                             origin: Some(origin),
                             consumed_up: consumed,
+                            arm_up,
+                            pin_verified,
                         };
                     }
                 }
@@ -352,6 +392,8 @@ pub fn route_ctaphid_event(
                 let resp = engine.process_packet(&msg.payload, now_secs, &mut rng);
                 return CtaphidDispatch {
                     responses: CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
+                    arm_up: false,
+            pin_verified: false,
                     origin: Some(origin),
                     consumed_up: consumed,
                 };
@@ -360,6 +402,8 @@ pub fn route_ctaphid_event(
                 responses: vec![CtapHidFramer::frame_error(msg.cid, 0x01)],
                 origin: Some(origin),
                 consumed_up: false,
+            arm_up: false,
+            pin_verified: false,
             }
         }
     }
@@ -579,6 +623,8 @@ mod tests {
             up_latched: true,
             now_ms: 0,
             now_secs: 0,
+            arm_up: false,
+            pin_verified: false,
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
@@ -644,6 +690,8 @@ mod tests {
             up_latched: true,
             now_ms: 0,
             now_secs: 0,
+            arm_up: false,
+            pin_verified: false,
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,

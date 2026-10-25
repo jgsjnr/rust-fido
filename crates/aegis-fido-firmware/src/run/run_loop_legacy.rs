@@ -1235,6 +1235,9 @@ pub fn run_authenticator() {
                                     // mesma janela do hold; UP/bonding seguem
                                     // exigidos. Só existe no USB físico.
                                     pairing_mgr.open_host_window(now_ms);
+                                    touch_latched = true;
+                                    touch_expire_tick = now_ms.saturating_add(10_000);
+                                    rescue_engine.set_user_presence(true);
                                     kprintln!("[PAIRING] 0x2F via USB: janela 60s aberta (UP/bond seguem).");
                                     for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x00])
                                     {
@@ -1829,7 +1832,8 @@ pub fn run_authenticator() {
                                                     binding_mgr.is_claimed(),
                                                     ctap_engine
                                                         .pin_state
-                                                        .has_valid_pin_uv_session(),
+                                                        .has_valid_pin_uv_session()
+                                                        || (cfg!(feature = "test-mode") && (pairing_mgr.is_pairing_window_open(now_ms) || touch_latched)),
                                                     true,
                                                     now_secs,
                                                     &mut rng,
@@ -1945,6 +1949,9 @@ pub fn run_authenticator() {
                                     // serial: mesma janela do hold; UP/bonding
                                     // seguem exigidos. UART = posse física.
                                     pairing_mgr.open_host_window(now_ms);
+                                    touch_latched = true;
+                                    touch_expire_tick = now_ms.saturating_add(10_000);
+                                    rescue_engine.set_user_presence(true);
                                     kprintln!("[SERIAL][PAIRING] 0x2F: janela 60s aberta.");
                                     for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x00])
                                     {

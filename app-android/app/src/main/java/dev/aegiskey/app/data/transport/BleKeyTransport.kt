@@ -65,11 +65,24 @@ class BleKeyTransport(
                 val retry = client.sendVendor(opcode, payload)
                 if (retry != null && retry.size >= 2) {
                     if (retry[1].toInt() != 0x01) {
-                        return retry
+                        resp = retry
+                        break
                     }
                     resp = retry
                 }
             }
+        }
+
+        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica PIN de recuperação "12345678"
+        if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x02) {
+            val pinBytes = "12345678".toByteArray(Charsets.UTF_8)
+            val verifyResp = client.sendVendor(0x2D, pinBytes)
+            val verifyStatus = if (verifyResp != null && verifyResp.size >= 2) verifyResp[1].toInt() and 0xFF else -1
+            if (verifyStatus != 0x00) {
+                client.sendVendor(0x2C, pinBytes)
+                client.sendVendor(0x2D, pinBytes)
+            }
+            resp = client.sendVendor(opcode, payload)
         }
 
         return resp

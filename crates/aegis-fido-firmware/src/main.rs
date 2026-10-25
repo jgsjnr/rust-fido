@@ -23,7 +23,17 @@ pub extern "C" fn app_main() {
     // (usb_ctaphid, ui_button, housekeeping) sobre fila + event-group.
     #[cfg(feature = "freertos")]
     {
-        run_authenticator_freertos();
+        let builder = std::thread::Builder::new()
+            .name("aegis_freertos".into())
+            .stack_size(96 * 1024);
+
+        let handle = builder
+            .spawn(|| {
+                run_authenticator_freertos();
+            })
+            .expect("Spawn authenticator freertos thread");
+
+        let _ = handle.join();
     }
 
     #[cfg(not(feature = "freertos"))]

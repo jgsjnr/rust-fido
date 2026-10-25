@@ -21,4 +21,9 @@ rustflags = [
 LIBCLANG_PATH = "C:\\Users\\junior\\.rustup\\toolchains\\esp\\xtensa-esp32-elf-clang\\esp-clang\\bin\\libclang.dll"
 ESP_IDF_VERSION = "v5.3.1"
 IDF_PATH = "C:\\.embuild\\espressif\\esp-idf\\v5.3.1"
+IDF_TOOLS_PATH = "C:\\.embuild\\espressif"
 ESP_IDF_SYS_ROOT_CRATE = "aegis-fido-firmware"
+ESP_IDF_TOOLS_INSTALL_DIR = "fromenv"
+CARGO_WORKSPACE_DIR = { value = "", relative = true }
+TEMP = "C:\\Users\\junior\\AppData\\Local\\Temp"
+TMP = "C:\\Users\\junior\\AppData\\Local\\Temp"

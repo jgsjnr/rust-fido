@@ -39,6 +39,7 @@ import dev.aegiskey.app.domain.usecase.RefreshTotpCodesUseCase
 import dev.aegiskey.app.domain.usecase.RefreshVaultUseCase
 import dev.aegiskey.app.domain.usecase.RemoveKeyUseCase
 import dev.aegiskey.app.domain.usecase.RenameKeyUseCase
+import dev.aegiskey.app.domain.usecase.ResetHardwareVaultUseCase
 import dev.aegiskey.app.domain.usecase.RunHealthCheckUseCase
 import dev.aegiskey.app.domain.usecase.SelectActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.SetDynamicColorsUseCase
@@ -75,7 +76,11 @@ class AppContainer(val context: Context) {
 
     // --- Repositórios ---
     val connectedKeysRepository: ConnectedKeysRepository by lazy {
-        ConnectedKeysRepositoryImpl(keysStore)
+        ConnectedKeysRepositoryImpl(
+            keysStore = keysStore,
+            usbKeyTransport = usbTransport,
+            bleKeyTransport = bleTransport
+        )
     }
 
     val pairingWizardRepository: PairingWizardRepository by lazy {
@@ -171,6 +176,9 @@ class AppContainer(val context: Context) {
     }
     val deleteVaultEntryUseCase: DeleteVaultEntryUseCase by lazy {
         DeleteVaultEntryUseCase(keyVaultRepository)
+    }
+    val resetHardwareVaultUseCase: ResetHardwareVaultUseCase by lazy {
+        ResetHardwareVaultUseCase(keyVaultRepository)
     }
     val runHealthCheckUseCase: RunHealthCheckUseCase by lazy {
         RunHealthCheckUseCase(keyVaultRepository)

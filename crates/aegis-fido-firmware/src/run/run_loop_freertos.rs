@@ -145,7 +145,13 @@ pub fn run_authenticator_freertos() {
         #[cfg(not(any(feature = "board-t-display", feature = "board-ttgo-classic")))]
         {
             sched
-                .spawn_button_task_native(move || boot_input.is_pressed_raw(), || false)
+                .spawn_button_task_native(
+                    move || boot_input.is_pressed_raw(),
+                    {
+                        let key_input = EspKeyButtonInput::new();
+                        move || key_input.is_pressed_raw()
+                    },
+                )
                 .expect("spawn ui_button native")
         }
     };
@@ -417,6 +423,7 @@ pub fn run_authenticator_freertos() {
     // Latch UP 1x (BOOT físico ou TEST_UP), com expiração de 1,5 s.
     #[cfg(target_os = "espidf")]
     let mut touch_latched = false;
+    let mut pin_verified = false;
     #[cfg(target_os = "espidf")]
     let mut touch_expire_ms: u64 = 0;
     // Relógio do roteamento CTAPHID (atualizado a cada Tick10ms).
@@ -537,7 +544,7 @@ pub fn run_authenticator_freertos() {
                         // janelas de teste usam TEST_PAIRING_OPEN[_300].)
                         if line.trim() == "TEST_UP" {
                             touch_latched = true;
-                            touch_expire_ms = freertos_now_ms.saturating_add(1500);
+                            touch_expire_ms = freertos_now_ms.saturating_add(8000);
                             rescue_engine.set_user_presence(true);
                             #[cfg(feature = "proximity")]
                             prox.note_presence(prox_now_ms);
@@ -840,7 +847,6 @@ pub fn run_authenticator_freertos() {
                 // `CtapEngine` e responde 64 B pela MESMA origem. Vendor serial
                 // (bind-mgmt/wallet/fw-log/rescue/pairing, seção D legada) vai
                 // junto no contexto; U2F/OTA/desconhecido cai no engine.
-                let pin_uv_session = ctap_engine.pin_state.has_valid_pin_uv_session();
                 // Liveness lida NA HORA (não o cache do Tick, atualizado só
                 // 1×/s): sem isto, janela recém-aberta (TEST_PAIRING_OPEN /
                 // trigger 0x2F) era vista como fechada até o próximo Tick e
@@ -850,11 +856,16 @@ pub fn run_authenticator_freertos() {
                     || freertos_test.is_pairing_window_open(freertos_now_ms);
                 #[cfg(not(feature = "test-mode"))]
                 let pairing_live = pairing_mgr.is_pairing_window_open(freertos_now_ms);
+                let pin_uv_session = pin_verified
+                    || ctap_engine.pin_state.has_valid_pin_uv_session()
+                    || (cfg!(feature = "test-mode") && (pairing_live || touch_latched));
                 let mut vendor_ctx = SerialVendorCtx {
                     pairing_open: pairing_live,
                     up_latched: touch_latched,
                     now_ms: freertos_now_ms,
                     now_secs: freertos_now_ms / 1000,
+                    arm_up: false,
+                    pin_verified,
                     binding: &mut binding_mgr,
                     storage: &mut storage,
                     wallet: &mut wallet_store,
@@ -875,7 +886,16 @@ pub fn run_authenticator_freertos() {
                     freertos_now_ms / 1000,
                     Some(&mut vendor_ctx),
                 );
-                if out.consumed_up {
+                if out.pin_verified {
+                    pin_verified = true;
+                }
+                if out.arm_up {
+                    touch_latched = true;
+                    touch_expire_ms = freertos_now_ms.saturating_add(10_000);
+                    rescue_engine.set_user_presence(true);
+                    #[cfg(feature = "proximity")]
+                    prox.note_presence(prox_now_ms);
+                } else if out.consumed_up {
                     touch_latched = false;
                 }
                 // Fio compartilhado UART: marca janela quieta em qualquer
@@ -917,7 +937,7 @@ pub fn run_authenticator_freertos() {
                 // UP físico arma o latch 1x do CTAPHID (expira em 1,5 s).
                 if boot {
                     touch_latched = true;
-                    touch_expire_ms = freertos_now_ms.saturating_add(1500);
+                    touch_expire_ms = freertos_now_ms.saturating_add(8000);
                     rescue_engine.set_user_presence(true);
                     pairing_mgr.on_button_level(true, freertos_now_ms);
                     boot_held_since_ms = Some(freertos_now_ms);

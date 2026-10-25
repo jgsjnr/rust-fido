@@ -61,6 +61,34 @@ class HostUsbUartBridgeClient(
     }
 
     /**
+     * Consulta se a bridge está ativa e responde a requisições com timeout curto.
+     */
+    suspend fun isBridgeAvailable(timeoutMs: Int = 500): Boolean = withContext(Dispatchers.IO) {
+        val host = verifiedHost ?: candidateHosts.firstOrNull() ?: return@withContext false
+        try {
+            val url = URL("$host/bridge/info")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+            }
+            val ok = conn.responseCode in 200..299
+            if (ok) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                val json = JSONObject(body)
+                verifiedHost = host
+                json.optBoolean("connected", true)
+            } else {
+                conn.disconnect()
+                false
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
      * Consulta a ponte do host para verificar se uma chave física real está conectada na porta USB ou UART.
      * Timeout máximo de 1.5s para não travar a UI de descoberta.
      */

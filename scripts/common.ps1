@@ -13,6 +13,11 @@ function Write-Err([string]$msg)     { Write-Host "[ERRO] $msg" -ForegroundColor
 
 # 1. Environment & Tools Validation
 function Initialize-EspEnvironment {
+    $userTemp = Join-Path ([Environment]::GetFolderPath("UserProfile")) "AppData\Local\Temp"
+    if (Test-Path $userTemp) {
+        $env:TEMP = $userTemp
+        $env:TMP = $userTemp
+    }
     Write-Info "Configurando variaveis de ambiente do ESP-IDF e Rust..."
 
     if (-not (Test-Path $global:TargetDir)) {
@@ -23,6 +28,7 @@ function Initialize-EspEnvironment {
     if (Test-Path $preferredIdf) {
         $env:IDF_PATH = $preferredIdf
         $env:ESP_IDF_VERSION = "v5.3.1"
+        $env:IDF_TOOLS_PATH = "C:\.embuild\espressif"
     } elseif ($env:IDF_PATH) {
         Write-Warn "Usando IDF_PATH existente: $env:IDF_PATH"
     } else {
@@ -31,6 +37,8 @@ function Initialize-EspEnvironment {
     # Etapa B (BLE NimBLE): esp-idf-sys nao aplica sdkconfig.defaults.* sozinho
     # neste env; aponta os defaults BT/BLE-only do workspace root.
     $env:ESP_IDF_SDKCONFIG_DEFAULTS = Join-Path $global:RepoRoot "sdkconfig.defaults.esp32s3"
+    $env:CARGO_WORKSPACE_DIR = $global:RepoRoot
+    $env:ESP_IDF_TOOLS_INSTALL_DIR = "fromenv"
 
     # Toolchain ESP (espup): clang/gcc no PATH; sem isso o cmake do
     # esp-idf-sys cai no IDF errado ou nao acha o compilador (falha ABI).
@@ -38,6 +46,18 @@ function Initialize-EspEnvironment {
     if (Test-Path $exportEsp) {
         . $exportEsp
         Write-Success "export-esp.ps1 aplicado."
+        $c = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".cargo\bin"
+        if (Test-Path $c) { $env:PATH = "$c;$env:PATH" }
+        $py = "C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts"
+        if (Test-Path $py) { $env:PATH = "$py;$env:PATH" }
+        $cm = (Get-ChildItem "C:\.embuild\espressif\tools\cmake\*\bin" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        if ($cm) { $env:PATH = "$cm;$env:PATH" }
+        $nj = (Get-ChildItem "C:\.embuild\espressif\tools\ninja\*" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        if ($nj) { $env:PATH = "$nj;$env:PATH" }
+        $gcc = (Get-ChildItem "C:\.embuild\espressif\tools\xtensa-esp-elf\*\xtensa-esp-elf\bin" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        if ($gcc) { $env:PATH = "$gcc;$env:PATH" }
+        $tools = Join-Path $env:IDF_PATH "tools"
+        if (Test-Path $tools) { $env:PATH = "$tools;$env:PATH" }
     } else {
         Write-Warn "export-esp.ps1 ausente; rode 'espup install' e revalide com scripts/env-check.ps1."
     }
@@ -185,6 +205,8 @@ function Clear-StaleIdfSysBuild {
                     Sort-Object LastWriteTime -Descending | Select-Object -First 1
                 if ((-not $newestOut) -or ($newestSrc.LastWriteTime -gt $newestOut.LastWriteTime)) {
                     Remove-Item -Recurse -Force $sysdir.FullName
+                    $fp = Join-Path $triple.FullName (Join-Path "release\.fingerprint" $sysdir.Name)
+                    if (Test-Path $fp) { Remove-Item -Recurse -Force $fp }
                     Write-Warn ("Build C invalidado (fonte {0} mais novo que output): {1}" -f $newestSrc.Name, $sysdir.Name)
                 }
             }
@@ -207,6 +229,13 @@ function Invoke-FirmwareBuild {
         if ($Clean) {
             Write-Info "Limpando diretorio de compilacao..."
             & cargo clean -p aegis-fido-firmware
+            $roots = @($global:TargetDir, (Join-Path $global:RepoRoot "target")) | Where-Object { Test-Path $_ }
+            foreach ($root in $roots) {
+                foreach ($triple in Get-ChildItem $root -Directory -Filter "xtensa-*-espidf" -ErrorAction SilentlyContinue) {
+                    Get-ChildItem (Join-Path $triple.FullName "release\build") -Directory -Filter "esp-idf-sys-*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+                    Get-ChildItem (Join-Path $triple.FullName "release\.fingerprint") -Directory -Filter "*esp-idf-sys*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+                }
+            }
         }
 
         # O build ESP compila as COPIAS em $IDF_PATH/components (nao o repo!):

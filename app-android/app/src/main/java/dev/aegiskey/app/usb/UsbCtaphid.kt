@@ -26,7 +26,8 @@ import java.security.SecureRandom
 
 /**
  * USB host CTAPHID (firmware usb_descriptors.rs):
- * VID 0x303A, PID 0xAE61, interface 0 HID com 2 endpoints interrupt 64B.
+ * Suporta VID 0x303A:PID 0xAE61 (nativo) e VID 0x0483:PID 0xA2CA (OTG PHY GPIO 19/20).
+ * Interface HID com 2 endpoints interrupt 64B.
  * Pacotes 64B: init [CID(4), CMD|0x80, BCNT(2 BE), 57B] + continuacao
  * [CID(4), SEQ, 59B] — mesmo framing do firmware (CtapHidFramer).
  * Permissao via UsbManager.requestPermission (runtime, dialogo sistema).
@@ -45,6 +46,9 @@ class UsbCtaphid(private val context: Context) {
     companion object {
         const val VID: Int = 0x303A
         const val PID: Int = 0xAE61
+        const val VID_ALT: Int = 0x0483
+        const val PID_ALT: Int = 0xA2CA
+
         const val ACTION_USB_PERMISSION: String = "dev.aegiskey.app.USB_PERMISSION"
         const val PACKET_SIZE: Int = 64
         const val BROADCAST_CID: Int = -1 // 0xFFFFFFFF
@@ -55,20 +59,44 @@ class UsbCtaphid(private val context: Context) {
         const val CTAPHID_ERROR: Int = 0xBF
         const val OP_TRIGGER_PAIRING_OPEN: Int = 0x2F
         const val STATUS_NEED_UP: Int = 0x01
+        const val STATUS_NEED_PIN: Int = 0x02
         const val STATUS_NEED_BINDING: Int = 0x05
         const val WRITE_TIMEOUT_MS: Int = 2000
         const val READ_TIMEOUT_MS: Int = 3000
         const val PING_TIMEOUT_MS: Long = 6000L
         const val MAX_PING_BYTES: Int = 1024
+
+        fun isMatchingDevice(device: UsbDevice?): Boolean {
+            if (device == null) return false
+            val vid = device.vendorId
+            val pid = device.productId
+            return (vid == VID && pid == PID) || (vid == VID_ALT && pid == PID_ALT)
+        }
     }
 
     val isConnected: Boolean
         get() = connection != null && epIn != null && epOut != null
 
+    private val usb: UsbManager? =
+        try { context.getSystemService(Context.USB_SERVICE) as? UsbManager } catch (_: Throwable) { null }
+
+    private val _isHardwareAttached = MutableStateFlow(findDevice() != null)
+    val isHardwareAttached: StateFlow<Boolean> = _isHardwareAttached.asStateFlow()
+
+    fun isUsbPhysicallyPresent(): Boolean = findAegisDevice() != null
+
     fun findAegisDevice(): UsbDevice? = findDevice()
 
-    private val usb: UsbManager =
-        context.getSystemService(Context.USB_SERVICE) as UsbManager
+    fun open(): Boolean {
+        val dev = findAegisDevice() ?: return false
+        val u = usb ?: return false
+        if (!u.hasPermission(dev)) {
+            requestPermission(dev)
+            return false
+        }
+        openDevice(dev)
+        return isConnected
+    }
 
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -111,15 +139,14 @@ class UsbCtaphid(private val context: Context) {
                             @Suppress("DEPRECATION")
                             intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                         }
-                    if (device != null && device.vendorId == VID && device.productId == PID) {
+                    if (isMatchingDevice(device) && device != null) {
+                        _isHardwareAttached.value = true
                         DeviceLog.append(DeviceLog.Category.SYSTEM, "USB attached")
-                        if (usb.hasPermission(device)) {
+                        val u = usb
+                        if (u != null && u.hasPermission(device)) {
                             openDevice(device)
                         } else {
-                            _ui.value = UiState(
-                                State.IDLE,
-                                "dispositivo plugado — toque em Procurar",
-                            )
+                            requestPermission(device)
                         }
                     }
                 }
@@ -131,7 +158,8 @@ class UsbCtaphid(private val context: Context) {
                             @Suppress("DEPRECATION")
                             intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                         }
-                    if (device != null && device.vendorId == VID && device.productId == PID) {
+                    if (isMatchingDevice(device) || findDevice() == null) {
+                        _isHardwareAttached.value = false
                         DeviceLog.append(DeviceLog.Category.SYSTEM, "USB detached")
                         close()
                     }
@@ -147,8 +175,6 @@ class UsbCtaphid(private val context: Context) {
                 addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
                 addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
             }
-            // Custom action e broadcasts USB: nunca exportado (API 33+ exige
-            // flag; ContextCompat aplica NOT_EXPORTED em todos os niveis).
             ContextCompat.registerReceiver(
                 context,
                 usbReceiver,
@@ -166,7 +192,7 @@ class UsbCtaphid(private val context: Context) {
     }
 
     fun findDevice(): UsbDevice? =
-        usb.deviceList.values.firstOrNull { it.vendorId == VID && it.productId == PID }
+        usb?.deviceList?.values?.firstOrNull { isMatchingDevice(it) }
 
     fun markSearching() {
         _ui.value = UiState(State.SEARCHING, "procurando AegisKey USB...")
@@ -183,7 +209,8 @@ class UsbCtaphid(private val context: Context) {
     }
 
     fun requestPermission(device: UsbDevice) {
-        if (usb.hasPermission(device)) {
+        val u = usb ?: return
+        if (u.hasPermission(device)) {
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB already granted")
             openDevice(device)
             return
@@ -195,14 +222,23 @@ class UsbCtaphid(private val context: Context) {
         }
         val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
         val pi = PendingIntent.getBroadcast(context, 0, intent, flags)
-        usb.requestPermission(device, pi)
+        u.requestPermission(device, pi)
         _ui.value = UiState(State.PERMISSION_NEEDED, "confirme no dialogo do sistema")
         DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission requested")
     }
 
     fun openDevice(device: UsbDevice) {
         DeviceLog.append(DeviceLog.Category.SYSTEM, "USB open started")
-        val conn = usb.openDevice(device) ?: run {
+        val u = usb ?: run {
+            _ui.value = UiState(
+                State.ERROR,
+                "servico USB indisponivel",
+                "Tente de novo ou use BLE.",
+            )
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB manager null")
+            return
+        }
+        val conn = u.openDevice(device) ?: run {
             _ui.value = UiState(
                 State.ERROR,
                 "nao abriu o dispositivo",
@@ -281,6 +317,7 @@ class UsbCtaphid(private val context: Context) {
         claimed = ctaphid
         epIn = inEp
         epOut = outEp
+        _isHardwareAttached.value = true
         _ui.value = UiState(State.CONNECTED, "conectado via USB (CTAPHID 64B)")
         DeviceLog.append(DeviceLog.Category.SYSTEM, "USB connected CTAPHID 64B")
     }
@@ -295,6 +332,7 @@ class UsbCtaphid(private val context: Context) {
         claimed = null
         epIn = null
         epOut = null
+        _isHardwareAttached.value = findAegisDevice() != null
         _ui.value = UiState(State.IDLE, "desconectado")
         if (wasActive) {
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB disconnected (app)")
@@ -345,7 +383,9 @@ class UsbCtaphid(private val context: Context) {
                     DeviceLog.append(DeviceLog.Category.SYSTEM, "USB ping bytes=" + payload.size)
                     val packets = frameMessage(channelId, CMD_PING, payload)
                     for (pkt in packets) {
-                        if (conn.bulkTransfer(outEp, pkt, pkt.size, WRITE_TIMEOUT_MS) != PACKET_SIZE) {
+                        val written = conn.bulkTransfer(outEp, pkt, pkt.size, WRITE_TIMEOUT_MS)
+                        if (written != PACKET_SIZE) {
+                            if (written < 0) close()
                             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB write failed")
                             return@withTimeout false
                         }
@@ -353,6 +393,7 @@ class UsbCtaphid(private val context: Context) {
                     val buf = ByteArray(PACKET_SIZE)
                     val n = conn.bulkTransfer(inEp, buf, buf.size, READ_TIMEOUT_MS)
                     if (n <= 0) {
+                        if (n < 0) close()
                         DeviceLog.append(DeviceLog.Category.SYSTEM, "USB read timeout")
                         return@withTimeout false
                     }
@@ -382,12 +423,17 @@ class UsbCtaphid(private val context: Context) {
 
         val sent = conn.bulkTransfer(outEp, initPacket, PACKET_SIZE, WRITE_TIMEOUT_MS)
         if (sent != PACKET_SIZE) {
+            if (sent < 0) close()
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB init write failed")
             return false
         }
 
         val buf = ByteArray(PACKET_SIZE)
         val read = conn.bulkTransfer(inEp, buf, PACKET_SIZE, READ_TIMEOUT_MS)
+        if (read < 0) {
+            close()
+            return false
+        }
         if (read == PACKET_SIZE && (buf[4].toInt() and 0xFF) == CMD_INIT) {
             val nonceOk = (0..7).all { buf[7 + it] == nonce[it] }
             if (nonceOk) {
@@ -416,6 +462,7 @@ class UsbCtaphid(private val context: Context) {
         for (pkt in packets) {
             val written = conn.bulkTransfer(outEp, pkt, PACKET_SIZE, WRITE_TIMEOUT_MS)
             if (written != PACKET_SIZE) {
+                if (written < 0) close()
                 DeviceLog.append(DeviceLog.Category.SYSTEM, "USB write packet failed")
                 return@withContext null
             }
@@ -429,7 +476,11 @@ class UsbCtaphid(private val context: Context) {
 
         while (System.currentTimeMillis() < deadline) {
             val n = conn.bulkTransfer(inEp, firstBuf, PACKET_SIZE, 1000)
-            if (n <= 0) continue
+            if (n < 0) {
+                close()
+                return@withContext null
+            }
+            if (n == 0) continue
 
             val respCmd = firstBuf[4].toInt() and 0xFF
             if (respCmd == CTAPHID_KEEPALIVE) {
@@ -463,7 +514,11 @@ class UsbCtaphid(private val context: Context) {
         val contBuf = ByteArray(PACKET_SIZE)
         while (received < totalLength && System.currentTimeMillis() < deadline) {
             val n = conn.bulkTransfer(inEp, contBuf, PACKET_SIZE, 1000)
-            if (n <= 0) continue
+            if (n < 0) {
+                close()
+                return@withContext null
+            }
+            if (n == 0) continue
 
             val seq = contBuf[4].toInt() and 0x7F
             if (seq == expectedSeq) {
@@ -508,37 +563,43 @@ class UsbCtaphid(private val context: Context) {
                 if (retry != null && retry.isNotEmpty()) {
                     val retryStatus = retry[0].toInt() and 0xFF
                     if (retryStatus != STATUS_NEED_UP) {
-                        return@withContext byteArrayOf(opcode.toByte()) + retry
+                        rawResp = retry
+                        status = retryStatus
+                        break
                     }
                     rawResp = retry
                 }
             }
         }
 
+        // Rito 3 — PIN Automático: Se status 0x02 (STATUS_NEED_PIN), abre sessão com 0x2D / 0x2C
+        if (status == STATUS_NEED_PIN) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x02 NEED_PIN -> autenticando PIN de recuperação...")
+            val pinBytes = "12345678".toByteArray(Charsets.UTF_8)
+            val verifyResp = sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
+            val verifyStatus = if (verifyResp != null && verifyResp.isNotEmpty()) verifyResp[0].toInt() and 0xFF else -1
+            if (verifyStatus != 0x00) {
+                sendCtapMessage(CMD_MSG, byteArrayOf(0x2C.toByte()) + pinBytes)
+                sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
+            }
+            val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
+            if (retryResp != null) {
+                rawResp = retryResp
+            }
+        }
+
         byteArrayOf(opcode.toByte()) + rawResp
     }
 
-    // -- OTA transport (Step-4 wiring fechado) --------------------------------
-    //
-    // Transporte CTAPHID 64B para [OtaTransfer]: cada pacote de 64B de
-    // [OtaTransfer.splitBinary] (mensagem 0x30 com framing init/cont iguais
-    // ao [frameMessage]) e escrito via bulkTransfer no endpoint OUT; a
-    // resposta e lida no endpoint IN. App e so transporte: nunca ve chaves,
-    // nunca inventa bytes — tamanhos/opcodes vao so para o DeviceLog
-    // (ver [OtaTransfer]). CID inicial 0x01020304 espelha
-    // [OtaTransfer.DEFAULT_CID] e o channelId inicial desta classe; a
-    // negociacao CTAPHID INIT completa segue fora (igual ao pingTest).
-    //
-    // 0x33 (COMMIT) nao existe aqui por desenho: commit e ritual USB-only
-    // offline (release key + latch UP fisico) do bootloader/rollback, sem
-    // caminho em codigo (ver OtaApi).
     inner class CtaphidOtaTransport : OtaUsbTransport {
         override fun write(packet: ByteArray): Boolean {
             val conn = connection
             val outEp = epOut
             if (conn == null || outEp == null) return false
             if (packet.size != PACKET_SIZE) return false
-            return conn.bulkTransfer(outEp, packet, packet.size, WRITE_TIMEOUT_MS) == PACKET_SIZE
+            val written = conn.bulkTransfer(outEp, packet, packet.size, WRITE_TIMEOUT_MS)
+            if (written < 0) close()
+            return written == PACKET_SIZE
         }
 
         override fun read(timeoutMs: Int): ByteArray? {
@@ -547,7 +608,11 @@ class UsbCtaphid(private val context: Context) {
             if (conn == null || inEp == null) return null
             val buf = ByteArray(PACKET_SIZE)
             val n = conn.bulkTransfer(inEp, buf, buf.size, timeoutMs.coerceAtLeast(100))
-            if (n <= 0) return null
+            if (n < 0) {
+                close()
+                return null
+            }
+            if (n == 0) return null
             return buf.copyOf(n)
         }
     }
@@ -555,12 +620,6 @@ class UsbCtaphid(private val context: Context) {
     /** Transporte OTA sobre a conexao CTAPHID aberta (exige CONNECTED). */
     fun otaTransport(): OtaUsbTransport = CtaphidOtaTransport()
 
-    /**
-     * Empurra [binary] via [OtaTransfer.pushImage] (fatia 0x30 em pacotes
-     * 64B, aborta no primeiro write-fail). Imagens vazias/oversize sao
-     * rejeitadas por [OtaTransfer.splitBinary] antes de qualquer write
-     * (IllegalArgumentException). Chamar com a conexao CONNECTED.
-     */
     suspend fun pushOtaImage(
         binary: ByteArray,
         onProgress: ((sent: Int, total: Int) -> Unit)? = null,

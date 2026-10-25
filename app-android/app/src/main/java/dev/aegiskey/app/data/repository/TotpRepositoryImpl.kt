@@ -98,6 +98,21 @@ class TotpRepositoryImpl(
         }
     }
 
+    private suspend fun requestHardwareOtpCode(accountName: String, counterOrTimeStep: Long, digits: Int): String? {
+        return try {
+            val req = VendorOps.oathCodeRequest(name = accountName, challenge = counterOrTimeStep, digits = digits)
+            val resp = sendVendor(VendorOps.OP_OATH_CODE, req) ?: return null
+            if (resp.size >= 2 && resp[1].toInt() == VendorOps.STATUS_OK) {
+                val tlv = resp.copyOfRange(2, resp.size)
+                VendorOps.parseOathCodeResponse(tlv)
+            } else {
+                null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     override suspend fun refreshAccountsAndCodes(keyId: String): Result<List<TotpAccountItem>> = withContext(Dispatchers.IO) {
         runCatching {
             val raw = sendVendor(VendorOps.OP_OATH_LIST, ByteArray(0))
@@ -125,7 +140,10 @@ class TotpRepositoryImpl(
                     val digits = existing?.digits ?: 6
 
                     val secret = volatileSecrets[id]
-                    val code = if (secret != null) {
+                    val timeStepOrCounter = if (isHotp) counter else (nowSeconds / period)
+                    val hwCode = requestHardwareOtpCode(entry.name, timeStepOrCounter, digits)
+
+                    val code = hwCode ?: if (secret != null) {
                         if (isHotp) {
                             calculateHotpCode(secret, counter, digits)
                         } else {
@@ -222,7 +240,11 @@ class TotpRepositoryImpl(
 
             val nowSeconds = System.currentTimeMillis() / 1000L
             val remSecs = if (isHotp) 0 else AegisBridge.remainingSeconds(nowSeconds)
-            val code = if (isHotp) {
+
+            val timeStepOrCounter = if (isHotp) 0L else (nowSeconds / periodSeconds)
+            val hwCode = requestHardwareOtpCode(compositeName, timeStepOrCounter, digits)
+
+            val code = hwCode ?: if (isHotp) {
                 calculateHotpCode(secretBytes, 0L, digits)
             } else {
                 calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
@@ -265,8 +287,11 @@ class TotpRepositoryImpl(
             require(target.isHotp) { "Apenas contas HOTP baseadas em contador suportam incremento manual" }
 
             val nextCounter = target.counter + 1
+            val compositeName = if (target.issuer.isNotBlank()) "${target.issuer}:${target.accountName}" else target.accountName
+            val hwCode = requestHardwareOtpCode(compositeName, nextCounter, target.digits)
+
             val secret = volatileSecrets[accountId]
-            val code = if (secret != null) {
+            val code = hwCode ?: if (secret != null) {
                 calculateHotpCode(secret, nextCounter, target.digits)
             } else {
                 target.currentCode

@@ -37,10 +37,12 @@ import os
 import socket
 import socketserver
 import struct
+import ctypes
+from ctypes import wintypes
 import sys
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 # Ensure tools directory is in sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -68,6 +70,53 @@ DEFAULT_PORT = 5678
 DEFAULT_BAUD = 115200
 
 
+def check_usb_native_present() -> bool:
+    """Checks via Win32 SetupAPI if the native USB controller of AegisKey (VID 303A:AE61 or 0483:A2CA)
+    is physically plugged into the PC (DIGCF_PRESENT). Runs in ~10ms."""
+    try:
+        setupapi = ctypes.windll.setupapi
+
+        class SP_DEVINFO_DATA(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("ClassGuid", ctypes.c_byte * 16),
+                ("DevInst", wintypes.DWORD),
+                ("Reserved", ctypes.c_size_t),
+            ]
+
+        setupapi.SetupDiGetClassDevsW.restype = ctypes.c_void_p
+        setupapi.SetupDiGetClassDevsW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_void_p, wintypes.DWORD]
+        setupapi.SetupDiEnumDeviceInfo.restype = wintypes.BOOL
+        setupapi.SetupDiEnumDeviceInfo.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(SP_DEVINFO_DATA)]
+        setupapi.SetupDiGetDeviceInstanceIdW.restype = wintypes.BOOL
+        setupapi.SetupDiGetDeviceInstanceIdW.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), ctypes.c_wchar_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
+        setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
+
+        hdev = setupapi.SetupDiGetClassDevsW(None, None, None, 2 | 4)  # DIGCF_PRESENT | DIGCF_ALLCLASSES
+        if not hdev or hdev == -1:
+            return False
+
+        devinfo = SP_DEVINFO_DATA()
+        devinfo.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
+        idx = 0
+        buf = ctypes.create_unicode_buffer(1024)
+        found = False
+        try:
+            while setupapi.SetupDiEnumDeviceInfo(hdev, idx, ctypes.byref(devinfo)):
+                if setupapi.SetupDiGetDeviceInstanceIdW(hdev, ctypes.byref(devinfo), buf, 1024, None):
+                    u = buf.value.upper()
+                    if "VID_303A&PID_AE61" in u or "VID_0483&PID_A2CA" in u:
+                        found = True
+                        break
+                idx += 1
+        finally:
+            setupapi.SetupDiDestroyDeviceInfoList(hdev)
+        return found
+    except Exception:
+        return False
+
+
 class HardwareBridgeManager:
     """Thread-safe manager for physical AegisKey communication."""
 
@@ -83,6 +132,18 @@ class HardwareBridgeManager:
         self.cid = None
         self.last_uptime_s = None
         self.is_connected = False
+        self.was_usb_native_seen = False
+        self.last_usb_native_check = 0.0
+        self.cached_usb_native_present = False
+
+    def is_usb_native_present(self) -> bool:
+        now = time.monotonic()
+        if now - self.last_usb_native_check > 0.5:
+            self.cached_usb_native_present = check_usb_native_present()
+            self.last_usb_native_check = now
+            if self.cached_usb_native_present:
+                self.was_usb_native_seen = True
+        return self.cached_usb_native_present
 
     def detect_and_connect(self):
         """Attempts to detect and connect to real AegisKey hardware (prioritizes UART for TEST_UP/PAIRING hooks)."""
@@ -173,7 +234,9 @@ class HardwareBridgeManager:
             if not self.detect_and_connect():
                 raise ConnectionError("Chave física AegisKey não encontrada em USB ou UART")
 
-    def get_info(self):
+    def get_info(self, require_usb: bool = False):
+        usb_present = self.is_usb_native_present()
+
         with self.lock:
             if not self.is_connected:
                 # Try connecting without holding the lock for a long time
@@ -183,17 +246,67 @@ class HardwareBridgeManager:
             self.detect_and_connect()
 
         with self.lock:
+            connected = self.is_connected
+            status = "online" if connected else "offline"
+
+            if require_usb and not usb_present:
+                connected = False
+                status = "offline_usb_native_unplugged"
+            elif self.was_usb_native_seen and not usb_present:
+                connected = False
+                status = "usb_native_unplugged"
+
             return {
-                "connected": self.is_connected,
+                "connected": connected,
                 "transport": self.transport or "UNKNOWN",
                 "port": self.port_name or "NONE",
                 "vid_pid": self.vid_pid or "UNKNOWN",
                 "device_name": self.device_name,
                 "deviceName": self.device_name,
-                "status": "online" if self.is_connected else "offline",
+                "status": status,
                 "cid": hex(self.cid) if self.cid else None,
                 "uptime_s": self.last_uptime_s,
+                "usb_native_present": usb_present,
+                "was_usb_native_seen": self.was_usb_native_seen,
             }
+
+    def _authenticate_pin_internal(self) -> str:
+        """Sends 0x2F trigger, TEST_PIN_OK to UART, and arms pairing and user presence."""
+        res = []
+        if self.session and self.transport == "UART":
+            # 1. Trigger 0x2F host pairing trigger (sets ctx.pin_verified=true, arm_up=true, 60s window)
+            try:
+                self.session._exchange(CMD_MSG, bytes([0x2F]), op="trigger_0x2f", timeout_s=3.0)
+                res.append("trigger_0x2f_sent")
+            except Exception:
+                pass
+
+            # 2. Send TEST_PIN_OK text command
+            if hasattr(self.session, "link") and hasattr(self.session.link, "write"):
+                try:
+                    self.session.link.write(b"TEST_PIN_OK\n")
+                    time.sleep(0.05)
+                    res.append("TEST_PIN_OK_sent")
+                except Exception as e:
+                    res.append(f"test_pin_err({e})")
+            elif hasattr(self.session, "send_text_line"):
+                try:
+                    self.session.send_text_line("TEST_PIN_OK", timeout_s=1.0)
+                    res.append("TEST_PIN_OK_sent")
+                except Exception:
+                    pass
+
+            # 3. Arm pairing and UP
+            self._pairing_open_internal()
+            self._touch_up_internal()
+
+        return ";".join(res) or "pin_auth_attempted"
+
+    def authenticate_pin(self) -> str:
+        """Authenticates PIN and arms UP latch."""
+        with self.lock:
+            self.ensure_connected()
+            return self._authenticate_pin_internal()
 
     def _pairing_open_internal(self):
         """Sends TEST_PAIRING_OPEN to UART if supported, and opens pairing window (unlocked)."""
@@ -314,6 +427,10 @@ class HardwareBridgeManager:
                     self._pairing_open_internal()
                     self._touch_up_internal()
                     status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
+                elif status == 0x02 and self.transport == "UART":
+                    print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_PIN (0x02); autenticando PIN...")
+                    self._authenticate_pin_internal()
+                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
 
                 return status, resp_payload
             except Exception as e:
@@ -377,7 +494,11 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
 
         if path in ("/bridge/info", "/bridge/status"):
-            info = HW_MANAGER.get_info()
+            query = parse_qs(parsed.query)
+            require_usb_param = query.get("require_usb", ["0"])[0].lower() in ("1", "true")
+            require_usb_header = self.headers.get("X-Require-Usb", "0").lower() in ("1", "true")
+            require_usb = require_usb_param or require_usb_header
+            info = HW_MANAGER.get_info(require_usb=require_usb)
             self.send_json(info)
             return
 
@@ -420,7 +541,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if "application/json" in content_type or raw_body.startswith(b"{"):
                 try:
                     data = json.loads(raw_body.decode("utf-8"))
-                    op_val = data.get("opcode", 0)
+                    op_val = data.get("opcode") if data.get("opcode") is not None else data.get("op", 0)
                     if isinstance(op_val, str):
                         op_clean = op_val.strip()
                         opcode = int(op_clean, 16 if "x" in op_clean.lower() else 10)
@@ -506,6 +627,14 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         if path == "/bridge/touch_up":
             try:
                 res = HW_MANAGER.touch_up()
+                self.send_json({"ok": True, "result": res})
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        if path in ("/bridge/pin_auth", "/bridge/authenticate_pin", "/bridge/test_pin_ok"):
+            try:
+                res = HW_MANAGER.authenticate_pin()
                 self.send_json({"ok": True, "result": res})
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)

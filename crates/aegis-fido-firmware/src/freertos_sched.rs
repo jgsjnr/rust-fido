@@ -45,11 +45,11 @@ pub const UI_TASK_PRIO: u8 = 4;
 pub const HOUSEKEEPING_TASK_PRIO: u8 = 2;
 
 /// Stacks por tarefa (bytes; ESP32-S3 tem 512 KiB SRAM).
-pub const USB_TASK_STACK: usize = 8 * 1024;
+pub const USB_TASK_STACK: usize = 32 * 1024;
 /// Stack da tarefa de botão/UI.
-pub const UI_TASK_STACK: usize = 8 * 1024;
+pub const UI_TASK_STACK: usize = 32 * 1024;
 /// Stack da tarefa de housekeeping.
-pub const HOUSEKEEPING_TASK_STACK: usize = 8 * 1024;
+pub const HOUSEKEEPING_TASK_STACK: usize = 32 * 1024;
 
 /// Origem física de um pacote CTAPHID de 64 B.
 ///
