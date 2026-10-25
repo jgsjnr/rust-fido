@@ -22,7 +22,7 @@ use aegis_fido_core::wallet::WalletStore;
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "freertos", allow(dead_code))]
 pub(crate) fn ble_dispatch_complete(
-    msg: crate::ble_gatt::BleCompleteMessage,
+    msg: crate::ble::gatt_core::BleCompleteMessage,
     up: bool,
     pairing_window_open: bool,
     now_secs: u64,
@@ -36,10 +36,12 @@ pub(crate) fn ble_dispatch_complete(
     fwlog: &mut crate::fw_log::FwLog,
     key_mgr: &mut aegis_fido_core::credential::key_manager::KeyManager,
     oath_applet: &mut OathApplet,
+    ota: Option<crate::ble::dispatch_bind::BleOtaSession<'_>>,
 ) {
     use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
-    use crate::ble_gatt as g;
-    use crate::ble_nimble as ble;
+    use crate::ble::dispatch_bind as gd;
+    use crate::ble::gatt_core as g;
+    use crate::ble::nimble_backend as ble;
     use crate::fw_log as fl;
     use crate::wallet_exec as w;
 
@@ -86,7 +88,7 @@ pub(crate) fn ble_dispatch_complete(
                 let mut binding_id = [0u8; BIND_ID_LEN];
                 app_pub.copy_from_slice(&p[..BIND_PUB_LEN]);
                 binding_id.copy_from_slice(&p[BIND_PUB_LEN..]);
-                match g::dispatch_bind_claim(
+                match gd::dispatch_bind_claim(
                     binding_mgr,
                     storage,
                     &app_pub,
@@ -104,7 +106,7 @@ pub(crate) fn ble_dispatch_complete(
                 ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
             } else {
                 let mut rng = rand_core::OsRng;
-                match g::dispatch_bind_challenge(binding_mgr, storage, &mut rng) {
+                match gd::dispatch_bind_challenge(binding_mgr, storage, &mut rng) {
                     Ok(ch) => ble::notify_frame(op, 0x00, &ch),
                     Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
                 }
@@ -119,7 +121,7 @@ pub(crate) fn ble_dispatch_complete(
                 let mut ph = [0u8; 32];
                 ch.copy_from_slice(&p[1..1 + BIND_CHALLENGE_LEN]);
                 ph.copy_from_slice(&p[1 + BIND_CHALLENGE_LEN..1 + BIND_CHALLENGE_LEN + 32]);
-                match g::dispatch_bind_verify(binding_mgr, &p[65..], &ch, vop, &ph) {
+                match gd::dispatch_bind_verify(binding_mgr, &p[65..], &ch, vop, &ph) {
                     Ok(()) => ble::notify_frame(op, 0x00, &[]),
                     Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
                 }
@@ -133,7 +135,7 @@ pub(crate) fn ble_dispatch_complete(
                 let mut ph = [0u8; 32];
                 ch.copy_from_slice(&p[..BIND_CHALLENGE_LEN]);
                 ph.copy_from_slice(&p[BIND_CHALLENGE_LEN..BIND_CHALLENGE_LEN + 32]);
-                match g::dispatch_bind_release(
+                match gd::dispatch_bind_release(
                     binding_mgr,
                     storage,
                     &p[BIND_CHALLENGE_LEN + 32..],
@@ -154,7 +156,7 @@ pub(crate) fn ble_dispatch_complete(
             }
         }
         g::OP_RECOVERY_SET => match core::str::from_utf8(p) {
-            Ok(pin) => match g::dispatch_recovery_set(storage, pin, up) {
+            Ok(pin) => match gd::dispatch_recovery_set(storage, pin, up) {
                 Ok(()) => ble::notify_frame(op, 0x00, &[]),
                 Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
             },
@@ -163,7 +165,7 @@ pub(crate) fn ble_dispatch_complete(
             }
         },
         g::OP_RECOVERY_UNLOCK => match core::str::from_utf8(p) {
-            Ok(pin) => match g::dispatch_recovery_unlock(storage, binding_mgr, pin, up) {
+            Ok(pin) => match gd::dispatch_recovery_unlock(storage, binding_mgr, pin, up) {
                 Ok(()) => {
                     // Wave2 proximidade: recovery revoga o K_prox
                     // (fail-closed; o loop limpa o cache RAM ao ver a NVS
@@ -178,7 +180,7 @@ pub(crate) fn ble_dispatch_complete(
                 ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
             }
         },
-        o if g::is_vendor_keys_oath_op(o) || g::is_piv_enroll_op(o) => {
+        o if gd::is_vendor_keys_oath_op(o) || gd::is_piv_enroll_op(o) => {
             // F2: executor real on-device (GEN/LIST/DELETE + OATH
             // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
             // (envelope AEGN + vault = F2b). F4: 0x39 enrollment PIV
@@ -202,10 +204,10 @@ pub(crate) fn ble_dispatch_complete(
             }
             ble::notify_frame(o, st, &body)
         }
-        o if g::is_wallet_op(o) => {
+        o if gd::is_wallet_op(o) => {
             // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
             // verdade no WalletStore de sessão (chaves TRNG no device).
-            match g::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
+            match gd::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
                 Ok(()) => {
                     let mut rng = rand_core::OsRng;
                     let (st, body) = match o {
@@ -227,13 +229,40 @@ pub(crate) fn ble_dispatch_complete(
         o if fl::is_fw_log_op(o) => {
             // Log da firmware (0x38): leitura sem segredos; BLE exige
             // vínculo (0x05 sem ele), nunca UP/PIN.
-            match g::authorize_fw_log_op(o, bonded) {
+            match gd::authorize_fw_log_op(o, bonded) {
                 Ok(()) => {
                     let body = fwlog.render_ascii(fl::FW_LOG_MAX_BYTES);
                     kprintln!("[BLE] fw-log 0x38 ({} B).", body.len());
                     ble::notify_frame(o, 0x00, &body)
                 }
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
+            }
+        }
+        o if gd::is_ota_op(o) => {
+            // OTA sobre BLE (BEGIN/CHUNK/VERIFY; COMMIT nega 0x04 USB-only).
+            // Mesmos status/gates do serial; sem sessão no ctx (classic/host)
+            // responde 0x04 fail-closed sem executar nada.
+            match ota {
+                Some(session) => {
+                    let mut sink =
+                        crate::stores::ota_store::FlashOtaSink::new(storage.backend_mut());
+                    let ctx = gd::BleOtaCtx {
+                        provisioned: session.provisioned,
+                        up,
+                        ota_pubkey: session.ota_pubkey,
+                        current_version: session.current_version,
+                    };
+                    let (st, body) =
+                        gd::dispatch_ble_ota(&mut *session.state, &mut sink, o, p, &ctx)
+                            .unwrap_or((0x04, Vec::new()));
+                    if st == 0x00 {
+                        kprintln!("[BLE][OTA] op 0x{:02X} executada.", o);
+                    } else {
+                        kprintln!("[BLE][OTA] op 0x{:02X} negada (status 0x{:02X}).", o, st);
+                    }
+                    ble::notify_frame(o, st, &body)
+                }
+                None => ble::notify_frame(o, 0x04, &[]),
             }
         }
         _ => ble::notify_frame(op, 0x04, &[]),

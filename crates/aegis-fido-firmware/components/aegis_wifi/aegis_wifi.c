@@ -68,7 +68,7 @@ static const char *TAG = "aegis_wifi";
 #define AEGIS_MDNS_TASK_PRIO 5
 
 /* Heap minimo p/ tocar no driver WiFi (fail-closed, nunca OOM/abort).
- * Mesmo limiar de `wifi_ap::WIFI_AP_MIN_HEAP_LARGEST` (32 KiB): abaixo dele
+ * Mesmo limiar de `net::ap_core::WIFI_AP_MIN_HEAP_LARGEST` (32 KiB): abaixo dele
  * `ensure_init` retorna -4 (NO_MEM) sem `esp_wifi_init`, e o Rust trata -4
  * como terminal ate nova borda (sem retry cego que esgota o heap). */
 #define AEGIS_WIFI_MIN_HEAP_LARGEST (32u * 1024u)

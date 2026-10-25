@@ -2,19 +2,20 @@
 //!
 //! Conteudo movido para `net::ap_core` + `net::password_policy`
 //! sem mudanca de comportamento. Testes `mod tests` ficam aqui.
+#[deprecated(note = "Use crate::net::ap_core instead.")]
 pub use crate::net::ap_core::*;
+#[deprecated(note = "Use crate::net::password_policy instead.")]
 pub use crate::net::password_policy::*;
 #[cfg(test)]
 extern crate alloc;
-#[cfg(test)]
-use crate::persistence::SecureStorage;
-#[cfg(test)]
-use aegis_fido_core::oath::OathAlgorithm;
 
 #[cfg(test)]
 mod net_wifi_tests {
-    use super::*;
-    use crate::persistence::MockFlashBackend;
+    use crate::net::ap_core::*;
+    use crate::persistence::{MockFlashBackend, SecureStorage};
+    use aegis_fido_core::oath::OathAlgorithm;
+
+    extern crate alloc;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct FakeRadio;
@@ -179,9 +180,12 @@ mod net_wifi_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::persistence::MockFlashBackend;
+    use crate::net::{ap_core::*, password_policy::*};
+    use crate::persistence::{MockFlashBackend, SecureStorage};
+    use aegis_fido_core::oath::OathAlgorithm;
     use alloc::vec::Vec;
+
+    extern crate alloc;
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])

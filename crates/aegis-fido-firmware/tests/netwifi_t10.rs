@@ -12,22 +12,25 @@
 //! sem rede. Rollback: deletar este arquivo.
 
 use aegis_fido_core::oath::OathAlgorithm;
-use aegis_fido_firmware::mdns::{
+use aegis_fido_firmware::net::ap_core::{
+    ap_poll_action, ap_ssid_for_serial, ctap_envelope_nonce, validate_ctap_envelope,
+    validate_ctap_envelope_for_request, wifi_ap_coex_allowed, wifi_ap_start_allowed, ApPollAction,
+    WifiApError, WifiApManager, CTAP_ENVELOPE_NONCE_LEN, CTAP_ENVELOPE_OP_OFFSET, CTAP_HTTP_ROUTE,
+    WIFI_AP_MIN_HEAP_LARGEST, WIFI_AP_TIMEOUT_MS,
+};
+use aegis_fido_firmware::net::http_front::{
+    HttpConfig, HttpConfigService, WifiNet, WifiNetError, WifiRadioBackend,
+};
+use aegis_fido_firmware::net::mdns::{
     is_valid_mdns_hostname, mdns_bare_hostname, mdns_fallback_to_ap, mdns_hostname_for_serial,
     MdnsManager, MDNS_PREFIX, MDNS_SUFFIX,
 };
-use aegis_fido_firmware::persistence::{MockFlashBackend, SecureStorage};
-use aegis_fido_firmware::wifi_ap::{
-    ap_poll_action, ap_ssid_for_serial, change_ap_password, ctap_envelope_nonce,
-    validate_ctap_envelope, validate_ctap_envelope_for_request, wifi_ap_coex_allowed,
-    wifi_ap_start_allowed, ApPollAction, HttpConfig, HttpConfigService, WifiApError, WifiApManager,
-    WifiNet, WifiNetError, WifiRadioBackend, CTAP_ENVELOPE_NONCE_LEN, CTAP_ENVELOPE_OP_OFFSET,
-    CTAP_HTTP_ROUTE, WIFI_AP_MIN_HEAP_LARGEST, WIFI_AP_TIMEOUT_MS, WIFI_NEED_BINDING_CODE,
-};
-use aegis_fido_firmware::wifi_station::{
+use aegis_fido_firmware::net::password_policy::{change_ap_password, WIFI_NEED_BINDING_CODE};
+use aegis_fido_firmware::net::station::{
     clear_station_credentials, has_station_credentials, save_station_credentials, sta_retry_due,
     WifiStationError, WifiStationManager, WIFI_STA_RETRY_BACKOFF_MS,
 };
+use aegis_fido_firmware::persistence::{MockFlashBackend, SecureStorage};
 
 // ---------------------------------------------------------------------------
 // Test double do radio (só neste arquivo de teste; produção usa o C real)
@@ -487,15 +490,15 @@ fn radio_teste_nao_vaza_para_producao() {
     // O double vive só aqui: o backend real continua atrás dos `esp_*`
     // (shims inertes no host, C `aegis_wifi` no device).
     assert_eq!(
-        aegis_fido_firmware::wifi_station::esp_sta_start("s", "p"),
+        aegis_fido_firmware::net::station::esp_sta_start("s", "p"),
         0
     );
-    assert_eq!(aegis_fido_firmware::wifi_station::esp_sta_stop(), 0);
+    assert_eq!(aegis_fido_firmware::net::station::esp_sta_stop(), 0);
     assert_eq!(
-        aegis_fido_firmware::mdns::esp_mdns_start("aegiskey-00af"),
+        aegis_fido_firmware::net::mdns::esp_mdns_start("aegiskey-00af"),
         0
     );
-    assert_eq!(aegis_fido_firmware::mdns::esp_mdns_stop(), 0);
+    assert_eq!(aegis_fido_firmware::net::mdns::esp_mdns_stop(), 0);
     assert_eq!(TestRadio::ap_start("AegisKey-00AF", "pw"), 0);
     assert_eq!(TestRadio::sta_start("Casa-5G", "pw"), 0);
     assert_eq!(TestRadio::mdns_start("aegiskey-00af"), 0);

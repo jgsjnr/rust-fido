@@ -9,9 +9,15 @@
 //! enquadrado na mesma origem. Tipos de transporte/fila/etapas vem de
 //! `crate::freertos_sched`.
 
-use crate::ble_gatt::{is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op};
+use crate::ble::dispatch_bind::{
+    is_backup_export_op, is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
+};
 use crate::freertos_sched::{
     packet_bytes, packet_origin, FirmwareEvent, PacketOrigin, CTAPHID_PACKET_SIZE,
+};
+use crate::ota::{OtaState, OP_OTA_COMMIT};
+use crate::ota_store::{
+    dispatch_ota_request, is_ota_op, FlashOtaSink, OtaRequestCtx, OTA_STATUS_FAIL, OTA_STATUS_OK,
 };
 use crate::serial_ctaphid::{
     authorize_serial, deny_response, dispatch_serial_bind_mgmt, dispatch_serial_rescue,
@@ -106,13 +112,24 @@ pub struct SerialVendorCtx<'a> {
     pub pairing: &'a mut crate::pairing::PairingManager,
     /// Sessão pinUvAuth viva (ClientPIN).
     pub pin_uv_session: bool,
+    /// Sessão OTA staged (espelho da seção C legada; `None` = só-CTAP).
+    pub ota_state: Option<&'a mut OtaState>,
+    /// `ota_provisioned` do loop (eFuse válido ou lab test-mode).
+    pub ota_provisioned: bool,
+    /// Pubkey Ed25519 release ativa do build ([`OtaKeyProvider`]).
+    pub ota_pubkey: [u8; 32],
+    /// `max(firmware, contador anti-rollback NVS)` (fail-closed).
+    pub ota_current_version: u32,
+    /// Origem do pacote em despacho (o roteador sobrescreve por evento;
+    /// COMMIT OTA executa SOMENTE via USB).
+    pub origin: PacketOrigin,
 }
 
 /// Despacha 1 `CMD_MSG` serial vendor/bind-mgmt/wallet/fw-log/rescue/
 /// pairing no dispatcher FreeRTOS (espelho da seção D legada, sem espera).
 ///
 /// Retorna `Some((pacotes_64B, consumed_up))` quando a op é tratada aqui;
-/// `None` = cair no engine CTAP genérico (U2F/OTA/desconhecido), preservando
+/// `None` = cair no engine CTAP genérico (U2F/desconhecido), preservando
 /// o comportamento anterior byte a byte.
 pub fn dispatch_serial_vendor_msg(
     ctx: &mut SerialVendorCtx<'_>,
@@ -181,7 +198,7 @@ pub fn dispatch_serial_vendor_msg(
             SerialGate::Ok => {
                 let mut rng = rand_core::OsRng;
                 let (st, body) = if is_wallet_op(op) {
-                    use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
+                    use crate::ble::gatt_core::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
                     use crate::wallet_exec as w;
                     match op {
                         OP_WALLET_GEN => {
@@ -213,6 +230,49 @@ pub fn dispatch_serial_vendor_msg(
             }
         }
     }
+    // Backup-export 0x3A: envelope AEGN at-rest (cifrado) do store pedido;
+    // nunca plaintext/keys. Gates: pairing (CONFIG serial) -> UP via
+    // `authorize_serial` acima; binding -> UP -> PIN no dispatch.
+    if is_backup_export_op(op) {
+        match authorize_serial(msg.cmd, payload, ctx.pairing_open, ctx.up_latched) {
+            SerialGate::NeedPairing => {
+                return Some((deny_response(msg), false));
+            }
+            SerialGate::NeedUp => {
+                return Some((
+                    CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x01]),
+                    false,
+                ));
+            }
+            SerialGate::Ok => {
+                let (st, body) = crate::serial_vendor::dispatch_serial_backup_export(
+                    ctx.storage,
+                    &payload[1..],
+                    ctx.binding.is_claimed(),
+                    ctx.pin_uv_session,
+                    true,
+                );
+                let consumed = st == 0x00;
+                if consumed {
+                    ctx.rescue.set_user_presence(true);
+                }
+                let mut resp = Vec::with_capacity(1 + body.len());
+                resp.push(st);
+                resp.extend_from_slice(&body);
+                return Some((
+                    CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
+                    consumed,
+                ));
+            }
+        }
+    }
+    // OTA 0x30-0x34: espelho da seção C legada (begin/chunk/verify/commit
+    // com manifesto 104 B + checagem anti-rollback via `ota_current_version`).
+    // COMMIT executa SOMENTE via USB (regra documentada); serial nega 0x04
+    // sem tocar a sessão. Sem sessão no ctx, cai no engine genérico.
+    if is_ota_op(op) {
+        return dispatch_ota_route(ctx, msg, op, ctx.origin);
+    }
     // Pareamento por software (trigger 0x2F): abre a mesma janela de 60 s
     // do hold; UART = posse física.
     if crate::pairing::is_host_pairing_msg(op, payload.len() - 1) {
@@ -232,8 +292,60 @@ pub fn dispatch_serial_vendor_msg(
         resp.extend_from_slice(&body);
         return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), true));
     }
-    // OTA/U2F/desconhecido: cai no engine genérico (comportamento anterior).
+    // U2F/desconhecido: cai no engine genérico (comportamento anterior).
     None
+}
+
+/// Despacha 1 op OTA (`0x30-0x34`) na rota FreeRTOS (espelho da seção C legada).
+///
+/// `None` = sem sessão OTA no ctx (cai no engine CTAP genérico, comportamento
+/// anterior). COMMIT executa SOMENTE com origem USB (regra documentada em
+/// `ble::gatt_core` + `tools/host_sdk/ops.py`); serial nega `0x04`
+/// fail-closed sem tocar a sessão nem o latch. Sucesso no COMMIT consome o
+/// latch UP 1x (como o legado).
+fn dispatch_ota_route(
+    ctx: &mut SerialVendorCtx<'_>,
+    msg: &CtapHidMessage,
+    op: u8,
+    origin: PacketOrigin,
+) -> Option<(Vec<[u8; CTAPHID_PACKET_SIZE]>, bool)> {
+    let state = ctx.ota_state.as_mut()?;
+    if op == OP_OTA_COMMIT && origin != PacketOrigin::Usb {
+        log::info!("[OTA] commit fora do USB negado (0x04, sem tocar a sessão).");
+        return Some((
+            CtapHidFramer::frame_message(msg.cid, msg.cmd, &[OTA_STATUS_FAIL]),
+            false,
+        ));
+    }
+    let req = OtaRequestCtx {
+        provisioned: ctx.ota_provisioned,
+        up: ctx.up_latched,
+        ota_pubkey: ctx.ota_pubkey,
+        current_version: ctx.ota_current_version,
+    };
+    let mut sink = FlashOtaSink::new(ctx.storage.backend_mut());
+    let (st, body) = match dispatch_ota_request(state, &mut sink, op, &msg.payload[1..], &req) {
+        // Pré-filtrado por `is_ota_op` acima: inalcançável fail-closed.
+        None => (OTA_STATUS_FAIL, Vec::new()),
+        Some(r) => r,
+    };
+    log::info!(
+        "[OTA] op=0x{:02X} status=0x{:02X} phase={:?}",
+        op,
+        st,
+        state.phase()
+    );
+    let consumed = st == OTA_STATUS_OK && op == OP_OTA_COMMIT;
+    if consumed {
+        ctx.rescue.set_user_presence(true);
+    }
+    let mut resp = Vec::with_capacity(1 + body.len());
+    resp.push(st);
+    resp.extend_from_slice(&body);
+    Some((
+        CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
+        consumed,
+    ))
 }
 
 /// Roteia 1 evento pacote CTAPHID com origem preservada.
@@ -262,7 +374,7 @@ pub fn route_ctaphid_event(
     up_latched: bool,
     now_ms: u64,
     now_secs: u64,
-    vendor: Option<&mut SerialVendorCtx<'_>>,
+    mut vendor: Option<&mut SerialVendorCtx<'_>>,
 ) -> CtaphidDispatch {
     let origin = packet_origin(event);
     let raw = packet_bytes(event);
@@ -330,10 +442,14 @@ pub fn route_ctaphid_event(
                 };
             }
             // Vendor/bind-mgmt/wallet/fw-log/rescue/pairing serial no
-            // dispatcher FreeRTOS (paridade seção D legada). `None` = cai
-            // no engine CTAP genérico abaixo (U2F/OTA/desconhecido).
+            // dispatcher FreeRTOS (paridade seção D legada) + backup-export
+            // 0x3A + OTA 0x30-0x34 (espelho seção C; COMMIT só via USB).
+            // `None` = cai no engine CTAP genérico abaixo (U2F/desconhecido).
             if msg.cmd == CMD_MSG && !msg.payload.is_empty() {
-                if let Some(ctx) = vendor {
+                if let Some(ctx) = vendor.as_mut() {
+                    // Fonte única da origem (COMMIT OTA só via USB): o
+                    // chamador não precisa acertar o campo na construção.
+                    ctx.origin = origin;
                     if let Some((responses, consumed)) = dispatch_serial_vendor_msg(ctx, &msg) {
                         return CtaphidDispatch {
                             responses,
@@ -350,6 +466,27 @@ pub fn route_ctaphid_event(
                 engine.set_user_presence(up_ok);
                 let mut rng = rand_core::OsRng;
                 let resp = engine.process_packet(&msg.payload, now_secs, &mut rng);
+                // CTAP Reset ok (`0x07` in-window + UP → `0x00`): wipe total
+                // NVS + espelhos RAM (o engine core já zerou PIN/blobs/store
+                // residentes). Sem `vendor` (só-CTAP em teste de host) não há
+                // NVS vinculada: nada a apagar além do RAM do engine.
+                if msg.cmd == CMD_CBOR
+                    && msg.payload.first() == Some(&CTAP_CMD_RESET)
+                    && resp.first() == Some(&0x00)
+                {
+                    if let Some(ctx) = vendor.as_mut() {
+                        crate::vendor_exec::ctap_reset_wipe(
+                            ctx.storage,
+                            ctx.binding,
+                            ctx.key_mgr,
+                            ctx.oath,
+                        );
+                        *ctx.key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+                        *ctx.oath = aegis_fido_core::oath::OathApplet::new();
+                        *ctx.wallet = aegis_fido_core::wallet::WalletStore::new();
+                        log::info!("[RESET] wipe total pos-0x00.");
+                    }
+                }
                 return CtaphidDispatch {
                     responses: CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
                     origin: Some(origin),
@@ -371,6 +508,7 @@ mod tests {
         packet_bytes, packet_origin, packet_task_step, serial_task_step, usb_task_step,
         FirmwareEvent, CTAPHID_PACKET_SIZE,
     };
+    use crate::persistence::FlashStorageBackend;
 
     fn init_raw(cid: u32, cmd: u8, payload: &[u8]) -> [u8; CTAPHID_PACKET_SIZE] {
         let mut raw = [0u8; CTAPHID_PACKET_SIZE];
@@ -382,12 +520,19 @@ mod tests {
         raw
     }
 
+    /// Managers USB/serial + engine novos p/ cada caso (sem estado vazado).
+    fn new_test_managers() -> (CtapHidManager, CtapHidManager, CtapEngine) {
+        (
+            CtapHidManager::new(),
+            CtapHidManager::new(),
+            CtapEngine::new([0x11; 32], 0),
+        )
+    }
+
     #[test]
     fn pacote_usb_responde_via_usb() {
         use aegis_fido_usb::ctaphid::CMD_PING;
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
         let raw = init_raw(0x1234_5678, CMD_PING, b"oi");
         let ev = FirmwareEvent::UsbPacket(raw);
         assert_eq!(packet_origin(&ev), Some(PacketOrigin::Usb));
@@ -413,9 +558,7 @@ mod tests {
     #[test]
     fn pacote_serial_responde_via_serial() {
         use aegis_fido_usb::ctaphid::CMD_PING;
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
         let raw = init_raw(0x0102_0304, CMD_PING, b"ping-serial");
         let ev = FirmwareEvent::SerialPacket(raw);
         assert_eq!(packet_origin(&ev), Some(PacketOrigin::Serial));
@@ -456,9 +599,7 @@ mod tests {
         };
         assert_eq!(packet_origin(&btn), None);
         // Roteamento de não-pacote: sem resposta, sem consumo de latch.
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
         let out = route_ctaphid_event(
             &mut mgr_usb,
             &mut mgr_serial,
@@ -477,9 +618,7 @@ mod tests {
     #[test]
     fn up_latch_tem_consumo_unico_no_roteamento() {
         use aegis_fido_usb::ctaphid::CMD_CBOR;
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
         // `makeCredential` vazio: engine nega, mas o latch é consumido 1x.
         let raw = init_raw(0x0A0B_0C0D, CMD_CBOR, &[CTAP_CMD_MAKE_CREDENTIAL]);
         let ev = FirmwareEvent::UsbPacket(raw);
@@ -519,9 +658,7 @@ mod tests {
         raw[0..4].copy_from_slice(&0x7777_8888u32.to_be_bytes());
         raw[4] = 0x00; // CONT seq 0 sem INIT prévio.
         let ev = FirmwareEvent::SerialPacket(raw);
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
         let out = route_ctaphid_event(
             &mut mgr_usb,
             &mut mgr_serial,
@@ -544,7 +681,7 @@ mod tests {
     #[test]
     fn vendor_enxerga_janela_fresca_sem_tick() {
         use crate::binding::BindingManager;
-        use crate::ble_gatt::OP_KEY_LIST;
+        use crate::ble::gatt_core::OP_KEY_LIST;
         use crate::fw_log::FwLog;
         use crate::pairing::PairingManager;
         use crate::persistence::{PlatformFlashBackend, SecureStorage};
@@ -563,9 +700,7 @@ mod tests {
         let mut oath = OathApplet::new();
         let mut fwlog = FwLog::new();
         let mut rescue = RescueEngine::new();
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
 
         // Abre a janela e despacha IMEDIATAMENTE, sem Tick no meio
         // (é exatamente o que o dispatcher fazia de errado: lia sombra).
@@ -588,6 +723,11 @@ mod tests {
             rescue: &mut rescue,
             pairing: &mut pairing,
             pin_uv_session: false,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
+            origin: PacketOrigin::Serial,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -611,7 +751,7 @@ mod tests {
     #[test]
     fn vendor_barra_sem_janela_mesmo_com_up() {
         use crate::binding::BindingManager;
-        use crate::ble_gatt::OP_KEY_GEN_ONDEVICE;
+        use crate::ble::gatt_core::OP_KEY_GEN_ONDEVICE;
         use crate::fw_log::FwLog;
         use crate::pairing::PairingManager;
         use crate::persistence::{PlatformFlashBackend, SecureStorage};
@@ -630,9 +770,7 @@ mod tests {
         let mut oath = OathApplet::new();
         let mut fwlog = FwLog::new();
         let mut rescue = RescueEngine::new();
-        let mut mgr_usb = CtapHidManager::new();
-        let mut mgr_serial = CtapHidManager::new();
-        let mut engine = CtapEngine::new([0x11; 32], 0);
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
 
         // Sem abrir janela: gate deve negar com 0x05 e NÃO consumir o latch.
         // (op CONFIG KEY_GEN exige pairing; USAGE como KEY_LIST não tem
@@ -653,6 +791,11 @@ mod tests {
             rescue: &mut rescue,
             pairing: &mut pairing,
             pin_uv_session: false,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
+            origin: PacketOrigin::Serial,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -667,6 +810,804 @@ mod tests {
         assert!(!out.consumed_up, "latch não deve ser consumido na negação");
         assert_eq!(out.responses.len(), 1);
         assert_eq!(out.responses[0][7], 0x05);
+    }
+
+    /// Envia 1 payload `CMD_MSG` pela rota (fragmenta em 64 B, drena o
+    /// reassemble do transporte) e devolve o dispatch final.
+    #[allow(clippy::too_many_arguments)]
+    fn route_msg(
+        mgr_usb: &mut CtapHidManager,
+        mgr_serial: &mut CtapHidManager,
+        engine: &mut CtapEngine,
+        vendor: &mut SerialVendorCtx<'_>,
+        origin: PacketOrigin,
+        cid: u32,
+        payload: &[u8],
+        now_ms: u64,
+    ) -> CtaphidDispatch {
+        let pkts = CtapHidFramer::frame_message(cid, CMD_MSG, payload);
+        let mut last = CtaphidDispatch {
+            responses: Vec::new(),
+            origin: Some(origin),
+            consumed_up: false,
+        };
+        for (i, pkt) in pkts.iter().enumerate() {
+            let ev = match origin {
+                PacketOrigin::Usb => FirmwareEvent::UsbPacket(*pkt),
+                PacketOrigin::Serial => FirmwareEvent::SerialPacket(*pkt),
+            };
+            last = route_ctaphid_event(
+                mgr_usb,
+                mgr_serial,
+                engine,
+                &ev,
+                true,
+                now_ms + i as u64,
+                0,
+                Some(&mut *vendor),
+            );
+        }
+        last
+    }
+
+    /// Monta um contexto vendor de teste (empresta os fixtures do chamador).
+    #[allow(clippy::too_many_arguments)]
+    fn vendor_with<'a>(
+        pairing_open: bool,
+        up: bool,
+        pin: bool,
+        binding: &'a mut crate::binding::BindingManager,
+        storage: &'a mut crate::persistence::SecureStorage<
+            crate::persistence::PlatformFlashBackend,
+        >,
+        wallet: &'a mut aegis_fido_core::wallet::WalletStore,
+        key_mgr: &'a mut aegis_fido_core::credential::key_manager::KeyManager,
+        oath: &'a mut aegis_fido_core::oath::OathApplet,
+        fwlog: &'a mut crate::fw_log::FwLog,
+        rescue: &'a mut aegis_fido_core::otp::rescue::RescueEngine,
+        pairing: &'a mut crate::pairing::PairingManager,
+        ota: Option<&'a mut OtaState>,
+        ota_provisioned: bool,
+        ota_pubkey: [u8; 32],
+        ota_current_version: u32,
+    ) -> SerialVendorCtx<'a> {
+        SerialVendorCtx {
+            pairing_open,
+            up_latched: up,
+            now_ms: 0,
+            now_secs: 0,
+            binding,
+            storage,
+            wallet,
+            key_mgr,
+            oath,
+            fwlog,
+            rescue,
+            pairing,
+            pin_uv_session: pin,
+            ota_state: ota,
+            ota_provisioned,
+            ota_pubkey,
+            ota_current_version,
+            origin: PacketOrigin::Serial,
+        }
+    }
+
+    /// Reivindica o binding em RAM (janela + UP; sem NVS, basta p/ o gate).
+    fn claim_binding(binding: &mut crate::binding::BindingManager) {
+        let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
+        let pt = sk.verifying_key().to_encoded_point(false);
+        let mut sec1 = [0u8; crate::binding::BIND_PUB_LEN];
+        sec1.copy_from_slice(pt.as_bytes());
+        binding
+            .claim(&sec1, &[0xABu8; crate::binding::BIND_ID_LEN], true, true)
+            .expect("claim");
+    }
+
+    /// Status wire = 1º byte do payload (resposta pacote único).
+    fn resp_status(out: &CtaphidDispatch) -> u8 {
+        assert_eq!(out.responses.len(), 1, "resposta pacote único");
+        out.responses[0][7]
+    }
+
+    /// CTAP Reset (`0x07` in-window + UP → `0x00`) faz wipe total NVS +
+    /// espelhos RAM na rota FreeRTOS (prova host do chamador pós-`0x00`).
+    #[test]
+    fn reset_ok_faz_wipe_total_nvs_e_ram() {
+        use crate::oath_store::oath_store_put;
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::credential::store::CredentialStore;
+        use aegis_fido_core::credential::{KEY_USE_AUTH, KEY_USE_SIGN};
+        use aegis_fido_core::crypto::curves::CoseAlgorithm;
+        use aegis_fido_core::ctap::client_pin::ClientPinState;
+        use aegis_fido_core::oath::tlv::write_tlv;
+        use aegis_fido_core::oath::types::{TAG_KEY, TAG_NAME};
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_usb::ctaphid::CMD_CBOR;
+
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        // Estado pré-reset: chave vendor (RAM+NVS) + conta OATH (RAM+NVS)
+        // + PIN (NVS) + vínculo (RAM+NVS).
+        let mut key_mgr = KeyManager::new();
+        let mut rng = rand_core::OsRng;
+        key_mgr
+            .generate(
+                0,
+                CoseAlgorithm::ES256,
+                "rt-k".into(),
+                KEY_USE_SIGN | KEY_USE_AUTH,
+                0,
+                true,
+                &mut rng,
+            )
+            .expect("gen");
+        storage
+            .store(
+                crate::vendor_exec::NVS_KEYS_SLOTS,
+                &key_mgr.export_state(),
+                &[0u8; 12],
+            )
+            .expect("nvs keys");
+        let mut oath = OathApplet::new();
+        let mut put = Vec::new();
+        write_tlv(&mut put, TAG_NAME, b"rt-oath");
+        let mut kv = vec![0x21u8, 0x06];
+        kv.extend_from_slice(&[0x5Au8; 10]);
+        write_tlv(&mut put, TAG_KEY, &kv);
+        oath.device_put(&put, true, true).expect("oath put");
+        storage
+            .store(
+                crate::vendor_exec::NVS_KEYS_OATH,
+                &oath.export_state(),
+                &[0u8; 12],
+            )
+            .expect("nvs oath");
+        oath_store_put(&mut storage, "rt-oath", b"oath-blob").expect("oath6 put");
+        crate::vendor_exec::save_pin_state_result(
+            &mut storage,
+            &ClientPinState {
+                pin_hash: Some([0xEEu8; 16]),
+                pin_retries: 8,
+                ..Default::default()
+            },
+        )
+        .expect("nvs pin");
+        let mut binding = crate::binding::BindingManager::new();
+        claim_binding(&mut binding);
+        binding.persist(&mut storage).expect("persist");
+        assert!(storage.exists(crate::vendor_exec::NVS_KEYS_SLOTS));
+        assert!(binding.is_claimed());
+
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        let mut vendor = vendor_with(
+            true,
+            true,
+            false,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        // CBOR `0x07` pacote único via USB, janela (boot 0, t 0) + UP.
+        let pkts = CtapHidFramer::frame_message(0x0A0B_0C0D, CMD_CBOR, &[CTAP_CMD_RESET]);
+        assert_eq!(pkts.len(), 1);
+        let ev = FirmwareEvent::UsbPacket(pkts[0]);
+        let out = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev,
+            true,
+            100,
+            0,
+            Some(&mut vendor),
+        );
+        assert_eq!(resp_status(&out), 0x00);
+        assert!(out.consumed_up);
+        // Wipe total: NVS zerada + vínculo liberado + espelhos frescos.
+        assert!(!vendor.storage.exists(crate::vendor_exec::NVS_KEYS_SLOTS));
+        assert!(!vendor.storage.exists(crate::vendor_exec::NVS_KEYS_OATH));
+        assert!(!vendor.storage.exists(crate::vendor_exec::NVS_PIN_HASH));
+        assert!(!vendor.storage.exists("oath6/rt-oath"));
+        assert!(!vendor.binding.is_claimed());
+        assert_eq!(vendor.key_mgr.len(), 0);
+        assert!(vendor
+            .oath
+            .device_list(false, true)
+            .expect("list")
+            .is_empty());
+        assert!(!engine.pin_state.is_pin_set());
+        assert_eq!(engine.store.count_resident(), 0);
+    }
+
+    /// Manifesto 104 B assinado de verdade (compatível com o fio legado).
+    fn signed_manifest_for(version: u32, image: &[u8], sk: &ed25519_dalek::SigningKey) -> Vec<u8> {
+        use sha2::{Digest as _, Sha256};
+        use signature::Signer as _;
+        let digest = Sha256::digest(image);
+        let mut unsigned = Vec::with_capacity(crate::ota::OTA_MANIFEST_LEN);
+        unsigned.extend_from_slice(&version.to_be_bytes());
+        unsigned.extend_from_slice(&(image.len() as u32).to_be_bytes());
+        unsigned.extend_from_slice(&digest);
+        unsigned.extend_from_slice(&[0x5Eu8; 64]);
+        let m = crate::ota::OtaManifest::parse(&unsigned).expect("parse unsigned");
+        let sig = sk.sign(&m.signed_bytes());
+        let mut raw = Vec::with_capacity(crate::ota::OTA_MANIFEST_LEN);
+        raw.extend_from_slice(&version.to_be_bytes());
+        raw.extend_from_slice(&(image.len() as u32).to_be_bytes());
+        raw.extend_from_slice(&digest);
+        raw.extend_from_slice(&sig.to_bytes());
+        raw
+    }
+
+    #[test]
+    fn backup_export_sem_up_nega_01() {
+        use crate::ble::gatt_core::OP_BACKUP_EXPORT;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        storage
+            .store(crate::vendor_exec::NVS_KEYS_SLOTS, b"SEGREDO1", &[0u8; 12])
+            .expect("store keys");
+        let mut binding = crate::binding::BindingManager::new();
+        claim_binding(&mut binding);
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        let mut vendor = vendor_with(
+            true,
+            false,
+            true,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        // Sem UP (com pairing+binding+PIN): NEED_UP 0x01, latch intacto.
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            0x0A0B_0C0D,
+            &[OP_BACKUP_EXPORT, 0x01],
+            1000,
+        );
+        assert_eq!(resp_status(&out), 0x01);
+        assert!(!out.consumed_up);
+    }
+
+    #[test]
+    fn backup_export_sem_pairing_nega_05() {
+        use crate::ble::gatt_core::OP_BACKUP_EXPORT;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let mut binding = crate::binding::BindingManager::new();
+        claim_binding(&mut binding);
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        let mut vendor = vendor_with(
+            false,
+            true,
+            true,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        // Sem janela (CONFIG serial): NEED_BINDING 0x05, sem consumo.
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            0x0A0B_0C0D,
+            &[OP_BACKUP_EXPORT, 0x01],
+            1000,
+        );
+        assert_eq!(resp_status(&out), 0x05);
+        assert!(!out.consumed_up);
+    }
+
+    #[test]
+    fn backup_export_com_up_retorna_envelope_sem_segredo() {
+        use crate::ble::gatt_core::OP_BACKUP_EXPORT;
+        use crate::serial_vendor::BACKUP_SELECTOR_KEYS;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let marker = b"SEGREDO1";
+        storage
+            .store(crate::vendor_exec::NVS_KEYS_SLOTS, marker, &[0u8; 12])
+            .expect("store keys");
+        let mut binding = crate::binding::BindingManager::new();
+        claim_binding(&mut binding);
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        let mut vendor = vendor_with(
+            true,
+            true,
+            true,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            0x0A0B_0C0D,
+            &[OP_BACKUP_EXPORT, BACKUP_SELECTOR_KEYS],
+            1000,
+        );
+        assert_eq!(resp_status(&out), 0x00);
+        assert!(out.consumed_up, "sucesso consome o latch 1x");
+        // Corpo = envelope AEGN at-rest íntegro: magia + versão + tamanho.
+        let expected = vendor
+            .storage
+            .backend()
+            .read_raw(crate::vendor_exec::NVS_KEYS_SLOTS)
+            .expect("stored");
+        let mut want = Vec::with_capacity(1 + expected.len());
+        want.push(0x00);
+        want.extend_from_slice(&expected);
+        assert_eq!(out.responses[0][7..7 + want.len()], want[..]);
+        let env = &want[1..];
+        assert_eq!(&env[0..4], b"AEGN");
+        assert_eq!(env[4], 0x01);
+        assert!(env.len() >= 4 + 1 + 12 + 16);
+        // Segredo nunca no fio: o marcador do claro não aparece no envelope.
+        let region = &out.responses[0][7..7 + want.len()];
+        assert!(!region.windows(marker.len()).any(|w| w == marker));
+        // OATH vazio falha fechado (0x04, sem oráculo).
+        let out2 = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            0x0A0B_0C0D,
+            &[OP_BACKUP_EXPORT, 0x02],
+            1010,
+        );
+        assert_eq!(resp_status(&out2), 0x04);
+        assert!(!out2.consumed_up);
+    }
+
+    #[test]
+    fn backup_export_falha_fechado() {
+        use crate::ble::gatt_core::OP_BACKUP_EXPORT;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        storage
+            .store(crate::vendor_exec::NVS_KEYS_SLOTS, b"SEGREDO1", &[0u8; 12])
+            .expect("store keys");
+        let mut binding = crate::binding::BindingManager::new();
+        claim_binding(&mut binding);
+        let mut unclaimed = crate::binding::BindingManager::new();
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        // Seletor desconhecido e pedido sem seletor: 0x04 mesmo com gates ok.
+        let mut vendor = vendor_with(
+            true,
+            true,
+            true,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        for payload in [vec![OP_BACKUP_EXPORT, 0x09], vec![OP_BACKUP_EXPORT]] {
+            let out = route_msg(
+                &mut mgr_usb,
+                &mut mgr_serial,
+                &mut engine,
+                &mut vendor,
+                PacketOrigin::Serial,
+                0x0A0B_0C0D,
+                &payload,
+                1000,
+            );
+            assert_eq!(resp_status(&out), 0x04, "payload {payload:02X?}");
+            assert!(!out.consumed_up);
+        }
+        // Sem vínculo: release nega 0x05; test-mode faz bypass (0x00 c/ UP+PIN).
+        let mut vendor_nb = vendor_with(
+            true,
+            true,
+            true,
+            &mut unclaimed,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor_nb,
+            PacketOrigin::Serial,
+            0x0A0B_0C0D,
+            &[OP_BACKUP_EXPORT, 0x01],
+            1100,
+        );
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(resp_status(&out), 0x00);
+        } else {
+            assert_eq!(resp_status(&out), 0x05);
+            assert!(!out.consumed_up);
+        }
+    }
+
+    /// Estagia begin->verify pela origem dada (retorna fase p/ o chamador).
+    fn stage_to_verified_route(
+        mgr_usb: &mut CtapHidManager,
+        mgr_serial: &mut CtapHidManager,
+        engine: &mut CtapEngine,
+        vendor: &mut SerialVendorCtx<'_>,
+        origin: PacketOrigin,
+        manifest: &[u8],
+        image: &[u8],
+    ) {
+        use crate::ota::{OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_FINISH};
+        let mut begin = vec![OP_OTA_BEGIN];
+        begin.extend_from_slice(manifest);
+        let out = route_msg(
+            mgr_usb,
+            mgr_serial,
+            engine,
+            vendor,
+            origin,
+            0x0B0C_0D0E,
+            &begin,
+            2000,
+        );
+        assert_eq!(resp_status(&out), 0x00, "BEGIN");
+        let mut off = 0u32;
+        for chunk in image.chunks(16) {
+            let mut p = vec![OP_OTA_CHUNK];
+            p.extend_from_slice(&off.to_be_bytes());
+            p.extend_from_slice(chunk);
+            let out = route_msg(
+                mgr_usb,
+                mgr_serial,
+                engine,
+                vendor,
+                origin,
+                0x0B0C_0D0E,
+                &p,
+                2010,
+            );
+            assert_eq!(resp_status(&out), 0x00, "CHUNK off={off}");
+            off += chunk.len() as u32;
+        }
+        let out = route_msg(
+            mgr_usb,
+            mgr_serial,
+            engine,
+            vendor,
+            origin,
+            0x0B0C_0D0E,
+            &[OP_OTA_FINISH],
+            2020,
+        );
+        assert_eq!(resp_status(&out), 0x00, "FINISH");
+    }
+
+    #[test]
+    fn ota_freertos_begin_verify_e_commit_bloqueado_fora_usb() {
+        use crate::ota::{OtaPhase, OP_OTA_COMMIT};
+        const CURRENT: u32 = 7;
+        const NEXT: u32 = 8;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let image = vec![0xA5u8; 64];
+        let sk = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
+        let manifest = signed_manifest_for(NEXT, &image, &sk);
+        let pubkey = sk.verifying_key().to_bytes();
+        let mut binding = crate::binding::BindingManager::new();
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        let mut ota = OtaState::new(CURRENT);
+        // Estagia pela serial (permitido: begin/chunk/verify sem swap).
+        let mut vendor = vendor_with(
+            false,
+            true,
+            false,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            Some(&mut ota),
+            true,
+            pubkey,
+            CURRENT,
+        );
+        stage_to_verified_route(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            &manifest,
+            &image,
+        );
+        assert_eq!(
+            vendor.ota_state.as_ref().map(|s| s.phase()),
+            Some(OtaPhase::Verified)
+        );
+        // COMMIT fora do USB: 0x04, sessão Verified intacta, sem marcador.
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            0x0B0C_0D0E,
+            &[OP_OTA_COMMIT],
+            2030,
+        );
+        assert_eq!(resp_status(&out), crate::ota_store::OTA_STATUS_FAIL);
+        assert!(!out.consumed_up);
+        assert_eq!(
+            vendor.ota_state.as_ref().map(|s| s.phase()),
+            Some(OtaPhase::Verified)
+        );
+        assert!(
+            !vendor
+                .storage
+                .backend()
+                .exists(crate::ota_store::OTA_COMMIT_MARKER_KEY),
+            "serial nunca grava marcador"
+        );
+        // COMMIT via USB com UP: 0x00 + versão, latch consumido, marcador.
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Usb,
+            0x0B0C_0D0E,
+            &[OP_OTA_COMMIT],
+            2040,
+        );
+        assert_eq!(resp_status(&out), crate::ota_store::OTA_STATUS_OK);
+        assert!(out.consumed_up, "COMMIT ok consome o latch 1x");
+        assert_eq!(&out.responses[0][8..12], &NEXT.to_be_bytes());
+        assert_eq!(
+            vendor.ota_state.as_ref().map(|s| s.phase()),
+            Some(OtaPhase::Committed)
+        );
+        assert_eq!(
+            vendor
+                .storage
+                .backend()
+                .read_raw(crate::ota_store::OTA_COMMIT_MARKER_KEY)
+                .expect("marcador"),
+            NEXT.to_be_bytes().to_vec()
+        );
+    }
+
+    #[test]
+    fn ota_freertos_antiroollback_nega_versao_corrente_ou_menor() {
+        use crate::ota::{OtaPhase, OP_OTA_ABORT, OP_OTA_BEGIN, OP_OTA_FINISH};
+        const CURRENT: u32 = 7;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let image = vec![0xA5u8; 32];
+        let sk = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
+        let pubkey = sk.verifying_key().to_bytes();
+        let mut binding = crate::binding::BindingManager::new();
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        let mut ota = OtaState::new(CURRENT);
+        let mut vendor = vendor_with(
+            false,
+            true,
+            false,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            Some(&mut ota),
+            true,
+            pubkey,
+            CURRENT,
+        );
+        // Versão igual à corrente: BEGIN abre, FINISH nega downgrade + rollback.
+        let same = signed_manifest_for(CURRENT, &image, &sk);
+        let mut begin = vec![OP_OTA_BEGIN];
+        begin.extend_from_slice(&same);
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Usb,
+            0x0B0C_0D0E,
+            &begin,
+            2000,
+        );
+        assert_eq!(resp_status(&out), crate::ota_store::OTA_STATUS_OK);
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Usb,
+            0x0B0C_0D0E,
+            &[OP_OTA_FINISH],
+            2010,
+        );
+        assert_eq!(resp_status(&out), crate::ota_store::OTA_STATUS_FAIL);
+        assert_eq!(
+            vendor.ota_state.as_ref().map(|s| s.phase()),
+            Some(OtaPhase::Idle),
+            "downgrade desfaz a sessão"
+        );
+        // Sem provisionamento: BEGIN nega (ABORT segue OK p/ limpeza).
+        vendor.ota_provisioned = false;
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Usb,
+            0x0B0C_0D0E,
+            &[OP_OTA_ABORT],
+            2020,
+        );
+        assert_eq!(resp_status(&out), crate::ota_store::OTA_STATUS_OK);
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Usb,
+            0x0B0C_0D0E,
+            &begin,
+            2030,
+        );
+        assert_eq!(resp_status(&out), crate::ota_store::OTA_STATUS_FAIL);
+    }
+
+    #[test]
+    fn ota_sem_sessao_no_ctx_cai_no_engine_generico() {
+        use crate::ota::OP_OTA_BEGIN;
+        let (mut mgr_usb, mut mgr_serial, mut engine) = new_test_managers();
+        let backend = crate::persistence::PlatformFlashBackend::new();
+        let mut storage = crate::persistence::SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let mut binding = crate::binding::BindingManager::new();
+        let mut wallet = aegis_fido_core::wallet::WalletStore::new();
+        let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
+        let mut oath = aegis_fido_core::oath::OathApplet::new();
+        let mut fwlog = crate::fw_log::FwLog::new();
+        let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+        let mut pairing = crate::pairing::PairingManager::new();
+        // Sem sessão OTA: comportamento anterior (engine genérico), sem panic.
+        let mut vendor = vendor_with(
+            false,
+            true,
+            false,
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            false,
+            [0u8; 32],
+            0,
+        );
+        let out = route_msg(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &mut vendor,
+            PacketOrigin::Serial,
+            0x0B0C_0D0E,
+            &[OP_OTA_BEGIN],
+            2000,
+        );
+        assert_eq!(out.origin, Some(PacketOrigin::Serial));
+        assert!(!out.responses.is_empty());
+        assert!(!out.consumed_up);
     }
 
     #[test]

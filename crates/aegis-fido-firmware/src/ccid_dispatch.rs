@@ -78,7 +78,7 @@ mod tests {
             &mut KeyManager::new(),
             &mut aegis_fido_core::oath::applet::OathApplet::new(),
             storage,
-            crate::ble_gatt::OP_PIV_ENROLL,
+            crate::ble::gatt_core::OP_PIV_ENROLL,
             &req,
             true,
             false,

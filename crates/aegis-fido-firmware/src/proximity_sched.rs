@@ -13,7 +13,7 @@
 ///
 /// Estado beacon/key/fob (RAM; fail-closed sem chave):
 /// - `fob_id`: `Option<6 B>` via `proximity::beacon_fob_id` — MAC BLE
-///   real (`ble_nimble::own_addr`, fail-closed; `None` com stack down ou
+///   real (`ble::nimble_backend::own_addr`, fail-closed; `None` com stack down ou
 ///   no host => sem adv, nunca inventa MAC nem usa placeholder).
 /// - `key`: K_prox de 16 B em RAM + flag `key_present`. O boot faz `load`
 ///   ou `rekey` SOMENTE se `bonded || claimed`; sem vínculo, ausente
@@ -47,7 +47,9 @@
 ///   (fail-closed; `None` sem sync ou no host => sem adv).
 ///
 /// Sem segredos em log: só estados e contadores, nunca `key`/TAG.
-use crate::ble_nimble::{esp_ble_proximity_start, esp_ble_stop, should_adv_proximity};
+use crate::ble::nimble_backend::{esp_ble_proximity_start, esp_ble_stop, should_adv_proximity};
+#[cfg(feature = "debug-terminal")]
+use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 use crate::pairing::PairingState;
 use crate::persistence::{FlashStorageBackend, SecureStorage};
 use crate::proximity::{
@@ -63,7 +65,7 @@ const PROX_PRESENCE_MS: u64 = 1500;
 
 /// Deriva o `fob_id`: MAC BLE real via FFI, fail-closed.
 ///
-/// Usa `proximity::beacon_fob_id` (`ble_nimble::own_addr`; `None` sem
+/// Usa `proximity::beacon_fob_id` (`ble::nimble_backend::own_addr`; `None` sem
 /// sync ou no host => sem adv). Nunca inventa MAC nem usa placeholder.
 fn prox_fob_id() -> Option<[u8; 6]> {
     beacon_fob_id()
@@ -256,7 +258,7 @@ impl ProxSchedState {
         if presence {
             let _ = self.try_unlock(true, false);
             if self.monitor.state() == ProximityState::Locked {
-                log::info!("[PROX] presenca sem PIN: permanece Locked.");
+                crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "prox-locked-sem-pin");
             }
             self.presence_until_ms = None;
         }
@@ -285,7 +287,7 @@ impl ProxSchedState {
                     self.ctr = self.ctr.saturating_add(1);
                 } else {
                     self.adv_on = false;
-                    log::info!("[PROX] adv start rc={} (retry ~1 s).", rc);
+                    crate::ltrace!(LtCat::Transport, LtEvt::TpError, rc);
                 }
             }
         } else if self.adv_on {
@@ -442,7 +444,7 @@ impl ProxSchedState {
         if presence {
             let _ = self.try_unlock(true, false);
             if self.monitor.state() == ProximityState::Locked {
-                log::info!("[PROX] presenca sem PIN: permanece Locked.");
+                crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "prox-locked-sem-pin");
             }
             self.presence_until_ms = None;
         }
@@ -475,7 +477,7 @@ impl ProxSchedState {
                     self.ctr = self.ctr.saturating_add(1);
                 } else {
                     self.adv_on = false;
-                    log::info!("[PROX] adv start rc={} (retry ~1 s).", rc);
+                    crate::ltrace!(LtCat::Transport, LtEvt::TpError, rc);
                 }
             }
         } else if self.adv_on {

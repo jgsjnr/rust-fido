@@ -83,6 +83,23 @@ pub fn current_version<B: FlashStorageBackend>(
     }
 }
 
+/// Versao corrente efetiva p/ gates OTA: `max(firmware, contador NVS)`.
+///
+/// O contador NVS (`fw/anti_rollback`) sobrevive a reflash; o firmware em
+/// execucao pode ser mais novo que o ultimo commit registrado. A checagem
+/// anti-rollback do dispatch OTA usa este maximo, nunca so um dos dois.
+/// `None` = registro corrompido ou falha de storage (fail-closed: o
+/// chamador nega a sessão OTA em vez de assumir 0).
+pub fn effective_current_version<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    running_version: u32,
+) -> Option<u32> {
+    match current_version(storage) {
+        Ok(v) => Some(v.max(running_version)),
+        Err(_) => None,
+    }
+}
+
 /// Comita `new` se maior que a atual; verify-after-write sem apagar o antigo.
 pub fn commit_version<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,
@@ -203,5 +220,20 @@ mod tests {
         drop.set(false);
         commit_version(&mut st, 4).unwrap();
         assert_eq!(current_version(&st), Ok(4));
+    }
+
+    #[test]
+    fn efetiva_e_max_do_firmware_com_contador() {
+        // Virgem (sem registro): vale o firmware em execução.
+        let mut st = test_storage();
+        assert_eq!(effective_current_version(&st, 7), Some(7));
+        // Contador acima do firmware: o contador vence (sobrevive a reflash).
+        commit_version(&mut st, 9).unwrap();
+        assert_eq!(effective_current_version(&st, 7), Some(9));
+        assert_eq!(effective_current_version(&st, 12), Some(12));
+        // Registro corrompido: None fail-closed (o chamador nega a sessão).
+        st.store(ANTI_ROLLBACK_KEY, b"\xff\xfe-lixo", &[0u8; 12])
+            .unwrap();
+        assert_eq!(effective_current_version(&st, 7), None);
     }
 }

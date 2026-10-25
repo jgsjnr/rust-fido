@@ -101,10 +101,13 @@ pub const BIND_MGMT_OP_MAX: u8 = OP_RECOVERY_UNLOCK;
 /// continuacao `[seq:1, data..]`. Fonte canonica dos valores:
 /// `crate::ota::{OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_FINISH, OP_OTA_COMMIT,
 /// OP_OTA_ABORT}`; estes limites espelham essa faixa para o transporte
-/// validar sem acoplar a maquina OTA. `0x33` COMMIT executa SOMENTE via
-/// USB/CTAPHID: o transporte BLE aceita o framing fail-closed (sem braco
-/// de execucao no `ble_dispatch`, que responde `0x04` generico), nunca
-/// executa swap. `0x2F` reservado segue rejeitado.
+/// validar sem acoplar a maquina OTA. Braço de execucao no `ble_dispatch`
+/// (ver `super::dispatch_bind::dispatch_ble_ota`): BEGIN/CHUNK/VERIFY
+/// executam com os mesmos status/gates do serial (manifesto 104 B, CHUNK
+/// `offset BE u32 || dados` com teto de 512 B de dados); `0x33` COMMIT
+/// executa SOMENTE via USB/CTAPHID — o transporte BLE nega `0x04` fail-closed
+/// sem tocar a sessao (a `Verified` segue valida para o COMMIT via USB-HID
+/// do app). `0x2F` reservado segue rejeitado.
 pub const OTA_OP_MIN: u8 = 0x30;
 /// Limite superior da faixa OTA sobre GATT (ver `OTA_OP_MIN`).
 pub const OTA_OP_MAX: u8 = 0x34;
@@ -124,6 +127,7 @@ pub fn is_ble_fragment_opcode(op: u8) -> bool {
 }
 
 /// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.
+/// 0x3A = backup-export (só CTAPHID serial/USB, ver `OP_BACKUP_EXPORT`).
 ///
 /// Mapa da vizinhanca (primeiro byte de CMD_MSG): 0x20-0x27 vendor
 /// keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue, 0x2F reservado,
@@ -135,9 +139,21 @@ pub fn is_ble_fragment_opcode(op: u8) -> bool {
 pub const OP_WALLET_GEN: u8 = 0x35;
 pub const OP_WALLET_LIST: u8 = 0x36;
 pub const OP_WALLET_ADDR: u8 = 0x37;
+
 /// Limites da faixa wallet Fase7.
 pub const WALLET_OP_MIN: u8 = OP_WALLET_GEN;
 pub const WALLET_OP_MAX: u8 = OP_WALLET_ADDR;
+
+/// Backup-export sobre CTAPHID serial/USB (op `0x3A`, aditivo, sem quebra
+/// Sec.1-Sec.11).
+///
+/// Retorna o envelope AEGN at-rest (cifrado) do store pedido (`[seletor:1]`,
+/// `0x01` = chaves vendor `key_slots_v1`, `0x02` = OATH `oath_creds_v1`);
+/// nunca plaintext nem keys. Gates: serial exige pairing (CONFIG) + UP via
+/// `serial_ctaphid`; o dispatch exige binding -> UP -> PIN (privilegiada,
+/// como `0x21/0x23/0x24/0x27`). BLE: sem braço de execução (o `_` do
+/// `ble_dispatch` responde `0x04` genérico), como o COMMIT OTA `0x33`.
+pub const OP_BACKUP_EXPORT: u8 = 0x3A;
 
 /// Limite de reassemble (== envelope MAX-ESP, sem alloc extra).
 pub const CONTROL_POINT_LENGTH: usize = 512;
@@ -444,7 +460,7 @@ impl BleGattServer {
     /// Shim de compatibilidade (Etapa B: radio real em ble_nimble).
     ///
     /// No host retorna Ok sem efeito. No ESP o advertising real e
-    /// ligado/desligado pelo main via ble_nimble::{esp_ble_start,
+    /// ligado/desligado pelo main via ble::nimble_backend::{esp_ble_start,
     /// esp_ble_stop} (NimBLE, componente C aegis_ble), somente em modo
     /// pareamento. Mantido para nao quebrar chamadores/host.
     pub fn start_advertising(_pairing_flag: bool) -> Result<(), &'static str> {
@@ -452,7 +468,7 @@ impl BleGattServer {
         Ok(())
     }
 
-    /// Para o advertising (shim de compat; ESP usa ble_nimble::esp_ble_stop).
+    /// Para o advertising (shim de compat; ESP usa ble::nimble_backend::esp_ble_stop).
     pub fn stop_advertising() -> Result<(), &'static str> {
         Ok(())
     }
@@ -535,8 +551,9 @@ mod tests {
             assert!(is_ble_fragment_opcode(op), "bind op 0x{op:02X}");
         }
         assert_eq!((BIND_MGMT_OP_MIN, BIND_MGMT_OP_MAX), (0x28, 0x2D));
-        // OTA 0x30-0x34 abre transacao no framing; 0x33 COMMIT executa
-        // somente via USB (sem braco de execucao no ble_dispatch).
+        // OTA 0x30-0x34 abre transacao no framing; 0x30-0x32/0x34 executam
+        // no ble_dispatch (paridade serial); 0x33 COMMIT nega 0x04 no BLE
+        // (USB-only) sem tocar a sessao.
         for op in OTA_OP_MIN..=OTA_OP_MAX {
             assert!(is_ble_fragment_opcode(op), "ota op 0x{op:02X}");
         }

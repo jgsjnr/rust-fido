@@ -23,7 +23,7 @@ use aegis_fido_core::oath::{
     OATH_TLV_MAX_BYTES, TAG_CHALLENGE, TAG_KEY, TAG_NAME,
 };
 use aegis_fido_core::wallet::{CryptoNetwork, WalletError, WalletStore, WALLET_LABEL_PREFIX};
-use aegis_fido_firmware::ble_gatt::{
+use aegis_fido_firmware::ble::gatt_core::{
     OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
 };
 use aegis_fido_firmware::ccid_dispatch::process_ccid_frame;

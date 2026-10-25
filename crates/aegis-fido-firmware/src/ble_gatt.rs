@@ -2,16 +2,18 @@
 //!
 //! Conteudo movido para `ble::gatt_core` + `ble::dispatch_bind`
 //! sem mudanca de comportamento. Testes `mod tests` ficam aqui.
+#[deprecated(note = "Use crate::ble::dispatch_bind instead.")]
 pub use crate::ble::dispatch_bind::*;
+#[deprecated(note = "Use crate::ble::gatt_core instead.")]
 pub use crate::ble::gatt_core::*;
 #[cfg(test)]
 extern crate alloc;
-#[cfg(test)]
-use alloc::vec::Vec;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::ble::{dispatch_bind::*, gatt_core::*};
+
+    extern crate alloc;
 
     fn msg_fragment(opcode: u8, payload: &[u8]) -> Vec<u8> {
         let mut v = Vec::with_capacity(3 + payload.len());

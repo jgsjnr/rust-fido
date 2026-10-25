@@ -474,7 +474,7 @@ pub fn own_addr() -> Option<[u8; 6]> {
 // ---------------------------------------------------------------------------
 // Wave2: anuncio de presenca 0xFFFE (rolling-code), separado do GATT 0xFFFD.
 //
-// Layout legado (30 B, ver ble_nimble::AdvPayload):
+// Layout legado (30 B, ver ble::nimble_backend::AdvPayload):
 //   Flags(0x06) + CompleteList16[0xFFFE] + ServiceData16[FE FF VER CTR TAG]
 //   + Nome "AegisKey".
 // O service-data (11 B) e construido por proximity::encode_proximity_svc_data

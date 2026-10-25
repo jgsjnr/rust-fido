@@ -189,7 +189,9 @@ mod freertos_test_mode {
         UsbReconnect,
         /// `TEST_LED_STATE`: estado textual (sem segredos).
         LedState,
-        /// `TEST_LED_{RED,GREEN,BLUE,OFF}`: ack compatível, sem latch no FreeRTOS.
+        /// `TEST_LED_{RED,GREEN,BLUE,OFF,ON}`: ack compatível (`led_set <CMD>`),
+        /// sem latch/cor no FreeRTOS. `TEST_LED_ON` é compat HIL: ack sem
+        /// travar cor em nenhum loop (sem residual entre sessões).
         LedSet,
         /// `TEST_LED_RELEASE`: ack compatível, sem latch no FreeRTOS.
         LedRelease,
@@ -529,6 +531,11 @@ mod freertos_test_mode {
             assert!(!resp.contains("SECRET"));
             let out = handle_freertos_test_line(&mut s, "TEST_LED_RED", 0, "");
             assert_eq!(out.response.as_deref(), Some("led_set TEST_LED_RED\n"));
+            // `TEST_LED_ON` (compat HIL): ack sem latch — estado intacto.
+            let out = handle_freertos_test_line(&mut s, "TEST_LED_ON", 0, "");
+            assert_eq!(out.response.as_deref(), Some("led_set TEST_LED_ON\n"));
+            assert!(!s.up_pending());
+            assert_eq!(s.pairing_state(), PairingState::Idle);
             let out = handle_freertos_test_line(&mut s, "TEST_LED_RELEASE", 0, "");
             assert_eq!(out.response.as_deref(), Some("led_set released\n"));
         }

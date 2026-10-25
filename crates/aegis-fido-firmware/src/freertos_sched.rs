@@ -701,11 +701,32 @@ pub fn app_main_freertos_demo() -> (usize, usize, u64) {
         || false,
     );
     let house = sched.spawn_housekeeping_task();
-    std::thread::sleep(Duration::from_millis(50));
+    // Determinístico: drena a fila com bloqueio (Condvar em `receive`),
+    // sem `sleep` de parede fixa. Sob carga paralela só demora mais;
+    // o teto de 5 s falha apenas em travamento real, nunca em flake.
+    // Sem `thread::sleep` polling: cada `receive(Some(..))` bloqueia.
+    let deadline = std::time::Instant::now() + Duration::from_millis(5000);
+    let mut drained = 0usize;
+    let mut presses = 0usize;
+    let mut ticks = 0u64;
+    while std::time::Instant::now() < deadline {
+        if drained >= 3 && presses >= 1 && ticks >= 1 {
+            break;
+        }
+        match sched.queue.receive(Some(100)) {
+            Some(FirmwareEvent::UsbPacket(_)) => drained += 1,
+            Some(FirmwareEvent::ButtonPress { .. }) => presses += 1,
+            Some(FirmwareEvent::Tick10ms(t)) => ticks = ticks.max(t + 1),
+            Some(FirmwareEvent::Shutdown) => break,
+            _ => {}
+        }
+    }
     sched.request_stop();
-    let drained = usb.join().unwrap_or(0);
-    let presses = button.join().unwrap_or(0);
-    let ticks = house.join().unwrap_or(0);
+    // Junta as tarefas; os contadores das threads são o ground-truth
+    // (o dreno acima é só espera determinística, não a medida).
+    let drained = usb.join().unwrap_or(drained);
+    let presses = button.join().unwrap_or(presses);
+    let ticks = house.join().unwrap_or(ticks);
     (drained, presses, ticks)
 }
 #[cfg(test)]

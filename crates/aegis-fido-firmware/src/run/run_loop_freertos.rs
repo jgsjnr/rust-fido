@@ -10,6 +10,60 @@
 #[cfg(target_os = "espidf")]
 use super::*;
 
+/// H5 send-stall fix: fila pendente de TX por origem (USB/Serial).
+///
+/// Causa: `aegis_usb_send_report` de tentativa unica + bloco de emissao
+/// que ignorava o `bool` descartava os pacotes 2..N de respostas
+/// multi-pacote em silencio (INIT/PING pequeno, 1 pkt, ok; GetInfo/fw-log/
+/// PING-100B+, mudos). O C agora espera de forma LIMITADA por pacote
+/// (teto de poucos ms, nunca N x 200 ms); o que ainda voltar `false`
+/// fica enfileirado aqui e e retentado nas voltas seguintes do loop, em
+/// ordem FIFO por origem, sem tocar NVS/keys/locks (fail-closed: se a
+/// fila estourar o teto, o mais novo e descartado e o host retenta o
+/// comando; nunca reordena nem corrompe).
+///
+/// Helpers puros (sem FFI) para teste host; o loop device usa-os com os
+/// shims `aegis_usb_send_report` / `serial_send_bytes`.
+/// Teto ~= 2 respostas maximas (129 pkts cada: 1 INIT + 128 CONT).
+#[cfg(any(target_os = "espidf", test))]
+pub(crate) const MAX_PENDING_TX_PACKETS: usize = 260;
+
+/// Enfileira `responses` apos o pendente existente, preservando a ordem.
+/// Com teto cheio, mantem o mais antigo e conta o descarte do mais novo
+/// (fail-closed). Retorna `(enfileirados, descartados)`.
+#[cfg(any(target_os = "espidf", test))]
+pub(crate) fn enqueue_responses(
+    pending: &mut Vec<[u8; 64]>,
+    responses: &[[u8; 64]],
+) -> (usize, usize) {
+    let room = MAX_PENDING_TX_PACKETS.saturating_sub(pending.len());
+    let take = room.min(responses.len());
+    pending.extend_from_slice(&responses[..take]);
+    (take, responses.len() - take)
+}
+
+/// Tenta esvaziar `pending` em ordem via `send`, parando na 1a falha.
+/// Remove o prefixo enviado e retorna quantos sairam; o resto fica para
+/// as proximas voltas. Puro (host-testavel; `send` e o shim FFI no device).
+#[cfg(any(target_os = "espidf", test))]
+pub(crate) fn drain_pending<S>(pending: &mut Vec<[u8; 64]>, mut send: S) -> usize
+where
+    S: FnMut(&[u8; 64]) -> bool,
+{
+    let mut sent = 0usize;
+    for pkt in pending.iter() {
+        if send(pkt) {
+            sent += 1;
+        } else {
+            break;
+        }
+    }
+    if sent > 0 {
+        pending.drain(..sent);
+    }
+    sent
+}
+
 /// Entrada da variante FreeRTOS com feature freertos, T12 parte B.
 ///
 /// Selecao sem quebrar o legado: com freertos cai aqui, sem a feature cai
@@ -194,9 +248,10 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     let mut ctaphid_serial = CtapHidManager::new();
     #[cfg(target_os = "espidf")]
+    let efuse_mgr = EfuseManager::new(RamEfuseStorage::new());
+    #[cfg(target_os = "espidf")]
     let (mut ctap_engine, dev_master_key, dev_salt) = {
         use rand_core::RngCore as _;
-        let efuse_mgr = EfuseManager::new(RamEfuseStorage::new());
         match load_device_keys(&efuse_mgr) {
             Ok(keys) => {
                 kprintln!("[INIT] Hardware Master Key carregada (FreeRTOS CTAPHID).");
@@ -304,11 +359,11 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     let mut pairing_mgr = crate::pairing::PairingManager::new();
     #[cfg(target_os = "espidf")]
-    let mut ble_server = crate::ble_gatt::BleGattServer::new();
+    let mut ble_server = crate::ble::gatt_core::BleGattServer::new();
     #[cfg(target_os = "espidf")]
-    let mut ble_rx = [0u8; crate::ble_nimble::BLE_RX_FRAGMENT_MAX];
+    let mut ble_rx = [0u8; crate::ble::nimble_backend::BLE_RX_FRAGMENT_MAX];
     #[cfg(target_os = "espidf")]
-    let mut ble_start_gate = crate::ble_nimble::BleStartGate::new();
+    let mut ble_start_gate = crate::ble::nimble_backend::BleStartGate::new();
     #[cfg(target_os = "espidf")]
     let mut ble_adv_active = false;
     // Saúde BLE provada (`esp_ble_preinit rc=0` via TEST_BLE_PREINIT): sem
@@ -333,6 +388,11 @@ pub fn run_authenticator_freertos() {
     let mut pairing_arming_sec: u64 = 0;
     #[cfg(target_os = "espidf")]
     let mut rescue_engine = RescueEngine::new();
+    // OTA staged verify-before-swap (espelho da seção C legada; classic sem
+    // OTA: sessão ausente no ctx). `OtaState`/`FIRMWARE_VERSION` vêm do
+    // escopo do pai (`super::*`).
+    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+    let mut ota_state = OtaState::new(FIRMWARE_VERSION);
     #[cfg(target_os = "espidf")]
     let mut wallet_store = WalletStore::new();
     #[cfg(target_os = "espidf")]
@@ -354,11 +414,11 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     stack_mark("binding+managers");
     #[cfg(target_os = "espidf")]
-    let mut wifi_ap_mgr = crate::wifi_ap::WifiApManager::new();
+    let mut wifi_ap_mgr = crate::net::ap_core::WifiApManager::new();
     #[cfg(target_os = "espidf")]
-    let mut mdns_mgr = crate::mdns::MdnsManager::new();
+    let mut mdns_mgr = crate::net::mdns::MdnsManager::new();
     #[cfg(target_os = "espidf")]
-    let mut sta_mgr = crate::wifi_station::WifiStationManager::new();
+    let mut sta_mgr = crate::net::station::WifiStationManager::new();
     #[cfg(target_os = "espidf")]
     let mut wifi_ap_active = false;
     #[cfg(target_os = "espidf")]
@@ -373,10 +433,10 @@ pub fn run_authenticator_freertos() {
     let mut last_sta_attempt_ms: Option<u64> = None;
     #[cfg(target_os = "espidf")]
     let mut ccid_transport = aegis_fido_usb::ccid::CcidTransport::new();
-    // CI-GREP: TEST-HOOK (test-mode only; absent in release).
-    // Latch de cor solida p/ diagnostico LED (TEST_LED_*).
-    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
-    let mut led_test_hold: Option<LedEffect> = None;
+    // TEST_LED_*: sem latch no FreeRTOS — só ack textual via
+    // `handle_freertos_test_line` (`led_set <CMD>`); o latch de cor vive
+    // no loop legado. Um latch aqui forçava RED sobre boot/jornada/BLE
+    // (regressão 24/10): removido, a jornada manda sempre.
     // Nível do BOOT p/ `PairingManager` (hold 5s abre pareamento) e TOTP.
     #[cfg(target_os = "espidf")]
     let mut boot_held_since_ms: Option<u64> = None;
@@ -427,6 +487,14 @@ pub fn run_authenticator_freertos() {
     // só depois dele há stack folgada p/ AES/NVS. Executa 1x por boot.
     #[cfg(target_os = "espidf")]
     let mut boot_state_pending = true;
+    // H5: filas pendentes de TX por origem (USB/Serial). Pacotes nao
+    // enviados (endpoint ocupado) voltam na proxima volta em vez de
+    // serem descartados; a retentativa tambem corre nas voltas sem
+    // pacote novo (Tick/Button/None). Fail-closed, sem NVS/keys/locks.
+    #[cfg(target_os = "espidf")]
+    let mut pending_usb: Vec<[u8; 64]> = Vec::new();
+    #[cfg(target_os = "espidf")]
+    let mut pending_serial: Vec<[u8; 64]> = Vec::new();
     #[cfg(not(target_os = "espidf"))]
     {
         let t0 = std::time::Instant::now();
@@ -564,7 +632,7 @@ pub fn run_authenticator_freertos() {
                                 free_before,
                                 largest_before
                             );
-                            let rc = crate::ble_nimble::esp_ble_preinit();
+                            let rc = crate::ble::nimble_backend::esp_ble_preinit();
                             // SAFETY: mesma leitura pós-preinit; sem ponteiros, sem escrita.
                             let free_after = unsafe { esp_idf_sys::esp_get_free_heap_size() };
                             // SAFETY: mesma leitura do maior bloco; sem ponteiros, sem escrita.
@@ -615,7 +683,7 @@ pub fn run_authenticator_freertos() {
                             pairing_mgr.close_test_window();
                             wifi_ap_mgr.shutdown_after_config();
                             if wifi_ap_active {
-                                let _ = crate::wifi_ap::esp_ap_stop();
+                                let _ = crate::net::ap_core::esp_ap_stop();
                                 wifi_ap_active = false;
                                 kprintln!("[WIFI] AP off (pairing fechado).");
                             }
@@ -641,32 +709,42 @@ pub fn run_authenticator_freertos() {
                             unsafe {
                                 aegis_usb_reconnect();
                             }
-                        }
-                        // CI-GREP: TEST-HOOK (test-mode only): espelha a cor
-                        // pedida no LED físico (release devolve ao pipeline).
-                        #[cfg(all(target_os = "espidf", feature = "test-mode"))]
-                        {
-                            use crate::led::Color as LedColor;
-                            let t = line.trim();
-                            if t.starts_with("TEST_LED_RED") {
-                                led_test_hold = Some(LedEffect::Solid(LedColor::RED));
-                            } else if t.starts_with("TEST_LED_ON") {
-                                led_test_hold = Some(LedEffect::Solid(LedColor::RED));
-                            } else if t.starts_with("TEST_LED_GREEN") {
-                                led_test_hold = Some(LedEffect::Solid(LedColor::GREEN));
-                            } else if t.starts_with("TEST_LED_BLUE") {
-                                led_test_hold = Some(LedEffect::Solid(LedColor::BLUE));
-                            } else if t.starts_with("TEST_LED_OFF") {
-                                led_test_hold = Some(LedEffect::Off);
-                            } else if t.starts_with("TEST_LED_RELEASE") {
-                                led_test_hold = None;
+                            // H5: reset + purge sem tocar NVS/keys. A assembly
+                            // órfã morre aqui (fresh INIT recomeça limpo);
+                            // locks (security) e CIDs seguem intactos.
+                            ctaphid_usb.reset();
+                            // SAFETY: `tmp` tem 64 B vivos na stack; o C escreve
+                            // até 64 B e devolve o total; teto 16 > RX_QUEUE_SIZE
+                            // (8) p/ nunca prender o loop.
+                            unsafe {
+                                let mut tmp = [0u8; 64];
+                                for _ in 0..16 {
+                                    let n = aegis_usb_pop_packet(tmp.as_mut_ptr(), 64);
+                                    if n == 0 {
+                                        break;
+                                    }
+                                }
                             }
-                            if let Some(h) = led_test_hold {
-                                if let Some(ref mut led) = display_mgr.led_controller {
-                                    led.set_effect(h);
+                            // Purga UsbPacket enfileirado, preservando o resto
+                            // (Shutdown/Tick/Serial/Button/BLE): o reconnect não
+                            // pode comer shutdown nem tick.
+                            {
+                                let mut keep = Vec::new();
+                                for _ in 0..64 {
+                                    match sched.queue.receive(None) {
+                                        None => break,
+                                        Some(FirmwareEvent::UsbPacket(_)) => {}
+                                        Some(ev) => keep.push(ev),
+                                    }
+                                }
+                                for ev in keep {
+                                    let _ = sched.queue.send(ev);
                                 }
                             }
                         }
+                        // TEST_LED_*: só ack via `handle_freertos_test_line`
+                        // acima (`led_set <CMD>`); sem latch/cor no LED
+                        // físico (contrato: o latch vive no loop legado).
                     }
                     freertos_serial_line.clear();
                 } else if freertos_serial_line.len() < 48 {
@@ -682,7 +760,7 @@ pub fn run_authenticator_freertos() {
         {
             // Feed do TWDT da main a cada iteração (paridade legada).
             freertos_watchdog.feed(freertos_now_ms / 10);
-            use crate::ble_nimble as ble;
+            use crate::ble::nimble_backend as ble;
             match ble::esp_ble_poll_event() {
                 e if e == ble::BLE_EVT_SECURED => {
                     match ble::on_link_secured(&mut pairing_mgr, touch_latched, freertos_now_ms) {
@@ -768,6 +846,26 @@ pub fn run_authenticator_freertos() {
                         let bonded = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
                         #[cfg(feature = "proximity")]
                         let prox_revoked_op = msg.opcode;
+                        // OTA sobre BLE (0x30-0x32/0x34; 0x33 nega 0x04
+                        // USB-only): mesma sessão do serial/USB; fora do
+                        // build com OTA, sem execução.
+                        #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                        let ota_ble_session = {
+                            let ota_cur = crate::anti_rollback::effective_current_version(
+                                &storage,
+                                FIRMWARE_VERSION,
+                            );
+                            Some(crate::ble::dispatch_bind::BleOtaSession {
+                                state: &mut ota_state,
+                                provisioned: ota_cur.is_some() && ota_provisioned(&efuse_mgr),
+                                ota_pubkey: ota_active_pubkey(),
+                                current_version: ota_cur.unwrap_or(FIRMWARE_VERSION),
+                            })
+                        };
+                        #[cfg(any(not(target_os = "espidf"), feature = "board-ttgo-classic"))]
+                        let ota_ble_session: Option<
+                            crate::ble::dispatch_bind::BleOtaSession<'_>,
+                        > = None;
                         ble_dispatch::ble_dispatch_complete(
                             msg,
                             up,
@@ -783,12 +881,13 @@ pub fn run_authenticator_freertos() {
                             &mut fw_log,
                             &mut key_mgr,
                             &mut oath_applet,
+                            ota_ble_session,
                         );
                         // Wave2: release/recovery apagou a NVS no dispatch;
                         // espelha no cache RAM (fail-closed até o rekey).
                         #[cfg(feature = "proximity")]
                         {
-                            use crate::ble_gatt as g;
+                            use crate::ble::gatt_core as g;
                             let revoked = prox_revoked_op == g::OP_BIND_RELEASE
                                 || prox_revoked_op == g::OP_RECOVERY_UNLOCK;
                             if revoked && crate::proximity::load_proximity_key(&storage).is_err() {
@@ -835,6 +934,22 @@ pub fn run_authenticator_freertos() {
                 }
             }
         }
+        // H5: retenta o TX pendente de voltas anteriores antes do `receive`
+        // (o endpoint pode ter liberado no intervalo). Silencioso por volta:
+        // sem log aqui; descarte com teto cheio e logado no ramo de emissao.
+        if !pending_usb.is_empty() {
+            drain_pending(&mut pending_usb, |pkt| unsafe {
+                // SAFETY: `pkt` vive no vetor durante a chamada; o C só
+                // lê 64 B para o endpoint HID de entrada.
+                aegis_usb_send_report(pkt.as_ptr(), 64)
+            });
+        }
+        if !pending_serial.is_empty() {
+            drain_pending(&mut pending_serial, |pkt| {
+                // `pkt` vivo durante a chamada; o C só lê 64 B p/ TX serial.
+                serial_send_bytes(pkt.as_ptr(), 64)
+            });
+        }
         match sched.queue.receive(Some(100)) {
             Some(ev @ (FirmwareEvent::UsbPacket(_) | FirmwareEvent::SerialPacket(_))) => {
                 // CTAPHID com origem preservada (seção C legada, sem bloqueio):
@@ -852,6 +967,16 @@ pub fn run_authenticator_freertos() {
                     || freertos_test.is_pairing_window_open(freertos_now_ms);
                 #[cfg(not(feature = "test-mode"))]
                 let pairing_live = pairing_mgr.is_pairing_window_open(freertos_now_ms);
+                // OTA (espelho da seção C legada; classic sem OTA): versão
+                // corrente efetiva = max(firmware, anti-rollback NVS);
+                // contador corrompido => não-provisionado (nega mutantes,
+                // ABORT segue OK; NVS preservada).
+                #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                let ota_current_version =
+                    crate::anti_rollback::effective_current_version(&storage, FIRMWARE_VERSION);
+                #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                let ota_provisioned_now =
+                    ota_current_version.is_some() && ota_provisioned(&efuse_mgr);
                 let mut vendor_ctx = SerialVendorCtx {
                     pairing_open: pairing_live,
                     up_latched: touch_latched,
@@ -866,6 +991,24 @@ pub fn run_authenticator_freertos() {
                     rescue: &mut rescue_engine,
                     pairing: &mut pairing_mgr,
                     pin_uv_session,
+                    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                    ota_state: Some(&mut ota_state),
+                    #[cfg(any(not(target_os = "espidf"), feature = "board-ttgo-classic"))]
+                    ota_state: None,
+                    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                    ota_provisioned: ota_provisioned_now,
+                    #[cfg(any(not(target_os = "espidf"), feature = "board-ttgo-classic"))]
+                    ota_provisioned: false,
+                    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                    ota_pubkey: ota_active_pubkey(),
+                    #[cfg(any(not(target_os = "espidf"), feature = "board-ttgo-classic"))]
+                    ota_pubkey: [0u8; 32],
+                    #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                    ota_current_version: ota_current_version.unwrap_or(FIRMWARE_VERSION),
+                    #[cfg(any(not(target_os = "espidf"), feature = "board-ttgo-classic"))]
+                    ota_current_version: 0,
+                    // A rota sobrescreve pela origem do evento (COMMIT só USB).
+                    origin: PacketOrigin::Usb,
                 };
                 let out = route_ctaphid_event(
                     &mut ctaphid_usb,
@@ -897,22 +1040,41 @@ pub fn run_authenticator_freertos() {
                         out.origin
                     );
                 }
-                for pkt in &out.responses {
-                    match out.origin {
-                        Some(PacketOrigin::Usb) => {
-                            // SAFETY: `pkt` vive até ao fim da chamada; o C só
-                            // lê 64 B para o endpoint HID de entrada.
-                            unsafe {
-                                aegis_usb_send_report(pkt.as_ptr(), 64);
-                            }
+                // H5: checa o `bool` e RE-ENFILEIRA em vez de descartar.
+                // FIFO por origem, ordem preservada; o que nao sair agora e
+                // retentado nas proximas voltas (bloco antes do `receive`).
+                // Fail-closed: teto cheio descarta o mais novo e o host
+                // retenta o comando; sem tocar NVS/keys/locks.
+                match out.origin {
+                    Some(PacketOrigin::Usb) => {
+                        let (_, dropped) = enqueue_responses(&mut pending_usb, &out.responses);
+                        if dropped > 0 {
+                            kprintln!(
+                                "[USB] TX fila cheia ({} pkt descartados; host retenta).",
+                                dropped
+                            );
                         }
-                        Some(PacketOrigin::Serial) => {
-                            // `pkt` vivo até ao fim da chamada; o C só
-                            // lê 64 B para TX serial enquadrada.
-                            serial_send_bytes(pkt.as_ptr(), 64);
-                        }
-                        None => {}
+                        drain_pending(&mut pending_usb, |pkt| unsafe {
+                            // SAFETY: `pkt` vive no vetor durante a chamada;
+                            // o C só lê 64 B para o endpoint HID de entrada.
+                            aegis_usb_send_report(pkt.as_ptr(), 64)
+                        });
                     }
+                    Some(PacketOrigin::Serial) => {
+                        let (_, dropped) = enqueue_responses(&mut pending_serial, &out.responses);
+                        if dropped > 0 {
+                            kprintln!(
+                                "[SERIAL] TX fila cheia ({} pkt descartados; host retenta).",
+                                dropped
+                            );
+                        }
+                        drain_pending(&mut pending_serial, |pkt| {
+                            // `pkt` vivo durante a chamada; o C só lê 64 B
+                            // para TX serial enquadrada.
+                            serial_send_bytes(pkt.as_ptr(), 64)
+                        });
+                    }
+                    None => {}
                 }
             }
             Some(FirmwareEvent::ButtonPress { boot, key }) => {
@@ -1006,7 +1168,7 @@ pub fn run_authenticator_freertos() {
                         // poll pedia Start sem heap -> OOM/abort do IDF.
                         wifi_ap_mgr.shutdown_after_config();
                         if wifi_ap_active {
-                            let _ = crate::wifi_ap::esp_ap_stop();
+                            let _ = crate::net::ap_core::esp_ap_stop();
                             wifi_ap_active = false;
                             kprintln!("[WIFI] AP off (pairing fechado).");
                         }
@@ -1052,7 +1214,7 @@ pub fn run_authenticator_freertos() {
                     wifi_ap_fails = 0;
                 }
                 {
-                    use crate::ble_nimble as ble;
+                    use crate::ble::nimble_backend as ble;
                     // Gate BLE ao vivo (Fix gate TEST): `TEST_PAIRING_OPEN`
                     // arma a janela em `freertos_test`, não em `pairing_mgr`.
                     // Sem o OR o adv nunca ligava em janela TEST (só o AP
@@ -1063,8 +1225,12 @@ pub fn run_authenticator_freertos() {
                         || freertos_test.is_pairing_window_open(freertos_now_ms);
                     #[cfg(not(feature = "test-mode"))]
                     let ble_pairing_now = ble::should_advertise(&pairing_mgr, freertos_now_ms);
-                    match crate::wifi_ap::ap_poll_action(ap_want, ble_pairing_now, wifi_ap_active) {
-                        crate::wifi_ap::ApPollAction::Start => {
+                    match crate::net::ap_core::ap_poll_action(
+                        ap_want,
+                        ble_pairing_now,
+                        wifi_ap_active,
+                    ) {
+                        crate::net::ap_core::ApPollAction::Start => {
                             if wifi_ap_fails < 3
                                 && (wifi_ap_last_try_ms == 0
                                     || freertos_now_ms.saturating_sub(wifi_ap_last_try_ms) >= 5000)
@@ -1080,18 +1246,18 @@ pub fn run_authenticator_freertos() {
                                 };
                                 #[cfg(not(target_os = "espidf"))]
                                 let largest: usize = usize::MAX;
-                                if !crate::wifi_ap::wifi_ap_start_allowed(largest) {
+                                if !crate::net::ap_core::wifi_ap_start_allowed(largest) {
                                     wifi_ap_last_try_ms = freertos_now_ms;
                                     kprintln!("[WIFI] AP skip (heap curto).");
                                 } else {
                                     wifi_ap_last_try_ms = freertos_now_ms;
-                                    let ssid = crate::wifi_ap::ap_ssid_for_serial(
+                                    let ssid = crate::net::ap_core::ap_ssid_for_serial(
                                         usb_descriptors::SERIAL_NUMBER_STRING,
                                     );
                                     let pass_bytes = storage
-                                        .load(crate::wifi_ap::WIFI_PASS_NVS_KEY)
+                                        .load(crate::net::password_policy::WIFI_PASS_NVS_KEY)
                                         .unwrap_or_default();
-                                    let pass_opt = crate::wifi_ap::resolve_ap_password(
+                                    let pass_opt = crate::net::password_policy::resolve_ap_password(
                                         if pass_bytes.is_empty() {
                                             None
                                         } else {
@@ -1099,12 +1265,12 @@ pub fn run_authenticator_freertos() {
                                         },
                                     );
                                     let pass_str = pass_opt.unwrap_or_default();
-                                    let rc = crate::wifi_ap::esp_ap_start(&ssid, &pass_str);
+                                    let rc = crate::net::ap_core::esp_ap_start(&ssid, &pass_str);
                                     if rc == 0 {
                                         wifi_ap_active = true;
                                         wifi_ap_fails = 0;
                                         kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
-                                    } else if rc == crate::wifi_ap::WIFI_AP_RC_NO_MEM {
+                                    } else if rc == crate::net::ap_core::WIFI_AP_RC_NO_MEM {
                                         // NO_MEM terminal ate nova borda, sem retry.
                                         wifi_ap_fails = 3;
                                         kprintln!(
@@ -1119,20 +1285,20 @@ pub fn run_authenticator_freertos() {
                                 }
                             }
                         }
-                        crate::wifi_ap::ApPollAction::Stop => {
-                            let _ = crate::wifi_ap::esp_ap_stop();
+                        crate::net::ap_core::ApPollAction::Stop => {
+                            let _ = crate::net::ap_core::esp_ap_stop();
                             wifi_ap_active = false;
                             kprintln!("[WIFI] AP off.");
                         }
-                        crate::wifi_ap::ApPollAction::None => {}
+                        crate::net::ap_core::ApPollAction::None => {}
                     }
-                    let has_creds = crate::wifi_station::has_station_credentials(&storage);
+                    let has_creds = crate::net::station::has_station_credentials(&storage);
                     sta_mgr.update(pairing_open_now, has_creds, freertos_now_ms);
-                    let mut sta_radio = crate::wifi_station::esp_sta_state();
-                    if sta_radio == crate::wifi_station::STA_CONNECTED {
+                    let mut sta_radio = crate::net::station::esp_sta_state();
+                    if sta_radio == crate::net::station::STA_CONNECTED {
                         if !sta_mgr.is_up() {
                             sta_mgr.on_connected();
-                            let ip = crate::wifi_station::esp_sta_ip();
+                            let ip = crate::net::station::esp_sta_ip();
                             kprintln!(
                                 "[WIFI] station conectada (DHCP {}.{}.{}.{}).",
                                 ip[0],
@@ -1141,25 +1307,25 @@ pub fn run_authenticator_freertos() {
                                 ip[3]
                             );
                         }
-                    } else if sta_radio == crate::wifi_station::STA_FAILED {
+                    } else if sta_radio == crate::net::station::STA_FAILED {
                         sta_mgr.on_failed();
                     }
                     if matches!(
                         sta_mgr.state(),
-                        crate::wifi_station::WifiStationState::Connecting { .. }
-                    ) && sta_radio == crate::wifi_station::STA_OFF
+                        crate::net::station::WifiStationState::Connecting { .. }
+                    ) && sta_radio == crate::net::station::STA_OFF
                         && !pairing_open_now
                         && !ble_pairing_now
-                        && crate::wifi_station::sta_retry_due(freertos_now_ms, last_sta_attempt_ms)
+                        && crate::net::station::sta_retry_due(freertos_now_ms, last_sta_attempt_ms)
                     {
-                        let got = storage.load(crate::wifi_station::WIFI_STA_SSID_NVS_KEY);
-                        let got_pass = storage.load(crate::wifi_station::WIFI_STA_PASS_NVS_KEY);
+                        let got = storage.load(crate::net::station::WIFI_STA_SSID_NVS_KEY);
+                        let got_pass = storage.load(crate::net::station::WIFI_STA_PASS_NVS_KEY);
                         match (got, got_pass) {
                             (Ok(ssid_b), Ok(pass_b)) => {
                                 match (core::str::from_utf8(&ssid_b), core::str::from_utf8(&pass_b))
                                 {
                                     (Ok(ssid), Ok(pass)) => {
-                                        let rc = crate::wifi_station::esp_sta_start(ssid, pass);
+                                        let rc = crate::net::station::esp_sta_start(ssid, pass);
                                         last_sta_attempt_ms = Some(freertos_now_ms);
                                         if rc != 0 {
                                             kprintln!("[WIFI] station start rc={}.", rc);
@@ -1173,24 +1339,24 @@ pub fn run_authenticator_freertos() {
                         }
                     }
                     if (pairing_open_now || ble_pairing_now || !has_creds)
-                        && sta_radio != crate::wifi_station::STA_OFF
+                        && sta_radio != crate::net::station::STA_OFF
                     {
-                        let _ = crate::wifi_station::esp_sta_stop();
+                        let _ = crate::net::station::esp_sta_stop();
                         sta_mgr.disconnect();
                         #[allow(unused_assignments)]
                         {
-                            sta_radio = crate::wifi_station::STA_OFF;
+                            sta_radio = crate::net::station::STA_OFF;
                         }
                     }
                     mdns_mgr.update(pairing_open_now || ble_pairing_now, sta_mgr.is_up());
                     let mdns_want = mdns_mgr.is_active();
                     if mdns_want != mdns_active {
                         if mdns_want {
-                            let host = crate::mdns::mdns_hostname_for_serial(
+                            let host = crate::net::mdns::mdns_hostname_for_serial(
                                 usb_descriptors::SERIAL_NUMBER_STRING,
                             );
-                            let bare = crate::mdns::mdns_bare_hostname(&host);
-                            let rc = crate::mdns::esp_mdns_start(bare);
+                            let bare = crate::net::mdns::mdns_bare_hostname(&host);
+                            let rc = crate::net::mdns::esp_mdns_start(bare);
                             if rc == 0 {
                                 mdns_active = true;
                                 kprintln!("[WIFI] mDNS '{}' on.", host);
@@ -1198,14 +1364,14 @@ pub fn run_authenticator_freertos() {
                                 kprintln!("[WIFI] mDNS start rc={}.", rc);
                             }
                         } else {
-                            let _ = crate::mdns::esp_mdns_stop();
+                            let _ = crate::net::mdns::esp_mdns_stop();
                             mdns_active = false;
                         }
                     }
-                    sta_radio = crate::wifi_station::esp_sta_state();
-                    let radio_in_use = wifi_ap_active || sta_radio != crate::wifi_station::STA_OFF;
+                    sta_radio = crate::net::station::esp_sta_state();
+                    let radio_in_use = wifi_ap_active || sta_radio != crate::net::station::STA_OFF;
                     if !radio_in_use && wifi_radio_on {
-                        let _ = crate::wifi_ap::esp_wifi_off();
+                        let _ = crate::net::ap_core::esp_wifi_off();
                         wifi_radio_on = false;
                         kprintln!("[WIFI] radio off (bateria).");
                     } else if radio_in_use {
@@ -1284,7 +1450,8 @@ pub fn run_authenticator_freertos() {
                     prox.tick(prox_now_ms, usb_active, wifi_active, pairing_mgr.state());
                 }
                 // Display + LED (seção B legada): tick + efeito por estado.
-                // TEST_LED_* (hold) vence o pipeline quando armado.
+                // TEST_LED_*: só ack, sem latch no FreeRTOS — a jornada
+                // (pairing > UP > BLE) manda sempre no LED físico.
                 display_mgr.tick(Duration::from_millis(freertos_now_ms));
                 {
                     let bonded = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
@@ -1297,12 +1464,6 @@ pub fn run_authenticator_freertos() {
                                 bonded,
                             ));
                         }
-                    }
-                }
-                #[cfg(all(target_os = "espidf", feature = "test-mode"))]
-                if let Some(held) = led_test_hold {
-                    if let Some(ref mut led) = display_mgr.led_controller {
-                        led.set_effect(held);
                     }
                 }
                 // Hold físico: 5s abre pareamento (via PairingManager), 2s
@@ -1396,4 +1557,99 @@ pub fn run_authenticator_freertos() {
     let _ = btn_h.join();
     let _ = hk_h.join();
     kprintln!("[FREERTOS] scheduler stopped.");
+}
+#[cfg(test)]
+mod pending_tx_tests {
+    use super::{drain_pending, enqueue_responses, MAX_PENDING_TX_PACKETS};
+
+    fn pkt(b: u8) -> [u8; 64] {
+        [b; 64]
+    }
+
+    #[test]
+    fn stall_total_retenta_tudo_em_ordem() {
+        // Endpoint fechado por 2 voltas e depois abre: nada e descartado,
+        // ordem FIFO preservada, 3a volta esvazia.
+        let mut pending: Vec<[u8; 64]> = Vec::new();
+        let (kept, dropped) = enqueue_responses(&mut pending, &[pkt(1), pkt(2), pkt(3)]);
+        assert_eq!((kept, dropped), (3, 0));
+        assert_eq!(drain_pending(&mut pending, |_| false), 0);
+        assert_eq!(pending.len(), 3);
+        assert_eq!(drain_pending(&mut pending, |_| false), 0);
+        assert_eq!(pending.len(), 3);
+        let mut order = Vec::new();
+        let sent = drain_pending(&mut pending, |p| {
+            order.push(p[0]);
+            true
+        });
+        assert_eq!(sent, 3);
+        assert!(pending.is_empty());
+        assert_eq!(order, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn falha_no_meio_para_e_preserva_cauda() {
+        // Falha no pacote 3: prefixo sai, cauda [3,4] fica intacta e sai
+        // depois em ordem.
+        let mut pending: Vec<[u8; 64]> = Vec::new();
+        let (kept, dropped) = enqueue_responses(&mut pending, &[pkt(1), pkt(2), pkt(3), pkt(4)]);
+        assert_eq!((kept, dropped), (4, 0));
+        let sent = drain_pending(&mut pending, |p| p[0] != 3);
+        assert_eq!(sent, 2);
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0][0], 3);
+        assert_eq!(pending[1][0], 4);
+        let mut order = Vec::new();
+        let sent = drain_pending(&mut pending, |p| {
+            order.push(p[0]);
+            true
+        });
+        assert_eq!(sent, 2);
+        assert!(pending.is_empty());
+        assert_eq!(order, vec![3, 4]);
+    }
+
+    #[test]
+    fn teto_cheio_descarta_novo_fail_closed() {
+        // Fila no teto: resposta nova e descartada (contada), antiga intacta.
+        let mut pending: Vec<[u8; 64]> = vec![pkt(9); MAX_PENDING_TX_PACKETS];
+        let (kept, dropped) = enqueue_responses(&mut pending, &[pkt(7)]);
+        assert_eq!((kept, dropped), (0, 1));
+        assert_eq!(pending.len(), MAX_PENDING_TX_PACKETS);
+        assert!(pending.iter().all(|p| p[0] == 9));
+        // Parcial: cabe 1 de 3, descarta 2.
+        let mut partial: Vec<[u8; 64]> = vec![pkt(9); MAX_PENDING_TX_PACKETS - 1];
+        let (kept, dropped) = enqueue_responses(&mut partial, &[pkt(1), pkt(2), pkt(3)]);
+        assert_eq!((kept, dropped), (1, 2));
+        assert_eq!(partial.len(), MAX_PENDING_TX_PACKETS);
+        assert_eq!(partial[MAX_PENDING_TX_PACKETS - 1][0], 1);
+    }
+
+    #[test]
+    fn resposta_multipacote_sai_integra_apos_stall() {
+        // Formato GetInfo-like (200 B -> 4 pkts): stall total e depois
+        // tudo sai byte-identico e em ordem (regressao do mute PING-100B+).
+        let payload: Vec<u8> = (0..200u32).map(|i| (i % 251) as u8).collect();
+        let framed = aegis_fido_usb::ctaphid::CtapHidFramer::try_frame_message(
+            0x0E0F_1011,
+            aegis_fido_usb::ctaphid::CMD_CBOR,
+            &payload,
+        )
+        .expect("200 B deve enquadrar");
+        assert!(framed.len() > 1);
+        let mut pending: Vec<[u8; 64]> = Vec::new();
+        let (kept, dropped) = enqueue_responses(&mut pending, &framed);
+        assert_eq!(dropped, 0);
+        assert_eq!(kept, framed.len());
+        assert_eq!(drain_pending(&mut pending, |_| false), 0);
+        assert_eq!(pending.len(), framed.len());
+        let mut out: Vec<[u8; 64]> = Vec::new();
+        let sent = drain_pending(&mut pending, |p| {
+            out.push(*p);
+            true
+        });
+        assert_eq!(sent, framed.len());
+        assert!(pending.is_empty());
+        assert_eq!(out, framed);
+    }
 }

@@ -2,20 +2,21 @@
 //!
 //! Conteudo movido para `ble::nimble_backend` sem mudanca de
 //! comportamento. Testes `mod tests` ficam aqui.
+#[deprecated(note = "Use crate::ble::nimble_backend instead.")]
 pub use crate::ble::nimble_backend::*;
 #[cfg(test)]
 extern crate alloc;
-#[cfg(all(test, feature = "proximity"))]
-use crate::ble::gatt_core::BLE_SERVICE_UUID;
-#[cfg(test)]
-use crate::ble::gatt_core::{BleGattError, BleGattServer, CONTROL_POINT_LENGTH, GATT_REVISION};
-#[cfg(test)]
-use crate::pairing::{PairingManager, PairingState};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ble_gatt::{OP_CANCEL, OP_MSG, OP_PING};
+    use crate::ble::gatt_core::{
+        BleGattError, BleGattServer, CONTROL_POINT_LENGTH, GATT_REVISION, OP_CANCEL, OP_MSG,
+        OP_PING,
+    };
+    use crate::ble::nimble_backend::*;
+    use crate::pairing::{PairingManager, PairingState};
+
+    extern crate alloc;
 
     #[test]
     fn ble_start_gate_borda_tenta_backoff_desiste_e_rearma() {
@@ -288,8 +289,10 @@ mod tests {
 
 #[cfg(all(test, feature = "proximity"))]
 mod proximity_tests {
-    use super::*;
-    use crate::ble_gatt::PROXIMITY_SERVICE_UUID;
+    use crate::ble::gatt_core::BLE_SERVICE_UUID;
+    use crate::ble::gatt_core::PROXIMITY_SERVICE_UUID;
+    use crate::ble::nimble_backend::*;
+    use crate::pairing::PairingState;
     use crate::proximity::{
         encode_proximity_svc_data, proximity_adv_allowed, proximity_tag,
         PROXIMITY_BEACON_SVC_UUID16, PROXIMITY_BEACON_TAG_LEN, PROXIMITY_BEACON_VERSION,
@@ -309,10 +312,10 @@ mod proximity_tests {
         assert_eq!(PROXIMITY_SERVICE_UUID, 0xFFFE);
         assert_eq!(PROXIMITY_BEACON_SVC_UUID16, 0xFFFE);
         assert_eq!(BLE_SERVICE_UUID, 0xFFFD);
-        assert!(crate::ble_gatt::is_proximity_service_uuid(
+        assert!(crate::ble::gatt_core::is_proximity_service_uuid(
             PROXIMITY_BEACON_SVC_UUID16
         ));
-        assert!(!crate::ble_gatt::is_proximity_service_uuid(0xFFFD));
+        assert!(!crate::ble::gatt_core::is_proximity_service_uuid(0xFFFD));
     }
 
     #[test]

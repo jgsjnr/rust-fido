@@ -219,7 +219,7 @@ pub fn run_authenticator() {
     let mut ble_preinit_ok = false;
     #[cfg(target_os = "espidf")]
     {
-        let rc = crate::ble_nimble::esp_ble_preinit();
+        let rc = crate::ble::nimble_backend::esp_ble_preinit();
         if rc != 0 {
             kprintln!("[BLE] preinit rc={} (retry com backoff na janela).", rc);
         } else {
@@ -247,7 +247,7 @@ pub fn run_authenticator() {
     // Phase8 UX-conex: PairingManager orfao agora alimentado no loop (hold 5s vence TOTP 2s).
     let mut pairing_mgr = crate::pairing::PairingManager::new();
     // Etapa B (BLE NimBLE real): servidor GATT 0xFFFD + estado do radio.
-    let mut ble_server = crate::ble_gatt::BleGattServer::new();
+    let mut ble_server = crate::ble::gatt_core::BleGattServer::new();
     let mut ble_adv_active = false;
     let mut ble_bond_pending = false;
     // Wave2 proximidade (feature proximity): beacon rolling-code 0xFFFE.
@@ -273,8 +273,8 @@ pub fn run_authenticator() {
     // F5: gate de tentativas do BLE start (backoff 5s, 3 por borda).
     // Sem isso, um `nimble_port_init` falho repetia a CADA poll, vazava
     // heap do controlador até `Malloc failed` e panic (Interrupt WDT).
-    let mut ble_start_gate = crate::ble_nimble::BleStartGate::new();
-    let mut ble_rx = [0u8; crate::ble_nimble::BLE_RX_FRAGMENT_MAX];
+    let mut ble_start_gate = crate::ble::nimble_backend::BleStartGate::new();
+    let mut ble_rx = [0u8; crate::ble::nimble_backend::BLE_RX_FRAGMENT_MAX];
     // Borda da janela de pareamento p/ o fw-log (0x38).
     let mut pairing_open_prev = false;
     // B2 feedback do hold fisico: borda do Arming + progresso por segundo +
@@ -283,9 +283,9 @@ pub fn run_authenticator() {
     let mut pairing_arming_prev = false;
     let mut pairing_arming_sec: u64 = 0;
     // Phase8 UX-conex: mDNS+station so fora de pareamento, com fallback AP.
-    let mut wifi_ap_mgr = crate::wifi_ap::WifiApManager::new();
-    let mut mdns_mgr = crate::mdns::MdnsManager::new();
-    let mut sta_mgr = crate::wifi_station::WifiStationManager::new();
+    let mut wifi_ap_mgr = crate::net::ap_core::WifiApManager::new();
+    let mut mdns_mgr = crate::net::mdns::MdnsManager::new();
+    let mut sta_mgr = crate::net::station::WifiStationManager::new();
     // Etapa B (WiFi real): espelhos do radio p/ edge-trigger + backoff.
     let mut wifi_ap_active = false;
     // Backoff do AP start: sem isso, uma falha (ex. radio com BLE) repete
@@ -309,9 +309,11 @@ pub fn run_authenticator() {
     // Diagnostic text-line buffer (TEST_LIFETIME_DUMP with test-mode).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     let mut serial_line: Vec<u8> = Vec::new();
-    // Latch de cor solida p/ diagnostico LED (TEST_LED_*, test-mode only).
+    // Latch de cor solida p/ diagnostico LED (TEST_LED_*, test-mode only):
+    // (efeito, expira_ms). Reaplicado só no idle livre (ver seção D1b);
+    // expira em `TEST_LED_HOLD_TIMEOUT_MS` (sem residual entre sessões).
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
-    let mut led_test_hold: Option<crate::led::LedEffect> = None;
+    let mut led_test_hold: Option<(crate::led::LedEffect, u64)> = None;
     // UP por software (TEST_UP, test-mode only): injeta UM toque BOOT.
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     let mut test_up_latch = false;
@@ -413,7 +415,7 @@ pub fn run_authenticator() {
                 // Start sem heap -> OOM/abort).
                 wifi_ap_mgr.shutdown_after_config();
                 if wifi_ap_active {
-                    let _ = crate::wifi_ap::esp_ap_stop();
+                    let _ = crate::net::ap_core::esp_ap_stop();
                     wifi_ap_active = false;
                     kprintln!("[WIFI] AP off (pairing fechado).");
                 }
@@ -450,7 +452,7 @@ pub fn run_authenticator() {
         }
         // Exclusao mutua de radio (OOM BT+WiFi): BLE anuncia SOMENTE em
         // PairingBle; WiFi (AP/station/mDNS) fica desligado nesse estado.
-        let ble_pairing_now = crate::ble_nimble::should_advertise(&pairing_mgr, now_ms);
+        let ble_pairing_now = crate::ble::nimble_backend::should_advertise(&pairing_mgr, now_ms);
         // Binding + recovery: fiação transporte GATT/main (tick todo poll; USB intacto).
         binding_mgr.tick(now_ms);
         let _ = binding_mgr.is_claimed();
@@ -465,12 +467,12 @@ pub fn run_authenticator() {
         if !ap_want {
             wifi_ap_fails = 0;
         }
-        // Decisao edge-triggered (wifi_ap::ap_poll_action): cada acao
+        // Decisao edge-triggered (net::ap_core::ap_poll_action): cada acao
         // executa no maximo uma vez por transicao. O `else` anterior
         // chamava esp_ap_stop() a CADA poll com BLE pareando (spam de
         // close/wifi-ap no log e churn no radio durante o bonding).
-        match crate::wifi_ap::ap_poll_action(ap_want, ble_pairing_now, wifi_ap_active) {
-            crate::wifi_ap::ApPollAction::Start => {
+        match crate::net::ap_core::ap_poll_action(ap_want, ble_pairing_now, wifi_ap_active) {
+            crate::net::ap_core::ApPollAction::Start => {
                 if wifi_ap_fails >= 3 {
                     // Desistiu ate a proxima borda: sem spam, sem churn.
                 } else if now_ms.saturating_sub(wifi_ap_last_try_ms) < 5000
@@ -488,31 +490,32 @@ pub fn run_authenticator() {
                     };
                     #[cfg(not(target_os = "espidf"))]
                     let largest: usize = usize::MAX;
-                    if !crate::wifi_ap::wifi_ap_start_allowed(largest) {
+                    if !crate::net::ap_core::wifi_ap_start_allowed(largest) {
                         wifi_ap_last_try_ms = now_ms;
                         kprintln!("[WIFI] AP skip (heap curto).");
                     } else {
                         wifi_ap_last_try_ms = now_ms;
-                        let ssid = crate::wifi_ap::ap_ssid_for_serial(
+                        let ssid = crate::net::ap_core::ap_ssid_for_serial(
                             usb_descriptors::SERIAL_NUMBER_STRING,
                         );
                         let pass_bytes = storage
-                            .load(crate::wifi_ap::WIFI_PASS_NVS_KEY)
+                            .load(crate::net::password_policy::WIFI_PASS_NVS_KEY)
                             .unwrap_or_default();
-                        let pass_opt =
-                            crate::wifi_ap::resolve_ap_password(if pass_bytes.is_empty() {
+                        let pass_opt = crate::net::password_policy::resolve_ap_password(
+                            if pass_bytes.is_empty() {
                                 None
                             } else {
                                 Some(&pass_bytes)
-                            });
+                            },
+                        );
                         let pass_str = pass_opt.unwrap_or_default();
                         // Nunca loga a senha.
-                        let rc = crate::wifi_ap::esp_ap_start(&ssid, &pass_str);
+                        let rc = crate::net::ap_core::esp_ap_start(&ssid, &pass_str);
                         if rc == 0 {
                             wifi_ap_active = true;
                             wifi_ap_fails = 0;
                             kprintln!("[WIFI] AP '{}' on (pareamento).", ssid);
-                        } else if rc == crate::wifi_ap::WIFI_AP_RC_NO_MEM {
+                        } else if rc == crate::net::ap_core::WIFI_AP_RC_NO_MEM {
                             // NO_MEM terminal ate nova borda, sem retry.
                             wifi_ap_fails = 3;
                             kprintln!("[WIFI] AP start rc=-4 NO_MEM (terminal ate nova borda).");
@@ -530,21 +533,21 @@ pub fn run_authenticator() {
                     }
                 }
             }
-            crate::wifi_ap::ApPollAction::Stop => {
-                let _ = crate::wifi_ap::esp_ap_stop();
+            crate::net::ap_core::ApPollAction::Stop => {
+                let _ = crate::net::ap_core::esp_ap_stop();
                 wifi_ap_active = false;
                 kprintln!("[WIFI] AP off.");
             }
-            crate::wifi_ap::ApPollAction::None => {}
+            crate::net::ap_core::ApPollAction::None => {}
         }
         // Station: so fora de pareamento, com credenciais e backoff 60s.
-        let has_creds = crate::wifi_station::has_station_credentials(&storage);
+        let has_creds = crate::net::station::has_station_credentials(&storage);
         sta_mgr.update(pairing_open_now, has_creds, now_ms);
-        let mut sta_radio = crate::wifi_station::esp_sta_state();
-        if sta_radio == crate::wifi_station::STA_CONNECTED {
+        let mut sta_radio = crate::net::station::esp_sta_state();
+        if sta_radio == crate::net::station::STA_CONNECTED {
             if !sta_mgr.is_up() {
                 sta_mgr.on_connected();
-                let ip = crate::wifi_station::esp_sta_ip();
+                let ip = crate::net::station::esp_sta_ip();
                 kprintln!(
                     "[WIFI] station conectada (DHCP {}.{}.{}.{}).",
                     ip[0],
@@ -553,25 +556,25 @@ pub fn run_authenticator() {
                     ip[3]
                 );
             }
-        } else if sta_radio == crate::wifi_station::STA_FAILED {
+        } else if sta_radio == crate::net::station::STA_FAILED {
             sta_mgr.on_failed();
         }
         if matches!(
             sta_mgr.state(),
-            crate::wifi_station::WifiStationState::Connecting { .. }
-        ) && sta_radio == crate::wifi_station::STA_OFF
+            crate::net::station::WifiStationState::Connecting { .. }
+        ) && sta_radio == crate::net::station::STA_OFF
             && !pairing_open_now
             && !ble_pairing_now
-            && crate::wifi_station::sta_retry_due(now_ms, last_sta_attempt_ms)
+            && crate::net::station::sta_retry_due(now_ms, last_sta_attempt_ms)
         {
-            let got = storage.load(crate::wifi_station::WIFI_STA_SSID_NVS_KEY);
-            let got_pass = storage.load(crate::wifi_station::WIFI_STA_PASS_NVS_KEY);
+            let got = storage.load(crate::net::station::WIFI_STA_SSID_NVS_KEY);
+            let got_pass = storage.load(crate::net::station::WIFI_STA_PASS_NVS_KEY);
             match (got, got_pass) {
                 (Ok(ssid_b), Ok(pass_b)) => {
                     match (core::str::from_utf8(&ssid_b), core::str::from_utf8(&pass_b)) {
                         (Ok(ssid), Ok(pass)) => {
                             // Credenciais nunca vao para o log.
-                            let rc = crate::wifi_station::esp_sta_start(ssid, pass);
+                            let rc = crate::net::station::esp_sta_start(ssid, pass);
                             last_sta_attempt_ms = Some(now_ms);
                             if rc != 0 {
                                 kprintln!("[WIFI] station start rc={}.", rc);
@@ -585,24 +588,25 @@ pub fn run_authenticator() {
             }
         }
         if (pairing_open_now || ble_pairing_now || !has_creds)
-            && sta_radio != crate::wifi_station::STA_OFF
+            && sta_radio != crate::net::station::STA_OFF
         {
-            let _ = crate::wifi_station::esp_sta_stop();
+            let _ = crate::net::station::esp_sta_stop();
             sta_mgr.disconnect();
             // Local cache update; refreshed via esp_sta_state() below. Retained for readability (no behavior change).
             #[allow(unused_assignments)]
             {
-                sta_radio = crate::wifi_station::STA_OFF;
+                sta_radio = crate::net::station::STA_OFF;
             }
         }
         mdns_mgr.update(pairing_open_now || ble_pairing_now, sta_mgr.is_up());
         let mdns_want = mdns_mgr.is_active();
         if mdns_want != mdns_active {
             if mdns_want {
-                let host =
-                    crate::mdns::mdns_hostname_for_serial(usb_descriptors::SERIAL_NUMBER_STRING);
-                let bare = crate::mdns::mdns_bare_hostname(&host);
-                let rc = crate::mdns::esp_mdns_start(bare);
+                let host = crate::net::mdns::mdns_hostname_for_serial(
+                    usb_descriptors::SERIAL_NUMBER_STRING,
+                );
+                let bare = crate::net::mdns::mdns_bare_hostname(&host);
+                let rc = crate::net::mdns::esp_mdns_start(bare);
                 if rc == 0 {
                     mdns_active = true;
                     kprintln!("[WIFI] mDNS '{}' on.", host);
@@ -610,16 +614,16 @@ pub fn run_authenticator() {
                     kprintln!("[WIFI] mDNS start rc={}.", rc);
                 }
             } else {
-                let _ = crate::mdns::esp_mdns_stop();
+                let _ = crate::net::mdns::esp_mdns_stop();
                 mdns_active = false;
             }
         }
         // Bateria: radio totalmente off fora de uso (nem AP, nem station).
         // Rele apos start/stop deste poll (evita off imediato).
-        sta_radio = crate::wifi_station::esp_sta_state();
-        let radio_in_use = wifi_ap_active || sta_radio != crate::wifi_station::STA_OFF;
+        sta_radio = crate::net::station::esp_sta_state();
+        let radio_in_use = wifi_ap_active || sta_radio != crate::net::station::STA_OFF;
         if !radio_in_use && wifi_radio_on {
-            let _ = crate::wifi_ap::esp_wifi_off();
+            let _ = crate::net::ap_core::esp_wifi_off();
             wifi_radio_on = false;
             kprintln!("[WIFI] radio off (bateria).");
         } else if radio_in_use {
@@ -632,18 +636,26 @@ pub fn run_authenticator() {
         // vez de chamar `esp_ble_start → nimble_port_init` (LoadProhibited).
         // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.
         let trusted = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
-        let ble_want_adv = crate::ble_nimble::should_advertise(&pairing_mgr, now_ms)
+        let ble_want_adv = crate::ble::nimble_backend::should_advertise(&pairing_mgr, now_ms)
             || (ble_preinit_ok
-                && crate::ble_nimble::should_advertise_reconnect(pairing_mgr.state(), trusted));
+                && crate::ble::nimble_backend::should_advertise_reconnect(
+                    pairing_mgr.state(),
+                    trusted,
+                ));
         if ble_want_adv != ble_adv_active {
             if ble_want_adv {
                 let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
                 // Gate: borda tenta já; falha entra em backoff 5s e desiste
                 // após 3 (nunca martela `nimble_port_init` — vaza heap e
                 // derruba o controlador em panic).
-                if crate::ble_nimble::BleStartGate::allow(&mut ble_start_gate, true, now_ms) {
-                    let rc = crate::ble_nimble::esp_ble_start(pairing_open_now, wifi_active);
-                    if rc == crate::ble_nimble::BLE_ADV_RC_NOMEM {
+                if crate::ble::nimble_backend::BleStartGate::allow(
+                    &mut ble_start_gate,
+                    true,
+                    now_ms,
+                ) {
+                    let rc =
+                        crate::ble::nimble_backend::esp_ble_start(pairing_open_now, wifi_active);
+                    if rc == crate::ble::nimble_backend::BLE_ADV_RC_NOMEM {
                         // 519 residual: registra e NAO consome retry.
                         ble_start_gate.on_nomem();
                         fw_log.record(crate::fw_log::EV_ADV_NOMEM, 0, now_ms);
@@ -659,7 +671,7 @@ pub fn run_authenticator() {
                     }
                 }
             } else {
-                let _ = crate::ble_nimble::esp_ble_stop();
+                let _ = crate::ble::nimble_backend::esp_ble_stop();
                 ble_adv_active = false;
                 ble_bond_pending = false;
                 // Janela fechou: o gate zera na próxima borda.
@@ -673,7 +685,7 @@ pub fn run_authenticator() {
         // aceitar beacon nunca destrava (unlock exige presenca + PIN).
         #[cfg(feature = "proximity")]
         {
-            use crate::ble_nimble as prox_ble;
+            use crate::ble::nimble_backend as prox_ble;
             use crate::proximity as prox_mod;
             let bonded = pairing_mgr.is_bonded();
             let trusted = bonded || binding_mgr.is_claimed();
@@ -763,7 +775,7 @@ pub fn run_authenticator() {
         }
         // Etapa B: bomba BLE (eventos GAP + fragmentos FFF1). USB intacto.
         {
-            use crate::ble_nimble as ble;
+            use crate::ble::nimble_backend as ble;
             match ble::esp_ble_poll_event() {
                 e if e == ble::BLE_EVT_SECURED => {
                     match ble::on_link_secured(&mut pairing_mgr, touch_latched, now_ms) {
@@ -886,6 +898,20 @@ pub fn run_authenticator() {
                         let bonded = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
                         #[cfg(feature = "proximity")]
                         let prox_revoked_op = msg.opcode;
+                        // OTA sobre BLE (0x30-0x32/0x34; 0x33 nega 0x04
+                        // USB-only): mesma sessão do serial/USB; fora do
+                        // build com OTA (classic/host), sem execução.
+                        #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
+                        let ota_ble_session = Some(crate::ble::dispatch_bind::BleOtaSession {
+                            state: &mut ota_state,
+                            provisioned: ota_provisioned(&efuse_mgr),
+                            ota_pubkey: ota_active_pubkey(),
+                            current_version: FIRMWARE_VERSION,
+                        });
+                        #[cfg(any(not(target_os = "espidf"), feature = "board-ttgo-classic"))]
+                        let ota_ble_session: Option<
+                            crate::ble::dispatch_bind::BleOtaSession<'_>,
+                        > = None;
                         ble_dispatch::ble_dispatch_complete(
                             msg,
                             up,
@@ -901,13 +927,14 @@ pub fn run_authenticator() {
                             &mut fw_log,
                             &mut key_mgr,
                             &mut oath_applet,
+                            ota_ble_session,
                         );
                         // Wave2 proximidade: release/recovery apagou a NVS
                         // no dispatch (so no Ok); espelha no cache RAM.
                         #[cfg(feature = "proximity")]
                         {
-                            let revoked = prox_revoked_op == crate::ble_gatt::OP_BIND_RELEASE
-                                || prox_revoked_op == crate::ble_gatt::OP_RECOVERY_UNLOCK;
+                            let revoked = prox_revoked_op == crate::ble::gatt_core::OP_BIND_RELEASE
+                                || prox_revoked_op == crate::ble::gatt_core::OP_RECOVERY_UNLOCK;
                             if revoked && crate::proximity::load_proximity_key(&storage).is_err() {
                                 prox_key = [0u8; 16];
                                 prox_key_present = false;
@@ -1423,6 +1450,26 @@ pub fn run_authenticator() {
                                         &mut rng,
                                     );
 
+                                    // CTAP Reset ok (`0x07` in-window + UP → `0x00`):
+                                    // wipe total NVS + espelhos RAM (o engine core
+                                    // já zerou PIN/blobs/store residentes).
+                                    if msg.payload.first() == Some(&CTAP_CMD_RESET)
+                                        && ctap_res.first() == Some(&0x00)
+                                    {
+                                        crate::vendor_exec::ctap_reset_wipe(
+                                            &mut storage,
+                                            &mut binding_mgr,
+                                            &key_mgr,
+                                            &oath_applet,
+                                        );
+                                        key_mgr =
+                                            aegis_fido_core::credential::key_manager::KeyManager::new(
+                                            );
+                                        oath_applet = aegis_fido_core::oath::OathApplet::new();
+                                        wallet_store = aegis_fido_core::wallet::WalletStore::new();
+                                        kprintln!("[RESET] wipe total pos-0x00 (USB).");
+                                    }
+
                                     // F3: ClientPIN (0x06) mudou estado? Persiste.
                                     if msg.payload.first() == Some(&0x06)
                                         && !crate::vendor_exec::save_pin_state(
@@ -1527,10 +1574,10 @@ pub fn run_authenticator() {
         // helpers (same binding -> UP -> PIN gates), status-first answer.
         #[cfg(target_os = "espidf")]
         if serial_installed {
-            use crate::ble_gatt::{
+            use crate::ble::dispatch_bind::{
                 is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
-                OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST,
             };
+            use crate::ble::gatt_core::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use crate::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt, dispatch_serial_rescue,
                 is_rescue_msg, serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed,
@@ -1608,25 +1655,36 @@ pub fn run_authenticator() {
                                 led_test_hold = None;
                                 let resp = "led_set released\n";
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
-                            } else if let Some(held) = match t {
-                                "TEST_LED_RED" => Some(LedEffect::Solid(crate::led::Color::RED)),
-                                "TEST_LED_GREEN" => {
-                                    Some(LedEffect::Solid(crate::led::Color::GREEN))
-                                }
-                                "TEST_LED_BLUE" => Some(LedEffect::Solid(crate::led::Color::BLUE)),
-                                "TEST_LED_OFF" => Some(LedEffect::Off),
-                                _ => None,
-                            } {
-                                led_test_hold = Some(held);
-                                if let Some(ref mut led) = display_mgr.led_controller {
-                                    led.set_effect(held);
-                                }
+                            } else if let crate::pairing_led::TestLedLine::Hold(held) =
+                                crate::pairing_led::classify_test_led_line(t)
+                            {
+                                // Cor explícita p/ olhos: arma o latch (a
+                                // aplicação é na seção D1b abaixo, só no idle
+                                // livre e com expiração — sem vazar p/ a
+                                // jornada nem piscar entre escritores).
+                                led_test_hold = Some((
+                                    held,
+                                    now_ms.saturating_add(
+                                        crate::pairing_led::TEST_LED_HOLD_TIMEOUT_MS,
+                                    ),
+                                ));
                                 let resp = format!("led_set {}\n", t);
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_LED_ON" {
+                                // Compat HIL (`test_led_state("ON")`): só ack,
+                                // sem travar cor — sem vazar p/ boot, UP,
+                                // BLE/pairing e sem residual entre sessões.
+                                let resp = "led_set TEST_LED_ON\n";
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
                             } else if let Some(resp) =
                                 dispatch_serial_pairing_line(line, &mut pairing_mgr, now_ms)
                             {
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                                // Fechou a janela: a jornada (Locked) volta a
+                                // mandar; hold esquecido não mascara o estado.
+                                if t == crate::pairing::TEST_PAIRING_CLOSE_CMD {
+                                    led_test_hold = None;
+                                }
                             } else {
                                 let extra = format!(
                                     "uptime_s={} up_latched={}",
@@ -1645,11 +1703,25 @@ pub fn run_authenticator() {
                         serial_line.clear();
                     }
                 }
-                // Reaplica o latch de cor solida todo poll: vence o override
-                // da jornada (B-block) sem altera-lo.
-                if let Some(held) = led_test_hold {
-                    if let Some(ref mut led) = display_mgr.led_controller {
-                        led.set_effect(held);
+                // Reaplica o latch de cor solida só no idle livre (tela
+                // `IdleStandby` + pairing `Idle` + sem bond): a jornada
+                // (pairing > UP > BLE) e as telas próprias (boot, UP,
+                // sucesso, erro, TOTP) vencem o hold — um escritor por vez,
+                // sem flicker. Expirado, libera sozinho (sem residual).
+                if let Some((held, exp)) = led_test_hold {
+                    if now_ms >= exp {
+                        led_test_hold = None;
+                    } else {
+                        let bonded = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+                        let idle_livre =
+                            matches!(display_mgr.current_screen, UiScreen::IdleStandby { .. })
+                                && pairing_mgr.state() == crate::pairing::PairingState::Idle
+                                && !bonded;
+                        if idle_livre {
+                            if let Some(ref mut led) = display_mgr.led_controller {
+                                led.set_effect(held);
+                            }
+                        }
                     }
                 }
             }
@@ -2042,6 +2114,24 @@ pub fn run_authenticator() {
                                         now_secs,
                                         &mut rng,
                                     );
+                                    // CTAP Reset ok (`0x07` in-window + UP → `0x00`):
+                                    // wipe total NVS + espelhos RAM (idem USB acima).
+                                    if msg.payload.first() == Some(&CTAP_CMD_RESET)
+                                        && res.first() == Some(&0x00)
+                                    {
+                                        crate::vendor_exec::ctap_reset_wipe(
+                                            &mut storage,
+                                            &mut binding_mgr,
+                                            &key_mgr,
+                                            &oath_applet,
+                                        );
+                                        key_mgr =
+                                            aegis_fido_core::credential::key_manager::KeyManager::new(
+                                            );
+                                        oath_applet = aegis_fido_core::oath::OathApplet::new();
+                                        wallet_store = aegis_fido_core::wallet::WalletStore::new();
+                                        kprintln!("[RESET] wipe total pos-0x00 (serial).");
+                                    }
                                     // F3: ClientPIN (0x06) mudou estado? Persiste.
                                     if msg.payload.first() == Some(&0x06)
                                         && !crate::vendor_exec::save_pin_state(

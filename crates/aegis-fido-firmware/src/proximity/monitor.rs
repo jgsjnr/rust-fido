@@ -210,7 +210,7 @@ pub fn authorize_proximity_sample(bonded: bool, usb_active: bool) -> bool {
 // Gates (todos exigidos): feature proximity ON em compilacao, bonded, Idle,
 // trusted, usb inativo e K_prox presente (proximity_adv_allowed). Coex
 // USB > WiFi > BLE: USB veta o adv; WiFi ativo so desacelera o intervalo
-// (ver ble_nimble::adv_intervals); BLE nunca bloqueia o USB. Lock-only:
+// (ver ble::nimble_backend::adv_intervals); BLE nunca bloqueia o USB. Lock-only:
 // aceitar um beacon nunca destrava (unlock exige presenca fisica + PIN,
 // ver ProximityMonitor::unlock); beacon e RSSI so sinalizam ausencia.
 // ---------------------------------------------------------------------------
@@ -422,9 +422,9 @@ impl Default for ProximityVerifier {
     }
 }
 
-/// fob_short_id = MAC BLE público real via `ble_nimble::own_addr()`; `None` com stack down => sem adv (fail-closed, mesma semântica de `proximity_adv_allowed`).
+/// fob_short_id = MAC BLE público real via `ble::nimble_backend::own_addr()`; `None` com stack down => sem adv (fail-closed, mesma semântica de `proximity_adv_allowed`).
 pub fn beacon_fob_id() -> Option<[u8; PROXIMITY_FOB_ID_LEN]> {
-    crate::ble_nimble::own_addr()
+    crate::ble::nimble_backend::own_addr()
 }
 
 /// Gate do anuncio de presenca (todos exigidos; ordem: bond, estado, trust, coex, chave).

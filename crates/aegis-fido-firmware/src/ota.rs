@@ -417,6 +417,54 @@ impl OtaProvider for OtaState {
     }
 }
 
+/// Reborrow-forwarding: dispatchers que guardam `&mut P` (ex. num ctx) ainda
+/// dirigem a sessão sem movê-la (delegação pura, sem comportamento novo).
+impl<P: OtaProvider> OtaProvider for &mut P {
+    fn begin(&mut self, raw_manifest: &[u8], provisioned: bool) -> Result<(), OtaError> {
+        (*self).begin(raw_manifest, provisioned)
+    }
+
+    fn stage_chunk<S: OtaSink>(
+        &mut self,
+        offset: usize,
+        data: &[u8],
+        sink: &mut S,
+    ) -> Result<usize, OtaError> {
+        (*self).stage_chunk(offset, data, sink)
+    }
+
+    fn verify_with(&mut self, current_version: u32, sig_valid: bool) -> Result<(), OtaError> {
+        (*self).verify_with(current_version, sig_valid)
+    }
+
+    fn commit<S: OtaSink>(&mut self, sink: &mut S) -> Result<u32, OtaError> {
+        (*self).commit(sink)
+    }
+
+    fn rollback(&mut self) {
+        (*self).rollback()
+    }
+
+    fn phase(&self) -> OtaPhase {
+        (**self).phase()
+    }
+
+    fn received(&self) -> usize {
+        (**self).received()
+    }
+
+    fn committed_version(&self) -> u32 {
+        (**self).committed_version()
+    }
+
+    fn requires_up() -> bool
+    where
+        Self: Sized,
+    {
+        P::requires_up()
+    }
+}
+
 /// Backing store for staged image bytes.
 ///
 /// Step 4 provides the flash/partition sink; [`RamOtaSink`] covers host/tests.

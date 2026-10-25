@@ -699,7 +699,7 @@ mod tests {
         // Emite, verifica, consome.
         let challenge = m.new_challenge(&mut rand_core::OsRng).expect("challenge");
         assert!(m.has_active_challenge());
-        let op = crate::ble_gatt::OP_KEY_LIST;
+        let op = crate::ble::gatt_core::OP_KEY_LIST;
         let ph = payload_hash(b"list-keys");
         let msg = BindingManager::signed_message(&challenge, op, &ph);
         assert_eq!(msg.len(), BIND_SIGNED_MSG_LEN);
@@ -727,7 +727,7 @@ mod tests {
         let (mut m, _sk, _id) = claimed_manager();
         let (sk_evil, _) = other_app_key();
         let challenge = m.new_challenge(&mut rand_core::OsRng).expect("challenge");
-        let op = crate::ble_gatt::OP_KEY_DELETE;
+        let op = crate::ble::gatt_core::OP_KEY_DELETE;
         let ph = payload_hash(b"slot-7");
         let msg = BindingManager::signed_message(&challenge, op, &ph);
         // Chave errada: BadSignature, challenge segue ativo p/ retry legitimo.
@@ -810,7 +810,7 @@ mod tests {
     fn verify_with_pin_follows_binding_up_pin_order() {
         let (mut m, sk, _id) = claimed_manager();
         let challenge = m.new_challenge(&mut rand_core::OsRng).expect("ch");
-        let op = crate::ble_gatt::OP_OATH_PUT;
+        let op = crate::ble::gatt_core::OP_OATH_PUT;
         let ph = payload_hash(b"oath-put");
         let msg = BindingManager::signed_message(&challenge, op, &ph);
         let sig = sign_der(&sk, &msg);
@@ -834,7 +834,7 @@ mod tests {
         m.verify_with_pin(&sig3, &ch3, op, &ph, true, true, true)
             .expect("privilegiada ok");
         let ch4 = m.new_challenge(&mut rand_core::OsRng).expect("ch4");
-        let list_op = crate::ble_gatt::OP_OATH_LIST;
+        let list_op = crate::ble::gatt_core::OP_OATH_LIST;
         let msg4 = BindingManager::signed_message(&ch4, list_op, &ph);
         let sig4 = sign_der(&sk, &msg4);
         m.verify_with_pin(&sig4, &ch4, list_op, &ph, false, true, false)
@@ -849,10 +849,12 @@ mod tests {
     }
     #[test]
     fn ble_vendor_gate_matrix_binding_up_pin() {
-        use crate::ble_gatt::{
-            authorize_vendor_op, is_vendor_keys_oath_op, vendor_op_requires_pin, BleGattError,
-            OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_MSG,
-            OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PING,
+        use crate::ble::dispatch_bind::{
+            authorize_vendor_op, is_vendor_keys_oath_op, vendor_op_requires_pin,
+        };
+        use crate::ble::gatt_core::{
+            BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST,
+            OP_MSG, OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PING,
         };
         // So 0x21/0x23/0x24/0x27 exigem PIN; resto vendor: so UP (+binding).
         assert!(vendor_op_requires_pin(OP_KEY_IMPORT_ENVELOPE));
@@ -866,7 +868,7 @@ mod tests {
         // Split uso/config: USO (LIST/CODE) nunca exige vinculo, so UP.
         // CONFIG (GEN/IMPORT/DELETE/PUT) exige vinculo em release;
         // em test-mode faz bypass com ltrace (so UP+PIN).
-        use crate::ble_gatt::{is_config_op, is_usage_op};
+        use crate::ble::dispatch_bind::{is_config_op, is_usage_op};
         for op in [OP_KEY_LIST, OP_OATH_LIST, OP_OATH_CODE] {
             assert!(is_usage_op(op));
             assert!(!is_config_op(op));
@@ -935,13 +937,14 @@ mod tests {
 
     #[test]
     fn wifi_and_oath_bound_gates_require_binding_first() {
-        use crate::oath_store::{
-            oath_store_delete_bound, oath_store_get_bound, oath_store_put_bound,
-        };
-        use crate::wifi_ap::{change_ap_password_bound, handle_get_oath_code_bound, WifiApError};
-        use crate::wifi_station::{
+        use crate::net::ap_core::{handle_get_oath_code_bound, WifiApError};
+        use crate::net::password_policy::change_ap_password_bound;
+        use crate::net::station::{
             clear_station_credentials_bound, save_station_credentials_bound, WifiStationError,
             WIFI_STA_PASS_NVS_KEY, WIFI_STA_SSID_NVS_KEY,
+        };
+        use crate::oath_store::{
+            oath_store_delete_bound, oath_store_get_bound, oath_store_put_bound,
         };
         use aegis_fido_core::oath::OathAlgorithm;
         let mut st = test_storage();
@@ -955,7 +958,7 @@ mod tests {
                 change_ap_password_bound(&mut st, "nova-senha-123", false, true, true),
                 Err(WifiApError::NeedBinding)
             );
-            assert!(!st.exists(crate::wifi_ap::WIFI_PASS_NVS_KEY));
+            assert!(!st.exists(crate::net::password_policy::WIFI_PASS_NVS_KEY));
         }
         // Com binding, sem PIN: Unauthorized (UP+PIN como antes).
         assert_eq!(
@@ -1057,7 +1060,8 @@ mod tests {
         assert!(binding_bypass_enabled());
         require_bound_config(false).expect("bypass config passa");
         require_bound_usage(false).expect("uso passa");
-        use crate::ble_gatt::{authorize_vendor_op, OP_KEY_DELETE, OP_OATH_PUT};
+        use crate::ble::dispatch_bind::authorize_vendor_op;
+        use crate::ble::gatt_core::{OP_KEY_DELETE, OP_OATH_PUT};
         authorize_vendor_op(OP_KEY_DELETE, false, true, true).expect("bypass delete passa");
         authorize_vendor_op(OP_OATH_PUT, false, true, true).expect("bypass put passa");
     }
@@ -1073,7 +1077,8 @@ mod tests {
             NEED_BINDING_STATUS
         );
         require_bound_usage(false).expect("uso nunca exige vinculo");
-        use crate::ble_gatt::{authorize_vendor_op, BleGattError, OP_KEY_DELETE};
+        use crate::ble::dispatch_bind::authorize_vendor_op;
+        use crate::ble::gatt_core::{BleGattError, OP_KEY_DELETE};
         assert_eq!(
             authorize_vendor_op(OP_KEY_DELETE, false, true, true),
             Err(BleGattError::NeedBinding)
@@ -1083,9 +1088,8 @@ mod tests {
     #[test]
     fn usage_never_requires_binding_in_any_mode() {
         // USO (CODE/LIST) sem vinculo passa em release E teste; so UP.
-        use crate::ble_gatt::{
-            authorize_vendor_op, BleGattError, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_LIST,
-        };
+        use crate::ble::dispatch_bind::authorize_vendor_op;
+        use crate::ble::gatt_core::{BleGattError, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_LIST};
         for op in [OP_OATH_CODE, OP_OATH_LIST, OP_KEY_LIST] {
             require_bound_usage(false).expect("uso passa");
             authorize_vendor_op(op, false, false, true).expect("uso sem vinculo passa");
@@ -1112,10 +1116,10 @@ mod tests {
         assert_eq!(CMD_INIT, 0x86);
         assert_eq!(CMD_CANCEL, 0x91);
         assert_eq!(BROADCAST_CID, 0xFFFF_FFFF);
-        assert_eq!(crate::ble_gatt::GATT_REVISION, 0x01);
-        assert_eq!(crate::ble_gatt::BLE_SERVICE_UUID, 0xFFFD);
-        assert_eq!(crate::ble_gatt::VENDOR_OP_MIN, 0x20);
-        assert_eq!(crate::ble_gatt::VENDOR_OP_MAX, 0x27);
+        assert_eq!(crate::ble::gatt_core::GATT_REVISION, 0x01);
+        assert_eq!(crate::ble::gatt_core::BLE_SERVICE_UUID, 0xFFFD);
+        assert_eq!(crate::ble::gatt_core::VENDOR_OP_MIN, 0x20);
+        assert_eq!(crate::ble::gatt_core::VENDOR_OP_MAX, 0x27);
         // §9.5 golden: 0x00-0x04 preservados, 0x05 e a unica adicao (BLE/WiFi).
         assert_eq!(VENDOR_STATUS_OK, 0x00);
         assert_eq!(VENDOR_STATUS_NEED_UP, 0x01);

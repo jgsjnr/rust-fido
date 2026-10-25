@@ -2,14 +2,12 @@
 //!
 //! Conteudo movido para `net::station` sem mudanca de comportamento.
 //! Testes `mod tests` ficam aqui.
+#[deprecated(note = "Use crate::net::station instead.")]
 pub use crate::net::station::*;
 #[cfg(test)]
-use crate::persistence::SecureStorage;
-
-#[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::persistence::MockFlashBackend;
+    use crate::net::station::*;
+    use crate::persistence::{MockFlashBackend, SecureStorage};
 
     fn test_storage() -> SecureStorage<MockFlashBackend> {
         SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32])

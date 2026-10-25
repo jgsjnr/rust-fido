@@ -2,11 +2,12 @@
 //!
 //! Conteudo movido para `net::mdns` sem mudanca de comportamento.
 //! Testes `mod tests` ficam aqui.
+#[deprecated(note = "Use crate::net::mdns instead.")]
 pub use crate::net::mdns::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::net::mdns::*;
 
     #[test]
     fn hostname_derives_lowercase_suffix() {

@@ -18,8 +18,8 @@
 
 #![cfg(feature = "proximity")]
 
-use aegis_fido_firmware::ble_gatt::PROXIMITY_SERVICE_UUID;
-use aegis_fido_firmware::ble_nimble::{
+use aegis_fido_firmware::ble::gatt_core::PROXIMITY_SERVICE_UUID;
+use aegis_fido_firmware::ble::nimble_backend::{
     encode_proximity_adv_payload, should_adv_proximity, PROXIMITY_ADV_TOTAL_LEN,
 };
 use aegis_fido_firmware::freertos::{
