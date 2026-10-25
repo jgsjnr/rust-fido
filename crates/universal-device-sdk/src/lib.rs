@@ -37,6 +37,7 @@ mod request;
 mod response;
 #[cfg(feature = "secmon")]
 pub mod secmon;
+pub mod secure_guard;
 mod status;
 #[cfg(feature = "test-mode")]
 pub mod test_hooks;
@@ -68,6 +69,23 @@ pub use secmon::{
     ClockState, CoexState, CounterState, DenyReason, LockdownPolicy, PairingWindow, PinSession,
     PolicyContext, PolicyDecision, PolicyGate, PolicyOpClass, PolicyOutcome, SecurityHeartbeat,
     SecurityStatus, StoreIntegrity, TamperEvent, Transport,
+};
+pub use secure_guard::{
+    decode_secure_guard_change_pin_response, decode_secure_guard_config_response,
+    decode_secure_guard_lock_response, decode_secure_guard_provision_response,
+    decode_secure_guard_recover_response, decode_secure_guard_status_response,
+    decode_secure_guard_unlock_response, decode_secure_guard_wipe_response,
+    encode_secure_guard_change_pin_request, encode_secure_guard_config_request,
+    encode_secure_guard_lock_request, encode_secure_guard_provision_request,
+    encode_secure_guard_recover_request, encode_secure_guard_status_request,
+    encode_secure_guard_unlock_request, encode_secure_guard_wipe_request, state_name_from_code,
+    SecureGuardChangePinResultDto, SecureGuardLockResultDto, SecureGuardPolicyDto,
+    SecureGuardProvisionResultDto, SecureGuardRecoverResultDto, SecureGuardStatusDto,
+    SecureGuardUnlockResultDto, SecureGuardWipeResultDto, OP_SECURE_GUARD_CONFIG,
+    OP_SECURE_GUARD_LOCK, OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK,
+    OP_SECURE_GUARD_WIPE_SELECTIVE, STATE_AUTHENTICATING, STATE_ERROR_LOCKED, STATE_LOCKED,
+    STATE_PROVISIONING, STATE_RATE_LIMITED, STATE_RECOVERY_REQUIRED, STATE_UNLOCKED,
+    STATE_UNPROVISIONED, STATE_WIPE_IN_PROGRESS, STATE_WIPE_PENDING,
 };
 pub use status::{
     STATUS_BAD_ENVELOPE, STATUS_NEED_BINDING, STATUS_NEED_PIN, STATUS_NEED_UP, STATUS_NO_SLOT,

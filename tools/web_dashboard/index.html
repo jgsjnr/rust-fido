@@ -675,6 +675,7 @@
       <button class="tab-btn" onclick="switchTab('tab-totp')">⏱️ Autenticador TOTP/HOTP</button>
       <button class="tab-btn" onclick="switchTab('tab-connectivity')">📡 Wi-Fi SoftAP & Bluetooth</button>
       <button class="tab-btn" onclick="switchTab('tab-diagnostics')">⚙️ Cockpit do Hardware & Diagnóstico</button>
+      <button class="tab-btn" onclick="switchTab('tab-secure-guard')">🛡️ Secure Guard (Zero-Trust)</button>
     </div>
 
     <!-- TAB 1: MEU COFRE & CARTEIRAS WEB3 -->
@@ -693,6 +694,17 @@
           <button class="btn-rite" onclick="fetchVault()">🔄 Atualizar Cofre</button>
           <button class="btn-primary" onclick="openCreateModal()">+ Criar Nova Chave / Carteira</button>
         </div>
+      </div>
+
+      <div id="secure-guard-vault-banner" style="display:none; margin-bottom:16px; padding:12px 16px; border-radius:12px; background:rgba(239, 68, 68, 0.15); border:1px solid #ef4444; color:#fca5a5; display:flex; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:24px;">🔒</span>
+          <div>
+            <div style="font-weight:700; color:#fff; font-size:14px;">Cofre Trancado pelo Secure Guard (Zero-Trust)</div>
+            <div style="font-size:12px; color:#fca5a5;">Carteiras cripto e chaves privadas protegidas estão trancadas em hardware. FIDO2 permanece livre (fail-open).</div>
+          </div>
+        </div>
+        <button class="btn-primary" style="background:#ef4444; border-color:#dc2626; padding:6px 14px; font-size:13px;" onclick="switchTab('tab-secure-guard')">Autenticar PIN</button>
       </div>
 
       <div id="vault-cards-container" class="cards-grid">
@@ -1001,6 +1013,155 @@
         <h3 style="font-size:17px; font-weight:800; color:var(--danger);">⚠️ Zona de Perigo — Reset do Cofre</h3>
         <p style="font-size:13px; color:var(--text-muted);">Libera o vínculo criptográfico com este dispositivo (0x2B OP_BIND_RELEASE). Requer toque físico no sensor GPIO 0.</p>
         <button class="btn-rite" style="border-color:var(--danger); color:var(--danger); align-self:flex-start; margin-top:8px;" onclick="confirmResetBinding()">Resetar Vínculo da Chave (0x2B)</button>
+      </div>
+    </section>
+
+    <!-- TAB 5: SECURE GUARD (ZERO-TRUST ON-DEVICE AUTHORITY VAULT) -->
+    <section id="tab-secure-guard" class="tab-pane">
+      <div class="vault-toolbar">
+        <div>
+          <h2 style="font-size:18px; font-weight:800;">🛡️ Secure Guard — Cofre de Autoridade On-Device (Zero-Trust)</h2>
+          <p style="font-size:13px; color:var(--text-muted);">Fail-closed para carteiras e chaves protegidas com fail-open para credenciais FIDO2.</p>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn-rite" onclick="fetchSecureGuardStatus()">🔄 Atualizar Status</button>
+          <button class="btn-primary" style="background:#ef4444; border-color:#dc2626;" onclick="submitSecureGuardLock()">🔒 Bloquear Agora</button>
+        </div>
+      </div>
+
+      <!-- Real-Time Telemetry Bar -->
+      <div class="card" style="margin-bottom:20px; cursor:default; background:var(--surface-card);">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; align-items:center;">
+          <div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:600;">ESTADO DA MÁQUINA (FSM)</div>
+            <div id="sg-state-badge" style="display:inline-block; margin-top:4px; padding:4px 12px; border-radius:var(--radius-pill); font-weight:700; font-size:13px; background:#475569; color:#fff;">Consultando...</div>
+          </div>
+          <div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:600;">TENTATIVAS RESTANTES</div>
+            <div id="sg-attempts-badge" style="font-size:18px; font-weight:800; color:#fff; margin-top:2px;">[ 5 / 5 ]</div>
+          </div>
+          <div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:600;">CONTAGEM REGRESSIVA ATIVA</div>
+            <div id="sg-timer-badge" style="font-size:16px; font-weight:700; color:var(--primary); margin-top:2px;">--</div>
+          </div>
+          <div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:600;">EVENTOS DE AUDITORIA</div>
+            <div id="sg-audit-count" style="font-size:16px; font-weight:700; color:#cbd5e1; margin-top:2px;">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cards-grid">
+        <!-- Card 1: Provisionamento (quando desprovisionado) -->
+        <div id="sg-card-provision" class="card" style="cursor:default;">
+          <h3 style="font-size:16px; font-weight:800; color:#38bdf8;">🔑 Provisionar PIN do Cofre (0x3B)</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Inicializa o cofre de autoridade no silício com PIN de 4 a 16 dígitos e gera um Recovery Code de emergência.</p>
+          <div class="form-group">
+            <label class="form-label">PIN Mestre Seguro (4-16 dígitos)</label>
+            <input type="password" id="sg-prov-pin" class="form-control" placeholder="Digite seu PIN seguro">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Código de Recuperação (opcional, deixe vazio para gerar automaticamente)</label>
+            <input type="text" id="sg-prov-rc" class="form-control" placeholder="Ex: ABCD-EFGH-JKLM-NPQR">
+          </div>
+          <button class="btn-primary" style="margin-top:6px;" onclick="submitSecureGuardProvision()">Provisionar Cofre On-Device</button>
+          
+          <div id="sg-prov-result" style="display:none; margin-top:14px; padding:12px; border-radius:8px; background:rgba(34, 197, 94, 0.15); border:1px solid #22c55e;">
+            <div style="font-weight:700; color:#86efac; font-size:13px;">✅ Provisionamento Concluído!</div>
+            <div style="font-size:12px; color:#fff; margin-top:4px;">Guarde seu Código de Recuperação de Emergência:</div>
+            <div style="margin-top:6px; display:flex; gap:8px; align-items:center;">
+              <code id="sg-prov-rc-display" style="background:#0f172a; padding:6px 10px; border-radius:6px; font-size:14px; color:#38bdf8; font-weight:700; letter-spacing:1px;"></code>
+              <button class="btn-rite" style="padding:4px 8px; font-size:11px;" onclick="navigator.clipboard.writeText(document.getElementById('sg-prov-rc-display').innerText); showToast('Código copiado!');">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Desbloqueio e Bloqueio -->
+        <div id="sg-card-unlock" class="card" style="cursor:default;">
+          <h3 style="font-size:16px; font-weight:800; color:#22c55e;">🔓 Desbloquear Sessão (0x3B)</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Autentica o PIN para liberar transações de carteiras e operações de cofre protegido.</p>
+          <div class="form-group">
+            <label class="form-label">PIN do Cofre</label>
+            <input type="password" id="sg-unlock-pin" class="form-control" placeholder="PIN de autorização">
+          </div>
+          <div style="display:flex; gap:10px; margin-top:8px;">
+            <button class="btn-primary" onclick="submitSecureGuardUnlock()">Desbloquear Cofre</button>
+            <button class="btn-rite" onclick="submitSecureGuardLock()">Bloquear</button>
+          </div>
+          <div id="sg-unlock-error" style="display:none; margin-top:10px; font-size:12px; color:#ef4444; font-weight:600;"></div>
+        </div>
+
+        <!-- Card 3: Alterar PIN -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:16px; font-weight:800;">🔄 Alterar PIN do Cofre</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Troca autenticada de PIN sem perder chaves ou carteiras existentes.</p>
+          <div class="form-group">
+            <label class="form-label">PIN Atual</label>
+            <input type="password" id="sg-chg-current" class="form-control" placeholder="PIN atual">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Novo PIN</label>
+            <input type="password" id="sg-chg-new" class="form-control" placeholder="Novo PIN (4-16 dígitos)">
+          </div>
+          <button class="btn-rite" style="margin-top:6px;" onclick="submitSecureGuardChangePin()">Confirmar Novo PIN</button>
+        </div>
+
+        <!-- Card 4: Recuperação de Emergência -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:16px; font-weight:800; color:#f59e0b;">🚑 Recuperação de Emergência</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Restaura o cofre caso o PIN seja esquecido ou se o limite de 5 tentativas for excedido.</p>
+          <div class="form-group">
+            <label class="form-label">Código de Recuperação (16 caracteres)</label>
+            <input type="text" id="sg-rec-code" class="form-control" placeholder="XXXX-XXXX-XXXX-XXXX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Novo PIN para o Cofre</label>
+            <input type="password" id="sg-rec-newpin" class="form-control" placeholder="Novo PIN seguro">
+          </div>
+          <button class="btn-rite" style="border-color:#f59e0b; color:#f59e0b; margin-top:6px;" onclick="submitSecureGuardRecover()">Recuperar e Definir Novo PIN</button>
+        </div>
+
+        <!-- Card 5: Configuração de Políticas -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:16px; font-weight:800;">⚙️ Políticas de Proteção (0x3D)</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Ajuste autenticado de regras do Secure Guard gravadas na NVS protegida.</p>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" id="sg-pol-wipe-5"> Wipe Automático em 5 falhas seguidas (vs Recuperação)
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" id="sg-pol-prot-keys" checked> Proteger Chaves Privadas e Envelopes AEGN
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" id="sg-pol-prot-oath"> Proteger Contas OATH (TOTP / HOTP)
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" id="sg-pol-test-mode"> Modo de Teste Não-Destrutivo (Wipe Simulado)
+            </label>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;">
+            <div class="form-group">
+              <label class="form-label">Duração Sessão (seg)</label>
+              <input type="number" id="sg-pol-sess-sec" class="form-control" value="300">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Inatividade (seg)</label>
+              <input type="number" id="sg-pol-inact-sec" class="form-control" value="120">
+            </div>
+          </div>
+          <button class="btn-primary" style="margin-top:8px;" onclick="submitSecureGuardPolicy()">Salvar Políticas</button>
+        </div>
+
+        <!-- Card 6: Wipe Seletivo de Teste -->
+        <div class="card" style="cursor:default; border-color:#ef4444;">
+          <h3 style="font-size:16px; font-weight:800; color:#ef4444;">🔥 Wipe Seletivo de Recursos (0x3E)</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Limpa com segurança o cofre de autoridade. Se o modo de teste estiver ativo, o wipe é simulado.</p>
+          <div class="form-group">
+            <label class="form-label">Token de Confirmação Exato</label>
+            <input type="text" id="sg-wipe-token" class="form-control" placeholder="CONFIRM_WIPE_AEGIS_GUARD">
+          </div>
+          <button class="btn-rite" style="border-color:#ef4444; color:#ef4444; margin-top:6px;" onclick="submitSecureGuardWipe()">Executar Wipe Seletivo</button>
+        </div>
       </div>
     </section>
   </main>
@@ -1995,10 +2156,284 @@
     window.addEventListener('DOMContentLoaded', () => {
       pollStatus();
       fetchVault();
+      fetchSecureGuardStatus();
       pollInterval = setInterval(() => {
         pollStatus();
         if (document.getElementById('tab-totp').classList.contains('active')) fetchTotp();
       }, 2500);
+
+    // SECURE GUARD ZERO-TRUST JAVASCRIPT HANDLERS
+    let sgStatusData = null;
+    let sgTimerInterval = null;
+
+    async function fetchSecureGuardStatus() {
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/status');
+        const data = await res.json();
+        if (data.ok) {
+          sgStatusData = data;
+          renderSecureGuardStatus(data);
+        }
+      } catch (e) {
+        console.warn('Erro ao consultar status do Secure Guard:', e);
+      }
+    }
+
+    function renderSecureGuardStatus(data) {
+      const stateBadge = document.getElementById('sg-state-badge');
+      const attemptsBadge = document.getElementById('sg-attempts-badge');
+      const timerBadge = document.getElementById('sg-timer-badge');
+      const auditCount = document.getElementById('sg-audit-count');
+      const vaultBanner = document.getElementById('secure-guard-vault-banner');
+
+      if (!stateBadge) return;
+
+      const stateColors = {
+        'Unprovisioned': { bg: '#64748b', text: '#fff' },
+        'Provisioning': { bg: '#0284c7', text: '#fff' },
+        'Locked': { bg: '#dc2626', text: '#fff' },
+        'Authenticating': { bg: '#eab308', text: '#000' },
+        'Unlocked': { bg: '#16a34a', text: '#fff' },
+        'RecoveryRequired': { bg: '#ea580c', text: '#fff' },
+        'RateLimited': { bg: '#d97706', text: '#fff' },
+        'WipePending': { bg: '#991b1b', text: '#fff' },
+        'WipeInProgress': { bg: '#7f1d1d', text: '#fff' },
+        'ErrorLocked': { bg: '#450a0a', text: '#fff' },
+      };
+
+      const c = stateColors[data.state_name] || { bg: '#475569', text: '#fff' };
+      stateBadge.style.background = c.bg;
+      stateBadge.style.color = c.text;
+      stateBadge.innerText = data.state_name.toUpperCase();
+
+      attemptsBadge.innerText = `[ ${data.remaining_attempts} / ${data.max_attempts} ]`;
+      if (data.remaining_attempts <= 2) {
+        attemptsBadge.style.color = '#ef4444';
+      } else {
+        attemptsBadge.style.color = '#fff';
+      }
+
+      auditCount.innerText = data.audit_count || 0;
+
+      // Update timer badge
+      if (data.state_name === 'Unlocked') {
+        const remSec = Math.round(data.session_remaining_ms / 1000);
+        timerBadge.innerText = `Sessão: ${remSec}s`;
+        timerBadge.style.color = '#22c55e';
+      } else if (data.state_name === 'RateLimited') {
+        const remSec = Math.round(data.rate_limit_remaining_ms / 1000);
+        timerBadge.innerText = `Penalidade: ${remSec}s`;
+        timerBadge.style.color = '#f59e0b';
+      } else {
+        timerBadge.innerText = '--';
+        timerBadge.style.color = 'var(--text-muted)';
+      }
+
+      // Vault Warning Banner
+      if (vaultBanner) {
+        if (!data.unlocked) {
+          vaultBanner.style.display = 'flex';
+        } else {
+          vaultBanner.style.display = 'none';
+        }
+      }
+
+      // Policy checkboxes update
+      document.getElementById('sg-pol-wipe-5').checked = Boolean(data.wipe_on_5_failures);
+      document.getElementById('sg-pol-prot-keys').checked = Boolean(data.protect_keys_and_aegn);
+      document.getElementById('sg-pol-prot-oath').checked = Boolean(data.protect_oath);
+      document.getElementById('sg-pol-test-mode').checked = Boolean(data.test_mode_non_destructive_wipe);
+      document.getElementById('sg-pol-sess-sec').value = Math.round(data.session_duration_ms / 1000);
+      document.getElementById('sg-pol-inact-sec').value = Math.round(data.inactivity_timeout_ms / 1000);
+    }
+
+    async function submitSecureGuardProvision() {
+      const pin = document.getElementById('sg-prov-pin').value;
+      const rc = document.getElementById('sg-prov-rc').value.trim();
+      if (!pin || pin.length < 4) {
+        showToast('PIN deve conter no mínimo 4 caracteres', '⚠️');
+        return;
+      }
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/provision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: pin, recovery_code: rc || undefined })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('🛡️ Secure Guard provisionado com sucesso!', '✅');
+          document.getElementById('sg-prov-pin').value = '';
+          document.getElementById('sg-prov-rc').value = '';
+          document.getElementById('sg-prov-result').style.display = 'block';
+          document.getElementById('sg-prov-rc-display').innerText = data.recovery_code;
+          fetchSecureGuardStatus();
+          fetchVault();
+        } else {
+          showToast('Falha no provisionamento: ' + (data.error || 'Erro'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro de conexão: ' + e.message, '❌');
+      }
+    }
+
+    async function submitSecureGuardUnlock() {
+      const pin = document.getElementById('sg-unlock-pin').value;
+      const errEl = document.getElementById('sg-unlock-error');
+      errEl.style.display = 'none';
+      if (!pin) {
+        showToast('Informe o PIN', '⚠️');
+        return;
+      }
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/unlock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: pin })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('🔓 Cofre Secure Guard desbloqueado!', '✅');
+          document.getElementById('sg-unlock-pin').value = '';
+          fetchSecureGuardStatus();
+          fetchVault();
+        } else {
+          errEl.style.display = 'block';
+          errEl.innerText = data.error || 'PIN inválido';
+          showToast('Falha no desbloqueio: ' + (data.error || 'PIN incorreto'), '❌');
+          fetchSecureGuardStatus();
+        }
+      } catch (e) {
+        showToast('Erro de conexão: ' + e.message, '❌');
+      }
+    }
+
+    async function submitSecureGuardLock() {
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/lock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('🔒 Cofre Secure Guard trancado imediatamente!', '🛡️');
+          fetchSecureGuardStatus();
+          fetchVault();
+        }
+      } catch (e) {
+        showToast('Erro ao trancar cofre: ' + e.message, '❌');
+      }
+    }
+
+    async function submitSecureGuardChangePin() {
+      const curr = document.getElementById('sg-chg-current').value;
+      const next = document.getElementById('sg-chg-new').value;
+      if (!curr || !next || next.length < 4) {
+        showToast('Informe o PIN atual e o novo PIN (min 4 dígitos)', '⚠️');
+        return;
+      }
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/change-pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_pin: curr, new_pin: next })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('PIN alterado com sucesso! Cofre trancado por segurança.', '✅');
+          document.getElementById('sg-chg-current').value = '';
+          document.getElementById('sg-chg-new').value = '';
+          fetchSecureGuardStatus();
+        } else {
+          showToast('Falha na alteração do PIN: ' + (data.error || 'Erro'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
+
+    async function submitSecureGuardRecover() {
+      const rc = document.getElementById('sg-rec-code').value.trim();
+      const newPin = document.getElementById('sg-rec-newpin').value;
+      if (!rc || !newPin || newPin.length < 4) {
+        showToast('Informe o código de recuperação e o novo PIN', '⚠️');
+        return;
+      }
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/recover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recovery_code: rc, new_pin: newPin })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('🚑 Recuperação efetuada com sucesso!', '✅');
+          document.getElementById('sg-rec-code').value = '';
+          document.getElementById('sg-rec-newpin').value = '';
+          if (data.new_recovery_code) {
+            alert('Novo código de recuperação gerado:\n\n' + data.new_recovery_code + '\n\nGuarde-o em local seguro!');
+          }
+          fetchSecureGuardStatus();
+        } else {
+          showToast('Falha na recuperação: ' + (data.error || 'Código inválido'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
+
+    async function submitSecureGuardPolicy() {
+      const policy = {
+        wipe_on_5_failures: document.getElementById('sg-pol-wipe-5').checked,
+        protect_keys_and_aegn: document.getElementById('sg-pol-prot-keys').checked,
+        protect_oath: document.getElementById('sg-pol-prot-oath').checked,
+        test_mode_non_destructive_wipe: document.getElementById('sg-pol-test-mode').checked,
+        session_duration_ms: parseInt(document.getElementById('sg-pol-sess-sec').value || 300) * 1000,
+        inactivity_timeout_ms: parseInt(document.getElementById('sg-pol-inact-sec').value || 120) * 1000,
+      };
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(policy)
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Políticas do Secure Guard atualizadas!', '✅');
+          fetchSecureGuardStatus();
+        }
+      } catch (e) {
+        showToast('Erro ao atualizar políticas: ' + e.message, '❌');
+      }
+    }
+
+    async function submitSecureGuardWipe() {
+      const token = document.getElementById('sg-wipe-token').value.trim();
+      if (token !== 'CONFIRM_WIPE_AEGIS_GUARD') {
+        showToast('Digite o token CONFIRM_WIPE_AEGIS_GUARD para confirmar', '⚠️');
+        return;
+      }
+      if (!confirm('Atenção: deseja realmente acionar o Wipe Seletivo do cofre?')) return;
+      try {
+        const res = await fetch(bridgeBase + '/api/secure-guard/wipe-selective', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: 0, confirmation: token })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast(data.simulated ? 'Simulação de wipe concluída!' : 'Wipe seletivo executado!', '🔥');
+          document.getElementById('sg-wipe-token').value = '';
+          fetchSecureGuardStatus();
+          fetchVault();
+        } else {
+          showToast('Falha no wipe: ' + (data.error || 'Erro'), '❌');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, '❌');
+      }
+    }
 
       // Populate saved nets
       const netsContainer = document.getElementById('wifi-saved-nets');

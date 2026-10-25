@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 aegis-fido-core = { path = "../aegis-fido-core" }
+universal-device-sdk = { path = "../universal-device-sdk" }
 uniffi = { version = "0.28", features = ["build"] }
 zeroize = { workspace = true }
 

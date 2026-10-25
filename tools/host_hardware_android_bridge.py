@@ -398,6 +398,23 @@ class HardwareBridgeManager:
                 0x39,  # PIV_ENROLL
             }
 
+            # Fail-closed zero-trust wallet barrier
+            if opcode in (0x35, 0x36, 0x37) and "SECURE_GUARD_ENGINE" in globals() and SECURE_GUARD_ENGINE.is_wallet_blocked():
+                print(f"[bridge] Opcode 0x{opcode:02X} bloqueado: Secure Guard cofre trancado (PIN necessário)")
+                return 0x36, b""  # CTAP2_ERR_PIN_REQUIRED
+
+            # Handle 0x3A..0x3E (Secure Guard Zero-Trust Cofre)
+            if opcode in (0x3A, 0x3B, 0x3C, 0x3D, 0x3E):
+                try:
+                    status, resp_payload = self.session._exchange(CMD_MSG, bytes([opcode]) + payload, op=f"secure_guard_0x{opcode:02x}", timeout_s=4.0)
+                    if status == 0x00 and resp_payload:
+                        return status, resp_payload
+                except Exception:
+                    pass
+                if "SECURE_GUARD_ENGINE" in globals():
+                    return SECURE_GUARD_ENGINE.handle_vendor(opcode, payload)
+                return 0x00, b""
+
             if opcode in WRITE_OPS:
                 # Arm pairing window and latch user presence automatically on test-mode firmware
                 self._pairing_open_internal()
@@ -646,6 +663,562 @@ class ProximityEngine:
             }
 
 PROXIMITY_ENGINE = ProximityEngine()
+
+
+# ==============================================================================
+# MINI CBOR CODEC (RFC 7049 PURE-PYTHON IMPLEMENTATION)
+# ==============================================================================
+def cbor_encode(obj):
+    """Encodes Python primitives (bool, int, bytes, str, dict, list) to canonical CBOR bytes."""
+    if isinstance(obj, bool):
+        return b"\xf5" if obj else b"\xf4"
+    elif obj is None:
+        return b"\xf6"
+    elif isinstance(obj, int):
+        if obj >= 0:
+            if obj < 24:
+                return bytes([obj])
+            elif obj < 256:
+                return bytes([0x18, obj])
+            elif obj < 65536:
+                return bytes([0x19, (obj >> 8) & 0xFF, obj & 0xFF])
+            elif obj < 4294967296:
+                return bytes([0x1A, (obj >> 24) & 0xFF, (obj >> 16) & 0xFF, (obj >> 8) & 0xFF, obj & 0xFF])
+            else:
+                return bytes([0x1B]) + obj.to_bytes(8, "big")
+        else:
+            v = -1 - obj
+            if v < 24:
+                return bytes([0x20 + v])
+            elif v < 256:
+                return bytes([0x38, v])
+            else:
+                return bytes([0x39, (v >> 8) & 0xFF, v & 0xFF])
+    elif isinstance(obj, (bytes, bytearray)):
+        l = len(obj)
+        if l < 24:
+            return bytes([0x40 + l]) + bytes(obj)
+        elif l < 256:
+            return bytes([0x58, l]) + bytes(obj)
+        else:
+            return bytes([0x59, (l >> 8) & 0xFF, l & 0xFF]) + bytes(obj)
+    elif isinstance(obj, str):
+        b = obj.encode("utf-8")
+        l = len(b)
+        if l < 24:
+            return bytes([0x60 + l]) + b
+        elif l < 256:
+            return bytes([0x78, l]) + b
+        else:
+            return bytes([0x79, (l >> 8) & 0xFF, l & 0xFF]) + b
+    elif isinstance(obj, dict):
+        l = len(obj)
+        if l < 24:
+            header = bytes([0xA0 + l])
+        elif l < 256:
+            header = bytes([0xB8, l])
+        else:
+            header = bytes([0xB9, (l >> 8) & 0xFF, l & 0xFF])
+        parts = [header]
+        for k, v in obj.items():
+            parts.append(cbor_encode(k))
+            parts.append(cbor_encode(v))
+        return b"".join(parts)
+    elif isinstance(obj, (list, tuple)):
+        l = len(obj)
+        if l < 24:
+            header = bytes([0x80 + l])
+        elif l < 256:
+            header = bytes([0x98, l])
+        else:
+            header = bytes([0x99, (l >> 8) & 0xFF, l & 0xFF])
+        parts = [header]
+        for item in obj:
+            parts.append(cbor_encode(item))
+        return b"".join(parts)
+    raise ValueError(f"Unsupported CBOR type {type(obj)}")
+
+
+def cbor_decode(data, offset=0):
+    """Decodes CBOR bytes into Python primitives."""
+    if offset >= len(data):
+        raise ValueError("Unexpected EOF in CBOR buffer")
+    fb = data[offset]
+    major = fb >> 5
+    info = fb & 0x1F
+    offset += 1
+
+    def read_len(info, offset):
+        if info < 24:
+            return info, offset
+        elif info == 24:
+            return data[offset], offset + 1
+        elif info == 25:
+            val = int.from_bytes(data[offset:offset+2], "big")
+            return val, offset + 2
+        elif info == 26:
+            val = int.from_bytes(data[offset:offset+4], "big")
+            return val, offset + 4
+        elif info == 27:
+            val = int.from_bytes(data[offset:offset+8], "big")
+            return val, offset + 8
+        raise ValueError(f"Invalid CBOR length info {info}")
+
+    if major == 0:  # unsigned int
+        val, offset = read_len(info, offset)
+        return val, offset
+    elif major == 1:  # negative int
+        val, offset = read_len(info, offset)
+        return -1 - val, offset
+    elif major == 2:  # byte string
+        length, offset = read_len(info, offset)
+        return data[offset:offset+length], offset + length
+    elif major == 3:  # text string
+        length, offset = read_len(info, offset)
+        return data[offset:offset+length].decode("utf-8", errors="replace"), offset + length
+    elif major == 4:  # array
+        length, offset = read_len(info, offset)
+        arr = []
+        for _ in range(length):
+            item, offset = cbor_decode(data, offset)
+            arr.append(item)
+        return arr, offset
+    elif major == 5:  # map
+        length, offset = read_len(info, offset)
+        d = {}
+        for _ in range(length):
+            k, offset = cbor_decode(data, offset)
+            v, offset = cbor_decode(data, offset)
+            d[k] = v
+        return d, offset
+    elif major == 7:  # primitives
+        if fb == 0xF4:
+            return False, offset
+        elif fb == 0xF5:
+            return True, offset
+        elif fb == 0xF6:
+            return None, offset
+        raise ValueError(f"Unsupported CBOR major 7 byte: {hex(fb)}")
+    raise ValueError(f"Unknown CBOR major type: {major}")
+
+
+# ==============================================================================
+# SECURE GUARD ENGINE (ZERO-TRUST ON-DEVICE AUTHORITY VAULT)
+# ==============================================================================
+
+STATE_UNPROVISIONED = 0x00
+STATE_PROVISIONING = 0x01
+STATE_LOCKED = 0x02
+STATE_AUTHENTICATING = 0x03
+STATE_UNLOCKED = 0x04
+STATE_RECOVERY_REQUIRED = 0x05
+STATE_RATE_LIMITED = 0x06
+STATE_WIPE_PENDING = 0x07
+STATE_WIPE_IN_PROGRESS = 0x08
+STATE_ERROR_LOCKED = 0x09
+
+STATE_NAMES = {
+    STATE_UNPROVISIONED: "Unprovisioned",
+    STATE_PROVISIONING: "Provisioning",
+    STATE_LOCKED: "Locked",
+    STATE_AUTHENTICATING: "Authenticating",
+    STATE_UNLOCKED: "Unlocked",
+    STATE_RECOVERY_REQUIRED: "RecoveryRequired",
+    STATE_RATE_LIMITED: "RateLimited",
+    STATE_WIPE_PENDING: "WipePending",
+    STATE_WIPE_IN_PROGRESS: "WipeInProgress",
+    STATE_ERROR_LOCKED: "ErrorLocked",
+}
+
+
+class SecureGuardEngine:
+    """Zero-trust on-device authority vault engine enforcing fail-closed crypto barriers."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.state = STATE_UNPROVISIONED
+        self.is_provisioned = False
+        self.pin_hash = None
+        self.recovery_code_hash = None
+        self.last_recovery_code = ""
+        self.failed_attempts = 0
+        self.max_attempts = 5
+        self.rate_limit_until = 0.0
+        self.session_expires_at = 0.0
+        self.last_activity_time = time.time()
+        self.last_wipe_simulated = False
+        self.audit_count = 0
+        self.policy = {
+            "wipe_on_5_failures": False,
+            "session_duration_ms": 300000,
+            "inactivity_timeout_ms": 120000,
+            "protect_keys_and_aegn": True,
+            "protect_oath": False,
+            "test_mode_non_destructive_wipe": False,
+        }
+
+    def _hash(self, val: bytes) -> bytes:
+        import hashlib
+        return hashlib.sha256(val).digest()
+
+    def _check_timeouts_locked(self):
+        now = time.time()
+        if self.state == STATE_RATE_LIMITED:
+            if now >= self.rate_limit_until:
+                self.state = STATE_LOCKED
+        elif self.state == STATE_UNLOCKED:
+            inactivity_sec = self.policy.get("inactivity_timeout_ms", 120000) / 1000.0
+            if now >= self.session_expires_at or (now - self.last_activity_time) >= inactivity_sec:
+                self.state = STATE_LOCKED
+
+    def get_status_dict(self, include_audit: bool = False) -> dict:
+        with self.lock:
+            self._check_timeouts_locked()
+            now = time.time()
+            rem_rate = max(0, int((self.rate_limit_until - now) * 1000)) if self.state == STATE_RATE_LIMITED else 0
+            rem_sess = max(0, int((self.session_expires_at - now) * 1000)) if self.state == STATE_UNLOCKED else 0
+            d = {
+                "state": self.state,
+                "state_name": STATE_NAMES.get(self.state, "Unknown"),
+                "provisioned": self.is_provisioned,
+                "unlocked": self.state == STATE_UNLOCKED,
+                "failed_attempts": self.failed_attempts,
+                "remaining_attempts": max(0, self.max_attempts - self.failed_attempts),
+                "max_attempts": self.max_attempts,
+                "rate_limit_remaining_ms": rem_rate,
+                "session_remaining_ms": rem_sess,
+                "wipe_on_5_failures": bool(self.policy.get("wipe_on_5_failures", False)),
+                "session_duration_ms": int(self.policy.get("session_duration_ms", 300000)),
+                "inactivity_timeout_ms": int(self.policy.get("inactivity_timeout_ms", 120000)),
+                "protect_keys_and_aegn": bool(self.policy.get("protect_keys_and_aegn", True)),
+                "protect_oath": bool(self.policy.get("protect_oath", False)),
+                "test_mode_non_destructive_wipe": bool(self.policy.get("test_mode_non_destructive_wipe", False)),
+                "last_wipe_simulated": self.last_wipe_simulated,
+                "audit_count": self.audit_count,
+            }
+            if self.last_recovery_code:
+                d["last_generated_recovery_code"] = self.last_recovery_code
+            return d
+
+    def is_wallet_blocked(self) -> bool:
+        with self.lock:
+            self._check_timeouts_locked()
+            if not self.is_provisioned or self.state != STATE_UNLOCKED:
+                return True
+            self.last_activity_time = time.time()
+            return False
+
+    def provision(self, pin, recovery_code=None, policy=None) -> dict:
+        with self.lock:
+            if isinstance(pin, str):
+                pin = pin.encode("utf-8")
+            if not pin or len(pin) < 4:
+                return {"status": "error", "error": "PIN must be at least 4 bytes", "state": self.state, "unlocked": False}
+
+            import secrets
+            if not recovery_code:
+                alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+                parts = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(4)]
+                rc_str = "-".join(parts)
+            elif isinstance(recovery_code, bytes):
+                rc_str = recovery_code.decode("utf-8", errors="ignore")
+            else:
+                rc_str = str(recovery_code)
+
+            self.pin_hash = self._hash(pin)
+            self.recovery_code_hash = self._hash(rc_str.encode("utf-8"))
+            self.last_recovery_code = rc_str
+            self.is_provisioned = True
+            self.failed_attempts = 0
+            if policy:
+                for k in ("wipe_on_5_failures", "protect_keys_and_aegn", "protect_oath", "test_mode_non_destructive_wipe"):
+                    if k in policy:
+                        self.policy[k] = bool(policy[k])
+                for k in ("session_duration_ms", "inactivity_timeout_ms"):
+                    if k in policy:
+                        self.policy[k] = int(policy[k])
+
+            self.state = STATE_UNLOCKED
+            now = time.time()
+            self.session_expires_at = now + (self.policy.get("session_duration_ms", 300000) / 1000.0)
+            self.last_activity_time = now
+            self.audit_count += 1
+
+            return {
+                "status": "provisioned",
+                "recovery_code": rc_str,
+                "state": self.state,
+                "unlocked": True,
+            }
+
+    def unlock(self, pin) -> dict:
+        with self.lock:
+            self._check_timeouts_locked()
+            if not self.is_provisioned:
+                return {
+                    "success": False,
+                    "state": self.state,
+                    "state_name": STATE_NAMES.get(self.state, "Unprovisioned"),
+                    "failed_attempts": 0,
+                    "remaining_attempts": self.max_attempts,
+                    "rate_limit_remaining_ms": 0,
+                    "error": "Not provisioned",
+                }
+
+            if self.state == STATE_RECOVERY_REQUIRED:
+                return {
+                    "success": False,
+                    "state": self.state,
+                    "state_name": "RecoveryRequired",
+                    "failed_attempts": self.failed_attempts,
+                    "remaining_attempts": 0,
+                    "rate_limit_remaining_ms": 0,
+                    "error": "5 failed attempts exceeded: emergency recovery required",
+                }
+
+            if self.state == STATE_RATE_LIMITED:
+                rem_ms = max(0, int((self.rate_limit_until - time.time()) * 1000))
+                return {
+                    "success": False,
+                    "state": self.state,
+                    "state_name": "RateLimited",
+                    "failed_attempts": self.failed_attempts,
+                    "remaining_attempts": max(0, self.max_attempts - self.failed_attempts),
+                    "rate_limit_remaining_ms": rem_ms,
+                    "error": f"Rate limited. Wait {rem_ms // 1000}s",
+                }
+
+            if isinstance(pin, str):
+                pin = pin.encode("utf-8")
+
+            if self._hash(pin) == self.pin_hash:
+                self.state = STATE_UNLOCKED
+                self.failed_attempts = 0
+                now = time.time()
+                self.session_expires_at = now + (self.policy.get("session_duration_ms", 300000) / 1000.0)
+                self.last_activity_time = now
+                self.audit_count += 1
+                return {
+                    "success": True,
+                    "state": self.state,
+                    "state_name": "Unlocked",
+                    "failed_attempts": 0,
+                    "remaining_attempts": self.max_attempts,
+                    "rate_limit_remaining_ms": 0,
+                    "error": None,
+                }
+            else:
+                self.failed_attempts += 1
+                self.audit_count += 1
+                rem = max(0, self.max_attempts - self.failed_attempts)
+                if self.failed_attempts >= self.max_attempts:
+                    if self.policy.get("wipe_on_5_failures", False):
+                        if self.policy.get("test_mode_non_destructive_wipe", False):
+                            self.last_wipe_simulated = True
+                            self.state = STATE_UNPROVISIONED
+                            self.is_provisioned = False
+                            return {
+                                "success": False,
+                                "state": self.state,
+                                "state_name": "Unprovisioned",
+                                "failed_attempts": self.failed_attempts,
+                                "remaining_attempts": 0,
+                                "rate_limit_remaining_ms": 0,
+                                "error": "Simulated wipe executed after 5 failed attempts",
+                            }
+                        else:
+                            self.state = STATE_UNPROVISIONED
+                            self.is_provisioned = False
+                            self.pin_hash = None
+                            self.recovery_code_hash = None
+                            return {
+                                "success": False,
+                                "state": self.state,
+                                "state_name": "Unprovisioned",
+                                "failed_attempts": self.failed_attempts,
+                                "remaining_attempts": 0,
+                                "rate_limit_remaining_ms": 0,
+                                "error": "Vault wiped after 5 failed attempts",
+                            }
+                    else:
+                        self.state = STATE_RECOVERY_REQUIRED
+                        return {
+                            "success": False,
+                            "state": self.state,
+                            "state_name": "RecoveryRequired",
+                            "failed_attempts": self.failed_attempts,
+                            "remaining_attempts": 0,
+                            "rate_limit_remaining_ms": 0,
+                            "error": "5 failed attempts: recovery required",
+                        }
+                else:
+                    backoff_sec = float(1 << (self.failed_attempts - 1))
+                    self.rate_limit_until = time.time() + backoff_sec
+                    self.state = STATE_RATE_LIMITED
+                    return {
+                        "success": False,
+                        "state": self.state,
+                        "state_name": "RateLimited",
+                        "failed_attempts": self.failed_attempts,
+                        "remaining_attempts": rem,
+                        "rate_limit_remaining_ms": int(backoff_sec * 1000),
+                        "error": f"Invalid PIN ({self.failed_attempts}/{self.max_attempts}). Backoff {int(backoff_sec)}s",
+                    }
+
+    def lock_session(self) -> dict:
+        with self.lock:
+            if self.is_provisioned:
+                self.state = STATE_LOCKED
+            else:
+                self.state = STATE_UNPROVISIONED
+            self.session_expires_at = 0.0
+            self.audit_count += 1
+            return {"state": self.state, "locked": True}
+
+    def change_pin(self, current_pin, new_pin) -> dict:
+        with self.lock:
+            self._check_timeouts_locked()
+            if not self.is_provisioned:
+                return {"status": "error", "error": "Not provisioned", "state": self.state}
+            if isinstance(current_pin, str):
+                current_pin = current_pin.encode("utf-8")
+            if isinstance(new_pin, str):
+                new_pin = new_pin.encode("utf-8")
+            if self._hash(current_pin) != self.pin_hash:
+                return {"status": "error", "error": "Current PIN is incorrect", "state": self.state}
+            if not new_pin or len(new_pin) < 4:
+                return {"status": "error", "error": "New PIN too short", "state": self.state}
+            self.pin_hash = self._hash(new_pin)
+            self.state = STATE_LOCKED
+            self.failed_attempts = 0
+            self.session_expires_at = 0.0
+            self.audit_count += 1
+            return {"status": "pin_changed", "state": self.state}
+
+    def recover(self, recovery_code, new_pin) -> dict:
+        with self.lock:
+            if not self.is_provisioned:
+                return {"status": "error", "error": "Not provisioned", "state": self.state}
+            if isinstance(recovery_code, bytes):
+                recovery_code = recovery_code.decode("utf-8", errors="ignore")
+            if isinstance(new_pin, str):
+                new_pin = new_pin.encode("utf-8")
+            if not new_pin or len(new_pin) < 4:
+                return {"status": "error", "error": "New PIN too short", "state": self.state}
+
+            clean_rc = recovery_code.strip()
+            if self._hash(clean_rc.encode("utf-8")) != self.recovery_code_hash:
+                return {"status": "error", "error": "Invalid recovery code", "state": self.state}
+
+            import secrets
+            alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+            new_rc = "-".join("".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(4))
+
+            self.pin_hash = self._hash(new_pin)
+            self.recovery_code_hash = self._hash(new_rc.encode("utf-8"))
+            self.last_recovery_code = new_rc
+            self.failed_attempts = 0
+            self.state = STATE_LOCKED
+            self.session_expires_at = 0.0
+            self.audit_count += 1
+            return {"status": "recovered", "state": self.state, "new_recovery_code": new_rc}
+
+    def update_policy(self, policy_dict: dict) -> dict:
+        with self.lock:
+            for k in ("wipe_on_5_failures", "protect_keys_and_aegn", "protect_oath", "test_mode_non_destructive_wipe"):
+                if k in policy_dict:
+                    self.policy[k] = bool(policy_dict[k])
+            for k in ("session_duration_ms", "inactivity_timeout_ms"):
+                if k in policy_dict:
+                    self.policy[k] = int(policy_dict[k])
+            self.audit_count += 1
+            return dict(self.policy)
+
+    def wipe_selective(self, scope: int = 0, confirmation: str = "") -> dict:
+        with self.lock:
+            if confirmation != "CONFIRM_WIPE_AEGIS_GUARD":
+                return {"status": "error", "error": "Invalid confirmation token", "state": self.state, "simulated": False}
+            is_sim = bool(self.policy.get("test_mode_non_destructive_wipe", False))
+            self.last_wipe_simulated = is_sim
+            if not is_sim:
+                self.is_provisioned = False
+                self.pin_hash = None
+                self.recovery_code_hash = None
+                self.last_recovery_code = ""
+            self.state = STATE_UNPROVISIONED
+            self.failed_attempts = 0
+            self.session_expires_at = 0.0
+            self.audit_count += 1
+            return {"status": "wiped", "state": self.state, "simulated": is_sim}
+
+    def handle_vendor(self, opcode: int, payload: bytes):
+        if opcode == 0x3A:
+            include_audit = False
+            if payload:
+                try:
+                    req_dict, _ = cbor_decode(payload)
+                    if isinstance(req_dict, dict):
+                        include_audit = bool(req_dict.get("include_audit", False))
+                except Exception:
+                    pass
+            st_dict = self.get_status_dict(include_audit)
+            return 0x00, cbor_encode(st_dict)
+
+        if opcode == 0x3B:
+            try:
+                req_dict, _ = cbor_decode(payload)
+            except Exception:
+                return 0x27, cbor_encode({"error": "Invalid CBOR payload"})
+            action = req_dict.get("action", "") if isinstance(req_dict, dict) else ""
+            if action == "provision":
+                pin = req_dict.get("pin", b"")
+                rc = req_dict.get("recovery_code", None)
+                pol = {k: req_dict[k] for k in req_dict if k not in ("action", "pin", "recovery_code")}
+                res = self.provision(pin, rc, pol if pol else None)
+                return 0x00, cbor_encode(res)
+            elif action == "unlock":
+                pin = req_dict.get("pin", b"")
+                res = self.unlock(pin)
+                return 0x00, cbor_encode(res)
+            elif action == "change_pin":
+                c_pin = req_dict.get("current_pin", b"")
+                n_pin = req_dict.get("new_pin", b"")
+                res = self.change_pin(c_pin, n_pin)
+                return 0x00, cbor_encode(res)
+            elif action == "recover":
+                rc = req_dict.get("recovery_code", b"")
+                n_pin = req_dict.get("new_pin", b"")
+                res = self.recover(rc, n_pin)
+                return 0x00, cbor_encode(res)
+            else:
+                return 0x27, cbor_encode({"error": f"Unknown action {action}"})
+
+        if opcode == 0x3C:
+            res = self.lock_session()
+            return 0x00, cbor_encode(res)
+
+        if opcode == 0x3D:
+            try:
+                req_dict, _ = cbor_decode(payload)
+            except Exception:
+                return 0x27, cbor_encode({"error": "Invalid CBOR payload"})
+            res = self.update_policy(req_dict if isinstance(req_dict, dict) else {})
+            return 0x00, cbor_encode(res)
+
+        if opcode == 0x3E:
+            try:
+                req_dict, _ = cbor_decode(payload)
+            except Exception:
+                return 0x27, cbor_encode({"error": "Invalid CBOR payload"})
+            scope = req_dict.get("scope", 0) if isinstance(req_dict, dict) else 0
+            confirm = req_dict.get("confirmation", "") if isinstance(req_dict, dict) else ""
+            res = self.wipe_selective(scope, confirm)
+            return 0x00, cbor_encode(res)
+
+        return 0x01, b""
+
+
+SECURE_GUARD_ENGINE = SecureGuardEngine()
 
 
 BLE_CONTROL_POINT_LENGTH = 512
@@ -1196,8 +1769,21 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             })
             return
 
+        # GET /api/secure-guard/status -> Secure Guard zero-trust status & telemetry
+        if path == "/api/secure-guard/status":
+            self.send_json({"ok": True, "status": 0x00, **SECURE_GUARD_ENGINE.get_status_dict()})
+            return
+
         # GET /api/wallet/list -> list of wallets
         if path == "/api/wallet/list":
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             wallets_out = []
             try:
                 st, resp = HW_MANAGER.send_vendor(0x36, b"")
@@ -1292,6 +1878,14 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                     "POST /api/key/sign",
                     "POST /api/wallet/create",
                     "GET /api/wallet/list",
+                    "GET /api/secure-guard/status",
+                    "POST /api/secure-guard/provision",
+                    "POST /api/secure-guard/unlock",
+                    "POST /api/secure-guard/lock",
+                    "POST /api/secure-guard/change-pin",
+                    "POST /api/secure-guard/recover",
+                    "POST /api/secure-guard/config",
+                    "POST /api/secure-guard/wipe-selective",
                     "GET /api/oath/list",
                     "POST /api/oath/put",
                     "POST /api/oath/delete",
@@ -1800,6 +2394,14 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /api/wallet/create
         if path == "/api/wallet/create":
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 network = data.get("network", "BTC")
@@ -1942,6 +2544,90 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 pin = data.get("pin", "123456")
                 res = PROXIMITY_ENGINE.unlock_with_hw(pin)
                 self.send_json(res)
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/provision
+        if path == "/api/secure-guard/provision":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                pin = data.get("pin", "")
+                rc = data.get("recovery_code", None)
+                pol = data.get("policy", None)
+                res = SECURE_GUARD_ENGINE.provision(pin, rc, pol)
+                ok = res.get("status") == "provisioned"
+                self.send_json({"ok": ok, **res}, status_code=200 if ok else 400)
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/unlock
+        if path == "/api/secure-guard/unlock":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                pin = data.get("pin", "")
+                res = SECURE_GUARD_ENGINE.unlock(pin)
+                st_code = 200 if res.get("success") else 401
+                self.send_json({"ok": res.get("success", False), **res}, status_code=st_code)
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/lock
+        if path == "/api/secure-guard/lock":
+            try:
+                res = SECURE_GUARD_ENGINE.lock_session()
+                self.send_json({"ok": True, **res})
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/change-pin
+        if path == "/api/secure-guard/change-pin":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                curr_pin = data.get("current_pin", "")
+                new_pin = data.get("new_pin", "")
+                res = SECURE_GUARD_ENGINE.change_pin(curr_pin, new_pin)
+                ok = res.get("status") == "pin_changed"
+                self.send_json({"ok": ok, **res}, status_code=200 if ok else 400)
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/recover
+        if path == "/api/secure-guard/recover":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                rc = data.get("recovery_code", "")
+                new_pin = data.get("new_pin", "")
+                res = SECURE_GUARD_ENGINE.recover(rc, new_pin)
+                ok = res.get("status") == "recovered"
+                self.send_json({"ok": ok, **res}, status_code=200 if ok else 400)
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/config
+        if path == "/api/secure-guard/config":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                res = SECURE_GUARD_ENGINE.update_policy(data)
+                self.send_json({"ok": True, "policy": res})
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        # POST /api/secure-guard/wipe-selective
+        if path == "/api/secure-guard/wipe-selective":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                scope = int(data.get("scope", 0))
+                confirm = data.get("confirmation", "")
+                res = SECURE_GUARD_ENGINE.wipe_selective(scope, confirm)
+                ok = res.get("status") == "wiped"
+                self.send_json({"ok": ok, **res}, status_code=200 if ok else 400)
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)
             return

@@ -2248,6 +2248,7 @@ version = "1.0.0"
 dependencies = [
  "aegis-fido-core",
  "uniffi",
+ "universal-device-sdk",
  "zeroize",
 ]
 
@@ -2371,7 +2372,10 @@ version = "1.0.0"
 dependencies = [
  "bech32",
  "bs58",
+ "ciborium",
  "ripemd",
+ "serde",
+ "serde_bytes",
  "sha3",
 ]
 

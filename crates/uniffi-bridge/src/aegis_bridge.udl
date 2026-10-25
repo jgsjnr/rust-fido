@@ -21,6 +21,16 @@ namespace aegis_bridge {
     [Throws=BridgeError] string wallet_address(string network, string pubkey_hex);
     string totp_format_display(string code);
     [Throws=BridgeError] OtpAuthParsed otpauth_extract_label_and_secret(string input);
+
+    // --- Secure Guard ---
+    [Throws=BridgeError] SecureGuardStatusDto secure_guard_parse_status(sequence<u8> payload);
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_provision(sequence<u8> pin, sequence<u8> recovery_code, boolean wipe_on_5_failures, boolean test_mode);
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_unlock(sequence<u8> pin);
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_change_pin(sequence<u8> current_pin, sequence<u8> new_pin);
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_recover(sequence<u8> recovery_code, sequence<u8> new_pin);
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_lock();
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_config(SecureGuardPolicyDto policy);
+    [Throws=BridgeError] sequence<u8> secure_guard_encode_wipe(u8 scope, string confirm_token);
 };
 
 dictionary BleInfo {
@@ -51,6 +61,30 @@ dictionary OtpAuthParsed {
     u32 period;
 };
 
+dictionary SecureGuardPolicyDto {
+    boolean wipe_on_5_failures;
+    u64 session_duration_ms;
+    u64 inactivity_timeout_ms;
+    boolean protect_keys_and_aegn;
+    boolean protect_oath;
+    boolean test_mode_non_destructive_wipe;
+};
+
+dictionary SecureGuardStatusDto {
+    u8 state;
+    string state_name;
+    boolean is_provisioned;
+    boolean is_unlocked;
+    u8 failed_attempts;
+    u8 remaining_attempts;
+    u8 max_attempts;
+    u64 rate_limit_remaining_ms;
+    u64 session_remaining_ms;
+    SecureGuardPolicyDto policy;
+    boolean last_wipe_simulated;
+    u64 audit_count;
+};
+
 [Error]
 enum BridgeError {
     "InvalidOpcode",
@@ -61,4 +95,5 @@ enum BridgeError {
     "InvalidOath",
     "CryptoError",
     "InvalidAddress",
+    "SecureGuardError",
 };

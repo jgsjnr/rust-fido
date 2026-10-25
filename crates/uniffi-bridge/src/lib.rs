@@ -115,6 +115,7 @@ pub enum BridgeError {
     InvalidOath,
     CryptoError,
     InvalidAddress,
+    SecureGuardError,
 }
 
 impl core::fmt::Display for BridgeError {
@@ -128,6 +129,7 @@ impl core::fmt::Display for BridgeError {
             Self::InvalidOath => write!(f, "invalid oath response"),
             Self::CryptoError => write!(f, "crypto operation failed"),
             Self::InvalidAddress => write!(f, "invalid wallet address input"),
+            Self::SecureGuardError => write!(f, "secure guard operation failed"),
         }
     }
 }
@@ -672,6 +674,75 @@ fn decode_even_hex(s: &str) -> Option<Vec<u8>> {
         i += 2;
     }
     Some(out)
+}
+
+pub use universal_device_sdk::secure_guard::{SecureGuardPolicyDto, SecureGuardStatusDto};
+
+pub fn secure_guard_parse_status(payload: Vec<u8>) -> Result<SecureGuardStatusDto, BridgeError> {
+    universal_device_sdk::secure_guard::decode_secure_guard_status_response(&payload)
+        .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_provision(
+    pin: Vec<u8>,
+    recovery_code: Vec<u8>,
+    wipe_on_5_failures: bool,
+    test_mode: bool,
+) -> Result<Vec<u8>, BridgeError> {
+    let policy = SecureGuardPolicyDto {
+        wipe_on_5_failures,
+        test_mode_non_destructive_wipe: test_mode,
+        ..Default::default()
+    };
+
+
+    let rc = if recovery_code.is_empty() {
+        None
+    } else {
+        Some(recovery_code.as_slice())
+    };
+    universal_device_sdk::secure_guard::encode_secure_guard_provision_request(
+        &pin,
+        rc,
+        Some(&policy),
+    )
+    .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_unlock(pin: Vec<u8>) -> Result<Vec<u8>, BridgeError> {
+    universal_device_sdk::secure_guard::encode_secure_guard_unlock_request(&pin)
+        .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_change_pin(
+    current_pin: Vec<u8>,
+    new_pin: Vec<u8>,
+) -> Result<Vec<u8>, BridgeError> {
+    universal_device_sdk::secure_guard::encode_secure_guard_change_pin_request(&current_pin, &new_pin)
+        .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_recover(
+    recovery_code: Vec<u8>,
+    new_pin: Vec<u8>,
+) -> Result<Vec<u8>, BridgeError> {
+    universal_device_sdk::secure_guard::encode_secure_guard_recover_request(&recovery_code, &new_pin)
+        .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_lock() -> Result<Vec<u8>, BridgeError> {
+    universal_device_sdk::secure_guard::encode_secure_guard_lock_request()
+        .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_config(policy: SecureGuardPolicyDto) -> Result<Vec<u8>, BridgeError> {
+    universal_device_sdk::secure_guard::encode_secure_guard_config_request(&policy)
+        .map_err(|_| BridgeError::SecureGuardError)
+}
+
+pub fn secure_guard_encode_wipe(scope: u8, confirm_token: String) -> Result<Vec<u8>, BridgeError> {
+    universal_device_sdk::secure_guard::encode_secure_guard_wipe_request(scope, &confirm_token)
+        .map_err(|_| BridgeError::SecureGuardError)
 }
 
 #[cfg(test)]
@@ -1263,5 +1334,40 @@ mod tests {
             ble_split_fragments(0xBE, vec![1]),
             Err(BridgeError::InvalidOpcode)
         );
+    }
+
+    #[test]
+    fn secure_guard_bridge_roundtrip() {
+        let policy = SecureGuardPolicyDto {
+            wipe_on_5_failures: true,
+            session_duration_ms: 60_000,
+            inactivity_timeout_ms: 30_000,
+            protect_keys_and_aegn: true,
+            protect_oath: true,
+            test_mode_non_destructive_wipe: true,
+        };
+        let cfg_bytes = secure_guard_encode_config(policy.clone()).expect("encode config");
+        assert!(!cfg_bytes.is_empty());
+
+        let unlock_bytes = secure_guard_encode_unlock(b"1234".to_vec()).expect("encode unlock");
+        assert!(!unlock_bytes.is_empty());
+
+        let lock_bytes = secure_guard_encode_lock().expect("encode lock");
+        assert!(!lock_bytes.is_empty());
+
+        let prov_bytes = secure_guard_encode_provision(b"1234".to_vec(), vec![], false, false)
+            .expect("encode provision");
+        assert!(!prov_bytes.is_empty());
+
+        let chg_bytes = secure_guard_encode_change_pin(b"1234".to_vec(), b"5678".to_vec())
+            .expect("encode change pin");
+        assert!(!chg_bytes.is_empty());
+
+        let rec_bytes = secure_guard_encode_recover(b"rec_code".to_vec(), b"5678".to_vec())
+            .expect("encode recover");
+        assert!(!rec_bytes.is_empty());
+
+        let wipe_bytes = secure_guard_encode_wipe(1, "CONFIRM_WIPE".to_string()).expect("encode wipe");
+        assert!(!wipe_bytes.is_empty());
     }
 }
