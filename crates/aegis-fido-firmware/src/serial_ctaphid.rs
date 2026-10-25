@@ -10,7 +10,7 @@
 //!   without breaking an active reassembly (the `unexpected continuation`
 //!   seen on COM7/COM8 came from feeding heartbeat bytes to the deframer).
 //! - Privileged ops (MakeCredential, ClientPIN set/change, vendor CONFIG
-//!   `0x20/0x21/0x23/0x24/0x27`) require pairing-mode (hold 5s BOOT, 60s
+//!   `0x20/0x21/0x23/0x24/0x27`, backup-export `0x3A`) require pairing-mode (hold 5s BOOT, 60s
 //!   window). Denial answers CTAP2 `NOT_ALLOWED` (`0x30`) for CTAP commands
 //!   and the `NEED_BINDING` (`0x05`) vendor status for vendor ops — wire
 //!   statuses only, framing untouched.
@@ -59,10 +59,12 @@ use aegis_fido_usb::ctaphid::{
 };
 use alloc::vec::Vec;
 
-use crate::ble_gatt::{
-    is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op, BleGattError,
-    OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_OATH_DELETE, OP_OATH_PUT,
-    OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
+use crate::ble::dispatch_bind::{
+    is_backup_export_op, is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
+};
+use crate::ble::gatt_core::{
+    BleGattError, OP_BACKUP_EXPORT, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE,
+    OP_OATH_DELETE, OP_OATH_PUT, OP_PIV_ENROLL, VENDOR_STATUS_NEED_BINDING,
 };
 
 /// UART line rate for the serial CTAPHID link (8N1, same as the monitor).
@@ -119,7 +121,8 @@ pub fn serial_requires_pairing(cmd: u8, payload: &[u8]) -> bool {
                 | OP_OATH_PUT
                 | OP_OATH_DELETE
                 | OP_PIV_ENROLL
-        ) || crate::ble_gatt::is_wallet_op(payload[0]);
+                | OP_BACKUP_EXPORT
+        ) || crate::ble::dispatch_bind::is_wallet_op(payload[0]);
     }
     false
 }
@@ -150,7 +153,11 @@ pub fn serial_is_up_required(cmd: u8, payload: &[u8]) -> bool {
     }
     if cmd == CMD_MSG && !payload.is_empty() {
         let op = payload[0];
-        if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
+        if is_vendor_keys_oath_op(op)
+            || is_wallet_op(op)
+            || is_piv_enroll_op(op)
+            || is_backup_export_op(op)
+        {
             return true;
         }
         if is_bind_mgmt_op(op) {
@@ -244,6 +251,177 @@ impl Default for SerialRouter {
     }
 }
 
+/// `true` quando a janela começa com cabeçalho INIT plausível (`>IBH`).
+///
+/// Checagem de realinhamento do fio compartilhado UART: `cmd & 0x80`,
+/// `1 <= total <= MAX_MSG_LEN` (teto CTAPHID 7609 B, sem AAD) e
+/// `cid != 0` (canal reservado nunca abre sessão; `0x00000000` ancora o
+/// ponto fixo do wedge L2 quando o tail de zeros de um pacote anterior
+/// é lido como CID). Broadcast `0xFFFFFFFF` é plausível só p/ `CMD_INIT.
+pub fn starts_with_init_header(window: &[u8]) -> bool {
+    use aegis_fido_usb::ctaphid::{BROADCAST_CID, CMD_INIT, MAX_MSG_LEN};
+    if window.len() < 7 {
+        return false;
+    }
+    let cid = u32::from_be_bytes([window[0], window[1], window[2], window[3]]);
+    if cid == 0 {
+        return false;
+    }
+    let raw = window[4];
+    if raw & 0x80 == 0 {
+        return false;
+    }
+    let total = u16::from_be_bytes([window[5], window[6]]) as usize;
+    if total == 0 || total > MAX_MSG_LEN {
+        return false;
+    }
+    if cid == BROADCAST_CID {
+        return raw == CMD_INIT;
+    }
+    true
+}
+
+/// `true` quando o prefixo até `\n` é linha de texto (descartável).
+///
+/// Linha é texto quando não-vazia após strip de `\x00` e todo byte é
+/// imprimível ASCII ou `TAB/CR/LF`. Binário CTAPHID carrega CIDs,
+/// comprimentos e CBOR/TLV fora dessa faixa, então um pacote real nunca
+/// casa aqui; `0x0A` solto dentro do payload binário não forma linha
+/// (`\r\n` exigido pelo dreno do harness).
+pub fn is_stream_text_line(line: &[u8]) -> bool {
+    let body: &[u8] = line;
+    let mut seen = false;
+    for b in body.iter() {
+        if *b == 0x00 {
+            continue;
+        }
+        seen = true;
+        if !matches!(b, 0x09 | 0x0A | 0x0D | 0x20..=0x7E) {
+            return false;
+        }
+    }
+    seen
+}
+
+/// Decodificador byte-stream do fio UART compartilhado (texto + CTAPHID).
+///
+/// O driver C (`aegis_serial_pop_packet` 64 B fixos + `read_chunk` 32 B)
+/// tem dois consumidores no mesmo FIFO; quando uma linha curta `TEST_*`
+/// (22 B, não-múltipla de 64) divide o FIFO com o INIT seguinte, o pop
+/// de 64 B lê a janela mista e o CID ancora em `0x00000000`
+/// (`ERR_INVALID_CHANNEL` persistente, L2 7/7). Este decodificador é o
+/// contrato de resync testável no host: acumula bytes crus, descarta o
+/// prefixo texto até `\n`, realinha em `>IBH` e delega ao
+/// `CtapHidManager` (que já limpa assembly órfã no INIT broadcast).
+/// `purge()` esvazia o RX (espelho do `purge-RX no open` do harness/C).
+pub struct SerialStreamDecoder {
+    buf: Vec<u8>,
+    mgr: CtapHidManager,
+}
+
+impl SerialStreamDecoder {
+    /// Cria decodificador vazio (sem assembly, sem bytes).
+    pub fn new() -> Self {
+        Self {
+            buf: Vec::new(),
+            mgr: CtapHidManager::new(),
+        }
+    }
+
+    /// Purge-RX: descarta bytes pendentes (abrir nunca reseta o device;
+    /// só limpa o fio local). Assembly órfã cai no próximo INIT broadcast.
+    pub fn purge(&mut self) {
+        self.buf.clear();
+    }
+
+    /// `true` enquanto há assembly multi-pacote pendente.
+    pub fn has_pending(&self) -> bool {
+        self.mgr.has_pending_assembly()
+    }
+
+    /// Empurra bytes crus do fio; retorna os feeds resolvidos em ordem.
+    pub fn push_bytes(&mut self, chunk: &[u8], now_ms: u64) -> Vec<SerialFeed> {
+        self.buf.extend_from_slice(chunk);
+        let mut out = Vec::new();
+        loop {
+            // 1) Linha texto até `\n`: descarta (fora do framing).
+            if let Some(nl) = self.buf.iter().position(|b| *b == b'\n') {
+                let line_len = nl + 1;
+                // Só trata como texto se a linha for curta (<128 B) e
+                // imprimível; binário com 0x0A no meio tem bytes fora da
+                // faixa e cai no path CTAPHID abaixo (sem split).
+                if line_len <= 128 && is_stream_text_line(&self.buf[..line_len]) {
+                    // Linha texto genuína só vence se não houver um header
+                    // CTAPHID plausível antes dela (evita comer INIT que
+                    // contenha 0x0A no nonce/payload).
+                    let header_first = (0..line_len.saturating_sub(7)).any(|i| {
+                        self.buf.len() >= i + 7 && starts_with_init_header(&self.buf[i..])
+                    });
+                    if !header_first {
+                        self.buf.drain(..line_len);
+                        out.push(SerialFeed::IgnoredText);
+                        continue;
+                    }
+                }
+            }
+            // 2) Precisa de 64 B p/ uma janela CTAPHID.
+            if self.buf.len() < PACKET_SIZE {
+                break;
+            }
+            let mut window = [0u8; PACKET_SIZE];
+            window.copy_from_slice(&self.buf[..PACKET_SIZE]);
+            // 2a) Janela só-texto: drena (log `[FREERTOS]`/ticks).
+            if is_text_line(&window) {
+                self.buf.drain(..PACKET_SIZE);
+                out.push(SerialFeed::IgnoredText);
+                continue;
+            }
+            // 2b) Janela sem header plausível e sem assembly: avança 1 B
+            // (realign em `>IBH`; descarta prefixo texto byte a byte).
+            if !self.mgr.has_pending_assembly() && !starts_with_init_header(&window) {
+                // Linha texto parcial no início da janela? Descarta até `\n`.
+                if let Some(nl) = window.iter().position(|b| *b == b'\n') {
+                    let prefix = &window[..nl + 1];
+                    if is_stream_text_line(prefix) {
+                        self.buf.drain(..nl + 1);
+                        out.push(SerialFeed::IgnoredText);
+                        continue;
+                    }
+                }
+                self.buf.drain(..1);
+                continue;
+            }
+            // 2c) Delega ao manager (INIT broadcast limpa órfã lá dentro).
+            match self.mgr.process_packet(&window, now_ms) {
+                Ok(None) => {
+                    self.buf.drain(..PACKET_SIZE);
+                    out.push(SerialFeed::NeedMore);
+                }
+                Ok(Some(msg)) => {
+                    self.buf.drain(..PACKET_SIZE);
+                    out.push(SerialFeed::Message(msg));
+                }
+                Err(e) => {
+                    self.buf.drain(..PACKET_SIZE);
+                    out.push(SerialFeed::Error(e));
+                    // Pós-erro sem header na próxima janela: o loop 2b
+                    // realinha (não prende em ponto fixo de zeros).
+                }
+            }
+            if out.len() >= 8 {
+                break;
+            }
+        }
+        out
+    }
+}
+
+impl Default for SerialStreamDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Frames the pairing-denied answer (wire statuses only, no framing change).
 ///
 /// Vendor ops get `NEED_BINDING` (`0x05`, prompts the pairing ceremony);
@@ -253,7 +431,8 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
         && !msg.payload.is_empty()
         && (is_vendor_keys_oath_op(msg.payload[0])
             || is_wallet_op(msg.payload[0])
-            || is_piv_enroll_op(msg.payload[0]))
+            || is_piv_enroll_op(msg.payload[0])
+            || is_backup_export_op(msg.payload[0]))
     {
         return CtapHidFramer::frame_message(msg.cid, msg.cmd, &[VENDOR_STATUS_NEED_BINDING]);
     }
@@ -280,7 +459,7 @@ pub fn is_rescue_msg(cmd: u8, payload: &[u8]) -> bool {
 /// CLAIM/RELEASE/RECOVERY_SET/RECOVERY_UNLOCK require UP (same gates as BLE);
 /// CHALLENGE/VERIFY never touch the latch.
 pub fn serial_bind_mgmt_consumes_up(op: u8) -> bool {
-    use crate::ble_gatt as g;
+    use crate::ble::gatt_core as g;
     matches!(
         op,
         g::OP_BIND_CLAIM | g::OP_BIND_RELEASE | g::OP_RECOVERY_SET | g::OP_RECOVERY_UNLOCK
@@ -441,6 +620,70 @@ mod tests {
     }
 
     #[test]
+    fn stream_resync_descarta_prefixo_texto_e_realinha_em_init() {
+        // Regressão L2: linha curta TEST_* (22 B, não-múltipla de 64) + INIT
+        // 64 B no mesmo FIFO desalinhava o pop fixo (CID 0x00000000 ->
+        // ERR 0x0B persistente). O stream descarta o prefixo e realinha.
+        let mut dec = SerialStreamDecoder::new();
+        let nonce = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let mut mixed = Vec::new();
+        mixed.extend_from_slice(b"TEST_PAIRING_OPEN_300\n");
+        mixed.extend_from_slice(&init[0]);
+        let feeds = dec.push_bytes(&mixed, 1000);
+        assert!(feeds.contains(&SerialFeed::IgnoredText));
+        let msg = feeds.iter().find_map(|f| match f {
+            SerialFeed::Message(m) => Some(m),
+            _ => None,
+        });
+        assert!(
+            msg.is_some(),
+            "INIT deve realinhar após prefixo texto: {:?}",
+            feeds
+        );
+        assert!(!dec.has_pending());
+    }
+
+    #[test]
+    fn stream_broadcast_init_limpa_orfa_e_purge_esvazia_rx() {
+        // Assembly órfã multi-pacote + INIT broadcast: recupera sem BUSY.
+        let mut dec = SerialStreamDecoder::new();
+        let orphan = CtapHidFramer::frame_message(0x01020304, CMD_CBOR, &[0xABu8; 100]);
+        let f1 = dec.push_bytes(&orphan[0], 1000);
+        assert!(f1.contains(&SerialFeed::NeedMore));
+        assert!(dec.has_pending());
+        dec.purge();
+        // Purge esvazia o RX; a órfã do manager cai no INIT broadcast.
+        let nonce = [0xAAu8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let f2 = dec.push_bytes(&init[0], 1100);
+        assert!(f2.iter().any(|f| matches!(f, SerialFeed::Message(_))));
+        assert!(!dec.has_pending());
+    }
+
+    #[test]
+    fn starts_with_init_header_rejeita_zero_e_teto() {
+        use aegis_fido_usb::ctaphid::MAX_MSG_LEN;
+        // CID zero nunca abre sessão (âncora do wedge).
+        let mut zero = [0u8; 64];
+        zero[4] = CMD_INIT;
+        zero[5..7].copy_from_slice(&8u16.to_be_bytes());
+        assert!(!starts_with_init_header(&zero));
+        // Teto 7609: BCNT maior é inválido.
+        let mut over = [0u8; 64];
+        over[0..4].copy_from_slice(&0x01020304u32.to_be_bytes());
+        over[4] = CMD_INIT;
+        over[5..7].copy_from_slice(&((MAX_MSG_LEN as u16).wrapping_add(1)).to_be_bytes());
+        assert!(!starts_with_init_header(&over));
+        // Broadcast só vale p/ INIT.
+        let mut bc = [0u8; 64];
+        bc[0..4].copy_from_slice(&BROADCAST_CID.to_be_bytes());
+        bc[4] = CMD_PING;
+        bc[5..7].copy_from_slice(&4u16.to_be_bytes());
+        assert!(!starts_with_init_header(&bc));
+    }
+
+    #[test]
     fn pairing_gate_privileged_ctap() {
         // MakeCredential always privileged.
         assert!(serial_requires_pairing(
@@ -473,7 +716,7 @@ mod tests {
 
     #[test]
     fn pairing_gate_vendor_config_only() {
-        for op in [0x20, 0x21, 0x23, 0x24, 0x27] {
+        for op in [0x20, 0x21, 0x23, 0x24, 0x27, OP_BACKUP_EXPORT] {
             assert!(serial_requires_pairing(CMD_MSG, &[op]), "op {:02X}", op);
         }
         for op in [0x22, 0x25, 0x26, 0x28, 0x2B] {
@@ -493,6 +736,7 @@ mod tests {
         ));
         assert!(serial_is_up_required(CMD_MSG, &[0x20]));
         assert!(serial_is_up_required(CMD_MSG, &[0x26]));
+        assert!(serial_is_up_required(CMD_MSG, &[OP_BACKUP_EXPORT]));
     }
 
     #[test]
@@ -532,6 +776,17 @@ mod tests {
             assert_eq!(back.payload, vec![VENDOR_STATUS_NEED_BINDING]);
         } else {
             panic!("vendor deny must re-parse as a message");
+        }
+
+        // Backup-export nega pairing com 0x05 como as CONFIG (posse do cabo
+        // pede a cerimônia; o gate binding->UP->PIN vem no dispatch).
+        let backup = CtapHidMessage::new(0x01020304, CMD_MSG, vec![OP_BACKUP_EXPORT, 0x01]);
+        let pkts = deny_response(&backup);
+        let mut router = SerialRouter::new();
+        if let SerialFeed::Message(back) = router.feed(&pkts[0], 1000) {
+            assert_eq!(back.payload, vec![VENDOR_STATUS_NEED_BINDING]);
+        } else {
+            panic!("backup deny must re-parse as a message");
         }
     }
 
@@ -709,7 +964,8 @@ mod tests {
 
     #[test]
     fn serial_vendor_parity_matrix_all_ops() {
-        use crate::ble_gatt::{authorize_vendor_op, OP_OATH_CODE};
+        use crate::ble::dispatch_bind::authorize_vendor_op;
+        use crate::ble::gatt_core::OP_OATH_CODE;
         // Full 0x20-0x27 x (vinculo x PIN x UP): serial responde o mesmo
         // status do BLE (paridade exata, F1).
         for op in 0x20u8..=0x27u8 {
@@ -742,7 +998,7 @@ mod tests {
 
     #[test]
     fn serial_bind_consumes_up_only_where_ble_needs_up() {
-        use crate::ble_gatt as g;
+        use crate::ble::gatt_core as g;
         for op in [
             g::OP_BIND_CLAIM,
             g::OP_BIND_RELEASE,
@@ -759,7 +1015,7 @@ mod tests {
     #[test]
     fn serial_bind_rejects_malformed_framing() {
         use crate::binding::BindingManager;
-        use crate::ble_gatt as g;
+        use crate::ble::gatt_core as g;
         use crate::persistence::{MockFlashBackend, SecureStorage};
         let mut b = BindingManager::new();
         let mut s = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
@@ -854,7 +1110,9 @@ mod tests {
         assert!(!is_rescue_msg(CMD_MSG, &[0x20]));
         assert!(!is_rescue_msg(CMD_MSG, &[0x28]));
         // 0x2E nao e bind-mgmt: segue para rescue, nunca para bind.
-        assert!(!crate::ble_gatt::is_bind_mgmt_op(RESCUE_TRANSPORT_OP));
+        assert!(!crate::ble::dispatch_bind::is_bind_mgmt_op(
+            RESCUE_TRANSPORT_OP
+        ));
     }
 
     #[test]
@@ -886,7 +1144,8 @@ mod tests {
     #[test]
     fn serial_bind_mgmt_parity_with_ble() {
         use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
-        use crate::ble_gatt as g;
+        use crate::ble::dispatch_bind as gd;
+        use crate::ble::gatt_core as g;
         use crate::persistence::{MockFlashBackend, SecureStorage};
 
         fn fixtures() -> (BindingManager, SecureStorage<MockFlashBackend>) {
@@ -916,7 +1175,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b = g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, false, false)
+            let st_b = gd::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, false, false)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!((st_s, st_b), (0x01, 0x01));
@@ -935,7 +1194,7 @@ mod tests {
                 &mut rng,
             );
             let (st_b, body_b) =
-                match g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true) {
+                match gd::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true) {
                     Ok(()) => (0x00, id.to_vec()),
                     Err(e) => (e.to_vendor_status(), Vec::new()),
                 };
@@ -950,7 +1209,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b2 = g::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true)
+            let st_b2 = gd::dispatch_bind_claim(&mut b2, &mut s2, &sec1, &id, true, true)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!((st_s2, st_b2), (0x04, 0x04));
@@ -968,7 +1227,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b = g::dispatch_bind_challenge(&mut b2, &s2, &mut rng)
+            let st_b = gd::dispatch_bind_challenge(&mut b2, &s2, &mut rng)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!((st_s, st_b), (0x05, 0x05));
@@ -985,7 +1244,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let ble_ch = g::dispatch_bind_challenge(&mut b2, &s2, &mut rng).expect("ch ble");
+            let ble_ch = gd::dispatch_bind_challenge(&mut b2, &s2, &mut rng).expect("ch ble");
             assert_eq!(st_s, 0x00);
             assert_eq!(body_s.len(), ble_ch.len());
             assert_eq!(body_s.len(), 32);
@@ -1012,7 +1271,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b = g::dispatch_bind_verify(&mut b2, &p[65..], &ch, g::OP_KEY_LIST, &ph)
+            let st_b = gd::dispatch_bind_verify(&mut b2, &p[65..], &ch, g::OP_KEY_LIST, &ph)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!((st_s, st_b), (0x05, 0x05));
@@ -1025,8 +1284,8 @@ mod tests {
             b1.claim(&sec1, &id, true, true).expect("claim");
             b2.claim(&sec1, &id, true, true).expect("claim");
             let ph = [0x11u8; 32];
-            let ch1 = g::dispatch_bind_challenge(&mut b1, &s1, &mut rng).expect("ch1");
-            let ch2 = g::dispatch_bind_challenge(&mut b2, &s2, &mut rng).expect("ch2");
+            let ch1 = gd::dispatch_bind_challenge(&mut b1, &s1, &mut rng).expect("ch1");
+            let ch2 = gd::dispatch_bind_challenge(&mut b2, &s2, &mut rng).expect("ch2");
             let mut p1 = Vec::with_capacity(80);
             p1.push(g::OP_KEY_LIST);
             p1.extend_from_slice(&ch1);
@@ -1047,7 +1306,8 @@ mod tests {
             let msg2 = BindingManager::signed_message(&ch2, g::OP_KEY_LIST, &ph);
             let sig2: p256::ecdsa::Signature = sk.sign(&msg2);
             let der2 = sig2.to_der().as_bytes().to_vec();
-            g::dispatch_bind_verify(&mut b2, &der2, &ch2, g::OP_KEY_LIST, &ph).expect("verify ble");
+            gd::dispatch_bind_verify(&mut b2, &der2, &ch2, g::OP_KEY_LIST, &ph)
+                .expect("verify ble");
         }
         // RELEASE sem UP: 0x01; com UP + sig lixo: bypass?0x00:0x05 (igual BLE).
         {
@@ -1071,7 +1331,7 @@ mod tests {
             assert_eq!(st_s, 0x01);
             let ch = [0u8; 32];
             let ph = [0xBBu8; 32];
-            let st_b = g::dispatch_bind_release(&mut b2, &mut s2, &p[64..], &ch, &ph, false)
+            let st_b = gd::dispatch_bind_release(&mut b2, &mut s2, &p[64..], &ch, &ph, false)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!(st_b, 0x01);
@@ -1084,7 +1344,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b = g::dispatch_bind_release(&mut b2, &mut s2, &p[64..], &ch, &ph, true)
+            let st_b = gd::dispatch_bind_release(&mut b2, &mut s2, &p[64..], &ch, &ph, true)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             if crate::binding::binding_bypass_enabled() {
@@ -1111,7 +1371,7 @@ mod tests {
                     &mut s1,
                     &mut rng,
                 );
-                let st_b = g::dispatch_recovery_set(&mut s2, pin, up)
+                let st_b = gd::dispatch_recovery_set(&mut s2, pin, up)
                     .map(|_| 0x00)
                     .unwrap_or_else(|e| e.to_vendor_status());
                 assert_eq!((st_s, st_b), (want, want), "set pin={} up={}", pin, up);
@@ -1123,10 +1383,10 @@ mod tests {
             let (mut b2, mut s2) = fixtures();
             b1.claim(&sec1, &id, true, true).expect("claim");
             b1.persist(&mut s1).expect("persist");
-            g::dispatch_recovery_set(&mut s1, "4242", true).expect("set");
+            gd::dispatch_recovery_set(&mut s1, "4242", true).expect("set");
             b2.claim(&sec1, &id, true, true).expect("claim");
             b2.persist(&mut s2).expect("persist");
-            g::dispatch_recovery_set(&mut s2, "4242", true).expect("set");
+            gd::dispatch_recovery_set(&mut s2, "4242", true).expect("set");
             let (st_s, _) = dispatch_serial_bind_mgmt(
                 g::OP_RECOVERY_UNLOCK,
                 b"0000",
@@ -1136,7 +1396,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b = g::dispatch_recovery_unlock(&mut s2, &mut b2, "0000", true)
+            let st_b = gd::dispatch_recovery_unlock(&mut s2, &mut b2, "0000", true)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!((st_s, st_b), (0x02, 0x02));
@@ -1150,7 +1410,7 @@ mod tests {
                 &mut s1,
                 &mut rng,
             );
-            let st_b = g::dispatch_recovery_unlock(&mut s2, &mut b2, "4242", true)
+            let st_b = gd::dispatch_recovery_unlock(&mut s2, &mut b2, "4242", true)
                 .map(|_| 0x00)
                 .unwrap_or_else(|e| e.to_vendor_status());
             assert_eq!((st_s, st_b), (0x00, 0x00));

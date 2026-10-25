@@ -202,7 +202,28 @@ struct AssemblyState {
     last_packet_time_ms: u64,
 }
 
+/// Transport lane a `CtapHidManager` instance belongs to.
+///
+/// Robustez HIL (USB INIT-ok + 2º CBOR/MSG mudo; UART `0x0B` sticky):
+/// USB e UART TÊM filas separadas — uma instância por transporte
+/// (`mgr_usb` / `mgr_serial` no firmware, `route_ctaphid_event` escolhe
+/// pela origem e responde pela mesma origem). Compartilhar um manager
+/// entre USB e UART reintroduz o wedge cruzado (assembly órfã de um fio
+/// bloqueia o outro com `ERR_CHANNEL_BUSY`). Este enum só documenta a
+/// lane; a separação é uma instância por variante.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CtapHidTransport {
+    Usb,
+    Serial,
+}
+
 /// Channel Manager and Protocol Deframer.
+///
+/// One instance per transport lane (see [`CtapHidTransport`]): firmware
+/// keeps `mgr_usb` + `mgr_serial` apart so a stale assembly on one wire
+/// never wedges the other behind `ERR_CHANNEL_BUSY`. Host harness
+/// mirrors this by re-enumerating + fresh INIT after a mute, never by
+/// sharing state across wires.
 pub struct CtapHidManager {
     next_cid: u32,
     active_assembly: Option<AssemblyState>,
@@ -255,6 +276,48 @@ impl CtapHidManager {
     /// suppress log text mid-transaction so binary framing never interleaves.
     pub fn has_pending_assembly(&self) -> bool {
         self.active_assembly.is_some()
+    }
+
+    /// Drops any in-flight reassembly without touching CID allocation or
+    /// channel locks (liveness-safe: INIT carries only the nonce).
+    ///
+    /// Clears the `0x0B` sticky view from the host side: a
+    /// `RESERVED_CID` (`0x00000000`) packet never creates assembly state
+    /// (rejected in `parse_raw_packet`), so after an `ERR_INVALID_CHANNEL`
+    /// the manager is already clean — `reset()` covers the orphan case
+    /// (stale multi-packet assembly) before a fresh broadcast INIT.
+    /// Locks are security state and are NOT cleared here.
+    pub fn reset(&mut self) {
+        self.active_assembly = None;
+    }
+
+    /// `true` when the in-flight assembly aged past `MSG_TIMEOUT_MS`.
+    ///
+    /// Host/firmware retransmit policy reads this before resending the
+    /// 2nd command (CBOR/MSG after INIT+PING): bounded retry
+    /// (re-enumerate + fresh INIT + larger timeout on idempotent reads
+    /// only), never unbounded polling.
+    pub fn is_expired(&self, now_ms: u64) -> bool {
+        match self.active_assembly {
+            Some(ref state) => now_ms.saturating_sub(state.last_packet_time_ms) > MSG_TIMEOUT_MS,
+            None => false,
+        }
+    }
+
+    /// Drops the assembly when it aged past `MSG_TIMEOUT_MS`.
+    ///
+    /// Returns `true` when something was cleared (caller may retransmit
+    /// the 2nd command on a fresh session). Returns `false` when there
+    /// was nothing stale. The next `process_packet` call also expires
+    /// lazily with `ERR_MSG_TIMEOUT`; this helper lets the owner clear
+    /// eagerly before a bounded retransmit.
+    pub fn clear_if_expired(&mut self, now_ms: u64) -> bool {
+        if self.is_expired(now_ms) {
+            self.active_assembly = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// Locks the channel for the specified duration (in seconds, up to 10s).
@@ -705,6 +768,183 @@ mod tests {
     }
 
     #[test]
+    fn test_timeout_then_broadcast_init_recovers() {
+        // Robustez CTAPHID: assembly órfã expira com ERR_MSG_TIMEOUT
+        // (teto 3000 ms) e o INIT broadcast seguinte recomeça limpo.
+        let cid = 0x0A0B0C0D;
+        let payload = vec![0xABu8; 100];
+        let pkts = CtapHidFramer::frame_message(cid, CMD_MSG, &payload);
+        let mut mgr = CtapHidManager::new();
+        assert_eq!(mgr.process_packet(&pkts[0], 1000).unwrap(), None);
+        assert!(mgr.has_pending_assembly());
+        let err = mgr
+            .process_packet(&pkts[1], 1000 + MSG_TIMEOUT_MS + 1)
+            .unwrap_err();
+        assert_eq!(err.code, ERR_MSG_TIMEOUT);
+        assert!(!mgr.has_pending_assembly());
+        let nonce = [0x01u8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let done = mgr
+            .process_packet(&init[0], 1000 + MSG_TIMEOUT_MS + 2)
+            .expect("INIT pós-timeout deve recuperar")
+            .expect("INIT single-packet completa");
+        assert_eq!(done.cmd, CMD_INIT);
+    }
+
+    #[test]
+    fn test_invalid_channel_cid_zero_no_sticky() {
+        // Estado 0x0B sticky limpar: pacote com CID reservado 0x00000000
+        // é rejeitado sem criar assembly — o manager segue limpo e o
+        // INIT broadcast seguinte recomeça (host: re-enumerar + INIT novo).
+        let mut mgr = CtapHidManager::new();
+        let mut raw = [0u8; PACKET_SIZE];
+        raw[0..4].copy_from_slice(&RESERVED_CID.to_be_bytes());
+        raw[4] = CMD_CBOR;
+        raw[5..7].copy_from_slice(&1u16.to_be_bytes());
+        let err = mgr.process_packet(&raw, 1000).unwrap_err();
+        assert_eq!(err.code, ERR_INVALID_CHANNEL);
+        assert!(!mgr.has_pending_assembly());
+        assert!(!mgr.is_expired(1000 + MSG_TIMEOUT_MS + 1));
+        let nonce = [0x02u8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let done = mgr
+            .process_packet(&init[0], 1100)
+            .expect("INIT pós-0x0B deve recuperar")
+            .expect("INIT single-packet completa");
+        assert_eq!(done.cmd, CMD_INIT);
+    }
+
+    #[test]
+    fn test_separate_queues_usb_serial() {
+        // Fila separada USB vs UART: uma instância por transporte. Órfã
+        // na lane serial nunca bloqueia a lane USB (sem BUSY cruzado).
+        let mut mgr_usb = CtapHidManager::new();
+        let mut mgr_serial = CtapHidManager::new();
+        let orphan = CtapHidFramer::frame_message(0x01020304, CMD_MSG, &[0xABu8; 100]);
+        assert_eq!(mgr_serial.process_packet(&orphan[0], 1000).unwrap(), None);
+        assert!(mgr_serial.has_pending_assembly());
+        assert!(!mgr_usb.has_pending_assembly());
+        // USB segue livre: single-packet completa sem BUSY.
+        let ping = CtapHidFramer::frame_message(0x11223344, CMD_PING, b"hi");
+        let done = mgr_usb
+            .process_packet(&ping[0], 1010)
+            .expect("USB não pode wedgar por órfã serial")
+            .expect("PING single-packet completa");
+        assert_eq!(done.cmd, CMD_PING);
+        // Reset explícito limpa a órfã serial (host: fresh INIT após reset).
+        mgr_serial.reset();
+        assert!(!mgr_serial.has_pending_assembly());
+    }
+
+    #[test]
+    fn test_expired_clears_for_retransmit() {
+        // Timeout/retransmit no 2º comando: assembly órfã expira (teto
+        // 3000 ms); `clear_if_expired` libera o retransmit limitado.
+        let mut mgr = CtapHidManager::new();
+        let pkts = CtapHidFramer::frame_message(0x0B0C0D0E, CMD_CBOR, &[0xCCu8; 100]);
+        assert_eq!(mgr.process_packet(&pkts[0], 1000).unwrap(), None);
+        assert!(!mgr.clear_if_expired(1000 + MSG_TIMEOUT_MS - 1));
+        assert!(mgr.has_pending_assembly());
+        assert!(mgr.is_expired(1000 + MSG_TIMEOUT_MS + 1));
+        assert!(mgr.clear_if_expired(1000 + MSG_TIMEOUT_MS + 1));
+        assert!(!mgr.has_pending_assembly());
+        // Retransmit em sessão nova: broadcast INIT limpo.
+        let nonce = [0x03u8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let done = mgr
+            .process_packet(&init[0], 1000 + MSG_TIMEOUT_MS + 2)
+            .expect("INIT pós-expiry deve recuperar")
+            .expect("INIT single-packet completa");
+        assert_eq!(done.cmd, CMD_INIT);
+    }
+
+    #[test]
+    fn test_send_stall_getinfo_multi_pkt_does_not_wedge_mgr() {
+        // H5 send-stall simulado: resposta GetInfo-like multi-pkt com
+        // `send == false` (endpoint nunca pronto) não prende o manager.
+        // Framing existe, nada é transmitido, estado segue limpo p/
+        // a próxima sessão (fail-closed, sem stall da main-loop).
+        let mut mgr = CtapHidManager::new();
+        // Inbound completa primeiro (assembly fecha antes do send).
+        let inbound = vec![0xABu8; 200];
+        let req = CtapHidFramer::try_frame_message(0x0E0F_1011, CMD_CBOR, &inbound)
+            .expect("inbound deve enquadrar");
+        assert!(req.len() > 1, "GetInfo-like deve ser multi-pkt");
+        for pkt in &req[..req.len() - 1] {
+            assert_eq!(mgr.process_packet(pkt, 1000).unwrap(), None);
+        }
+        let done = mgr
+            .process_packet(req.last().unwrap(), 1010)
+            .expect("último CONT não pode falhar")
+            .expect("multi-pkt completa aqui");
+        assert_eq!(done.cmd, CMD_CBOR);
+        assert!(!mgr.has_pending_assembly());
+        // Outbound GetInfo-like: endpoint recusa tudo (`send == false`).
+        let getinfo = vec![0xCDu8; 200];
+        let resp = CtapHidFramer::try_frame_message(done.cid, CMD_CBOR, &getinfo)
+            .expect("resposta deve enquadrar");
+        assert!(resp.len() > 1, "resposta deve ser multi-pkt");
+        let send = |_pkt: &[u8; PACKET_SIZE]| false;
+        let mut sent = 0usize;
+        for pkt in &resp {
+            if send(pkt) {
+                sent += 1;
+            }
+        }
+        assert_eq!(sent, 0, "stall: nenhum pacote saiu");
+        // Sem retry preso: manager limpo, próxima sessão recomeça.
+        assert!(!mgr.has_pending_assembly());
+        assert!(!mgr.is_expired(1010 + MSG_TIMEOUT_MS + 1));
+        let nonce = [0x04u8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let fresh = mgr
+            .process_packet(&init[0], 1020)
+            .expect("INIT pós-stall deve recuperar")
+            .expect("INIT single-packet completa");
+        assert_eq!(fresh.cmd, CMD_INIT);
+    }
+
+    #[test]
+    fn test_reconnect_resets_assembly_and_queue() {
+        // H5 reconnect: `reset()` + purga da fila USB preservando
+        // Shutdown/Tick. Sem tocar NVS/keys (só assembly + fila).
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum ReconnectQueueEvent {
+            UsbPacket,
+            Tick,
+            Shutdown,
+        }
+        use ReconnectQueueEvent::{Shutdown, Tick, UsbPacket};
+        let mut mgr = CtapHidManager::new();
+        // Órfã multi-pkt pendente (stall N×teto antes do reconnect).
+        let orphan = CtapHidFramer::frame_message(0x0102_0304, CMD_MSG, &[0xABu8; 100]);
+        assert_eq!(mgr.process_packet(&orphan[0], 1000).unwrap(), None);
+        assert!(mgr.has_pending_assembly());
+        // Fila simulada (s_rx_queue + eventos UsbPacket do scheduler).
+        let queue = vec![UsbPacket, UsbPacket, Tick, Shutdown, UsbPacket];
+        // Política do ramo `usb_reconnect`: `reset()` + purga UsbPacket.
+        mgr.reset();
+        let mut kept = Vec::new();
+        for ev in queue {
+            match ev {
+                UsbPacket => {}
+                Tick | Shutdown => kept.push(ev),
+            }
+        }
+        assert!(!mgr.has_pending_assembly());
+        assert_eq!(kept, vec![Tick, Shutdown]);
+        // Fresh INIT recomeça limpo na mesma instância.
+        let nonce = [0x05u8; 8];
+        let init = CtapHidFramer::frame_message(BROADCAST_CID, CMD_INIT, &nonce);
+        let done = mgr
+            .process_packet(&init[0], 1100)
+            .expect("INIT pós-reconnect deve recuperar")
+            .expect("INIT single-packet completa");
+        assert_eq!(done.cmd, CMD_INIT);
+        assert!(!mgr.has_pending_assembly());
+    }
+
+    #[test]
     fn test_overrun_fail_closed_no_silent_truncate() {
         // Framing side: over MAX_MSG_LEN refuses instead of truncating.
         let big = vec![0xAAu8; MAX_MSG_LEN + 1];
@@ -738,5 +978,64 @@ mod tests {
         assert!(is_unmapped_ota_op(0x32));
         assert!(!is_unmapped_ota_op(CMD_CBOR));
         assert!(!is_unmapped_ota_op(0x20));
+    }
+
+    #[test]
+    fn test_retry_after_stall_delivers_multipacket_in_order() {
+        // H5 HIL (USB mudo pos-INIT): endpoint ocupado descartava os
+        // pacotes 2..N em silencio quando o `bool` do send era ignorado
+        // (INIT/PING 1 pkt ok; GetInfo/fw-log/PING-100B+ mudos). Politica:
+        // espera limitada por pacote no C + re-enfileirar no Rust ate
+        // tudo sair, em ordem, byte-identico. Modelo host dessa politica
+        // com endpoint fake: ocupado por 2 voltas e depois livre.
+        let cid = 0x0E0F_1011;
+        let payload: Vec<u8> = (0..200u32).map(|i| (i % 251) as u8).collect();
+        let framed = CtapHidFramer::try_frame_message(cid, CMD_CBOR, &payload)
+            .expect("200 B deve enquadrar");
+        assert!(framed.len() > 1, "GetInfo-like deve ser multi-pkt");
+        // Fila pendente do firmware: `false` re-enfileira, nunca descarta.
+        let mut pending: Vec<[u8; PACKET_SIZE]> = framed.clone();
+        let mut delivered: Vec<[u8; PACKET_SIZE]> = Vec::new();
+        let mut open = false;
+        for _ in 0..2 {
+            let mut sent = 0usize;
+            for pkt in pending.iter() {
+                if open {
+                    delivered.push(*pkt);
+                    sent += 1;
+                } else {
+                    break;
+                }
+            }
+            pending.drain(..sent);
+            assert!(delivered.is_empty(), "stall: nada pode sair");
+            assert_eq!(pending.len(), framed.len(), "stall: nada descartado");
+        }
+        open = true;
+        let mut sent = 0usize;
+        for pkt in pending.iter() {
+            if open {
+                delivered.push(*pkt);
+                sent += 1;
+            } else {
+                break;
+            }
+        }
+        pending.drain(..sent);
+        assert!(pending.is_empty());
+        assert_eq!(delivered, framed, "ordem e bytes preservados apos retry");
+        // E o reassemble do outro lado fecha a mensagem original.
+        let mut mgr = CtapHidManager::new();
+        let mut done = None;
+        for (i, pkt) in delivered.iter().enumerate() {
+            let r = mgr
+                .process_packet(pkt, 1000 + i as u64 * 10)
+                .expect("sem erro de protocolo");
+            if r.is_some() {
+                done = r;
+            }
+        }
+        let msg = done.expect("multi-pkt completa apos retry");
+        assert_eq!(msg.payload, payload);
     }
 }

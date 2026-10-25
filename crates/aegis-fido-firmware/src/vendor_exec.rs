@@ -18,11 +18,20 @@ use aegis_fido_core::oath::tlv::{
     find_tlv, parse_tlv_records, write_tlv, TAG_ALG_HINT, TAG_LABEL, TAG_OATH_NAME,
     TAG_OATH_RESPONSE, TAG_SLOT, TAG_USAGE_HINT,
 };
+use alloc::string::String;
 use alloc::vec::Vec;
+use ciborium::value::Value;
 
-use crate::ble_gatt::{
-    authorize_vendor_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_LIST,
-    OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
+use crate::binding::BindingManager;
+use aegis_fido_usb::piv::{
+    PivSlot, PIV_NVS_PIN_HASH, PIV_NVS_PIN_RETRIES, PIV_NVS_PIN_SALT, PIV_NVS_PUK_HASH,
+    PIV_NVS_PUK_RETRIES, PIV_NVS_PUK_SALT,
+};
+
+use crate::ble::dispatch_bind::authorize_vendor_op;
+use crate::ble::gatt_core::{
+    BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_DELETE,
+    OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
 };
 use crate::persistence::{
     FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
@@ -233,6 +242,147 @@ pub fn load_states<B: FlashStorageBackend>(
     oath: &mut OathApplet,
 ) -> bool {
     load_states_result(storage, keys, oath).is_ok()
+}
+
+/// CTAP Reset (`0x07`) wipe total pós-`0x00` (contrato
+/// `docs/bench-destructive.md`:204-211: in-window + UP limpa TUDO).
+///
+/// Apaga (idempotente, sem erro: ausente = ok):
+/// - blobs vendor/PIN (`key_slots_v1`, `oath_creds_v1`, `pin_hash`,
+///   `pin_retries`) + verdade durável PIN/UV do caminho T-FD
+///   (`pin/auth`, `pin/retries`, `uv/retries`);
+/// - vínculo (`BindingManager::wipe`) + PIN de recovery
+///   (`rec_pin_hash`/`rec_pin_salt`/`rec_pin_retries`);
+/// - PIV (PIN/PUK hash+salt+retries + `piv_cert_9a/9c/9d/9e`);
+/// - OpenPGP (`opgp/*` fixos + `opgp/do/*` dos 5 DOs graváveis);
+/// - `vault/*` (+ cópias `vault_a/`, `vault_b/`, `vault_backup/` e o
+///   índice `vault/index`) e `cred/*` (+ índice `cred/index`),
+///   enumerados pelos índices de quota;
+/// - `oath6/*` + `oath6ctr/*` dos labels do espelho `oath` e
+///   `keys6/*` (best-effort) dos labels do espelho `keys`.
+///
+/// Notas: marcadores de migração (`aegn_*`) PRESERVADOS de propósito
+/// (apagá-los faria o boot re-copiar legado e ressuscitar slots);
+/// `prox_k`/WiFi/OTA/anti-rollback NÃO tocados (fora do contrato do
+/// Reset; anti-rollback jamais pode recuar). Sem log de segredo
+/// (nenhum valor lido é registrado); espelhos RAM são zerados pelo
+/// chamador logo após (novos `KeyManager`/`OathApplet`/`WalletStore` +
+/// `pin_state` default já aplicado pelo engine core).
+pub fn ctap_reset_wipe<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    binding: &mut BindingManager,
+    keys: &KeyManager,
+    oath: &OathApplet,
+) {
+    // 1. Blobs vendor/PIN (chaves cruas, delete idempotente).
+    for key in [NVS_KEYS_SLOTS, NVS_KEYS_OATH, NVS_PIN_HASH, NVS_PIN_RETRIES] {
+        let _ = vendor_ns().delete(storage, key);
+    }
+    // 2. Verdade durável PIN/UV do caminho T-FD (idempotente).
+    for key in ["pin/auth", "pin/retries", "uv/retries"] {
+        let _ = storage.delete(key);
+    }
+    // 3. Vínculo + recovery.
+    binding.wipe(storage);
+    crate::recovery::wipe_recovery_pin(storage);
+    // 4. PIV (fixos ≤15 chars; cert por slot).
+    for key in [
+        PIV_NVS_PIN_HASH,
+        PIV_NVS_PIN_SALT,
+        PIV_NVS_PIN_RETRIES,
+        PIV_NVS_PUK_HASH,
+        PIV_NVS_PUK_SALT,
+        PIV_NVS_PUK_RETRIES,
+    ] {
+        let _ = storage.delete(key);
+    }
+    for slot in PivSlot::all() {
+        let _ = storage.delete(slot.cert_nvs_key());
+    }
+    // 5. OpenPGP (fixos + 5 DOs graváveis 0x005E/0x005B/0x5F2D/0x5F35/0x5F50).
+    for key in [
+        "opgp/serial",
+        "opgp/pw1hash",
+        "opgp/pw1salt",
+        "opgp/pw1ret",
+        "opgp/pw3hash",
+        "opgp/pw3salt",
+        "opgp/pw3ret",
+        "opgp/rchash",
+        "opgp/rcsalt",
+        "opgp/rcret",
+        "opgp/key/sign",
+        "opgp/fp/sign",
+        "opgp/term",
+        "opgp/do/005E",
+        "opgp/do/005B",
+        "opgp/do/5F2D",
+        "opgp/do/5F35",
+        "opgp/do/5F50",
+    ] {
+        let _ = storage.delete(key);
+    }
+    // 6. Vault + cred residentes (enumerados pelos índices de quota).
+    wipe_indexed_ns(
+        storage,
+        crate::vault_store::VAULT_INDEX_KEY,
+        &["vault/", "vault_a/", "vault_b/", "vault_backup/"],
+    );
+    wipe_indexed_ns(storage, crate::cred_store::CRED_INDEX_KEY, &["cred/"]);
+    // 7. OATH por label do espelho RAM (pré-reset; chamador zera depois).
+    let oath_labels: Vec<String> = oath
+        .device_list(false, true)
+        .unwrap_or_default()
+        .iter()
+        .map(|s| s.label.clone())
+        .collect();
+    for label in &oath_labels {
+        let mut k6 = String::from(crate::migrations::keys_oath_v6::OATH6_PREFIX);
+        k6.push_str(label);
+        let _ = storage.delete(&k6);
+        let mut ctr = String::from(crate::oath_cmd::OATH_CTR_PREFIX);
+        ctr.push_str(label);
+        let _ = storage.delete(&ctr);
+    }
+    // 8. keys6 best-effort pelos labels do espelho (nomes legado podem
+    // diferir; sem índice, sem leitor em produção — órfão fica inerte).
+    if let Ok(slots) = keys.list(true) {
+        for s in &slots {
+            let mut k = String::from(crate::migrations::keys_oath_v6::KEYS6_PREFIX);
+            k.push_str(&s.label);
+            let _ = storage.delete(&k);
+        }
+    }
+}
+
+/// Apaga todos os slots de um namespace indexado: lê o índice CBOR
+/// (lista de labels), apaga `prefixo+label` em cada prefixo e por fim
+/// o próprio índice. Índice ausente/corrompido = só apaga o índice
+/// (órfãos sem label conhecido ficam inalcançáveis; `cred_get`/`vault`
+/// com índice ausente nega fail-closed na próxima leitura).
+fn wipe_indexed_ns<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    index_key: &str,
+    prefixes: &[&str],
+) {
+    let mut labels: Vec<String> = Vec::new();
+    if let Ok(raw) = storage.load(index_key) {
+        if let Ok(Value::Array(items)) = ciborium::from_reader::<Value, _>(&raw[..]) {
+            for item in items {
+                if let Value::Text(s) = item {
+                    labels.push(s);
+                }
+            }
+        }
+    }
+    for label in &labels {
+        for prefix in prefixes {
+            let mut key = String::from(*prefix);
+            key.push_str(label);
+            let _ = storage.delete(&key);
+        }
+    }
+    let _ = storage.delete(index_key);
 }
 
 /// Executa uma op vendor `0x20-0x27` (gates + persistência).
@@ -735,5 +885,174 @@ mod tests {
             &mut KeyManager::new(),
             &mut OathApplet::new()
         ));
+    }
+
+    /// Espelho do wipe total do CTAP Reset (`0x07` in-window + UP → `0x00`):
+    /// popula vendor/OATH/PIN/binding/recovery/PIV/OpenPGP/vault/cred/oath6
+    /// e prova que `ctap_reset_wipe` apaga tudo, idempotente.
+    #[test]
+    fn ctap_reset_wipe_apaga_tudo_e_idempotente() {
+        use crate::binding::BindingManager;
+        use crate::cred_store::{cred_put, CredRecord};
+        use crate::oath_store::oath_store_put;
+        use crate::vault_store::vault_store_put;
+        use aegis_fido_core::oath::types::{TAG_KEY, TAG_NAME};
+
+        let mut st = test_storage();
+        let mut rng = rand_core::OsRng;
+
+        // Vendor: 1 chave + 1 conta OATH + PIN.
+        let mut keys = KeyManager::new();
+        keys.generate(
+            0,
+            CoseAlgorithm::ES256,
+            "wipe-k".into(),
+            KEY_USE_SIGN | KEY_USE_AUTH,
+            0,
+            true,
+            &mut rng,
+        )
+        .expect("gen");
+        save_keys_result(&mut st, &keys).expect("save keys");
+        let mut oath = OathApplet::new();
+        let mut put = Vec::new();
+        write_tlv(&mut put, TAG_NAME, b"wipe-oath");
+        let mut kv = alloc::vec![0x21u8, 0x06];
+        kv.extend_from_slice(&[0x5Au8; 10]);
+        write_tlv(&mut put, TAG_KEY, &kv);
+        oath.device_put(&put, true, true).expect("oath put");
+        save_oath_result(&mut st, &oath).expect("save oath");
+        // Namespaces por label (oath6 + contador HOTP).
+        oath_store_put(&mut st, "wipe-oath", b"oath-blob").expect("oath6 put");
+        crate::oath_cmd::hotp_resync(&mut st, "wipe-oath", 41).expect("ctr put");
+        // keys6 best-effort (nome legado == label do espelho).
+        st.store("keys6/wipe-k", b"legacy-copy", &[0u8; 12])
+            .expect("keys6 put");
+        let pin = ClientPinState {
+            pin_hash: Some([0xCDu8; 16]),
+            pin_retries: 3,
+            ..Default::default()
+        };
+        save_pin_state_result(&mut st, &pin).expect("save pin");
+        st.store("pin/auth", b"uv-a", &[0u8; 12]).expect("pin auth");
+        // Vínculo + recovery.
+        let mut binding = BindingManager::new();
+        let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar");
+        let pt = sk.verifying_key().to_encoded_point(false);
+        let mut sec1 = [0u8; crate::binding::BIND_PUB_LEN];
+        sec1.copy_from_slice(pt.as_bytes());
+        binding
+            .claim(&sec1, &[0xABu8; crate::binding::BIND_ID_LEN], true, true)
+            .expect("claim");
+        binding.persist(&mut st).expect("persist");
+        crate::recovery::set_recovery_pin(&mut st, "4242", true).expect("rec set");
+        // PIV provisionado + 1 cert.
+        {
+            let mut piv = crate::piv_store::PivNvsStore::new(&mut st);
+            aegis_fido_usb::piv::provision_pin(&mut piv, b"123456", b"12345678")
+                .expect("piv provision");
+        }
+        st.store("piv_cert_9a", b"cert-der", &[0u8; 12])
+            .expect("piv cert");
+        // OpenPGP: hash + 1 DO.
+        crate::openpgp_cmd::store_blob(&mut st, "opgp/pw1hash", &[0xAAu8; 32]).expect("opgp put");
+        crate::openpgp_cmd::store_blob(&mut st, "opgp/do/005E", b"login").expect("opgp do");
+        // Vault + cred residente (com índices).
+        vault_store_put(
+            &mut st,
+            &crate::config::DeviceConfig::default(),
+            "wipe-v",
+            b"vault-blob",
+        )
+        .expect("vault put");
+        cred_put(
+            &mut st,
+            "wipe-cred",
+            &CredRecord {
+                flags: 0x01,
+                sign_count: 0,
+                rp_id_hash: [0xBBu8; 32],
+                cred_id: alloc::vec![0x01u8; 16],
+                priv_blob: alloc::vec![0xCCu8; 64],
+            },
+        )
+        .expect("cred put");
+
+        // Sanidade: tudo presente antes do wipe.
+        for k in [
+            NVS_KEYS_SLOTS,
+            NVS_KEYS_OATH,
+            NVS_PIN_HASH,
+            NVS_PIN_RETRIES,
+            "oath6/wipe-oath",
+            "oath6ctr/wipe-oath",
+            "keys6/wipe-k",
+            "vault/wipe-v",
+            "vault/index",
+            "cred/wipe-cred",
+            "cred/index",
+        ] {
+            assert!(st.exists(k), "presente antes do wipe: {k}");
+        }
+
+        ctap_reset_wipe(&mut st, &mut binding, &keys, &oath);
+
+        // Wipe total: nada endereçável sobrevive.
+        for k in [
+            NVS_KEYS_SLOTS,
+            NVS_KEYS_OATH,
+            NVS_PIN_HASH,
+            NVS_PIN_RETRIES,
+            "pin/auth",
+            "pin/retries",
+            "uv/retries",
+            crate::binding::BIND_PUB_NVS_KEY,
+            crate::binding::BIND_ID_NVS_KEY,
+            crate::recovery::RECOVERY_HASH_NVS_KEY,
+            crate::recovery::RECOVERY_SALT_NVS_KEY,
+            crate::recovery::RECOVERY_RETRIES_NVS_KEY,
+            "piv_pin_hash",
+            "piv_pin_salt",
+            "piv_pin_retries",
+            "piv_puk_hash",
+            "piv_puk_salt",
+            "piv_puk_retries",
+            "piv_cert_9a",
+            "piv_cert_9c",
+            "piv_cert_9d",
+            "piv_cert_9e",
+            "opgp/serial",
+            "opgp/pw1hash",
+            "opgp/pw1salt",
+            "opgp/pw1ret",
+            "opgp/pw3hash",
+            "opgp/pw3salt",
+            "opgp/pw3ret",
+            "opgp/rchash",
+            "opgp/rcsalt",
+            "opgp/rcret",
+            "opgp/key/sign",
+            "opgp/fp/sign",
+            "opgp/term",
+            "opgp/do/005E",
+            "opgp/do/005B",
+            "opgp/do/5F2D",
+            "opgp/do/5F35",
+            "opgp/do/5F50",
+            "oath6/wipe-oath",
+            "oath6ctr/wipe-oath",
+            "keys6/wipe-k",
+            "vault/wipe-v",
+            "vault/index",
+            "cred/wipe-cred",
+            "cred/index",
+        ] {
+            assert!(!st.exists(k), "apagado no wipe: {k}");
+        }
+        assert!(!binding.is_claimed());
+        assert!(!crate::recovery::is_provisioned(&st));
+        // Idempotente: segunda chamada sem nada não falha nem ressuscita.
+        ctap_reset_wipe(&mut st, &mut binding, &keys, &oath);
+        assert!(!st.exists(NVS_KEYS_SLOTS));
     }
 }

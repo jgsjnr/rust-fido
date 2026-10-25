@@ -243,22 +243,21 @@ bool aegis_usb_send_report(const uint8_t *packet, uint16_t len) {
     if (packet == NULL || len == 0) {
         return false;
     }
-    // Wait for USB IN endpoint to become ready (up to 200ms)
-    int retries = 200;
-    while (!tud_hid_ready() && retries > 0) {
-        vTaskDelay(1);
-        retries--;
+    // H5 CTAPHID path is bounded non-blocking: brief wait per packet
+    // (few ms, never N x 200 ms stalls). A single attempt dropped packets
+    // 2..N of multi-packet responses in silence (INIT/PING small 1 pkt ok;
+    // GetInfo/fw-log/PING-100B+ mute). `false` (endpoint still not ready
+    // or busy) means "not sent, retry later": the Rust loop re-queues the
+    // packet for the next turns. Fail-closed; no NVS/keys/locks touched.
+    for (int i = 0; i < 5; i++) {
+        if (tud_hid_ready()) {
+            if (tud_hid_report(0, packet, len)) {
+                return true;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
-    if (!tud_hid_ready()) {
-        ESP_LOGW(TAG, "aegis_usb_send_report: timeout waiting for tud_hid_ready");
-        return false;
-    }
-    bool sent = tud_hid_report(0, packet, len);
-    if (!sent) {
-        vTaskDelay(1);
-        sent = tud_hid_report(0, packet, len);
-    }
-    return sent;
+    return false;
 }
 
 void aegis_usb_set_rx_callback(aegis_hid_rx_callback_t callback) {

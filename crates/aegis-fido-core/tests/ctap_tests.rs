@@ -1,3 +1,4 @@
+use aegis_fido_core::credential::CredentialStore;
 use aegis_fido_core::crypto::cose::{
     CoseKey, COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512,
 };
@@ -459,6 +460,95 @@ fn test_authenticator_reset() {
     engine.set_user_presence(false);
     let res_no_touch = engine.process_packet(&[CTAP_CMD_RESET], 1002, &mut rng);
     assert_eq!(res_no_touch[0], CTAP2_ERR_OPERATION_DENIED);
+}
+
+#[test]
+fn test_authenticator_reset_wipes_residents_pin_and_blobs() {
+    let mut engine = test_engine();
+    let mut rng = rand::thread_rng();
+
+    // 1. Define o PIN (KA + setPIN) — mesmo fluxo de test_large_blobs.
+    let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
+    let ka_res = engine.process_packet(
+        &[CTAP_CMD_CLIENT_PIN, 0xA2, 0x01, 0x01, 0x02, 0x02],
+        1001,
+        &mut rng,
+    );
+    let ka_map = decode_cbor_map(&ka_res[1..]).unwrap();
+    let auth_cose = CoseKey::from_cbor_value(get_int_key(&ka_map, 1).unwrap()).unwrap();
+    let shared = client_ecdh.compute_shared_secret(&auth_cose).unwrap();
+    let k = PinProtocol1::kdf(&shared);
+
+    let pin_enc = PinProtocol1::encrypt(&k, &pad_pin(b"4321").unwrap());
+    let pin_auth = PinProtocol1::authenticate(&k, &pin_enc);
+    let set_req = vec![
+        (Value::Integer(1.into()), Value::Integer(1.into())),
+        (
+            Value::Integer(2.into()),
+            Value::Integer(SUBCMD_SET_PIN.into()),
+        ),
+        (
+            Value::Integer(3.into()),
+            client_ecdh.to_cose_key().to_cbor_value(),
+        ),
+        (Value::Integer(4.into()), Value::Bytes(pin_auth.to_vec())),
+        (Value::Integer(5.into()), Value::Bytes(pin_enc)),
+    ];
+    let p_bytes = encode_cbor_value(&Value::Map(set_req)).unwrap();
+    let mut full_p = vec![CTAP_CMD_CLIENT_PIN];
+    full_p.extend_from_slice(&p_bytes);
+    assert_eq!(
+        engine.process_packet(&full_p, 1001, &mut rng)[0],
+        CTAP1_ERR_SUCCESS
+    );
+    assert!(engine.pin_state.is_pin_set());
+
+    // 2. Credencial residente (rk=true, ES256).
+    let client_data_hash = [0x44u8; 32];
+    let mut req = vec![(
+        Value::Integer(1.into()),
+        Value::Bytes(client_data_hash.to_vec()),
+    )];
+    let rp = vec![(Value::Text("id".into()), Value::Text("wipe.dev".into()))];
+    req.push((Value::Integer(2.into()), Value::Map(rp)));
+    let user = vec![
+        (Value::Text("id".into()), Value::Bytes(vec![7, 7, 7])),
+        (Value::Text("name".into()), Value::Text("wipe".into())),
+    ];
+    req.push((Value::Integer(3.into()), Value::Map(user)));
+    let param = vec![
+        (Value::Text("type".into()), Value::Text("public-key".into())),
+        (
+            Value::Text("alg".into()),
+            Value::Integer((COSE_ALG_ES256 as i64).into()),
+        ),
+    ];
+    req.push((
+        Value::Integer(4.into()),
+        Value::Array(vec![Value::Map(param)]),
+    ));
+    let opts = vec![(Value::Text("rk".into()), Value::Bool(true))];
+    req.push((Value::Integer(7.into()), Value::Map(opts)));
+    let mc_bytes = encode_cbor_value(&Value::Map(req)).unwrap();
+    let mut full_mc = vec![CTAP_CMD_MAKE_CREDENTIAL];
+    full_mc.extend_from_slice(&mc_bytes);
+    assert_eq!(
+        engine.process_packet(&full_mc, 1001, &mut rng)[0],
+        CTAP1_ERR_SUCCESS
+    );
+    assert_eq!(engine.store.count_resident(), 1);
+
+    // 3. Blob (via API direta; o handler exige token — o estado é o mesmo).
+    engine.large_blobs.write(0, &[0xABu8; 16]).unwrap();
+    assert!(!engine.large_blobs.is_empty());
+
+    // 4. Reset in-window com UP → 0x00 com wipe total.
+    engine.set_user_presence(true);
+    let res = engine.process_packet(&[CTAP_CMD_RESET], 1005, &mut rng);
+    assert_eq!(res[0], CTAP1_ERR_SUCCESS);
+    assert_eq!(engine.store.count_resident(), 0);
+    assert!(!engine.pin_state.is_pin_set());
+    assert!(engine.large_blobs.is_empty());
 }
 
 #[test]

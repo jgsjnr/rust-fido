@@ -149,6 +149,17 @@ impl<S: CredentialStore> CtapEngine<S> {
                 // Reset state
                 self.pin_state = ClientPinState::default();
                 self.large_blobs.clear();
+                // Wipe total: residentes apagados via trait (sem método novo
+                // no trait; ids coletados antes p/ não emprestar no delete).
+                let mut doomed: Vec<Vec<u8>> = Vec::new();
+                for (_, rp_hash) in self.store.list_rps() {
+                    for cred in self.store.list_resident_credentials(&rp_hash) {
+                        doomed.push(cred.id.clone());
+                    }
+                }
+                for id in &doomed {
+                    let _ = self.store.delete(id);
+                }
                 let mut new_master = [0u8; 32];
                 rng.fill_bytes(&mut new_master);
                 self.wrapper = CredentialWrapper::new(new_master);

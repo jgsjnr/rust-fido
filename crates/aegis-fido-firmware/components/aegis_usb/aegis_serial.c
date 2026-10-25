@@ -51,6 +51,12 @@ esp_err_t aegis_serial_init(void) {
         return err;
     }
 
+    // Purge-RX no open: descarta bytes residuais (ticks/logs de boot ou
+    // janela mista texto+INIT de sessão anterior). Abrir nunca reseta o
+    // device; só limpa o fio local para o resync Rust (`SerialStreamDecoder`
+    // + INIT broadcast que limpa assembly órfã) partir de FIFO zerado.
+    uart_flush_input(SERIAL_UART_PORT);
+
     s_serial_initialized = true;
     ESP_LOGI(TAG, "Serial CTAPHID channel online on UART0 (115200 8N1, framing = USB)");
     return ESP_OK;
