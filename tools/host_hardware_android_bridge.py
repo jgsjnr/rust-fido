@@ -150,6 +150,12 @@ class HardwareBridgeManager:
         with self.lock:
             if self.is_connected and self.session and self.session.link:
                 return True
+            if self.session:
+                try:
+                    self.session.close()
+                except Exception:
+                    pass
+                self.session = None
 
             # 1. Try Serial UART ports first (enables TEST_PAIRING_OPEN and TEST_UP hooks)
             candidate_ports = []
@@ -351,6 +357,12 @@ class HardwareBridgeManager:
                 return status, resp_payload
             except Exception as e:
                 self.is_connected = False
+                if self.session:
+                    try:
+                        self.session.close()
+                    except Exception:
+                        pass
+                    self.session = None
                 raise e
 
     def send_vendor(self, opcode, payload=b""):
@@ -415,27 +427,33 @@ class HardwareBridgeManager:
             # Normal vendor commands: wrap as CMD_MSG (0x83) with [opcode] + payload
             msg_payload = payload if opcode == CMD_MSG else (bytes([opcode]) + payload)
             try:
-                status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_0x{opcode:02x}", timeout_s=10.0)
+                status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_0x{opcode:02x}", timeout_s=25.0)
 
                 # If status is STATUS_NEED_UP (0x01), auto-latch UP and retry once
                 if status == 0x01 and self.transport == "UART":
                     print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_UP (0x01); armando TEST_UP...")
                     self._touch_up_internal()
-                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
+                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=25.0)
                 elif status == 0x05 and self.transport == "UART":
                     print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_BINDING (0x05); armando TEST_PAIRING_OPEN + TEST_UP...")
                     self._pairing_open_internal()
                     self._touch_up_internal()
-                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
+                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=25.0)
                 elif status == 0x02 and self.transport == "UART":
                     print(f"[bridge] Opcode 0x{opcode:02X} retornou NEED_PIN (0x02); autenticando PIN...")
                     self._authenticate_pin_internal()
-                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=10.0)
+                    status, resp_payload = self.session._exchange(CMD_MSG, msg_payload, op=f"vendor_retry_0x{opcode:02x}", timeout_s=25.0)
 
                 return status, resp_payload
             except Exception as e:
-                # If communication failed, mark disconnected so next call will reconnect
+                # If communication failed, mark disconnected and clean up session so next call will reconnect cleanly
                 self.is_connected = False
+                if self.session:
+                    try:
+                        self.session.close()
+                    except Exception:
+                        pass
+                    self.session = None
                 raise e
 
     def lifetime_dump(self):

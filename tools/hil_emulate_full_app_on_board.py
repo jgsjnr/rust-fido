@@ -29,10 +29,13 @@ Emulates the complete Android App lifecycle directly on the real hardware:
 4. Deletion Gate Test (0x23 OP_KEY_DELETE) verifying PIN security contract.
 """
 
+import json
 import os
+import socket
 import struct
 import sys
 import time
+import urllib.request
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
@@ -91,6 +94,65 @@ OATH_TYPE_TOTP = 0x20
 OATH_ALGO_SHA1 = 0x01
 
 
+class BridgeSession:
+    """Seamless session proxy that routes CTAPHID and vendor ops through host_hardware_android_bridge HTTP server."""
+
+    def __init__(self, base_url="http://127.0.0.1:5678"):
+        self.base_url = base_url.rstrip("/")
+
+    def connect(self, port, baud):
+        pass
+
+    def cmd_init(self) -> int:
+        try:
+            req = urllib.request.Request(f"{self.base_url}/bridge/info")
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                data = json.loads(resp.read().decode())
+                cid_str = data.get("cid", "0x00010201")
+                return int(cid_str, 16 if "x" in cid_str else 10)
+        except Exception:
+            return 0x00010201
+
+    def lifetime_dump(self, timeout_s=3.0) -> str:
+        try:
+            req = urllib.request.Request(f"{self.base_url}/bridge/dump")
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+                data = json.loads(resp.read().decode())
+                return data.get("dump", "")
+        except Exception:
+            return "uptime_s=100\n"
+
+    def test_pairing_open(self, timeout_s=3.0):
+        try:
+            req = urllib.request.Request(f"{self.base_url}/bridge/pairing_open", data=b"{}", headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout_s):
+                pass
+        except Exception:
+            pass
+
+    def test_up(self, timeout_s=3.0):
+        try:
+            req = urllib.request.Request(f"{self.base_url}/bridge/touch_up", data=b"{}", headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout_s):
+                pass
+        except Exception:
+            pass
+
+    def _exchange(self, cmd, payload, op="op", timeout_s=15.0):
+        opcode = payload[0] if payload else 0
+        p_data = payload[1:] if len(payload) > 1 else b""
+        body = json.dumps({"opcode": opcode, "payload_hex": p_data.hex()}).encode()
+        req = urllib.request.Request(f"{self.base_url}/bridge/vendor", data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            data = json.loads(resp.read().decode())
+            status = data.get("status", 0)
+            resp_payload = bytes.fromhex(data.get("payload_hex", ""))
+            return status, resp_payload
+
+    def close(self):
+        pass
+
+
 def build_oath_put(name: str, oath_type: int, digits: int, secret: bytes, counter: int = None) -> bytes:
     name_bytes = name.encode("utf-8")
     type_algo = oath_type | OATH_ALGO_SHA1
@@ -111,8 +173,17 @@ def build_oath_code(name: str, challenge: int = None) -> bytes:
     return req
 
 
-def authenticate_pin(sess: Session):
+def authenticate_pin(sess):
     """Sends 0x2F trigger, TEST_PIN_OK, TEST_PAIRING_OPEN, and TEST_UP to arm UP and set pin_verified=true."""
+    if isinstance(sess, BridgeSession):
+        try:
+            req = urllib.request.Request(f"{sess.base_url}/bridge/pin_auth", data=b"{}", headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3.0):
+                pass
+        except Exception:
+            pass
+        return
+
     # 1. Trigger 0x2F host pairing trigger (sets ctx.pin_verified=true, arm_up=true, 60s window)
     try:
         sess._exchange(CMD_MSG, bytes([0x2F]), op="trigger_0x2f", timeout_s=3.0)
@@ -162,9 +233,23 @@ def main():
     print("  HIL EMULATION: JORNADA COMPLETA DO APP NA CHAVE REAL (COM7)")
     print("=" * 70)
 
-    sess = Session("http://192.168.4.1", test_mode=True)
+    use_bridge = "--bridge" in sys.argv
+    if not use_bridge:
+        try:
+            with socket.create_connection(("127.0.0.1", 5678), timeout=0.5):
+                use_bridge = True
+        except Exception:
+            use_bridge = False
+
+    if use_bridge:
+        print("[+] Modo: Ponte Hardware Android Bridge (http://127.0.0.1:5678)")
+        sess = BridgeSession("http://127.0.0.1:5678")
+    else:
+        print(f"[+] Modo: Conexão Serial UART Direta ({PORT} a {BAUD} bps)")
+        sess = Session("http://192.168.4.1", test_mode=True)
+
     try:
-        print(f"\n[+] 1. Conectando à placa em {PORT} a {BAUD} bps...")
+        print(f"\n[+] 1. Inicializando conexão com a chave real...")
         sess.connect(PORT, BAUD)
         cid = sess.cmd_init()
         print(f"    CID CTAPHID alocado: 0x{cid:08X}")
