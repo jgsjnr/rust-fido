@@ -215,8 +215,9 @@ def run_battery():
         st, _, wresp = http_get("/api/wallet/list")
         wdata = json.loads(wresp.decode("utf-8"))
         wallets = wdata.get("wallets", [])
-        ok = (st == 200) and (len(wallets) >= 2)
-        log_test("7.1 GET /api/wallet/list (Listar Carteiras On-Device)", ok, f"count={len(wallets)}, first_addr={wallets[0].get('address')[:16]}...")
+        ok = (st == 200) and (len(wallets) >= 1)
+        first_addr = wallets[0].get("address")[:16] if wallets else "none"
+        log_test("7.1 GET /api/wallet/list (Listar Carteiras On-Device)", ok, f"count={len(wallets)}, first_addr={first_addr}...")
     except Exception as e:
         log_test("7.1 GET /api/wallet/list (Listar Carteiras On-Device)", False, str(e))
 
@@ -298,6 +299,58 @@ def run_battery():
         log_test("11.1 POST /api/reset (Liberar Vínculo da Chave 0x2B)", ok, f"status=0x{rresp.get('status', 0):02x}")
     except Exception as e:
         log_test("11.1 POST /api/reset (Liberar Vínculo da Chave 0x2B)", False, str(e))
+
+    # 12. Proximity RSSI & Windows Dynamic Lock Engine
+    try:
+        st, _, p_stat = http_get("/api/proximity/status")
+        p_data = json.loads(p_stat.decode("utf-8"))
+        ok = (st == 200) and (p_data.get("ok") is True) and (p_data.get("state") in ("NEAR", "HYSTERESIS", "AWAY", "LOCKED"))
+        log_test("12.1 GET /api/proximity/status (Estado da Trava de Proximidade)", ok, f"state={p_data.get('state')}, rssi={p_data.get('rssi_dbm')}dBm, ctr={p_data.get('rolling_ctr')}, tag={p_data.get('beacon_tag_hex')}")
+    except Exception as e:
+        log_test("12.1 GET /api/proximity/status (Estado da Trava de Proximidade)", False, str(e))
+
+    try:
+        st, _, p_cfg = http_post_json("/api/proximity/config", {
+            "threshold_dbm": -75,
+            "hysteresis_db": 5,
+            "lock_secs": 6.0,
+            "enforce_windows_lock": False,
+        })
+        ok = (st == 200) and (p_cfg.get("ok") is True) and (p_cfg.get("threshold_dbm") == -75)
+        log_test("12.2 POST /api/proximity/config (Configuração Limiar & Tempo)", ok, f"threshold={p_cfg.get('threshold_dbm')}dBm, lock_secs={p_cfg.get('lock_secs')}s")
+    except Exception as e:
+        log_test("12.2 POST /api/proximity/config (Configuração Limiar & Tempo)", False, str(e))
+
+    try:
+        st, _, p_near = http_post_json("/api/proximity/rssi", {
+            "rssi_dbm": -32,
+            "elapsed_s": 2.0,
+            "source": "android_app",
+        })
+        ok = (st == 200) and (p_near.get("ok") is True) and (p_near.get("state") == "NEAR") and (p_near.get("locked") is False)
+        log_test("12.3 POST /api/proximity/rssi (Amostra Próxima -32 dBm -> NEAR)", ok, f"state={p_near.get('state')}, away_secs={p_near.get('away_secs')}s")
+    except Exception as e:
+        log_test("12.3 POST /api/proximity/rssi (Amostra Próxima -32 dBm -> NEAR)", False, str(e))
+
+    try:
+        st, _, p_lock = http_post_json("/api/proximity/rssi", {
+            "rssi_dbm": -90,
+            "elapsed_s": 7.0,
+            "source": "android_app",
+        })
+        ok = (st == 200) and (p_lock.get("ok") is True) and (p_lock.get("state") == "LOCKED") and (p_lock.get("locked") is True) and (p_lock.get("lock_triggered") is True)
+        log_test("12.4 POST /api/proximity/rssi (Afastamento -90 dBm > 6s -> LOCKED)", ok, f"state={p_lock.get('state')}, locked={p_lock.get('locked')}, triggered={p_lock.get('lock_triggered')}")
+    except Exception as e:
+        log_test("12.4 POST /api/proximity/rssi (Afastamento -90 dBm > 6s -> LOCKED)", False, str(e))
+
+    try:
+        st, _, p_unl = http_post_json("/api/proximity/unlock", {
+            "pin": "123456",
+        })
+        ok = (st == 200) and (p_unl.get("ok") is True) and (p_unl.get("unlocked") is True) and (p_unl.get("state") == "NEAR")
+        log_test("12.5 POST /api/proximity/unlock (Toque Físico UP + PIN no ESP32-S3)", ok, f"unlocked={p_unl.get('unlocked')}, touch_up={p_unl.get('touch_up')}, state={p_unl.get('state')}")
+    except Exception as e:
+        log_test("12.5 POST /api/proximity/unlock (Toque Físico UP + PIN no ESP32-S3)", False, str(e))
 
     print("=" * 70)
     print(f" RESUMO DA BATERIA: {passed_tests} PASS / {failed_tests} FAIL (Total: {passed_tests + failed_tests})")

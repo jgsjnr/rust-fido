@@ -763,6 +763,115 @@
           </form>
         </div>
 
+        <!-- Card: Trava de Proximidade RSSI & Windows Dynamic Lock -->
+        <div class="card" style="cursor:default; grid-column: 1 / -1;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3 style="font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px;">
+              🛡️ Trava de Proximidade RSSI & Windows Dynamic Lock (Celular ↔ PC)
+            </h3>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="proximity-state-badge" class="badge-status status-active" style="font-size:12px; font-weight:800; padding:4px 10px;">NEAR</span>
+              <button class="btn-rite" onclick="fetchProximityStatus()" title="Atualizar">🔄</button>
+            </div>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted);">
+            Monitora a proximidade física do celular em relação ao computador. Quando o sinal cai abaixo do limiar pelo tempo de tolerância, trava a estação de trabalho Windows (<code style="color:var(--primary);">LockWorkStation</code>) e revoga a sessão FIDO2.
+          </p>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-top:10px;">
+            <!-- Gauge & Metric Box -->
+            <div style="background:var(--surface-elevated); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:13px;">
+                <span style="font-weight:700;">RSSI Atual:</span>
+                <span id="prox-rssi-val" style="font-family:var(--font-mono); font-size:15px; font-weight:800; color:var(--success);">-32 dBm</span>
+              </div>
+              <!-- RSSI Visual Bar -->
+              <div style="background:rgba(255,255,255,0.08); height:10px; border-radius:5px; overflow:hidden; position:relative; margin:4px 0;">
+                <div id="prox-rssi-bar" style="background:var(--success); width:75%; height:100%; transition: width 0.3s, background 0.3s;"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+                <span>-100 dBm (Longe)</span>
+                <span id="prox-threshold-mark" style="color:var(--warning);">-75 dBm (Limiar)</span>
+                <span>-20 dBm (Perto)</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:4px;">
+                <span style="color:var(--text-muted);">Tempo Afastado:</span>
+                <span id="prox-away-secs" style="font-family:var(--font-mono); font-weight:700;">0.0s / 6.0s</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span style="color:var(--text-muted);">Eventos de Bloqueio:</span>
+                <span id="prox-lock-events" style="font-family:var(--font-mono); font-weight:700;">0 disparos</span>
+              </div>
+            </div>
+
+            <!-- Rolling-Code Cryptography Box -->
+            <div style="background:var(--surface-elevated); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:13px; font-weight:700; color:var(--primary); display:flex; align-items:center; gap:6px;">
+                🔐 Rolling-Code Criptográfico (0xFFFE)
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span style="color:var(--text-muted);">Fob ID / MAC:</span>
+                <span id="prox-ble-mac" style="font-family:var(--font-mono);">3C:84:27:C7:17:7A</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span style="color:var(--text-muted);">Contador Monotônico:</span>
+                <span id="prox-rolling-ctr" style="font-family:var(--font-mono); font-weight:700;">#14</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span style="color:var(--text-muted);">TAG AES-CCM (4B):</span>
+                <span id="prox-tag-hex" style="font-family:var(--font-mono); color:var(--accent);">0x26748a0f</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span style="color:var(--text-muted);">Coexistência USB/BLE:</span>
+                <span style="color:var(--success); font-weight:700;">Ativa & Válida</span>
+              </div>
+            </div>
+
+            <!-- Configuration & Actions Box -->
+            <div style="background:var(--surface-elevated); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:13px; font-weight:700; color:var(--text-muted);">Ajustes de Limiar & Tolerância</div>
+              <div style="display:flex; gap:10px; align-items:center; font-size:12px;">
+                <label style="flex:1;">Limiar (dBm):
+                  <select id="prox-sel-threshold" class="form-control" style="padding:4px 8px; font-size:12px; margin-top:2px;" onchange="saveProximityConfig()">
+                    <option value="-65">-65 dBm (Muito Perto)</option>
+                    <option value="-75" selected>-75 dBm (Padrão Escritório)</option>
+                    <option value="-85">-85 dBm (Distância Maior)</option>
+                  </select>
+                </label>
+                <label style="flex:1;">Tempo Tolerância:
+                  <select id="prox-sel-secs" class="form-control" style="padding:4px 8px; font-size:12px; margin-top:2px;" onchange="saveProximityConfig()">
+                    <option value="4.0">4.0s (Rápido)</option>
+                    <option value="6.0" selected>6.0s (Padrão)</option>
+                    <option value="10.0">10.0s (Relaxado)</option>
+                  </select>
+                </label>
+              </div>
+              <div style="margin-top:4px;">
+                <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <input type="checkbox" id="prox-chk-winlock" onchange="saveProximityConfig()">
+                  <span>Ativar Windows LockWorkStation() real no PC</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions & Simulation -->
+          <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+            <button class="btn-primary" style="background:#d9534f; border-color:#d43f3a;" onclick="simulateProximityRssi(-88, 7.0)">
+              🚶 Simular Celular Afastando (-88 dBm &gt; 6s)
+            </button>
+            <button class="btn-rite" onclick="simulateProximityRssi(-32, 2.0)">
+              📍 Simular Celular Perto (-32 dBm)
+            </button>
+            <button class="btn-rite" style="border-color:var(--success); color:var(--success);" onclick="unlockProximityHardware()">
+              🔓 Destravar com Toque UP (GPIO 0) + PIN
+            </button>
+          </div>
+          <div id="prox-action-output" style="margin-top:10px; font-size:12px; font-family:var(--font-mono); color:var(--text-muted); min-height:24px;">
+            Pronto para monitorar presença de proximidade.
+          </div>
+        </div>
+
         <!-- Bluetooth Low Energy Scanner -->
         <div class="card" style="cursor:default;">
           <h3 style="font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px;">
@@ -829,6 +938,32 @@
               <span style="color:var(--text-muted);">Tempo Ativa (Uptime):</span>
               <span id="diag-uptime" style="font-family:var(--font-mono);">0s</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Card: Status Proximidade no Cockpit -->
+        <div class="card" style="cursor:default;">
+          <h3 style="font-size:17px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+            <span>🛡️ Estado da Trava de Proximidade</span>
+            <span id="diag-prox-state" class="badge-status status-active" style="font-size:12px; font-weight:800;">NEAR</span>
+          </h3>
+          <p style="font-size:13px; color:var(--text-muted);">Integração ativa entre App Android e computador via Bluetooth Low Energy.</p>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Sinal Medido:</span>
+              <span id="diag-prox-rssi" style="font-family:var(--font-mono); font-weight:700; color:var(--success);">-32 dBm</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Limiar / Tolerância:</span>
+              <span id="diag-prox-threshold" style="font-family:var(--font-mono);">-75 dBm / 6.0s</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span style="color:var(--text-muted);">Bloqueio do Windows:</span>
+              <span id="diag-prox-winlock" style="font-family:var(--font-mono);">Desativado (Simulação Segura)</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; margin-top:12px;">
+            <button class="btn-rite" style="flex:1;" onclick="switchTab('tab-connectivity')">Ver Painel Completo de Proximidade</button>
           </div>
         </div>
 
@@ -1693,6 +1828,167 @@
     }
     function closeModal(id) {
       document.getElementById(id).classList.remove('active');
+    }
+
+    // ==========================================
+    // PROXIMITY RSSI & DYNAMIC LOCK CONTROLLER
+    // ==========================================
+    async function fetchProximityStatus() {
+      try {
+        const res = await fetch(bridgeBase + '/api/proximity/status');
+        const data = await res.json();
+        if (!data.ok) return;
+
+        // Badge & State
+        const badge = document.getElementById('proximity-state-badge');
+        const diagBadge = document.getElementById('diag-prox-state');
+        if (badge) {
+          badge.innerText = data.state;
+          badge.className = 'badge-status ' + (data.state === 'NEAR' ? 'status-active' : (data.state === 'HYSTERESIS' ? 'status-warning' : 'status-danger'));
+        }
+        if (diagBadge) {
+          diagBadge.innerText = data.state;
+          diagBadge.className = 'badge-status ' + (data.state === 'NEAR' ? 'status-active' : (data.state === 'HYSTERESIS' ? 'status-warning' : 'status-danger'));
+        }
+
+        // Metrics
+        const rssiVal = document.getElementById('prox-rssi-val');
+        const rssiBar = document.getElementById('prox-rssi-bar');
+        const diagRssi = document.getElementById('diag-prox-rssi');
+        const rssi = data.rssi_dbm !== null ? data.rssi_dbm : -100;
+
+        if (rssiVal) {
+          rssiVal.innerText = `${rssi} dBm`;
+          rssiVal.style.color = (rssi >= data.threshold_dbm + data.hysteresis_db) ? 'var(--success)' : (rssi >= data.threshold_dbm ? 'var(--warning)' : 'var(--danger)');
+        }
+        if (diagRssi) {
+          diagRssi.innerText = `${rssi} dBm`;
+          diagRssi.style.color = (rssi >= data.threshold_dbm + data.hysteresis_db) ? 'var(--success)' : (rssi >= data.threshold_dbm ? 'var(--warning)' : 'var(--danger)');
+        }
+        if (rssiBar) {
+          const pct = Math.max(5, Math.min(100, Math.round((rssi + 105) * 1.15)));
+          rssiBar.style.width = pct + '%';
+          rssiBar.style.background = (rssi >= data.threshold_dbm + data.hysteresis_db) ? 'var(--success)' : (rssi >= data.threshold_dbm ? 'var(--warning)' : 'var(--danger)');
+        }
+
+        const awayEl = document.getElementById('prox-away-secs');
+        if (awayEl) awayEl.innerText = `${data.away_secs.toFixed(1)}s / ${data.lock_secs.toFixed(1)}s`;
+
+        const lockEventsEl = document.getElementById('prox-lock-events');
+        if (lockEventsEl) lockEventsEl.innerText = `${data.lock_events_count} disparos`;
+
+        const ctrEl = document.getElementById('prox-rolling-ctr');
+        if (ctrEl) ctrEl.innerText = `#${data.rolling_ctr}`;
+
+        const tagEl = document.getElementById('prox-tag-hex');
+        if (tagEl) tagEl.innerText = `0x${data.beacon_tag_hex}`;
+
+        const macEl = document.getElementById('prox-ble-mac');
+        if (macEl && data.ble_mac) macEl.innerText = data.ble_mac;
+
+        const selThresh = document.getElementById('prox-sel-threshold');
+        if (selThresh && !selThresh.matches(':focus')) selThresh.value = String(data.threshold_dbm);
+
+        const selSecs = document.getElementById('prox-sel-secs');
+        if (selSecs && !selSecs.matches(':focus')) selSecs.value = Number(data.lock_secs).toFixed(1);
+
+        const chkWin = document.getElementById('prox-chk-winlock');
+        if (chkWin && !chkWin.matches(':focus')) chkWin.checked = Boolean(data.enforce_windows_lock);
+
+        const diagWin = document.getElementById('diag-prox-winlock');
+        if (diagWin) diagWin.innerText = data.enforce_windows_lock ? 'ATIVADO (Real)' : 'Desativado (Simulação Segura)';
+
+        const diagThresh = document.getElementById('diag-prox-threshold');
+        if (diagThresh) diagThresh.innerText = `${data.threshold_dbm} dBm / ${data.lock_secs}s`;
+
+        // Update virtual LED
+        if (data.locked) {
+          setLedState('red', 'BLOQUEADO', 'Estação Travada por Afastamento do Celular');
+        } else if (data.state === 'NEAR') {
+          setLedState('green', 'PRÓXIMO (NEAR)', 'Celular ao alcance seguro');
+        } else if (data.state === 'HYSTERESIS') {
+          setLedState('cyan', 'HISTERESE', 'Celular no limiar de tolerância');
+        } else {
+          setLedState('blue', 'AFASTADO (AWAY)', 'Contando tempo para bloqueio...');
+        }
+      } catch (e) {
+        // bridge offline or error
+      }
+    }
+
+    async function saveProximityConfig() {
+      const thresh = parseInt(document.getElementById('prox-sel-threshold').value, 10);
+      const secs = parseFloat(document.getElementById('prox-sel-secs').value);
+      const winlock = document.getElementById('prox-chk-winlock').checked;
+
+      try {
+        const res = await fetch(bridgeBase + '/api/proximity/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            threshold_dbm: thresh,
+            lock_secs: secs,
+            enforce_windows_lock: winlock
+          })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('Configuração de proximidade salva!', '⚙️');
+          fetchProximityStatus();
+        }
+      } catch (e) {
+        showToast('Erro ao salvar config: ' + e.message, '❌');
+      }
+    }
+
+    async function simulateProximityRssi(rssi_dbm, elapsed_s) {
+      const out = document.getElementById('prox-action-output');
+      out.innerText = `Enviando leitura de RSSI: ${rssi_dbm} dBm (${elapsed_s}s decorridos)...`;
+      try {
+        const res = await fetch(bridgeBase + '/api/proximity/rssi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rssi_dbm: rssi_dbm,
+            elapsed_s: elapsed_s,
+            source: 'web_dashboard'
+          })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          out.innerText = `Status Atualizado: Estado=${data.state}, Bloqueado=${data.locked}, away_secs=${data.away_secs}s`;
+          if (data.lock_triggered || data.locked) {
+            showToast('⚠️ Estação de Trabalho TRAVADA por Afastamento!', '🔒');
+          } else if (data.state === 'NEAR') {
+            showToast('✅ Presença detectada! Estado NEAR restaurado.', '📍');
+          }
+          fetchProximityStatus();
+        }
+      } catch (e) {
+        out.innerText = 'Erro ao enviar RSSI: ' + e.message;
+      }
+    }
+
+    async function unlockProximityHardware() {
+      const out = document.getElementById('prox-action-output');
+      out.innerText = 'Enviando comando de desbloqueio com presença física (UP) + PIN na ESP32-S3...';
+      try {
+        const res = await fetch(bridgeBase + '/api/proximity/unlock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: '123456' })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          out.innerText = `Desbloqueado com sucesso! Estado: ${data.state} (Touch UP=${data.touch_up})`;
+          showToast('🔓 Desbloqueado via presença física ESP32-S3!', '✅');
+          fetchProximityStatus();
+        } else {
+          out.innerText = 'Falha ao destravar: ' + (data.error || 'Erro desconhecido');
+        }
+      } catch (e) {
+        out.innerText = 'Erro ao destravar: ' + e.message;
+      }
     }
 
     // Init
