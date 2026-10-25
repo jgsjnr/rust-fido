@@ -11,6 +11,7 @@ pub mod lifetime;
 pub mod oath;
 pub mod otp;
 pub mod policy;
+pub mod secure_guard;
 pub mod vault;
 pub mod wallet;
 
@@ -26,4 +27,9 @@ pub use oath::tlv::{
     VENDOR_OP_MIN,
 };
 pub use policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
+pub use secure_guard::{
+    ProtectedResourceClass, SecureGuardAdminOp, SecureGuardAuditEvent, SecureGuardAuditEventType,
+    SecureGuardEngine, SecureGuardError, SecureGuardPersistentRecord, SecureGuardPolicy,
+    SecureGuardState, SecureGuardWipeScope, MAX_ATTEMPTS,
+};
 pub use vault::AegisVault;
