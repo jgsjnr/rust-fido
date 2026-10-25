@@ -71,7 +71,7 @@ class AppContainer(val context: Context) {
     val simulatedRenodeTransport: SimulatedRenodeTransport by lazy { SimulatedRenodeTransport() }
     val hostUsbUartBridgeClient: HostUsbUartBridgeClient by lazy { HostUsbUartBridgeClient() }
 
-    val bleTransport: BleKeyTransport by lazy { BleKeyTransport(bleClient) }
+    val bleTransport: BleKeyTransport by lazy { BleKeyTransport(bleClient, hostUsbUartBridgeClient) }
     val usbTransport: UsbKeyTransport by lazy { UsbKeyTransport(usbCtaphid, hostUsbUartBridgeClient) }
 
     // --- Repositórios ---

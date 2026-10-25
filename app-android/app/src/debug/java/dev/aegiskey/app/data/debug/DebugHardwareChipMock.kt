@@ -46,6 +46,13 @@ object DebugHardwareChipMock {
         transportType = ConnectionTransportType.SIMULATOR
     )
 
+    val MOCK_WIFI_CANDIDATE = DiscoveredKeyCandidate(
+        id = "WIFI:http://192.168.4.1",
+        name = "AegisKey Wi-Fi AP (192.168.4.1)",
+        signalRssi = -35,
+        transportType = ConnectionTransportType.WIFI
+    )
+
     private val _isHoldSimulated = MutableStateFlow(false)
     val isHoldSimulated: StateFlow<Boolean> = _isHoldSimulated.asStateFlow()
 
@@ -59,7 +66,7 @@ object DebugHardwareChipMock {
         return when (transport) {
             ConnectionTransportType.BLE -> MOCK_BLE_CANDIDATE
             ConnectionTransportType.USB -> MOCK_USB_CANDIDATE
-            ConnectionTransportType.WIFI -> null
+            ConnectionTransportType.WIFI -> MOCK_WIFI_CANDIDATE
             ConnectionTransportType.SIMULATOR -> MOCK_SIMULATOR_CANDIDATE
         }
     }
@@ -69,8 +76,10 @@ object DebugHardwareChipMock {
         return candidateId == MOCK_BLE_CANDIDATE.id ||
             candidateId == MOCK_USB_CANDIDATE.id ||
             candidateId == MOCK_SIMULATOR_CANDIDATE.id ||
+            candidateId == MOCK_WIFI_CANDIDATE.id ||
             candidateId.startsWith("tcp:10.0.2.2") ||
-            candidateId.startsWith("SIM:")
+            candidateId.startsWith("SIM:") ||
+            candidateId.startsWith("WIFI:")
     }
 
     fun simulateHold5s() {
