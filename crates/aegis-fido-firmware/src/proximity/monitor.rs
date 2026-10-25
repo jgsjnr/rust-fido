@@ -235,7 +235,7 @@ pub const PROXIMITY_REVERIFY_JUMP: u32 = 1000;
 /// Contador do beacon de presenca (relogio monotonico injetado, testavel no host).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProximityBeacon {
-    ctr: u32,
+    pub(crate) ctr: u32,
 }
 
 impl ProximityBeacon {

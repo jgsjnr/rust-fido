@@ -1813,6 +1813,11 @@ class DualProtocolHandler(socketserver.BaseRequestHandler):
                 handle_binary_client(self.request, self.client_address)
         except Exception as e:
             pass
+        finally:
+            try:
+                self.request.close()
+            except Exception:
+                pass
 
 
 def run_server(host="0.0.0.0", port=DEFAULT_PORT):
