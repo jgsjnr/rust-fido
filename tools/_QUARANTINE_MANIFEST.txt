@@ -1,0 +1,49 @@
+PYTHON CONSOLIDATION MANIFEST (txt to avoid collision with docs lane)
+Branch: hygiene-consolidation | Date: 2026-10-25
+Claim: nenhuma linha logica alterada — only git mv + concat with origin headers.
+
+MOVED: scripts/aegis_auto.py (724 lin) -> tools/aegis_auto.py
+  Motivo: .py na pasta errada (scripts/ e para ps1/sh); tools/ e o lar dos pythons.
+  Metodo: git mv (historico preservado).
+
+CONSOLIDATED: scripts/build-diag.ps1 (7 lin) + scripts/flash-diag.ps1 (7 lin) -> scripts/diag.ps1 (17 lin c/ cabecalhos)
+  Motivo: dois stubs de diagnostico trivialmente pequenos; concatenados com
+  cabecalhos "# --- BEGIN/END ORIGIN: ..." sem tocar em nenhuma linha logica.
+  Metodo: concat + git add diag.ps1 + git rm originais.
+
+QUARANTINED (tools/ -> docs/evaluation/quarantine/, git mv, sem alteracao):
+  usb_present.py (13 lin) — micro-probe uso unico, sem harness
+  usb_hublog.py (12 lin) — micro-probe uso unico
+  usb_hidstate.py (14 lin) — micro-probe uso unico
+  usb_diag.py (21 lin) — probe pontual substituido por diag.ps1/harness
+  ble_hold_bond.py (30 lin) — probe pontual de sessao BLE
+  need_hands.py (31 lin) — marcador manual, sem logica de teste
+  fw_rebuild.py (8 lin) — stub sem logica
+  take_all_wave11c.py (173 lin) — captura pontual de screenshots de wave
+  pair_trigger_probe.py (21 lin) — micro-probe de pareamento
+  pair_ble_scan.py (24 lin) — micro-probe de scan BLE
+  pair_test_diag.py (47 lin) — probe pontual de diagnostico de pareamento
+  bond_focus.py (59 lin) — probe pontual de sessao bond
+  bond_listen.py (67 lin) — probe pontual de sessao bond
+  bond_talk.py (71 lin) — probe pontual de sessao bond
+  audit_final_screenshots.py (59 lin) — captura pontual de screenshots
+  Total: 15 arquivos, 650 linhas movidas intactas.
+
+KEPT IN tools/ (NAO consolidados — deliberado):
+  host_hardware_android_bridge.py (2875 lin) — harness E2E principal; consolidar perderia fronteira bridge/HIL
+  e2e_user_test.py (1161 lin) — harness E2E jornada de usuario; independente do bridge
+  emulate_app_session.py (610 lin) — harness de emulacao de sessao app; cenario distinto
+  hil_emulate_full_app_on_board.py (483 lin) — harness HIL full-app; nao fundivel sem perda
+  app_simulator.py (1572 lin) — simulador de app; mantido como dependencia dos harnesses
+  test_onboarding_and_totp_journey.py (951 lin) — jornada onboarding/TOTP; suite propria
+  t_display_simulator.py (844 lin) — simulador T-Display; target especifico
+  ble_connect_test.py (638 lin) — teste BLE dedicado
+  hil_test_wifi_and_ble_battery.py (617 lin) — HIL wifi/ble/bateria; suite propria
+  live_monitor.py (552 lin) — monitor live; ferramenta, nao probe
+  test_web_dashboard_endpoints.py (518 lin) — teste de endpoints web; suite propria
+  tools/host_sdk/ (6 arqs: cli 162, ops 210, gates 56, tlv 93, transport 145 + __init__) — SDK host coeso; fora do escopo
+  tools/host/{win,linux,macos}/ (6 arqs: proximity_agent ~535 + test ~300 cada) — agentes por-OS; fora do escopo
+
+CACHES: __pycache__/ e .pytest_cache/ ausentes na arvore — nada a deletar.
+
+VERIFICACAO: git status --short + git diff -w --numstat (esperado: zero linhas logicas) + py_compile nos movidos.
