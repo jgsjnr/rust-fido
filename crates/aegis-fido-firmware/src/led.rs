@@ -56,6 +56,9 @@ impl Color {
         g: 255,
         b: 255,
     };
+    pub const SECURE_GUARD_UNPROVISIONED: Color = Color { r: 0, g: 40, b: 60 };
+    pub const SECURE_GUARD_LOCKED: Color = Color { r: 60, g: 25, b: 0 };
+    pub const SECURE_GUARD_UNLOCKED: Color = Color { r: 0, g: 60, b: 15 };
 
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
@@ -178,17 +181,14 @@ impl<O: LedOutput> Ws2812Controller<O> {
                 self.output.write_color(scaled)?;
             }
             LedEffect::PromptTouch => {
-                // Pulsing Amber (800ms cycle) inviting user to touch the BOOT button
-                let half_period = 400;
-                let phase = elapsed_ms % 800;
-                let factor = if phase < half_period {
-                    (phase * 255) / half_period
+                // Rapid blue/white flash (150ms Blue, 150ms White) inviting user to touch BOOT button
+                let phase = elapsed_ms % 300;
+                let color = if phase < 150 {
+                    Color::new(0, 80, 255)
                 } else {
-                    ((800 - phase) * 255) / half_period
+                    Color::new(220, 220, 255)
                 };
-                let brightness = (30 + (factor * 225) / 255) as u8;
-                let scaled = Color::AMBER.scale_brightness(brightness);
-                self.output.write_color(scaled)?;
+                self.output.write_color(color)?;
             }
             LedEffect::AuthSuccessPulse => {
                 // Bright green pulse for 500ms then smooth fade
@@ -271,6 +271,7 @@ impl EspWs2812Output {
             esp_idf_sys::gpio_set_level(self.gpio as i32, 0);
         }
         self.initialized = true;
+        let _ = self.write_color(Color::SECURE_GUARD_UNPROVISIONED);
     }
 }
 

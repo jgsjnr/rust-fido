@@ -19,6 +19,7 @@ pub const OP_OATH_DELETE: u8 = 0x27;
 pub const OP_WALLET_GEN: u8 = 0x35;
 pub const OP_WALLET_LIST: u8 = 0x36;
 pub const OP_WALLET_ADDR: u8 = 0x37;
+pub const OP_PIV_ENROLL: u8 = 0x39;
 
 pub const OP_SECURE_GUARD_STATUS: u8 = 0x3A;
 pub const OP_SECURE_GUARD_UNLOCK: u8 = 0x3B;
@@ -82,7 +83,7 @@ impl ProtectedResourceClass {
     pub fn from_vendor_opcode(opcode: u8) -> Self {
         match opcode {
             OP_WALLET_GEN | OP_WALLET_LIST | OP_WALLET_ADDR => Self::CryptoWalletOperation,
-            OP_KEY_GEN_ONDEVICE | OP_KEY_IMPORT_ENVELOPE | OP_KEY_LIST | OP_KEY_DELETE => {
+            OP_KEY_GEN_ONDEVICE | OP_KEY_IMPORT_ENVELOPE | OP_KEY_LIST | OP_KEY_DELETE | OP_PIV_ENROLL => {
                 Self::ProtectedKeyOperation
             }
             OP_OATH_PUT | OP_OATH_LIST | OP_OATH_CODE | OP_OATH_DELETE => Self::OathTotpOperation,
@@ -144,6 +145,7 @@ mod tests {
             ..Default::default()
         };
         let res = ProtectedResourceClass::from_vendor_opcode(OP_KEY_GEN_ONDEVICE);
+        assert!(ProtectedResourceClass::from_vendor_opcode(OP_PIV_ENROLL).requires_unlock(&policy));
         assert!(res.requires_unlock(&policy));
 
         policy.protect_keys_and_aegn = false;

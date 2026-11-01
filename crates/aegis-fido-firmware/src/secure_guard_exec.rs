@@ -602,6 +602,7 @@ fn handle_wipe_selective<B: FlashStorageBackend>(
         log::info!("[SECURE_GUARD] Wipe seletivo: limpando carteiras e chaves protegidas");
         *wallet = WalletStore::new();
         *key_mgr = KeyManager::new();
+        *oath = OathApplet::new();
         let _ = crate::vendor_exec::save_states(storage, key_mgr, oath);
     } else {
         log::info!("[SECURE_GUARD] Wipe simulado em modo de teste (chaves físicas mantidas)");

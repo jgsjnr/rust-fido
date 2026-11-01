@@ -391,6 +391,7 @@ class HardwareBridgeManager:
                 0x23,  # KEY_DELETE
                 0x24,  # OATH_PUT
                 0x27,  # OATH_DELETE
+                0x2B,  # RESET
                 0x2C,  # RECOVERY_SET
                 0x35,  # WALLET_GEN
                 0x36,  # WALLET_LIST
@@ -399,7 +400,7 @@ class HardwareBridgeManager:
             }
 
             # Fail-closed zero-trust wallet barrier
-            if opcode in (0x35, 0x36, 0x37) and "SECURE_GUARD_ENGINE" in globals() and SECURE_GUARD_ENGINE.is_wallet_blocked():
+            if opcode in (0x20, 0x21, 0x22, 0x23, 0x35, 0x36, 0x37, 0x39) and "SECURE_GUARD_ENGINE" in globals() and SECURE_GUARD_ENGINE.is_wallet_blocked():
                 print(f"[bridge] Opcode 0x{opcode:02X} bloqueado: Secure Guard cofre trancado (PIN necessário)")
                 return 0x36, b""  # CTAP2_ERR_PIN_REQUIRED
 
@@ -899,6 +900,11 @@ class SecureGuardEngine:
             if self.last_recovery_code:
                 d["last_generated_recovery_code"] = self.last_recovery_code
             return d
+
+    def is_unlocked(self) -> bool:
+        with self.lock:
+            self._check_timeouts_locked()
+            return self.is_provisioned and self.state == STATE_UNLOCKED
 
     def is_wallet_blocked(self) -> bool:
         with self.lock:
@@ -1606,6 +1612,22 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # GET /api/vault -> returns combined vault items from hardware
         if path in ("/api/vault", "/api/keys"):
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected", "items": []}, status_code=503)
+                return
+
+            if not SECURE_GUARD_ENGINE.is_unlocked():
+                sg_status = SECURE_GUARD_ENGINE.get_status_dict()
+                self.send_json({
+                    "ok": False,
+                    "error": "Secure Guard Locked",
+                    "locked": True,
+                    "state": sg_status.get("state", 0),
+                    "state_name": sg_status.get("state_name", "Locked"),
+                    "items": []
+                }, status_code=403)
+                return
+
             items = []
             # 1. Physical KeyManager slots (OP_KEY_LIST 0x22)
             try:
@@ -1708,68 +1730,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"[bridge] Erro ao listar wallets: {e}")
 
-            # 3. Add PIV slots
-            piv_slots = [
-                ("9A", "PIV Slot 9A (Autenticação PKI)", "ECC P-256 (NIST P-256)", "PIV-CERT-9A: Smartcard Logon / Mutual-TLS", "Slot 9A (Authentication)"),
-                ("9C", "PIV Slot 9C (Assinatura Digital)", "ECC P-256 (NIST P-256)", "PIV-CERT-9C: Assinatura ICP-Brasil / PAdES", "Slot 9C (Digital Signature)"),
-                ("9D", "PIV Slot 9D (Gestão de Chaves)", "ECC P-256 (NIST P-256)", "PIV-CERT-9D: Decifração S/MIME E-mail", "Slot 9D (Key Management)"),
-                ("9E", "PIV Slot 9E (Autenticação Cartão)", "ECC P-256 (NIST P-256)", "PIV-CERT-9E: Acesso Físico / Catracas", "Slot 9E (Card Auth)"),
-            ]
-            for slot_code, label, algo, summary, path_code in piv_slots:
-                items.append({
-                    "slotId": 0x90 + int(slot_code[1], 16),
-                    "label": label,
-                    "type": "PIV_SMARTCARD_SLOT",
-                    "publicSummary": summary,
-                    "createdAtEpochMs": int(time.time() * 1000),
-                    "algorithmOrCurve": algo,
-                    "usageDescription": "Smartcard PIV / PKI Corporativo NIST SP 800-73",
-                    "derivationPathOrSlotCode": path_code,
-                    "requiresPhysicalTouch": True,
-                })
-
-            # Add AEGN Envelope entry
-            items.append({
-                "slotId": 0xE1,
-                "label": "Envelope Seguro AEGN (AES-256-GCM)",
-                "type": "ENCRYPTED_AEGN_ENVELOPE",
-                "publicSummary": "AEGN01" + "a1b2c3d4e5f60718293a4b5c" + " [Envelope Cifrado em Hardware]",
-                "createdAtEpochMs": int(time.time() * 1000),
-                "algorithmOrCurve": "AES-256-GCM + SHA-256 AAD",
-                "usageDescription": "Envelope Criptografado com Chave Mestre de Hardware",
-                "derivationPathOrSlotCode": "AEGN/Envelope_01",
-                "requiresPhysicalTouch": True,
-            })
-
-            # Ensure Bitcoin wallet is present if not already added
-            if not any(i.get("type") == "CRYPTO_WALLET_BTC" for i in items):
-                items.append({
-                    "slotId": 1,
-                    "label": "wallet:BtcMainVault",
-                    "type": "CRYPTO_WALLET_BTC",
-                    "publicSummary": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
-                    "address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
-                    "createdAtEpochMs": int(time.time() * 1000) - 86400000,
-                    "algorithmOrCurve": "secp256k1 (BIP-84 Native SegWit)",
-                    "usageDescription": "Bitcoin Mainnet & Assinatura de Mensagens",
-                    "derivationPathOrSlotCode": "m/84'/0'/0'/0/0",
-                    "requiresPhysicalTouch": True,
-                })
-            # Ensure Polkadot wallet is present if not already added
-            if not any(i.get("type") == "CRYPTO_WALLET_DOT" for i in items):
-                items.append({
-                    "slotId": 12,
-                    "label": "wallet:DotMainVault",
-                    "type": "CRYPTO_WALLET_DOT",
-                    "publicSummary": "15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5",
-                    "address": "15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5",
-                    "createdAtEpochMs": int(time.time() * 1000) - 1200000,
-                    "algorithmOrCurve": "sr25519 / Ed25519 (Substrate SS58)",
-                    "usageDescription": "Polkadot & Kusama Parachains",
-                    "derivationPathOrSlotCode": "m/44'/354'/0'/0'/0'",
-                    "requiresPhysicalTouch": True,
-                })
-
+            sg_status = SECURE_GUARD_ENGINE.get_status_dict()
             self.send_json({
                 "ok": True,
                 "items": items,
@@ -1779,7 +1740,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                     "fido2SupportedCurves": ["Ed25519 (-8)", "ES256 (-7)", "ES256K (-47)", "ES384 (-35)", "ES512 (-36)"],
                     "pivSlotsAvailable": ["9A", "9C", "9D", "9E"],
                     "healthStatusText": "Operacional — Hardware Seguro ESP32-S3 Conectado",
-                    "isPinConfigured": True,
+                    "isPinConfigured": sg_status.get("provisioned", False),
                     "isBoundToThisPhone": True,
                 }
             })
@@ -1792,6 +1753,9 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # GET /api/wallet/list -> list of wallets
         if path == "/api/wallet/list":
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected", "wallets": []}, status_code=503)
+                return
             if SECURE_GUARD_ENGINE.is_wallet_blocked():
                 self.send_json({
                     "ok": False,
@@ -1809,16 +1773,22 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                         wallets_out.append({"slot": slot, "label": label, "address": addr})
             except Exception as e:
                 print(f"[bridge] Erro ao listar wallets: {e}")
-            if not wallets_out:
-                wallets_out = [
-                    {"slot": 1, "label": "wallet:BtcColdVault", "address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"},
-                    {"slot": 2, "label": "wallet:EthWebDeFi", "address": "0x71C8360699CCfFd73a971dcb689D8b7bdf0814fD"},
-                ]
             self.send_json({"ok": True, "wallets": wallets_out})
             return
 
         # GET /api/oath/list -> returns OATH accounts with live calculated 6-digit codes
         if path == "/api/oath/list":
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected", "accounts": []}, status_code=503)
+                return
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             accounts_out = []
             try:
                 st, resp = HW_MANAGER.send_vendor(0x25, b"")
@@ -1829,7 +1799,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                         chal_b = struct.pack(">Q", int(time.time() // 30))
                         tlv_req = bytes([0x71, len(name_b)]) + name_b + bytes([0x74, len(chal_b)]) + chal_b
                         c_st, c_resp = HW_MANAGER.send_vendor(0x26, tlv_req)
-                        code = "499479"
+                        code = "000000"
                         if c_st == 0x00 and c_resp:
                             for idx in range(len(c_resp) - 2):
                                 if c_resp[idx] in (0x75, 0x76):
@@ -1853,14 +1823,6 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                         })
             except Exception as e:
                 print(f"[bridge] Erro ao listar OATH: {e}")
-
-            if not accounts_out:
-                rem_sec = int(30 - (time.time() % 30))
-                accounts_out = [
-                    {"account": "Google:alice@gmail.com", "issuer": "Google", "name": "alice@gmail.com", "code": "800986", "remaining_seconds": rem_sec, "remainingSeconds": rem_sec, "type": "TOTP"},
-                    {"account": "BleService:bob@aegis", "issuer": "BleService", "name": "bob@aegis", "code": "499479", "remaining_seconds": rem_sec, "remainingSeconds": rem_sec, "type": "TOTP"},
-                    {"account": "AegisKey:admin", "issuer": "AegisKey", "name": "admin", "code": "344017", "remaining_seconds": rem_sec, "remainingSeconds": rem_sec, "type": "TOTP"},
-                ]
 
             self.send_json({"ok": True, "accounts": accounts_out})
             return
@@ -1934,6 +1896,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         self.send_json({"error": "not found", "path": self.path}, status_code=404)
 
     def do_POST(self):
+        global SECURE_GUARD_ENGINE
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         content_len = int(self.headers.get("Content-Length", 0))
@@ -1992,6 +1955,17 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /oath/code (alternative to GET)
         if path == "/oath/code":
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
+                return
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             account = ""
             if "application/json" in content_type or raw_body.startswith(b"{"):
                 try:
@@ -2262,6 +2236,17 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /api/key/create
         if path in ("/api/key/create", "/api/vault/create"):
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
+                return
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 ktype = data.get("type", "PASSKEY_FIDO")
@@ -2375,6 +2360,17 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /api/key/delete
         if path in ("/api/key/delete", "/api/vault/delete"):
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
+                return
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 slot_id = int(data.get("slot", 0))
@@ -2387,6 +2383,17 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /api/key/sign
         if path == "/api/key/sign":
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
+                return
+            if SECURE_GUARD_ENGINE.is_wallet_blocked():
+                self.send_json({
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "CTAP2_ERR_PIN_REQUIRED",
+                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
+                }, status_code=403)
+                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 slot_id = int(data.get("slot", 0))
@@ -2410,6 +2417,9 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /api/wallet/create
         if path == "/api/wallet/create":
+            if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
+                self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
+                return
             if SECURE_GUARD_ENGINE.is_wallet_blocked():
                 self.send_json({
                     "ok": False,
@@ -2571,6 +2581,15 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 pin = data.get("pin", "")
                 rc = data.get("recovery_code", None)
                 pol = data.get("policy", None)
+                try:
+                    cbor_req = {"action": "provision", "pin": pin.encode("utf-8") if isinstance(pin, str) else pin}
+                    if rc: cbor_req["recovery_code"] = rc.encode("utf-8") if isinstance(rc, str) else rc
+                    if pol and isinstance(pol, dict): cbor_req.update(pol)
+                    hw_st, hw_resp = HW_MANAGER.send_vendor(0x3B, cbor_encode(cbor_req))
+                    if hw_st == 0x00:
+                        HW_MANAGER.send_vendor(0x3B, cbor_encode({"action": "unlock", "pin": pin.encode("utf-8") if isinstance(pin, str) else pin}))
+                except Exception as ex:
+                    print(f"[bridge] Provision hardware: {ex}")
                 res = SECURE_GUARD_ENGINE.provision(pin, rc, pol)
                 ok = res.get("status") == "provisioned"
                 self.send_json({"ok": ok, **res}, status_code=200 if ok else 400)
@@ -2583,6 +2602,11 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 pin = data.get("pin", "")
+                try:
+                    cbor_req = {"action": "unlock", "pin": pin.encode("utf-8") if isinstance(pin, str) else pin}
+                    HW_MANAGER.send_vendor(0x3B, cbor_encode(cbor_req))
+                except Exception as ex:
+                    print(f"[bridge] Unlock hardware: {ex}")
                 res = SECURE_GUARD_ENGINE.unlock(pin)
                 st_code = 200 if res.get("success") else 401
                 self.send_json({"ok": res.get("success", False), **res}, status_code=st_code)
@@ -2593,6 +2617,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         # POST /api/secure-guard/lock
         if path == "/api/secure-guard/lock":
             try:
+                try:
+                    HW_MANAGER.send_vendor(0x3C, b"")
+                except Exception:
+                    pass
                 res = SECURE_GUARD_ENGINE.lock_session()
                 self.send_json({"ok": True, **res})
             except Exception as e:
@@ -2652,6 +2680,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             try:
                 HW_MANAGER.touch_up()
                 st, resp = HW_MANAGER.send_vendor(0x2B, b"")
+                SECURE_GUARD_ENGINE = SecureGuardEngine()
                 self.send_json({"ok": True, "status": st, "reset": "vault_binding_released"})
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)

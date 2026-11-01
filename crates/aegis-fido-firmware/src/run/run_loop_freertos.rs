@@ -261,7 +261,10 @@ pub fn run_authenticator_freertos() {
         let led_controller = {
             let mut led_output = EspWs2812Output::new(48);
             led_output.init_hardware();
-            Some(Ws2812Controller::new(led_output))
+            let mut ctrl = Ws2812Controller::new(led_output);
+            ctrl.set_effect(LedEffect::Solid(crate::led::Color::SECURE_GUARD_UNPROVISIONED));
+            let _ = ctrl.update(Duration::ZERO);
+            Some(ctrl)
         };
         #[cfg(not(feature = "board-devkitc"))]
         let led_controller: Option<Ws2812Controller<EspWs2812Output>> = None;
@@ -362,6 +365,13 @@ pub fn run_authenticator_freertos() {
     }
     #[cfg(target_os = "espidf")]
     let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
+    #[cfg(target_os = "espidf")]
+    {
+        if let Some(ref mut led) = display_mgr.led_controller {
+            led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+            let _ = led.update(Duration::ZERO);
+        }
+    }
     #[cfg(target_os = "espidf")]
     stack_mark("binding+managers");
     #[cfg(target_os = "espidf")]
@@ -913,6 +923,9 @@ pub fn run_authenticator_freertos() {
                 {
                     serial_quiet_until_ms = freertos_now_ms.saturating_add(40);
                 }
+                if let Some(ref mut led) = display_mgr.led_controller {
+                    led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                }
                 if !out.responses.is_empty() {
                     kprintln!(
                         "[FREERTOS] ctaphid resp ({} pkt, origem={:?}).",
@@ -1310,14 +1323,18 @@ pub fn run_authenticator_freertos() {
                 display_mgr.tick(Duration::from_millis(freertos_now_ms));
                 {
                     let bonded = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
-                    if matches!(display_mgr.current_screen, UiScreen::IdleStandby { .. })
-                        && (pairing_mgr.state() != crate::pairing::PairingState::Idle || bonded)
-                    {
+                    if matches!(display_mgr.current_screen, UiScreen::IdleStandby { .. }) {
                         if let Some(ref mut led) = display_mgr.led_controller {
-                            led.set_effect(crate::pairing_led::effect_for_pairing_state(
-                                pairing_mgr.state(),
-                                bonded,
-                            ));
+                            if pairing_mgr.state() != crate::pairing::PairingState::Idle {
+                                led.set_effect(crate::pairing_led::effect_for_pairing_state(
+                                    pairing_mgr.state(),
+                                    bonded,
+                                ));
+                            } else {
+                                led.set_effect(crate::pairing_led::effect_for_secure_guard_state(
+                                    secure_guard.state(),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1382,7 +1399,13 @@ pub fn run_authenticator_freertos() {
                     kprintln!("[TEST] UP sem prox (ack já enviado, sem latch).");
                 }
                 // Tick periódico do Secure Guard (expiração por tempo e inatividade).
+                let prev_sg_st = secure_guard.state();
                 crate::secure_guard_sched::tick_secure_guard(&mut secure_guard, freertos_now_ms);
+                if secure_guard.state() != prev_sg_st {
+                    if let Some(ref mut led) = display_mgr.led_controller {
+                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                    }
+                }
             }
             Some(FirmwareEvent::BleFragment(_, len)) => {
                 // Via task dedicada (nenhuma ativa hoje): o poll direto

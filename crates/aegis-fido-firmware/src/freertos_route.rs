@@ -158,6 +158,10 @@ pub fn dispatch_serial_vendor_msg(
             *ctx.wallet = aegis_fido_core::wallet::WalletStore::new();
             *ctx.oath = aegis_fido_core::oath::OathApplet::new();
             let _ = crate::vendor_exec::save_states(ctx.storage, ctx.key_mgr, ctx.oath);
+            if let Some(ref mut sg) = ctx.secure_guard {
+                **sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(Default::default());
+                let _ = crate::secure_guard_storage::save_secure_guard_record(ctx.storage, sg);
+            }
         }
         if st == 0x00 && op == crate::ble_gatt::OP_RECOVERY_UNLOCK {
             ctx.pin_verified = true;
@@ -218,25 +222,23 @@ pub fn dispatch_serial_vendor_msg(
     // negação carrega o wire status.
     if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
         // Barreira de Autorização Obrigatória (Enforcement) Secure Guard:
-        // Se provisionado, bloqueia operações não autorizadas com CTAP2_ERR_PIN_REQUIRED (0x36).
+        // Exige que o Secure Guard esteja Unlocked para todas as operações protegidas de chaves/carteiras.
         if let Some(ref mut sg) = ctx.secure_guard {
-            if sg.is_provisioned() {
-                if let Err(e) = sg.authorize_vendor_opcode(op, ctx.now_ms) {
-                    log::warn!(
-                        "[SECURE_GUARD] Bloqueado pela barreira de autorização: op=0x{:02X}, estado={:?}, err={:?}",
-                        op,
-                        sg.state(),
-                        e
-                    );
-                    return Some((
-                        CtapHidFramer::frame_message(
-                            msg.cid,
-                            msg.cmd,
-                            &[crate::secure_guard_exec::CTAP2_ERR_PIN_REQUIRED],
-                        ),
-                        false,
-                    ));
-                }
+            if let Err(e) = sg.authorize_vendor_opcode(op, ctx.now_ms) {
+                log::warn!(
+                    "[SECURE_GUARD] Bloqueado pela barreira de autorização: op=0x{:02X}, estado={:?}, err={:?}",
+                    op,
+                    sg.state(),
+                    e
+                );
+                return Some((
+                    CtapHidFramer::frame_message(
+                        msg.cid,
+                        msg.cmd,
+                        &[crate::secure_guard_exec::CTAP2_ERR_PIN_REQUIRED],
+                    ),
+                    false,
+                ));
             }
         }
         match authorize_serial(msg.cmd, payload, ctx.pairing_open, ctx.up_latched) {
@@ -830,6 +832,40 @@ mod tests {
         };
         let mut sg = SecureGuardEngine::new(policy);
         let pin = b"4829";
+
+        // 0. Tenta OP_WALLET_LIST (0x36) com Secure Guard UNPROVISIONED -> Deve ser BLOQUEADO pela barreira (0x36 PIN_REQUIRED)!
+        let raw_unprov = init_raw(0x1122_3344, CMD_MSG, &[OP_WALLET_LIST]);
+        let ev_unprov = FirmwareEvent::SerialPacket(raw_unprov);
+        let mut vendor_unprov = SerialVendorCtx {
+            pairing_open: true,
+            up_latched: true,
+            now_ms: 500,
+            now_secs: 0,
+            arm_up: false,
+            pin_verified: true,
+            binding: &mut binding,
+            storage: &mut storage,
+            wallet: &mut wallet,
+            key_mgr: &mut key_mgr,
+            oath: &mut oath,
+            fwlog: &mut fwlog,
+            rescue: &mut rescue,
+            pairing: &mut pairing,
+            pin_uv_session: true,
+            secure_guard: Some(&mut sg),
+        };
+        let out_unprov = route_ctaphid_event(
+            &mut mgr_usb,
+            &mut mgr_serial,
+            &mut engine,
+            &ev_unprov,
+            true,
+            500,
+            0,
+            Some(&mut vendor_unprov),
+        );
+        assert_eq!(out_unprov.responses.len(), 1);
+        assert_eq!(out_unprov.responses[0][7], 0x36); // Bloqueado em Unprovisioned!
 
         // 1. Provisiona Secure Guard via 0x3B
         let prov_map = vec![

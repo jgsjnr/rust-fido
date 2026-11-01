@@ -145,6 +145,16 @@ where
             }
         }
         g::OP_BIND_RELEASE => {
+            if params.is_empty() {
+                if !up {
+                    return (
+                        g::BleGattError::PresenceRequired.to_vendor_status(),
+                        Vec::new(),
+                    );
+                }
+                binding.wipe(storage);
+                return (0x00, Vec::new());
+            }
             if params.len() < BIND_CHALLENGE_LEN + BIND_PAYLOAD_HASH_LEN {
                 return (
                     g::BleGattError::InvalidFragment.to_vendor_status(),

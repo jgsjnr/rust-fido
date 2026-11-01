@@ -12,6 +12,21 @@ use crate::led::{Color, LedEffect};
 use crate::pairing::PairingState;
 
 /// Efeito LED correspondente ao estado (headless).
+/// Efeito LED correspondente ao estado real do Secure Guard (0x3A..0x3E).
+/// - Unprovisioned: Azul Ciano suave constante (R:0, G:40, B:60)
+/// - Locked / RateLimited / RecoveryRequired: Âmbar/Laranja constante (R:60, G:25, B:0)
+/// - Unlocked: Verde Esmeralda constante (R:0, G:60, B:15)
+pub fn effect_for_secure_guard_state(
+    state: aegis_fido_core::secure_guard::SecureGuardState,
+) -> LedEffect {
+    use aegis_fido_core::secure_guard::SecureGuardState;
+    match state {
+        SecureGuardState::Unprovisioned => LedEffect::Solid(Color::SECURE_GUARD_UNPROVISIONED),
+        SecureGuardState::Unlocked => LedEffect::Solid(Color::SECURE_GUARD_UNLOCKED),
+        _ => LedEffect::Solid(Color::SECURE_GUARD_LOCKED),
+    }
+}
+
 pub fn effect_for_pairing_state(state: PairingState, bonded: bool) -> LedEffect {
     match state {
         PairingState::Idle => {
@@ -37,6 +52,31 @@ pub fn effect_for_pairing_state(state: PairingState, bonded: bool) -> LedEffect 
 mod tests {
     use super::*;
     use crate::pairing::PairingManager;
+
+    #[test]
+    fn secure_guard_led_maps_all_states() {
+        use aegis_fido_core::secure_guard::SecureGuardState;
+        assert_eq!(
+            effect_for_secure_guard_state(SecureGuardState::Unprovisioned),
+            LedEffect::Solid(Color::SECURE_GUARD_UNPROVISIONED)
+        );
+        assert_eq!(
+            effect_for_secure_guard_state(SecureGuardState::Unlocked),
+            LedEffect::Solid(Color::SECURE_GUARD_UNLOCKED)
+        );
+        assert_eq!(
+            effect_for_secure_guard_state(SecureGuardState::Locked),
+            LedEffect::Solid(Color::SECURE_GUARD_LOCKED)
+        );
+        assert_eq!(
+            effect_for_secure_guard_state(SecureGuardState::RateLimited),
+            LedEffect::Solid(Color::SECURE_GUARD_LOCKED)
+        );
+        assert_eq!(
+            effect_for_secure_guard_state(SecureGuardState::RecoveryRequired),
+            LedEffect::Solid(Color::SECURE_GUARD_LOCKED)
+        );
+    }
 
     #[test]
     fn headless_maps_all_states() {
