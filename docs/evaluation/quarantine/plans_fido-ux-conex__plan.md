@@ -1,1 +1,0 @@
-# fido-ux-conex — Etapa A BLE real (aprovada pelo humano, em execução)
