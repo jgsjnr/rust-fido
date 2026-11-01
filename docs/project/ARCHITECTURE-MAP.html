@@ -978,102 +978,134 @@
             <!-- NODES LAYER 1 -->
             <!-- Node: Android App -->
             <g class="svg-node" onclick="openDrawer('card-android-app')">
-              <rect x="70" y="45" width="400" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
-              <text x="85" y="70" fill="#f1f5f9" font-size="13" font-weight="700">📱 Android Companion App (dev.aegiskey.app)</text>
-              <text x="85" y="86" fill="#94a3b8" font-size="11">Clean Architecture • Atomic Design • 4 Unique Tabs • ASD-STE100</text>
+              <rect x="40" y="45" width="310" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
+              <text x="55" y="70" fill="#f1f5f9" font-size="12" font-weight="700">📱 Android Companion App</text>
+              <text x="55" y="86" fill="#94a3b8" font-size="10">Clean Arch • Jetpack Compose • 4 Tabs</text>
+            </g>
+
+            <!-- Node: Desktop Companion Tray App -->
+            <g class="svg-node" onclick="openDrawer('card-desktop-tray-app')">
+              <rect x="380" y="45" width="330" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
+              <text x="395" y="70" fill="#f1f5f9" font-size="12" font-weight="700">🖥️ Desktop Companion &amp; System Tray</text>
+              <text x="395" y="86" fill="#00e5ff" font-size="10">.NET 9 C# + Python • Plug/Unplug Toast</text>
             </g>
 
             <!-- Node: Web Dashboard -->
             <g class="svg-node" onclick="openDrawer('card-web-dashboard')">
-              <rect x="630" y="45" width="400" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
-              <text x="645" y="70" fill="#f1f5f9" font-size="13" font-weight="700">💻 Web Management Dashboard (Port 5678)</text>
-              <text x="645" y="86" fill="#94a3b8" font-size="11">Single Page UI • 42 Validated REST Endpoints • Hardware Cockpit</text>
+              <rect x="740" y="45" width="320" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
+              <text x="755" y="70" fill="#f1f5f9" font-size="12" font-weight="700">💻 Web Management Dashboard (Port 5678)</text>
+              <text x="755" y="86" fill="#94a3b8" font-size="10">42 REST Endpoints • Hardware Cockpit</text>
             </g>
 
             <!-- NODES LAYER 2 -->
             <!-- Node: USB OTG -->
             <g class="svg-node" onclick="openDrawer('card-usb-otg')">
-              <rect x="60" y="175" width="220" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
-              <text x="75" y="200" fill="#f1f5f9" font-size="13" font-weight="700">🔌 USB OTG CTAPHID</text>
-              <text x="75" y="217" fill="#94a3b8" font-size="10">GPIO 19/20 • TinyUSB Native</text>
-              <text x="75" y="231" fill="#b388ff" font-size="10">VID 0x303A : PID 0xAE61 (64B)</text>
+              <rect x="35" y="175" width="185" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="48" y="200" fill="#f1f5f9" font-size="12" font-weight="700">🔌 USB OTG CTAPHID</text>
+              <text x="48" y="217" fill="#94a3b8" font-size="10">GPIO 19/20 • TinyUSB</text>
+              <text x="48" y="231" fill="#b388ff" font-size="10">VID 0x303A:PID 0xAE61</text>
             </g>
 
             <!-- Node: BLE GATT & Proximity -->
             <g class="svg-node" onclick="openDrawer('card-ble-gatt')">
-              <rect x="300" y="175" width="230" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
-              <text x="315" y="200" fill="#f1f5f9" font-size="13" font-weight="700">📡 BLE GATT FIDO2</text>
-              <text x="315" y="217" fill="#94a3b8" font-size="10">Service 0xFFFD • MAC 3C:84:27:C7:17:7A</text>
-              <text x="315" y="231" fill="#b388ff" font-size="10">Dynamic RSSI Proximity Lock</text>
+              <rect x="240" y="175" width="185" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="253" y="200" fill="#f1f5f9" font-size="12" font-weight="700">📡 BLE GATT FIDO2</text>
+              <text x="253" y="217" fill="#94a3b8" font-size="10">Service 0xFFFD • NimBLE</text>
+              <text x="253" y="231" fill="#b388ff" font-size="10">Dynamic RSSI Lock</text>
+            </g>
+
+            <!-- Node: OpenSSH & Hello -->
+            <g class="svg-node" onclick="openDrawer('card-openssh-windows-hello')">
+              <rect x="445" y="175" width="200" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="2"/>
+              <text x="458" y="200" fill="#f1f5f9" font-size="12" font-weight="700">🔑 OpenSSH &amp; OS Login</text>
+              <text x="458" y="217" fill="#00e5ff" font-size="10">OPP-01 Named Pipe Agent</text>
+              <text x="458" y="231" fill="#b388ff" font-size="10">Windows Hello + pam_u2f</text>
             </g>
 
             <!-- Node: Wi-Fi SoftAP -->
             <g class="svg-node" onclick="openDrawer('card-wifi-softap')">
-              <rect x="550" y="175" width="230" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
-              <text x="565" y="200" fill="#f1f5f9" font-size="13" font-weight="700">📶 Wi-Fi SoftAP</text>
-              <text x="565" y="217" fill="#94a3b8" font-size="10">192.168.4.1 (AegisKey-S3)</text>
-              <text x="565" y="231" fill="#b388ff" font-size="10">/ctap • /oath/code • /config</text>
+              <rect x="665" y="175" width="185" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="678" y="200" fill="#f1f5f9" font-size="12" font-weight="700">📶 Wi-Fi SoftAP</text>
+              <text x="678" y="217" fill="#94a3b8" font-size="10">192.168.4.1 (AegisKey)</text>
+              <text x="678" y="231" fill="#b388ff" font-size="10">/ctap • /oath • /config</text>
             </g>
 
             <!-- Node: UART Bridge -->
             <g class="svg-node" onclick="openDrawer('card-uart-bridge')">
-              <rect x="800" y="175" width="240" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
-              <text x="815" y="200" fill="#f1f5f9" font-size="13" font-weight="700">⚡ Host Bridge / UART</text>
-              <text x="815" y="217" fill="#94a3b8" font-size="10">COM7 @ 115200 bps &lt;-&gt; 5678</text>
-              <text x="815" y="231" fill="#b388ff" font-size="10">GPIO 43 TX / GPIO 44 RX</text>
+              <rect x="870" y="175" width="195" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="883" y="200" fill="#f1f5f9" font-size="12" font-weight="700">⚡ Host Bridge / UART</text>
+              <text x="883" y="217" fill="#94a3b8" font-size="10">COM7 115200 &lt;-&gt; 5678</text>
+              <text x="883" y="231" fill="#b388ff" font-size="10">X-Aegis-Token Bearer</text>
             </g>
 
             <!-- NODES LAYER 3 -->
-            <!-- Node: Router & Barrier -->
-            <g class="svg-node" onclick="openDrawer('card-router-barrier')">
-              <rect x="380" y="345" width="340" height="75" rx="8" fill="#1a253c" stroke="#ffb300" stroke-width="2"/>
-              <text x="400" y="372" fill="#f1f5f9" font-size="14" font-weight="700">🛡️ freertos_route.rs (Event Router)</text>
-              <text x="400" y="390" fill="#ffb300" font-size="11" font-weight="600">Zero-Trust Authorization Barrier (0x3A..0x3E)</text>
-              <text x="400" y="407" fill="#94a3b8" font-size="11">Standard WebAuthn: Pass • Vendor Ops: Protected</text>
-            </g>
-
             <!-- Node: FreeRTOS Tasks -->
             <g class="svg-node" onclick="openDrawer('card-freertos-tasks')">
-              <rect x="60" y="345" width="280" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
-              <text x="75" y="370" fill="#f1f5f9" font-size="13" font-weight="700">⚙️ FreeRTOS Scheduler Tasks</text>
-              <text x="75" y="388" fill="#94a3b8" font-size="10">UsbCtaphid (Prio 5) • BleGatt (Prio 4)</text>
-              <text x="75" y="403" fill="#94a3b8" font-size="10">SecureGuard (Prio 3, 32KB) • Proximity</text>
+              <rect x="35" y="345" width="230" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
+              <text x="48" y="370" fill="#f1f5f9" font-size="12" font-weight="700">⚙️ FreeRTOS Scheduler</text>
+              <text x="48" y="388" fill="#94a3b8" font-size="10">UsbCtaphid (Prio 5) • Ble (Prio 4)</text>
+              <text x="48" y="403" fill="#94a3b8" font-size="10">SecureGuard (Prio 3) • Prox</text>
+            </g>
+
+            <!-- Node: Router & Barrier -->
+            <g class="svg-node" onclick="openDrawer('card-router-barrier')">
+              <rect x="280" y="345" width="270" height="75" rx="8" fill="#1a253c" stroke="#ffb300" stroke-width="2"/>
+              <text x="295" y="372" fill="#f1f5f9" font-size="13" font-weight="700">🛡️ freertos_route.rs (Router)</text>
+              <text x="295" y="390" fill="#ffb300" font-size="10" font-weight="600">Zero-Trust Barrier (0x3A..0x3E)</text>
+              <text x="295" y="407" fill="#94a3b8" font-size="10">Fail-Open WebAuthn • Prod-Strict</text>
+            </g>
+
+            <!-- Node: Code-Only OLED Clear Signing -->
+            <g class="svg-node" onclick="openDrawer('card-oled-clear-signing')">
+              <rect x="565" y="345" width="245" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
+              <text x="578" y="370" fill="#f1f5f9" font-size="12" font-weight="700">📺 OLED 128x64 Clear Sign</text>
+              <text x="578" y="388" fill="#00e676" font-size="10">OPP-06 SSD1306 Code-Only</text>
+              <text x="578" y="403" fill="#94a3b8" font-size="10">HARDWARE_ATTACHED = false</text>
             </g>
 
             <!-- Node: UI Button & WS2812 LED -->
             <g class="svg-node" onclick="openDrawer('card-hardware-ui')">
-              <rect x="760" y="345" width="280" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
-              <text x="775" y="370" fill="#f1f5f9" font-size="13" font-weight="700">🔘 Hardware UI & Presence</text>
-              <text x="775" y="388" fill="#94a3b8" font-size="10">GPIO 0 (BOOT Active-Low 50ms Debounce)</text>
-              <text x="775" y="403" fill="#94a3b8" font-size="10">GPIO 48 (WS2812 RGB Addressable LED)</text>
+              <rect x="825" y="345" width="240" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
+              <text x="838" y="370" fill="#f1f5f9" font-size="12" font-weight="700">🔘 Hardware UI (UP) &amp; LED</text>
+              <text x="838" y="388" fill="#94a3b8" font-size="10">GPIO 0 (BOOT Active-Low 50ms)</text>
+              <text x="838" y="403" fill="#94a3b8" font-size="10">GPIO 48 (WS2812 RGB LED)</text>
             </g>
 
             <!-- NODES LAYER 4 -->
             <!-- Node: CTAP & WebAuthn Engine -->
             <g class="svg-node" onclick="openDrawer('card-ctap-engine')">
-              <rect x="60" y="545" width="300" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="1.5"/>
-              <text x="75" y="572" fill="#f1f5f9" font-size="13" font-weight="700">🔑 CTAP 2.3 & WebAuthn Engine</text>
-              <text x="75" y="591" fill="#94a3b8" font-size="10">Ed25519, P-256, secp256k1, P-384, P-521</text>
-              <text x="75" y="607" fill="#94a3b8" font-size="10">Resident Passkeys • credProtect • largeBlobs</text>
-              <text x="75" y="623" fill="#00e676" font-size="10">Status: Standard Fail-Open Compliant</text>
+              <rect x="35" y="545" width="235" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="1.5"/>
+              <text x="48" y="572" fill="#f1f5f9" font-size="12" font-weight="700">🔑 CTAP 2.1 Engine</text>
+              <text x="48" y="591" fill="#94a3b8" font-size="10">Ed25519, P-256, secp256k1</text>
+              <text x="48" y="607" fill="#00e676" font-size="10">hmac-secret &amp; largeBlobKey</text>
+              <text x="48" y="623" fill="#94a3b8" font-size="10">Status: Fail-Open Compliant</text>
             </g>
 
-            <!-- Node: Secure Guard Engine -->
-            <g class="svg-node" onclick="openDrawer('card-secure-guard-engine')">
-              <rect x="390" y="545" width="320" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="2"/>
-              <text x="405" y="572" fill="#f1f5f9" font-size="13" font-weight="700">🛡️ SecureGuardEngine (Zero-Trust)</text>
-              <text x="405" y="591" fill="#00e676" font-size="10" font-weight="600">10 Discrete States (0x00..0x09) • PBKDF2-SHA256</text>
-              <text x="405" y="607" fill="#94a3b8" font-size="10">constant_time_eq_32 • 5 Attempts + Backoff</text>
-              <text x="405" y="623" fill="#ffb300" font-size="10">Scoped Wipe • Wire Protocol 0x3A..0x3E</text>
+            <!-- Node: Secure Guard Engine & ECDH / Glitch Guard -->
+            <g class="svg-node" onclick="openDrawer('card-ecdh-glitch-guard')">
+              <rect x="285" y="545" width="255" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="2"/>
+              <text x="298" y="572" fill="#f1f5f9" font-size="12" font-weight="700">🛡️ SG Engine &amp; Glitch Guard</text>
+              <text x="298" y="591" fill="#00e676" font-size="10">10 States (0x00..0x09) • PBKDF2</text>
+              <text x="298" y="607" fill="#b388ff" font-size="10">GAP-02 ECDH Channel (0x3B)</text>
+              <text x="298" y="623" fill="#ffb300" font-size="10">GAP-06 GlitchResistantBool</text>
             </g>
 
-            <!-- Node: Storage & eFuse OTP -->
-            <g class="svg-node" onclick="openDrawer('card-storage-silicon')">
-              <rect x="740" y="545" width="300" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="1.5"/>
-              <text x="755" y="572" fill="#f1f5f9" font-size="13" font-weight="700">💾 Silicon Storage & Flash NVS</text>
-              <text x="755" y="591" fill="#94a3b8" font-size="10">nvs @ 0x9000 (24KB) • storage @ 0x310000 (896KB)</text>
-              <text x="755" y="607" fill="#94a3b8" font-size="10">sg_record_v1 (256B CRC32 + AES-256-GCM)</text>
-              <text x="755" y="623" fill="#00e676" font-size="10">eFuse OTP: BLOCK7 (Key) • BLOCK8 (Salt)</text>
+            <!-- Node: Shamir 2-of-3 & Wallets -->
+            <g class="svg-node" onclick="openDrawer('card-shamir-ctap21')">
+              <rect x="555" y="545" width="240" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="1.5"/>
+              <text x="568" y="572" fill="#f1f5f9" font-size="12" font-weight="700">🧩 Shamir 2-of-3 &amp; Wallets</text>
+              <text x="568" y="591" fill="#94a3b8" font-size="10">OPP-03/05 SLIP-0039 in GF(256)</text>
+              <text x="568" y="607" fill="#94a3b8" font-size="10">BIP-32/39 • OATH • PIV Applet</text>
+              <text x="568" y="623" fill="#00e676" font-size="10">2-of-3 Quorum Protection</text>
+            </g>
+
+            <!-- Node: Storage & eFuse Safety Lock -->
+            <g class="svg-node" onclick="openDrawer('card-efuse-safety-lock')">
+              <rect x="810" y="545" width="255" height="90" rx="8" fill="#131b2c" stroke="#ff1744" stroke-width="2"/>
+              <text x="823" y="572" fill="#ff1744" font-size="12" font-weight="700">💾 Flash NVS &amp; eFuse Lock</text>
+              <text x="823" y="591" fill="#94a3b8" font-size="10">nvs (24KB) • storage (896KB)</text>
+              <text x="823" y="607" fill="#ff1744" font-size="10" font-weight="600">eFuse Hard Locked [ZERO-BRICK]</text>
+              <text x="823" y="623" fill="#ff1744" font-size="10">GAP-01/03/07 DO NOT BURN</text>
             </g>
           </svg>
         </div>
@@ -1136,7 +1168,41 @@
             </div>
           </div>
 
-          <!-- Card: Web Dashboard -->
+          
+          <!-- Card: Desktop Companion System Tray App -->
+          <div class="arch-card" id="card-desktop-tray-app" onclick="openDrawer('card-desktop-tray-app')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🖥️ Desktop Companion &amp; System Tray</div>
+                <div class="card-subtitle">app-tray/ (C# .NET 9 + Python)</div>
+              </div>
+              <span class="card-status-badge status-verified">Active Service</span>
+            </div>
+            <div class="card-description">
+              Desktop companion application providing real-time system tray status and hardware lifecycle management. Implemented as dual runtime: native Windows C# .NET 9 application and cross-platform Python tray. Emits native OS toast notifications on device plug/unplug and integrates OpenSSH agent.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Runtimes</span>
+                <span class="meta-value">.NET 9 (C# WinForms/WPF) + Python 3.12</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Notifications</span>
+                <span class="meta-value">Native OS Toast / Balloon on Plug/Unplug</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Integrated Services</span>
+                <span class="meta-value">OpenSSH Native Agent, OS Login Companion</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">.NET 9 C#</span>
+              <span class="tag-chip">Python Tray</span>
+              <span class="tag-chip">System Tray</span>
+              <span class="tag-chip">OS Notifications</span>
+            </div>
+          </div>
+<!-- Card: Web Dashboard -->
           <div class="arch-card" id="card-web-dashboard" onclick="openDrawer('card-web-dashboard')">
             <div class="card-top">
               <div class="card-title-group">
@@ -1240,7 +1306,41 @@
           </div>
 
           <!-- Card: Host Hardware Android Bridge -->
-          <div class="arch-card" id="card-uart-bridge" onclick="openDrawer('card-uart-bridge')">
+          
+          <!-- Card: Native OpenSSH Agent & Windows Hello CDF -->
+          <div class="arch-card" id="card-openssh-windows-hello" onclick="openDrawer('card-openssh-windows-hello')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🔑 Native OpenSSH Agent &amp; OS Login</div>
+                <div class="card-subtitle">app-tray/openssh_native_agent.py &amp; os_login_companion.py</div>
+              </div>
+              <span class="card-status-badge status-verified">OPP-01 / OPP-04</span>
+            </div>
+            <div class="card-description">
+              OPP-01 &amp; OPP-04: Native OpenSSH Agent pipe server (<code>\\.\pipe\openssh-ssh-agent</code>) supporting <code>sk-ssh-ed25519@openssh.com</code> resident keys with User Presence (UP) enforcement. Integrates Windows Hello CDF and Linux PAM (<code>pam_u2f</code>) with BLE RSSI walk-away auto-lock.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">IPC Channel</span>
+                <span class="meta-value">\\.\pipe\openssh-ssh-agent / $SSH_AUTH_SOCK</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">SSH Key Type</span>
+                <span class="meta-value">sk-ssh-ed25519@openssh.com (Hardware Delegated)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">OS Login</span>
+                <span class="meta-value">Windows Hello CDF + Linux pam_u2f</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">OpenSSH Agent</span>
+              <span class="tag-chip">Named Pipe</span>
+              <span class="tag-chip">Windows Hello</span>
+              <span class="tag-chip">pam_u2f</span>
+            </div>
+          </div>
+<div class="arch-card" id="card-uart-bridge" onclick="openDrawer('card-uart-bridge')">
             <div class="card-top">
               <div class="card-title-group">
                 <div class="card-title">⚡ Host Hardware Bridge (UART)</div>
@@ -1436,7 +1536,41 @@
             </div>
           </div>
 
-          <!-- Card: Hardware UI & Presence -->
+          
+          <!-- Card: Code-Only OLED 128x64 Clear Signing -->
+          <div class="arch-card" id="card-oled-clear-signing" onclick="openDrawer('card-oled-clear-signing')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">📺 Code-Only OLED 128x64 Clear Signing</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/oled_ssd1306_code_only.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">OPP-06 Decoupled</span>
+            </div>
+            <div class="card-description">
+              OPP-06: Web3 Clear Signing engine for Ethereum EIP-1559, Bitcoin PSBT, and Solana transfers. Parses structured parameters into an in-memory 128x64 virtual framebuffer. Preserves <code>HARDWARE_I2C_OLED_ATTACHED = false</code> by default, keeping the driver purely in code without physical I2C blocking.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Virtual Framebuffer</span>
+                <span class="meta-value">128x64 (1024 bytes SSD1306 RAM in code)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Hardware Attach</span>
+                <span class="meta-value">HARDWARE_I2C_OLED_ATTACHED = false</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Anti-Blind Signing</span>
+                <span class="meta-value">Parses To, Value, Fee on MCU</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">Clear Signing</span>
+              <span class="tag-chip">SSD1306</span>
+              <span class="tag-chip">128x64</span>
+              <span class="tag-chip">Zero Blind Sign</span>
+            </div>
+          </div>
+<!-- Card: Hardware UI & Presence -->
           <div class="arch-card" id="card-hardware-ui" onclick="openDrawer('card-hardware-ui')">
             <div class="card-top">
               <div class="card-title-group">
@@ -1543,7 +1677,109 @@
             </div>
           </div>
 
-          <!-- Card: Silicon Storage & Flash NVS -->
+          
+          <!-- Card: ECDH Encrypted Channel & Glitch Guard -->
+          <div class="arch-card" id="card-ecdh-glitch-guard" onclick="openDrawer('card-ecdh-glitch-guard')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🔒 ECDH Encrypted Channel &amp; Glitch Guard</div>
+                <div class="card-subtitle">crates/aegis-fido-core/src/secure_guard/secure_channel.rs</div>
+              </div>
+              <span class="card-status-badge status-protected">GAP-02 / GAP-06</span>
+            </div>
+            <div class="card-description">
+              GAP-02 &amp; GAP-06: End-to-end encrypted administrative channel using ephemeral ECDH P-256 + HKDF + AES-256-GCM AEAD, eliminating plaintext PIN on opcode 0x3B. Employs <code>GlitchResistantBool</code> double-checks (<code>cond &amp;&amp; !inv_cond</code>) and hardware TRNG jitter loops against EMFI and clock glitching.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Wire Cryptography</span>
+                <span class="meta-value">ECDH P-256 + HKDF-SHA256 + AES-256-GCM</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Glitch Resistance</span>
+                <span class="meta-value">GlitchResistantBool + TRNG Jitter Loops</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Protected Opcode</span>
+                <span class="meta-value">0x3B (OP_SECURE_GUARD_UNLOCK)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">ECDH P-256</span>
+              <span class="tag-chip">AES-256-GCM</span>
+              <span class="tag-chip">Glitch Guard</span>
+              <span class="tag-chip">Anti-EMFI</span>
+            </div>
+          </div>
+
+          <!-- Card: Shamir 2-of-3 & CTAP 2.1 Extensions -->
+          <div class="arch-card" id="card-shamir-ctap21" onclick="openDrawer('card-shamir-ctap21')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🧩 Shamir 2-of-3 &amp; CTAP 2.1 Extensions</div>
+                <div class="card-subtitle">crates/aegis-fido-core/src/wallet/shamir_slip39.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">OPP-02 / OPP-05</span>
+            </div>
+            <div class="card-description">
+              OPP-02, OPP-03 &amp; OPP-05: Shamir Secret Sharing (SLIP-0039) over Galois Field <code>GF(256)</code>, splitting 256-bit seeds into 3 shares (Key 1 + Key 2 + Paper) requiring any 2 for recovery. Implements CTAP 2.1 extensions: <code>hmac-secret</code> for password vaults (KeePassXC/LUKS) and <code>largeBlobKey</code> for up to 4 KiB encrypted flash payloads.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Shamir Quorum</span>
+                <span class="meta-value">2-of-3 in GF(256) (Zeroize in SRAM)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">CTAP 2.1 Extensions</span>
+                <span class="meta-value">hmac-secret &amp; largeBlobKey (4 KiB)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Hardware KEK</span>
+                <span class="meta-value">BLOCK7 / BLOCK8 Ancoragem em Silício</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">SLIP-0039</span>
+              <span class="tag-chip">GF(256)</span>
+              <span class="tag-chip">hmac-secret</span>
+              <span class="tag-chip">largeBlobKey</span>
+            </div>
+          </div>
+
+          <!-- Card: eFuse Safety Lock [DO NOT BURN] -->
+          <div class="arch-card" id="card-efuse-safety-lock" onclick="openDrawer('card-efuse-safety-lock')" style="border-color: var(--accent-red);">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title" style="color: var(--accent-red);">🚫 eFuse Safety Lock [DO NOT BURN]</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/efuse_safety_lock.rs</div>
+              </div>
+              <span class="card-status-badge status-barrier" style="background: var(--accent-red-glow); color: var(--accent-red);">Hard Locked</span>
+            </div>
+            <div class="card-description">
+              GAP-01, GAP-03 &amp; GAP-07: Silicon protection and hardware anti-brick policy. Full audit specifications for Flash Encryption (AES-XTS BLOCK4..6), Secure Boot v2 (RSA-3072 BLOCK0/1), and monotonic anti-rollback. <strong>CRITICAL WARNING: NEVER EXECUTE IN LAB/DEV!</strong> All write paths are permanently locked with <code>EFUSE_WRITE_HARD_LOCKED = true</code> to prevent bricking COM7 devkits.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Zero-Brick Policy</span>
+                <span class="meta-value" style="color: var(--accent-red);">EFUSE_WRITE_HARD_LOCKED = true</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Security Specs</span>
+                <span class="meta-value">Flash Encrypt + Secure Boot v2 + Anti-Rollback</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Feature Isolation</span>
+                <span class="meta-value">burn-efuse-irreversible-do-not-enable (Off)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip" style="color: var(--accent-red); border-color: var(--accent-red);">DO NOT BURN</span>
+              <span class="tag-chip">eFuse OTP</span>
+              <span class="tag-chip">Zero-Brick</span>
+              <span class="tag-chip">Hard Locked</span>
+            </div>
+          </div>
+<!-- Card: Silicon Storage & Flash NVS -->
           <div class="arch-card" id="card-storage-silicon" onclick="openDrawer('card-storage-silicon')">
             <div class="card-top">
               <div class="card-title-group">
@@ -1627,7 +1863,17 @@
               <td><strong>Rust Workspace</strong></td>
               <td>Modular Rust crates: <code>aegis-fido-core</code> (pure no_std crypto), <code>aegis-fido-usb</code> (64B framer), <code>aegis-fido-firmware</code> (FreeRTOS drivers), <code>universal-device-sdk</code> (codecs), and <code>uniffi-bridge</code> (Kotlin JNI).</td>
             </tr>
+                        <tr>
+              <td><span class="folder-name">📁 app-tray/</span></td>
+              <td><strong>Desktop Companion</strong></td>
+              <td>Desktop Companion System Tray application (.NET 9 C# + Python), Native OpenSSH Agent provider (<code>OPP-01</code>), and OS Login Companion (<code>OPP-04</code>).</td>
+            </tr>
             <tr>
+              <td><span class="folder-name">📄 MASTER_EXECUTION_PLAN.md</span></td>
+              <td><strong>Master Plan</strong></td>
+              <td>Master Execution Plan (Fases 0 a 5) mapping 7 security gaps (<code>GAP-01..07</code>) and 6 product opportunities (<code>OPP-01..06</code>) with Zero-Brick policy.</td>
+            </tr>
+<tr>
               <td><span class="folder-name">📁 app-android/</span></td>
               <td><strong>Android Companion</strong></td>
               <td>Native Android application (<code>dev.aegiskey.app</code>) using Clean Architecture and Atomic Design in Kotlin with Jetpack Compose.</td>
@@ -1984,7 +2230,113 @@
         buildCmd: "cargo build -p aegis-fido-core",
         testCmd: "cargo test -p aegis-fido-core"
       },
-      "card-storage-silicon": {
+            "card-desktop-tray-app": {
+        title: "Desktop Companion & System Tray App",
+        path: "app-tray/ (C# .NET 9 + Python)",
+        layer: "Layer 1 — Clients & Interfaces",
+        description: "Desktop companion application providing real-time system tray status and hardware lifecycle management. Implemented as dual runtime: native Windows C# .NET 9 WPF/WinForms application (app-tray/dotnet/AegisKeyTray/) and cross-platform Python implementation (app-tray/aegis_tray.py). Emits native operating system toast/balloon notifications when AegisKey hardware is inserted or unplugged. Tracks lock states (Locked, Authenticating, Unlocked, RateLimited) and auto-reconnects over serial/CTAPHID.",
+        invariants: "• Runs in user space without requiring administrator privileges.\n• Non-blocking asynchronous event loop for USB/serial monitoring.\n• Dispatches OS notifications on plug/unplug within 500 ms.\n• Never stores plain user PINs or private keys in application memory.",
+        upstream: [
+          { text: "Desktop User clicks / OS shell system tray events", type: "in" }
+        ],
+        downstream: [
+          { text: "app-tray/openssh_native_agent.py (OpenSSH Named Pipe)", type: "out" },
+          { text: "app-tray/os_login_companion.py (Windows Hello / PAM)", type: "out" },
+          { text: "tools/host_hardware_android_bridge.py / COM7 CTAPHID", type: "out" }
+        ],
+        opcodes: "• Monitors: Serial COM7 connection lifecycle & USB VID 0x303A:PID 0xAE61\n• Endpoints: Local IPC via Named Pipe \\\\.\\pipe\\aegis_tray_status\n• Tray Actions: Lock Device, Unlock PIN, View Resident Keys, Launch OpenSSH Agent, Open Web Cockpit",
+        files: "app-tray/dotnet/AegisKeyTray/MainWindow.cs\napp-tray/dotnet/AegisKeyTray/TrayApplicationContext.cs\napp-tray/dotnet/AegisKeyTray/HardwareBridgeClient.cs\napp-tray/aegis_tray.py\napp-tray/notifications.py\napp-tray/hardware_client.py",
+        buildCmd: "dotnet build app-tray/dotnet/AegisKeyTray/AegisKeyTray.csproj",
+        testCmd: "python -m unittest app-tray/test_tray_and_ssh_guard.py"
+      },
+      "card-openssh-windows-hello": {
+        title: "Native OpenSSH Agent & Windows Hello CDF",
+        path: "app-tray/openssh_native_agent.py & os_login_companion.py",
+        layer: "Layer 2 — SDK, Bridge JNI & Transports",
+        description: "OPP-01 & OPP-04: Native OpenSSH agent provider and OS login companion. Implements OpenSSH agent protocol over Windows Named Pipe (\\\\.\\pipe\\openssh-ssh-agent) and Unix Domain Socket ($SSH_AUTH_SOCK). Enables passwordless SSH authentication with hardware-backed resident keys (sk-ssh-ed25519@openssh.com). Integrates Windows Hello Companion Device Framework (CDF) and Linux PAM (pam_u2f) for walk-away auto-lock via BLE RSSI and touch-to-unlock.",
+        invariants: "• SSH private keys never leave AegisKey silicon; signatures delegated via CTAPHID.\n• Physical User Presence (UP) enforced for every SSH signature request.\n• Walk-away lock triggers automatically when BLE RSSI drops below -80 dBm for 15s.",
+        upstream: [
+          { text: "OpenSSH Client (ssh, git, scp, sftp) via Named Pipe", type: "in" },
+          { text: "Windows Logon / LockWorkStation / Linux PAM u2f", type: "in" }
+        ],
+        downstream: [
+          { text: "CTAPHID Interface / freertos_route.rs (OP_AUTHENTICATOR_GET_ASSERTION 0x02)", type: "out" }
+        ],
+        opcodes: "• OpenSSH Messages: SSH_AGENTC_REQUEST_IDENTITIES (11), SSH2_AGENT_IDENTITIES_ANSWER (12), SSH_AGENTC_SIGN_REQUEST (13), SSH2_AGENT_SIGN_RESPONSE (14)\n• Key Type: sk-ssh-ed25519@openssh.com (FIDO2 Ed25519 with flags UP=0x01)",
+        files: "app-tray/openssh_native_agent.py\napp-tray/os_login_companion.py\napp-tray/dotnet/AegisKeyTray/OpenSshAgentPipeServer.cs\napp-tray/ssh_guard.py",
+        buildCmd: "dotnet build app-tray/dotnet/AegisKeyTray/AegisKeyTray.csproj",
+        testCmd: "python -m unittest app-tray/test_tray_and_ssh_guard.py"
+      },
+      "card-oled-clear-signing": {
+        title: "Code-Only OLED 128x64 Clear Signing",
+        path: "crates/aegis-fido-firmware/src/oled_ssd1306_code_only.rs & core clear_signing.rs",
+        layer: "Layer 3 — ESP32-S3 Firmware & FreeRTOS",
+        description: "OPP-06: Web3 Clear Signing engine and SSD1306 128x64 monochrome framebuffer driver. Parses Ethereum EIP-1559, Bitcoin PSBT, and Solana transactions into human-readable parameters (to address, value in ETH/BTC/SOL, fee). Renders visual confirmation frames into a 1024-byte in-memory virtual buffer. The hardware attach flag is maintained as HARDWARE_I2C_OLED_ATTACHED = false by default, keeping the driver purely in code and decoupling verification from physical screen presence.",
+        invariants: "• HARDWARE_I2C_OLED_ATTACHED remains false to prevent I2C bus blocking on boards without screen.\n• Transaction parser rejects malformed CBOR or incomplete bytecode (zero blind signing).\n• Framebuffer memory buffer strictly 1024 bytes (128x64 bits) formatted for SSD1306 page mode.",
+        upstream: [
+          { text: "Web3 Wallet Applet / Vendor Opcode (crates/aegis-fido-core/src/wallet)", type: "in" }
+        ],
+        downstream: [
+          { text: "VirtualOledDisplayBuffer in RAM (telemetry & CBOR inspection)", type: "out" }
+        ],
+        opcodes: "• Clear Sign Opcodes: OP_WALLET_CLEAR_SIGN_PARSE, OP_WALLET_FRAME_DUMP\n• SSD1306 Commands: 0xAE (OFF), 0xAF (ON), 0x20 (MemMode), 0x81 (Contrast), 0x8D (ChargePump)",
+        files: "crates/aegis-fido-firmware/src/oled_ssd1306_code_only.rs\ncrates/aegis-fido-core/src/wallet/clear_signing.rs\ncrates/aegis-fido-core/src/wallet/mod.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware",
+        testCmd: "cargo test -p aegis-fido-core clear_signing"
+      },
+      "card-ecdh-glitch-guard": {
+        title: "ECDH Encrypted Channel & Glitch Guard",
+        path: "crates/aegis-fido-core/src/secure_guard/secure_channel.rs & glitch_guard.rs",
+        layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
+        description: "GAP-02 & GAP-06: End-to-end encrypted administrative channel and fault injection resilience. Secures PIN and administrative payloads on opcode 0x3B using ephemeral ECDH P-256 key exchange, HKDF-SHA256 derivation, and AES-256-GCM AEAD encryption. Protects against Electromagnetic Fault Injection (EMFI) and clock glitching using GlitchResistantBool, double-check evaluation with inverted logic (cond && !inv_cond), and hardware TRNG jitter delay loops.",
+        invariants: "• Plaintext user PINs must never traverse serial/USB buses in the clear.\n• Critical authorization gates verified twice with bitwise inverse registers.\n• TRNG hardware jitter injected before constant-time hash comparisons.",
+        upstream: [
+          { text: "crates/aegis-fido-firmware/src/secure_guard_exec.rs (Opcode 0x3B)", type: "in" }
+        ],
+        downstream: [
+          { text: "crates/aegis-fido-core/src/secure_guard/engine.rs (State Transitions)", type: "out" }
+        ],
+        opcodes: "• Encrypted Channel: OP_SECURE_GUARD_UNLOCK (0x3B) with ephemeral ECDH pubkey + 12B nonce + 16B tag\n• Protocol ID: AegisKey-Vendor-Guard-Channel",
+        files: "crates/aegis-fido-core/src/secure_guard/secure_channel.rs\ncrates/aegis-fido-core/src/secure_guard/glitch_guard.rs\ncrates/aegis-fido-core/src/secure_guard/crypto.rs",
+        buildCmd: "cargo build -p aegis-fido-core",
+        testCmd: "cargo test -p aegis-fido-core secure_channel glitch_guard"
+      },
+      "card-shamir-ctap21": {
+        title: "Shamir 2-of-3 & CTAP 2.1 Extensions",
+        path: "crates/aegis-fido-core/src/wallet/shamir_slip39.rs & ctap/extensions_ctap21.rs",
+        layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
+        description: "OPP-02, OPP-03 & OPP-05: Advanced credential protection and backup. Implements Shamir's Secret Sharing (SLIP-0039) over Galois Field GF(256), splitting the 256-bit master seed into 3 shares (Key 1 + Key 2 + Paper backup) requiring a quorum of any 2 shares for reconstruction. Implements CTAP 2.1 extensions: hmac-secret (RFC compliant key derivation for KeePassXC/LUKS password vaults) and largeBlobKey (storing encrypted payloads up to 4 KiB in flash storage).",
+        invariants: "• Quorum of 2 shares strictly required; single share yields 0 bits of information.\n• Intermediate shares and reconstructed seed wiped immediately via zeroize.\n• largeBlob payloads encrypted with credential-specific AES-256-GCM AEAD keys.",
+        upstream: [
+          { text: "crates/aegis-fido-core/src/ctap (FIDO2 CTAP 2.1 Request Dispatcher)", type: "in" },
+          { text: "Android Companion App / Desktop Wallet Applet", type: "in" }
+        ],
+        downstream: [
+          { text: "crates/aegis-fido-firmware/src/persistence.rs (storage partition @ 0x310000)", type: "out" }
+        ],
+        opcodes: "• CTAP 2.1 Extensions: hmac-secret (extension identifier "hmac-secret"), largeBlobKey ("largeBlobKey")\n• Shamir Recovery: OP_WALLET_SHAMIR_SPLIT, OP_WALLET_SHAMIR_RECOVER",
+        files: "crates/aegis-fido-core/src/wallet/shamir_slip39.rs\ncrates/aegis-fido-core/src/ctap/extensions_ctap21.rs\ncrates/aegis-fido-core/src/crypto/bip39.rs",
+        buildCmd: "cargo build -p aegis-fido-core",
+        testCmd: "cargo test -p aegis-fido-core extensions_ctap21 shamir_slip39"
+      },
+      "card-efuse-safety-lock": {
+        title: "eFuse Safety Lock [DO NOT BURN]",
+        path: "crates/aegis-fido-firmware/src/efuse_safety_lock.rs & prod_strict_guard.rs",
+        layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
+        description: "GAP-01, GAP-03, GAP-04 & GAP-07: Silicon protection and hardware anti-brick policy. Documents and audits production eFuse specifications (Flash Encryption AES-XTS on BLOCK4..BLOCK6, Secure Boot v2 RSA-3072 on BLOCK0/1, and monotonic anti-rollback SECURITY_VERSION counter). ENFORCES AN INVIOLABLE ZERO-BRICK POLICY IN DEVELOPMENT: EFUSE_WRITE_HARD_LOCKED is set to true and feature burn-efuse-irreversible-do-not-enable is disabled, preventing accidental permanent hardware lockouts on COM7 devkits.",
+        invariants: "• CRITICAL WARNING: DO NOT EXECUTE! Writing OTP eFuses permanently locks the board.\n• EFUSE_WRITE_HARD_LOCKED must remain true during all automated test runs.\n• Prod-strict guard rejects test-mode with compile_error! in production builds.",
+        upstream: [
+          { text: "Factory Provisioning Tool / Manufacturing Harness", type: "in" }
+        ],
+        downstream: [
+          { text: "ESP32-S3 eFuse Controller Registers (Hardware Blocked)", type: "out" }
+        ],
+        opcodes: "• eFuse Targets: BLOCK0 (Secure Boot), BLOCK4..6 (Flash Encrypt), BLOCK7 (HMAC Root Key)\n• Error on Write: PermanentFuseWriteForbiddenByPolicy (Zero-Brick Guarantee)",
+        files: "crates/aegis-fido-firmware/src/efuse_safety_lock.rs\ncrates/aegis-fido-firmware/src/prod_strict_guard.rs\ncrates/aegis-fido-firmware/src/efuse_plan.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware",
+        testCmd: "cargo test -p aegis-fido-firmware efuse_safety_lock"
+      },
+"card-storage-silicon": {
         title: "Silicon Storage, Flash NVS & eFuse OTP",
         path: "crates/aegis-fido-firmware/src/persistence.rs",
         layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
