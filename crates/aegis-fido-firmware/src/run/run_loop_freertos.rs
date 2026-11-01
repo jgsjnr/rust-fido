@@ -1319,8 +1319,9 @@ pub fn run_authenticator_freertos() {
                     prox.tick(prox_now_ms, usb_active, wifi_active, pairing_mgr.state());
                     // Proximidade acoplada diretamente ao Secure Guard:
                     let prox_is_away = matches!(prox.state(), crate::proximity::ProximityState::Away | crate::proximity::ProximityState::Locked);
+                    let paired_mac = *secure_guard.paired_ble_mac();
                     let _ = secure_guard.on_ble_proximity_update(
-                        secure_guard.paired_ble_mac(),
+                        &paired_mac,
                         if prox_is_away { -90 } else { -40 },
                         prox_is_away,
                         freertos_now_ms,
