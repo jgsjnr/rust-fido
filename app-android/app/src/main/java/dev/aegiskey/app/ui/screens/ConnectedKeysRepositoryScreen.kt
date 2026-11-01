@@ -88,7 +88,7 @@ fun ConnectedKeysRepositoryScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Minhas Chaves Físicas",
+                        text = "Security Keys",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -98,7 +98,7 @@ fun ConnectedKeysRepositoryScreen(
                 navigationIcon = {
                     if (onBackClick != null) {
                         IconButton(onClick = onBackClick) {
-                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
                 },
@@ -112,7 +112,7 @@ fun ConnectedKeysRepositoryScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Resumo de Proximidade RSSI & Dynamic Lock (Celular ↔ PC)
+            // Proximity RSSI & Dynamic Lock (Phone <-> PC)
             item {
                 Surface(
                     shape = RoundedCornerShape(10.dp),
@@ -143,7 +143,7 @@ fun ConnectedKeysRepositoryScreen(
                             )
                         }
                         Text(
-                            text = if (proximityStatus.locked) "LOCKED (PC Travado)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
+                            text = if (proximityStatus.locked) "LOCKED (PC Locked)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
@@ -152,7 +152,7 @@ fun ConnectedKeysRepositoryScreen(
                 }
             }
 
-            // Botão compacto para Conectar Nova Chave (46.dp)
+            // Compact Connect New Key Button (46.dp)
             item {
                 Button(
                     onClick = onConnectNewKey,
@@ -169,7 +169,7 @@ fun ConnectedKeysRepositoryScreen(
                         Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Conectar Nova Chave",
+                            text = "Connect New Security Key",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -181,7 +181,7 @@ fun ConnectedKeysRepositoryScreen(
 
             item {
                 Text(
-                    text = "Chaves Vinculadas ao Celular",
+                    text = "Bound Security Keys",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -209,14 +209,14 @@ fun ConnectedKeysRepositoryScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "Nenhuma chave vinculada",
+                                text = "No security keys bound",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Toque no botão acima para conectar sua primeira chave física.",
+                                text = "Tap the button above to connect your first security key.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -230,10 +230,10 @@ fun ConnectedKeysRepositoryScreen(
             items(uiState.keys, key = { it.id }) { device ->
                 val isCurrent = device.id == uiState.activeKey?.id
                 val transportText = when (device.transportType) {
-                    ConnectionTransportType.BLE -> "Bluetooth Sem Fio"
-                    ConnectionTransportType.USB -> "Cabo USB / UART"
-                    ConnectionTransportType.WIFI -> "Rede Wi-Fi"
-                    ConnectionTransportType.SIMULATOR -> "Simulador Virtual"
+                    ConnectionTransportType.BLE -> "Wireless BLE"
+                    ConnectionTransportType.USB -> "USB / UART Cable"
+                    ConnectionTransportType.WIFI -> "Wi-Fi Network"
+                    ConnectionTransportType.SIMULATOR -> "Virtual Simulator"
                 }
 
                 ConnectedKeyCardMolecule(
@@ -261,14 +261,14 @@ fun ConnectedKeysRepositoryScreen(
         }
     }
 
-    // Diálogo compacto de Renomear Chave
+    // Rename Security Key Dialog
     keyToRename?.let { device ->
         AlertDialog(
             onDismissRequest = { keyToRename = null },
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Renomear Chave",
+                    text = "Rename Security Key",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -278,7 +278,7 @@ fun ConnectedKeysRepositoryScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Escolha um apelido fácil de lembrar para identificar esta chave:",
+                        text = "Enter an identifiable name for this security key:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -287,7 +287,7 @@ fun ConnectedKeysRepositoryScreen(
                     OutlinedTextField(
                         value = newKeyName,
                         onValueChange = { newKeyName = it },
-                        label = { Text("Nome da chave", maxLines = 1) },
+                        label = { Text("Security key name", maxLines = 1) },
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -296,7 +296,7 @@ fun ConnectedKeysRepositoryScreen(
             },
             confirmButton = {
                 PrimaryNextButton(
-                    text = "Salvar Nome",
+                    text = "Save",
                     enabled = newKeyName.trim().isNotBlank(),
                     onClick = {
                         viewModel.renameKey(device.id, newKeyName.trim())
@@ -306,20 +306,20 @@ fun ConnectedKeysRepositoryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { keyToRename = null }) {
-                    Text("Cancelar", maxLines = 1)
+                    Text("Cancel", maxLines = 1)
                 }
             },
         )
     }
 
-    // Diálogo compacto de Confirmação para Desconectar
+    // Unbind Security Key Confirmation Dialog
     keyToRemove?.let { device ->
         AlertDialog(
             onDismissRequest = { keyToRemove = null },
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Desconectar Chave?",
+                    text = "Unbind Security Key?",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -328,7 +328,7 @@ fun ConnectedKeysRepositoryScreen(
             },
             text = {
                 Text(
-                    text = "Tem certeza de que deseja remover \"${device.displayName}\"? Você poderá reconectá-la a qualquer momento.",
+                    text = "Do you want to unbind \"${device.displayName}\"? You can bind this key again at any time.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
@@ -348,12 +348,12 @@ fun ConnectedKeysRepositoryScreen(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.height(40.dp),
                 ) {
-                    Text("Desconectar", maxLines = 1)
+                    Text("Unbind", maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { keyToRemove = null }) {
-                    Text("Cancelar", maxLines = 1)
+                    Text("Cancel", maxLines = 1)
                 }
             },
         )

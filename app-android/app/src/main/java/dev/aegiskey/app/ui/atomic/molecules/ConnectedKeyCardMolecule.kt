@@ -36,8 +36,7 @@ import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 
 /**
- * Cartão compacto representando uma chave física de segurança.
- * Padding de 12.dp, textos com maxLines=1 e botões em linha única com altura de 32.dp.
+ * Compact card representing a connected security key.
  */
 @Composable
 fun ConnectedKeyCardMolecule(
@@ -74,7 +73,6 @@ fun ConnectedKeyCardMolecule(
                 .fillMaxWidth()
                 .padding(12.dp),
         ) {
-            // Cabeçalho: Ícone + Nome + Badge Ativo
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -110,7 +108,7 @@ fun ConnectedKeyCardMolecule(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
-                            text = keyName.ifBlank { "Minha Chave AegisKey" },
+                            text = keyName.ifBlank { "Security Key" },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -123,7 +121,7 @@ fun ConnectedKeyCardMolecule(
                                 color = MaterialTheme.colorScheme.primary,
                             ) {
                                 Text(
-                                    text = "Em uso",
+                                    text = "Active",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimary,
                                     maxLines = 1,
@@ -136,7 +134,7 @@ fun ConnectedKeyCardMolecule(
 
                     if (!serialNumber.isNullOrBlank()) {
                         Text(
-                            text = "Série: $serialNumber",
+                            text = "Serial: $serialNumber",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -148,7 +146,6 @@ fun ConnectedKeyCardMolecule(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Badge de status de conexão
             ConnectionStatusBadgeAtom(
                 isConnected = isConnected,
                 transportLabel = transportLabel,
@@ -156,7 +153,6 @@ fun ConnectedKeyCardMolecule(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Linha de Ações alinhada
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -164,7 +160,7 @@ fun ConnectedKeyCardMolecule(
             ) {
                 if (!isCurrentKey) {
                     QuickActionPillButton(
-                        text = "Usar",
+                        text = "Select",
                         icon = Icons.Filled.CheckCircle,
                         onClick = onSelectKey,
                     )
@@ -183,7 +179,7 @@ fun ConnectedKeyCardMolecule(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Renomear",
+                        text = "Rename",
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -205,7 +201,7 @@ fun ConnectedKeyCardMolecule(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "Desconectar",
+                        text = "Unbind",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,

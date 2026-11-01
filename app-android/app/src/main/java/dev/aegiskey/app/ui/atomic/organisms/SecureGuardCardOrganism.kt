@@ -42,8 +42,8 @@ import dev.aegiskey.app.ui.atomic.molecules.SessionExpiryTimerMolecule
 import dev.aegiskey.app.ui.viewmodel.SecureGuardUiState
 
 /**
- * Organismo completo de interface do Secure Guard (Zero-Trust On-Device Authority Vault).
- * Apresenta o status em tempo real, badges, contadores regressivos e painéis de ação.
+ * Secure Guard authority organism (Zero-Trust On-Device Authority Vault).
+ * Standardized in ASD-STE100 technical English.
  */
 @Composable
 fun SecureGuardCardOrganism(
@@ -106,7 +106,7 @@ fun SecureGuardCardOrganism(
                         CircularProgressIndicator(modifier = Modifier.padding(end = 4.dp), strokeWidth = 2.dp)
                     }
                     OutlinedButton(onClick = onRefresh, modifier = Modifier.padding(0.dp)) {
-                        Text("Atualizar", fontSize = 12.sp)
+                        Text("Refresh", fontSize = 12.sp)
                     }
                 }
             }
@@ -121,7 +121,7 @@ fun SecureGuardCardOrganism(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Tentativas Restantes:",
+                    text = "Remaining Attempts:",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -169,7 +169,7 @@ fun SecureGuardCardOrganism(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "Código de Recuperação de Emergência:",
+                            text = "Emergency Recovery Code:",
                             fontSize = 11.sp,
                             color = Color(0xFF94A3B8)
                         )
@@ -181,7 +181,7 @@ fun SecureGuardCardOrganism(
                             color = Color(0xFF38BDF8)
                         )
                         Text(
-                            text = "Guarde este código em local seguro offline.",
+                            text = "Store this recovery code in a secure offline location.",
                             fontSize = 10.sp,
                             color = Color(0xFF64748B)
                         )
@@ -193,13 +193,13 @@ fun SecureGuardCardOrganism(
             when (status.state) {
                 SecureGuardStateEnum.UNPROVISIONED -> {
                     Text(
-                        text = "O cofre de autoridade ainda não foi inicializado. Defina um PIN mestre (4 a 16 dígitos) para proteger suas carteiras.",
+                        text = "Secure Guard is not initialized. Enter a 4 to 16 digit PIN to protect your crypto wallets.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     SecurePinKeypadMolecule(
-                        label = "Novo PIN do Cofre",
-                        buttonText = "Provisionar Cofre",
+                        label = "New Vault PIN",
+                        buttonText = "Initialize Secure Guard",
                         enabled = !uiState.isLoading,
                         errorMessage = uiState.errorMessage,
                         onSubmit = { pin -> onProvision(pin, null, null) }
@@ -208,8 +208,8 @@ fun SecureGuardCardOrganism(
 
                 SecureGuardStateEnum.LOCKED, SecureGuardStateEnum.RATE_LIMITED -> {
                     SecurePinKeypadMolecule(
-                        label = "PIN de Desbloqueio",
-                        buttonText = "Desbloquear",
+                        label = "Unlock PIN",
+                        buttonText = "Unlock",
                         enabled = !uiState.isLoading && status.state != SecureGuardStateEnum.RATE_LIMITED,
                         errorMessage = uiState.errorMessage,
                         onSubmit = onUnlock
@@ -221,7 +221,7 @@ fun SecureGuardCardOrganism(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextButton(onClick = { showRecoverDialog = !showRecoverDialog }) {
-                            Text("Recuperação de Emergência", fontSize = 12.sp, color = Color(0xFFF59E0B))
+                            Text("Emergency Recovery", fontSize = 12.sp, color = Color(0xFFF59E0B))
                         }
                     }
                 }
@@ -236,13 +236,13 @@ fun SecureGuardCardOrganism(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("🔒 Bloquear Agora")
+                            Text("🔒 Lock Now")
                         }
                         OutlinedButton(
                             onClick = { showChangePinDialog = !showChangePinDialog },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("Alterar PIN")
+                            Text("Change PIN")
                         }
                     }
 
@@ -251,10 +251,10 @@ fun SecureGuardCardOrganism(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         TextButton(onClick = { showPolicySettings = !showPolicySettings }) {
-                            Text("⚙️ Políticas do Cofre", fontSize = 12.sp)
+                            Text("⚙️ Security Policies", fontSize = 12.sp)
                         }
                         TextButton(onClick = { showWipeConfirm = !showWipeConfirm }) {
-                            Text("🔥 Wipe Seletivo", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                            Text("🔥 Selective Wipe", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -268,13 +268,13 @@ fun SecureGuardCardOrganism(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "⚠️ Limite de 5 tentativas excedido!",
+                                text = "⚠️ Maximum attempts limit reached",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFF97316)
                             )
                             Text(
-                                text = "O cofre está bloqueado por segurança. Insira seu Código de Recuperação de 16 caracteres para restaurar o acesso.",
+                                text = "Secure Guard is locked for security. Enter your 16-character Recovery Code to restore access.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -285,12 +285,12 @@ fun SecureGuardCardOrganism(
 
                 else -> {
                     OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-                        Text("Verificar Conexão com Chave")
+                        Text("Check Security Key Connection")
                     }
                 }
             }
 
-            // Sub-Panel: Alterar PIN
+            // Sub-Panel: Change PIN
             AnimatedVisibility(visible = showChangePinDialog) {
                 var currPin by remember { mutableStateOf("") }
                 var nextPin by remember { mutableStateOf("") }
@@ -302,21 +302,21 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Alterar PIN do Cofre", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Change Vault PIN", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     OutlinedTextField(
                         value = currPin,
                         onValueChange = { currPin = it },
-                        label = { Text("PIN Atual") },
+                        label = { Text("Current PIN") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = nextPin,
                         onValueChange = { nextPin = it },
-                        label = { Text("Novo PIN (4 a 16 dígitos)") },
+                        label = { Text("New PIN (4 to 16 digits)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showChangePinDialog = false }) { Text("Cancelar") }
+                        TextButton(onClick = { showChangePinDialog = false }) { Text("Cancel") }
                         Button(
                             onClick = {
                                 onChangePin(currPin, nextPin)
@@ -324,13 +324,13 @@ fun SecureGuardCardOrganism(
                             },
                             enabled = currPin.isNotEmpty() && nextPin.length >= 4
                         ) {
-                            Text("Salvar Novo PIN")
+                            Text("Save New PIN")
                         }
                     }
                 }
             }
 
-            // Sub-Panel: Recuperação de Emergência
+            // Sub-Panel: Emergency Recovery
             AnimatedVisibility(visible = showRecoverDialog) {
                 var rcInput by remember { mutableStateOf("") }
                 var newPinInput by remember { mutableStateOf("") }
@@ -342,21 +342,21 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Recuperação com Recovery Code", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFFF59E0B))
+                    Text("Emergency Recovery with Recovery Code", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFFF59E0B))
                     OutlinedTextField(
                         value = rcInput,
                         onValueChange = { rcInput = it },
-                        label = { Text("Código de Recuperação (XXXX-XXXX-XXXX-XXXX)") },
+                        label = { Text("Recovery Code (XXXX-XXXX-XXXX-XXXX)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = newPinInput,
                         onValueChange = { newPinInput = it },
-                        label = { Text("Novo PIN Seguro (4 a 16 dígitos)") },
+                        label = { Text("New PIN (4 to 16 digits)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showRecoverDialog = false }) { Text("Cancelar") }
+                        TextButton(onClick = { showRecoverDialog = false }) { Text("Cancel") }
                         Button(
                             onClick = {
                                 onRecover(rcInput, newPinInput)
@@ -365,13 +365,13 @@ fun SecureGuardCardOrganism(
                             enabled = rcInput.length >= 16 && newPinInput.length >= 4,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
                         ) {
-                            Text("Recuperar e Salvar")
+                            Text("Recover and Save")
                         }
                     }
                 }
             }
 
-            // Sub-Panel: Políticas de Segurança
+            // Sub-Panel: Security Policies
             AnimatedVisibility(visible = showPolicySettings) {
                 var wipeOn5 by remember(status.policy) { mutableStateOf(status.policy.wipeOn5Failures) }
                 var protectKeys by remember(status.policy) { mutableStateOf(status.policy.protectKeysAndAegn) }
@@ -385,25 +385,25 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Políticas de Proteção On-Chip (0x3D)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("On-Chip Security Policies", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = wipeOn5, onCheckedChange = { wipeOn5 = it })
-                        Text("Wipe automático após 5 falhas seguidas", fontSize = 12.sp)
+                        Text("Automatic wipe after 5 consecutive failed attempts", fontSize = 12.sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = protectKeys, onCheckedChange = { protectKeys = it })
-                        Text("Proteger Chaves Privadas e Envelopes AEGN", fontSize = 12.sp)
+                        Text("Protect private keys and AEGN envelopes", fontSize = 12.sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = protectOath, onCheckedChange = { protectOath = it })
-                        Text("Proteger Contas OATH (TOTP / HOTP)", fontSize = 12.sp)
+                        Text("Protect OATH accounts (TOTP / HOTP)", fontSize = 12.sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = testModeWipe, onCheckedChange = { testModeWipe = it })
-                        Text("Modo Teste Não-Destrutivo (Wipe Simulado)", fontSize = 12.sp)
+                        Text("Non-destructive test mode (Simulated wipe)", fontSize = 12.sp)
                     }
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showPolicySettings = false }) { Text("Fechar") }
+                        TextButton(onClick = { showPolicySettings = false }) { Text("Close") }
                         Button(
                             onClick = {
                                 onUpdatePolicy(
@@ -417,13 +417,13 @@ fun SecureGuardCardOrganism(
                                 showPolicySettings = false
                             }
                         ) {
-                            Text("Salvar Políticas")
+                            Text("Save Policies")
                         }
                     }
                 }
             }
 
-            // Sub-Panel: Wipe Seletivo
+            // Sub-Panel: Selective Wipe
             AnimatedVisibility(visible = showWipeConfirm) {
                 var confirmToken by remember { mutableStateOf("") }
 
@@ -435,16 +435,16 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("⚠️ Wipe Seletivo de Recursos Protegidos", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
-                    Text("Digite CONFIRM_WIPE_AEGIS_GUARD para confirmar o wipe seletivo.", fontSize = 11.sp)
+                    Text("⚠️ Selective Wipe of Protected Resources", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
+                    Text("Type CONFIRM_WIPE_AEGIS_GUARD to confirm selective wipe.", fontSize = 11.sp)
                     OutlinedTextField(
                         value = confirmToken,
                         onValueChange = { confirmToken = it },
-                        label = { Text("Token de Confirmação") },
+                        label = { Text("Confirmation Token") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showWipeConfirm = false }) { Text("Cancelar") }
+                        TextButton(onClick = { showWipeConfirm = false }) { Text("Cancel") }
                         Button(
                             onClick = {
                                 onWipeSelective(0, confirmToken)
@@ -453,7 +453,7 @@ fun SecureGuardCardOrganism(
                             enabled = confirmToken == "CONFIRM_WIPE_AEGIS_GUARD",
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                         ) {
-                            Text("Confirmar Wipe")
+                            Text("Confirm Wipe")
                         }
                     }
                 }

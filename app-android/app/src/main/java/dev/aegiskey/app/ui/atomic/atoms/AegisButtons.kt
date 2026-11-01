@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,8 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Botão principal de avanço / confirmação ("Próximo", "Concluir", "Continuar").
- * Responsivo, altura compacta de 46.dp, canto de 12.dp e texto com maxLines=1 para nunca quebrar.
+ * Primary action button ("Next", "Complete", "Continue").
  */
 @Composable
 fun PrimaryNextButton(
@@ -68,7 +67,7 @@ fun PrimaryNextButton(
             if (!isLoading) {
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
-                    imageVector = Icons.Filled.ArrowForward,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                 )
@@ -78,12 +77,11 @@ fun PrimaryNextButton(
 }
 
 /**
- * Botão secundário de retorno ("Voltar").
- * Altura compacta de 46.dp, contorno limpo e texto com maxLines=1.
+ * Secondary back button ("Back").
  */
 @Composable
 fun SecondaryBackButton(
-    text: String = "Voltar",
+    text: String = "Back",
     onClick: () -> Unit,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
@@ -97,7 +95,7 @@ fun SecondaryBackButton(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.Filled.ArrowBack,
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
             )
@@ -114,8 +112,7 @@ fun SecondaryBackButton(
 }
 
 /**
- * Botão pílula enxuto para ações rápidas de 1 toque (ex: "Copiar", "Renomear", "Testar").
- * Altura de 32.dp, padding de 10x4.dp e texto com maxLines=1.
+ * Quick action pill button.
  */
 @Composable
 fun QuickActionPillButton(

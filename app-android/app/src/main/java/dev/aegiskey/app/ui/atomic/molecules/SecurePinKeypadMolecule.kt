@@ -23,13 +23,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Molécula segura de digitação de PIN mascarado (4 a 16 caracteres).
- * Nunca vaza o PIN e limpa a memória após submissão.
+ * Masked PIN entry molecule (4 to 16 digits).
  */
 @Composable
 fun SecurePinKeypadMolecule(
-    label: String = "PIN do Cofre",
-    buttonText: String = "Confirmar",
+    label: String = "Vault PIN",
+    buttonText: String = "Confirm",
     enabled: Boolean = true,
     errorMessage: String? = null,
     onSubmit: (String) -> Unit,
@@ -72,7 +71,7 @@ fun SecurePinKeypadMolecule(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = errorMessage ?: "Mínimo 4 dígitos",
+                        text = errorMessage ?: "Minimum 4 digits",
                         fontSize = 11.sp
                     )
                     Text(

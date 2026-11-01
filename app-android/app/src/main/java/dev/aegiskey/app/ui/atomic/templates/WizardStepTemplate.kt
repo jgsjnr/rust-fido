@@ -29,9 +29,7 @@ import dev.aegiskey.app.ui.atomic.atoms.SecondaryBackButton
 import dev.aegiskey.app.ui.atomic.atoms.StepProgressDotsAtom
 
 /**
- * Template padronizado para fluxos lineares e acolhedores no estilo "Próximo → Próximo → Concluir"
- * (Onboarding, Pareamento Guiado, Recuperação e Troca de Dono).
- * Espaçamentos enxutos de 12.dp e barra inferior compacta (16x10.dp).
+ * Standardized template for linear flows ("Next -> Complete").
  */
 @Composable
 fun WizardStepTemplate(
@@ -40,7 +38,7 @@ fun WizardStepTemplate(
     title: String,
     onNextClick: () -> Unit,
     subtitle: String? = null,
-    nextButtonText: String = if (currentStep >= totalSteps) "Concluir" else "Próximo",
+    nextButtonText: String = if (currentStep >= totalSteps) "Complete" else "Next",
     isNextEnabled: Boolean = true,
     isNextLoading: Boolean = false,
     onBackClick: (() -> Unit)? = null,
@@ -55,7 +53,6 @@ fun WizardStepTemplate(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        // Cabeçalho Fixo do Passo com espaçamentos enxutos
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -89,7 +86,6 @@ fun WizardStepTemplate(
             }
         }
 
-        // Conteúdo Central Rolável
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -105,7 +101,6 @@ fun WizardStepTemplate(
             )
         }
 
-        // Barra Inferior Fixa Compacta
         Surface(
             tonalElevation = 2.dp,
             shadowElevation = 3.dp,
@@ -120,10 +115,9 @@ fun WizardStepTemplate(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (currentStep > 1 && onBackClick != null) {
+                if (onBackClick != null) {
                     SecondaryBackButton(
                         onClick = onBackClick,
-                        enabled = !isNextLoading,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -133,7 +127,7 @@ fun WizardStepTemplate(
                     onClick = onNextClick,
                     enabled = isNextEnabled,
                     isLoading = isNextLoading,
-                    modifier = Modifier.weight(if (currentStep > 1 && onBackClick != null) 1.5f else 1f),
+                    modifier = Modifier.weight(1.5f),
                 )
             }
         }

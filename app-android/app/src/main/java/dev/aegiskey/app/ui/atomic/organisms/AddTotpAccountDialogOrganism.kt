@@ -37,7 +37,7 @@ import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 
 /**
- * Diálogo compacto e responsivo para cadastrar uma conta com código TOTP ou HOTP.
+ * Add TOTP / HOTP account dialog organism.
  */
 @Composable
 fun AddTotpAccountDialogOrganism(
@@ -67,7 +67,7 @@ fun AddTotpAccountDialogOrganism(
         shape = RoundedCornerShape(16.dp),
         title = {
             Text(
-                text = if (isHotp) "Adicionar Código HOTP (Contador)" else "Adicionar Código TOTP (Tempo)",
+                text = if (isHotp) "Add HOTP Account (Counter)" else "Add TOTP Account (Time)",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -82,19 +82,18 @@ fun AddTotpAccountDialogOrganism(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "A chave física gerará os códigos criptográficos mesmo com o celular offline.",
+                    text = "The security key generates cryptographic codes offline.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                // Botão de preenchimento rápido (somente em ambiente com mocks habilitados)
                 if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
                     OutlinedButton(
                         onClick = {
                             issuer = "AegisKey Demo"
-                            accountName = "usuario@aegiskey.dev"
+                            accountName = "user@aegiskey.dev"
                             secretOrUri = "JBSWY3DPEHPK3PXP"
                         },
                         enabled = !isLoading,
@@ -112,7 +111,7 @@ fun AddTotpAccountDialogOrganism(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Preencher dados de teste",
+                                text = "Fill test data",
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -121,9 +120,8 @@ fun AddTotpAccountDialogOrganism(
                     }
                 }
 
-                // Seletor de Tipo: TOTP vs HOTP
                 Text(
-                    text = "Tipo de Código:",
+                    text = "Code Type:",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -134,18 +132,17 @@ fun AddTotpAccountDialogOrganism(
                     FilterChip(
                         selected = !isHotp,
                         onClick = { isHotp = false },
-                        label = { Text("TOTP (Tempo 30s)", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text("TOTP (30s Time)", style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = isHotp,
                         onClick = { isHotp = true },
-                        label = { Text("HOTP (Contador)", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text("HOTP (Counter)", style = MaterialTheme.typography.labelSmall) }
                     )
                 }
 
-                // Seletor de Dígitos: 6 vs 8
                 Text(
-                    text = "Tamanho do Código:",
+                    text = "Code Length:",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -156,20 +153,20 @@ fun AddTotpAccountDialogOrganism(
                     FilterChip(
                         selected = digits == 6,
                         onClick = { digits = 6 },
-                        label = { Text("6 dígitos (Padrão)", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text("6 digits (Standard)", style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = digits == 8,
                         onClick = { digits = 8 },
-                        label = { Text("8 dígitos", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text("8 digits", style = MaterialTheme.typography.labelSmall) }
                     )
                 }
 
                 OutlinedTextField(
                     value = issuer,
                     onValueChange = { issuer = it },
-                    label = { Text("Nome do serviço", maxLines = 1) },
-                    placeholder = { Text("Ex: Google ou GitHub", maxLines = 1) },
+                    label = { Text("Service name", maxLines = 1) },
+                    placeholder = { Text("e.g. Google or GitHub", maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -179,8 +176,8 @@ fun AddTotpAccountDialogOrganism(
                 OutlinedTextField(
                     value = accountName,
                     onValueChange = { accountName = it },
-                    label = { Text("E-mail ou conta", maxLines = 1) },
-                    placeholder = { Text("Ex: usuario@empresa.com", maxLines = 1) },
+                    label = { Text("Account name or email", maxLines = 1) },
+                    placeholder = { Text("e.g. user@company.com", maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -190,8 +187,8 @@ fun AddTotpAccountDialogOrganism(
                 OutlinedTextField(
                     value = secretOrUri,
                     onValueChange = { secretOrUri = it },
-                    label = { Text("Chave secreta ou link otpauth://", maxLines = 1) },
-                    placeholder = { Text("Cole a chave Base32", maxLines = 1) },
+                    label = { Text("Secret key or otpauth:// URI", maxLines = 1) },
+                    placeholder = { Text("Paste Base32 secret", maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -201,7 +198,7 @@ fun AddTotpAccountDialogOrganism(
         },
         confirmButton = {
             PrimaryNextButton(
-                text = "Salvar na chave",
+                text = "Save to Security Key",
                 enabled = isFormValid,
                 isLoading = isLoading,
                 onClick = {
@@ -224,7 +221,7 @@ fun AddTotpAccountDialogOrganism(
                 enabled = !isLoading,
             ) {
                 Text(
-                    text = "Cancelar",
+                    text = "Cancel",
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                 )

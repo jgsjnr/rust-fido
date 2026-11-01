@@ -43,6 +43,7 @@ data class KeyVaultUiState(
     val hardwareDiagnostics: HardwareDeviceDiagnostics? = null,
     val isActionLoading: Boolean = false,
     val isLoading: Boolean = false,
+    val isGeneratingKey: Boolean = false,
     val healthCheckStatus: String? = null,
     val userMessage: String? = null,
     val errorMessage: String? = null
@@ -56,6 +57,7 @@ private data class KeyVaultInternalState(
     val hardwareDiagnostics: HardwareDeviceDiagnostics? = null,
     val isActionLoading: Boolean = false,
     val isLoading: Boolean = false,
+    val isGeneratingKey: Boolean = false,
     val healthCheckStatus: String? = null,
     val userMessage: String? = null,
     val errorMessage: String? = null
@@ -100,6 +102,7 @@ class KeyVaultViewModel(
             hardwareDiagnostics = internal.hardwareDiagnostics,
             isActionLoading = internal.isActionLoading,
             isLoading = internal.isLoading,
+            isGeneratingKey = internal.isLoading,
             healthCheckStatus = internal.healthCheckStatus,
             userMessage = internal.userMessage,
             errorMessage = internal.errorMessage
@@ -200,8 +203,21 @@ class KeyVaultViewModel(
         }
     }
 
-    fun generateKey(label: String, type: AccessKeyType) {
-        createNewKey(label = label, type = type)
+    fun generateKey(
+        label: String,
+        type: AccessKeyType,
+        algorithmOrCurve: String = "ES256 (P-256)",
+        extraParam: String = ""
+    ) {
+        createNewKey(label = label, type = type, algorithmOrCurve = algorithmOrCurve, extraParam = extraParam)
+    }
+
+    fun deleteKey(slotId: Int) {
+        deleteEntry(slotId)
+    }
+
+    fun injectMockKeysForDebug() {
+        injectExtraSampleForDebug()
     }
 
     fun deleteEntry(slotId: Int) {

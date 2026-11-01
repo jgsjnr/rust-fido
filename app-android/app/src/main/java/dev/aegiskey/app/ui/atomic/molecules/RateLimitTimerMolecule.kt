@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Molécula indicadora de contagem regressiva para a penalidade de backoff (RateLimited).
+ * Countdown timer molecule for RateLimited backoff state.
  */
 @Composable
 fun RateLimitTimerMolecule(
@@ -48,13 +47,13 @@ fun RateLimitTimerMolecule(
             )
             Column {
                 Text(
-                    text = "Penalidade de Taxa Ativa",
+                    text = "Rate Limit Active",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFFDE68A)
                 )
                 Text(
-                    text = "Aguarde ${remainingSec}s para tentar novamente",
+                    text = "Wait ${remainingSec}s to try again",
                     fontSize = 12.sp,
                     color = Color(0xFFFEF3C7)
                 )

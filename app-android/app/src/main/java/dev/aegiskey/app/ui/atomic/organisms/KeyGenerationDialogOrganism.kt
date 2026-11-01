@@ -63,63 +63,63 @@ val KEY_TYPE_OPTIONS = listOf(
     KeyTypeOption(
         type = AccessKeyType.PASSKEY_FIDO,
         title = "Passkey (FIDO2 / WebAuthn)",
-        description = "Login sem senha para Google, Apple e GitHub",
+        description = "Passwordless login for Google, Apple, and GitHub",
         icon = Icons.Filled.Fingerprint,
         defaultCurve = "ES256 (P-256)",
         defaultExtra = ""
     ),
     KeyTypeOption(
         type = AccessKeyType.VENDOR_SIGNING_KEY,
-        title = "Chave de Assinatura SSH / Git",
-        description = "Assinatura digital de commits, código e SSH",
+        title = "Vendor Signing Key (SSH / Git)",
+        description = "Digital signatures for commits, code, and SSH",
         icon = Icons.Filled.Key,
         defaultCurve = "Ed25519",
         defaultExtra = ""
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_BTC,
-        title = "Carteira Bitcoin (BIP84)",
-        description = "Segurança em hardware Native SegWit",
+        title = "Bitcoin Wallet (BIP84)",
+        description = "Native SegWit on-device security",
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "secp256k1",
         defaultExtra = "m/84'/0'/0'/0/0"
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_ETH,
-        title = "Carteira Ethereum / EVM",
-        description = "Suporte para Ethereum, Polygon e EVM",
+        title = "Ethereum / EVM Wallet",
+        description = "Support for Ethereum, Polygon, and EVM chains",
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "secp256k1",
         defaultExtra = "m/44'/60'/0'/0/0"
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_SOL,
-        title = "Carteira Solana",
-        description = "Chave de alta velocidade Solana (Ed25519)",
+        title = "Solana Wallet",
+        description = "High-speed Solana key (Ed25519)",
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "Ed25519",
         defaultExtra = "m/44'/501'/0'/0'"
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_DOT,
-        title = "Carteira Polkadot",
-        description = "Endereço Substrate SS58 (Ed25519)",
+        title = "Polkadot Wallet",
+        description = "Substrate SS58 address (Ed25519)",
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "Ed25519",
         defaultExtra = "m/44'/354'/0'/0'/0'"
     ),
     KeyTypeOption(
         type = AccessKeyType.PIV_SMARTCARD_SLOT,
-        title = "Smartcard Corporativo PIV",
-        description = "NIST SP 800-73-4 para logon e crachá",
+        title = "Corporate PIV Smartcard",
+        description = "NIST SP 800-73-4 for authentication and logon",
         icon = Icons.Filled.VpnKey,
         defaultCurve = "ECCP256",
         defaultExtra = "9A"
     ),
     KeyTypeOption(
         type = AccessKeyType.ENCRYPTED_AEGN_ENVELOPE,
-        title = "Envelope Criptografado AEGN",
-        description = "Cofre de segredo selado com AES-256-GCM",
+        title = "AEGN Encrypted Envelope",
+        description = "Sealed secret vault with AES-256-GCM",
         icon = Icons.Filled.Lock,
         defaultCurve = "AES-256-GCM",
         defaultExtra = "aegn_secret_payload_seed"
@@ -135,14 +135,14 @@ private val COSE_CURVES = listOf(
 )
 
 private val PIV_SLOTS = listOf(
-    "9A" to "9A Autenticação",
-    "9C" to "9C Assinatura",
-    "9D" to "9D Cifragem",
-    "9E" to "9E Crachá"
+    "9A" to "9A Authentication",
+    "9C" to "9C Digital Signature",
+    "9D" to "9D Key Management",
+    "9E" to "9E Card Authentication"
 )
 
 /**
- * Diálogo completo e responsivo para criar qualquer uma das 8 chaves físicas suportadas.
+ * Key generation dialog organism for creating hardware vault keys.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -169,7 +169,7 @@ fun KeyGenerationDialogOrganism(
         shape = RoundedCornerShape(18.dp),
         title = {
             Text(
-                text = "Criar Nova Chave no Hardware",
+                text = "Generate Key in Security Key",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -184,7 +184,7 @@ fun KeyGenerationDialogOrganism(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "A nova chave criptográfica será gerada e gravada exclusivamente no chip AegisKey.",
+                    text = "The cryptographic key is generated and stored exclusively on the security key.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -192,18 +192,18 @@ fun KeyGenerationDialogOrganism(
                 OutlinedTextField(
                     value = accountName,
                     onValueChange = { accountName = it },
-                    label = { Text("Nome da chave") },
+                    label = { Text("Key label") },
                     placeholder = {
                         Text(
                             when (selectedOption.type) {
-                                AccessKeyType.PASSKEY_FIDO -> "Ex: Google Login ou GitHub"
-                                AccessKeyType.VENDOR_SIGNING_KEY -> "Ex: Chave SSH Notebook"
-                                AccessKeyType.CRYPTO_WALLET_BTC -> "Ex: Cofre Bitcoin Poupança"
-                                AccessKeyType.CRYPTO_WALLET_ETH -> "Ex: Carteira Ethereum DeFi"
-                                AccessKeyType.CRYPTO_WALLET_SOL -> "Ex: Solana Mainnet"
-                                AccessKeyType.CRYPTO_WALLET_DOT -> "Ex: Polkadot Staking"
-                                AccessKeyType.PIV_SMARTCARD_SLOT -> "Ex: Crachá Corporativo PIV"
-                                AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "Ex: Semente Envelopada Mestre"
+                                AccessKeyType.PASSKEY_FIDO -> "e.g. Google Account or GitHub"
+                                AccessKeyType.VENDOR_SIGNING_KEY -> "e.g. Laptop SSH Key"
+                                AccessKeyType.CRYPTO_WALLET_BTC -> "e.g. Bitcoin Savings Vault"
+                                AccessKeyType.CRYPTO_WALLET_ETH -> "e.g. Ethereum DeFi Wallet"
+                                AccessKeyType.CRYPTO_WALLET_SOL -> "e.g. Solana Mainnet"
+                                AccessKeyType.CRYPTO_WALLET_DOT -> "e.g. Polkadot Staking"
+                                AccessKeyType.PIV_SMARTCARD_SLOT -> "e.g. Corporate PIV Badge"
+                                AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "e.g. Master Secret Seed"
                             }
                         )
                     },
@@ -214,12 +214,11 @@ fun KeyGenerationDialogOrganism(
                 )
 
                 Text(
-                    text = "Selecione o Tipo de Chave:",
+                    text = "Select Key Type:",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
 
-                // Lista dos 8 tipos de chaves com visualização limpa
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     KEY_TYPE_OPTIONS.forEach { opt ->
                         val isSelected = opt.type == selectedOption.type
@@ -295,13 +294,12 @@ fun KeyGenerationDialogOrganism(
                     }
                 }
 
-                // Parâmetros Dinâmicos de Acordo com o Tipo Selecionado
                 Spacer(modifier = Modifier.height(4.dp))
                 when (selectedOption.type) {
                     AccessKeyType.PASSKEY_FIDO,
                     AccessKeyType.VENDOR_SIGNING_KEY -> {
                         Text(
-                            text = "Algoritmo / Curva Criptográfica:",
+                            text = "Cryptographic Algorithm / Curve:",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -324,14 +322,14 @@ fun KeyGenerationDialogOrganism(
                     AccessKeyType.CRYPTO_WALLET_SOL,
                     AccessKeyType.CRYPTO_WALLET_DOT -> {
                         Text(
-                            text = "Caminho de Derivação Hierárquica (HD Path):",
+                            text = "Hierarchical Derivation Path (HD Path):",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         OutlinedTextField(
                             value = extraParam,
                             onValueChange = { extraParam = it },
-                            label = { Text("Caminho HD (BIP32/44/84)") },
+                            label = { Text("HD Path (BIP32/44/84)") },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -341,7 +339,7 @@ fun KeyGenerationDialogOrganism(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         ) {
                             Text(
-                                text = "Curva nativa: ${selectedOption.defaultCurve}",
+                                text = "Native curve: ${selectedOption.defaultCurve}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -350,7 +348,7 @@ fun KeyGenerationDialogOrganism(
                     }
                     AccessKeyType.PIV_SMARTCARD_SLOT -> {
                         Text(
-                            text = "Selecione o Slot PIV (NIST SP 800-73-4):",
+                            text = "Select PIV Slot (NIST SP 800-73-4):",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -369,15 +367,15 @@ fun KeyGenerationDialogOrganism(
                     }
                     AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> {
                         Text(
-                            text = "Segredo a ser Selado com AES-256-GCM:",
+                            text = "Secret Payload (Sealed with AES-256-GCM):",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         OutlinedTextField(
                             value = extraParam,
                             onValueChange = { extraParam = it },
-                            label = { Text("Segredo ou Semente") },
-                            placeholder = { Text("Insira o segredo confidencial") },
+                            label = { Text("Secret or Seed") },
+                            placeholder = { Text("Enter confidential secret") },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -388,7 +386,7 @@ fun KeyGenerationDialogOrganism(
         },
         confirmButton = {
             PrimaryNextButton(
-                text = "Gravar no Hardware",
+                text = "Generate Key",
                 enabled = isFormValid && !isLoading,
                 isLoading = isLoading,
                 onClick = {
@@ -404,7 +402,7 @@ fun KeyGenerationDialogOrganism(
                 enabled = !isLoading
             ) {
                 Text(
-                    text = "Cancelar",
+                    text = "Cancel",
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1
                 )

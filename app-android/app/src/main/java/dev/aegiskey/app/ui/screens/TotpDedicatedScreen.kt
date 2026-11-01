@@ -48,6 +48,10 @@ import dev.aegiskey.app.ui.atomic.organisms.AddTotpAccountDialogOrganism
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.viewmodel.TotpAuthenticatorViewModel
 
+/**
+ * Dedicated TOTP / HOTP screen (Aba 2: TOTP).
+ * Standardized in ASD-STE100 technical English.
+ */
 @Composable
 fun TotpDedicatedScreen(
     viewModel: TotpAuthenticatorViewModel,
@@ -80,7 +84,7 @@ fun TotpDedicatedScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Botão Principal Compacto de Adicionar Código (46.dp)
+            // Primary Add Code Button
             item {
                 Button(
                     onClick = { showAddDialog = true },
@@ -97,7 +101,7 @@ fun TotpDedicatedScreen(
                         Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Adicionar Código (TOTP)",
+                            text = "Add Code (TOTP / HOTP)",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -107,7 +111,7 @@ fun TotpDedicatedScreen(
                 }
             }
 
-            // Cabeçalho de Lista com Indicador de Atualização
+            // Section Header with Refresh Action
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -115,7 +119,7 @@ fun TotpDedicatedScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "Códigos de Verificação",
+                        text = "Verification Codes",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -133,7 +137,7 @@ fun TotpDedicatedScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Sincronizar códigos",
+                                contentDescription = "Sync codes",
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -141,7 +145,7 @@ fun TotpDedicatedScreen(
                 }
             }
 
-            // Estado Vazio
+            // Empty State
             if (uiState.accounts.isEmpty() && !uiState.isLoading) {
                 item {
                     Surface(
@@ -161,14 +165,14 @@ fun TotpDedicatedScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "Nenhum código cadastrado",
+                                text = "No codes registered",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Adicione contas do Google, GitHub e outros serviços para gerar códigos offline.",
+                                text = "Add Google, GitHub, or other accounts to generate offline verification codes.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -179,7 +183,7 @@ fun TotpDedicatedScreen(
                 }
             }
 
-            // Lista de Cartões TOTP e HOTP
+            // List of TOTP/HOTP Account Cards
             items(uiState.accounts, key = { it.id }) { item ->
                 TotpCodeCardMolecule(
                     issuer = item.issuer,
@@ -219,7 +223,7 @@ fun TotpDedicatedScreen(
         )
     }
 
-    // Diálogo Organismo de Adicionar TOTP/HOTP
+    // Add TOTP Dialog
     if (showAddDialog) {
         AddTotpAccountDialogOrganism(
             onDismissRequest = { showAddDialog = false },
@@ -238,14 +242,14 @@ fun TotpDedicatedScreen(
         )
     }
 
-    // Diálogo de Confirmação para Remover Conta
+    // Remove Confirmation Dialog
     accountToDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { accountToDelete = null },
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Remover Código?",
+                    text = "Delete Code?",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -254,7 +258,7 @@ fun TotpDedicatedScreen(
             },
             text = {
                 Text(
-                    text = "Deseja remover \"${item.issuer.ifBlank { item.accountName }}\"? Você precisará do segredo original se quiser reconfigurar.",
+                    text = "Do you want to delete \"${item.issuer.ifBlank { item.accountName }}\"? You will need the original secret to reconfigure.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
@@ -274,12 +278,12 @@ fun TotpDedicatedScreen(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.height(38.dp),
                 ) {
-                    Text("Remover Código", maxLines = 1)
+                    Text("Delete Code", maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { accountToDelete = null }) {
-                    Text("Cancelar", maxLines = 1)
+                    Text("Cancel", maxLines = 1)
                 }
             },
         )

@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Molécula indicadora de contagem regressiva da sessão desbloqueada ativa (Unlocked).
+ * Countdown timer molecule for active Unlocked session.
  */
 @Composable
 fun SessionExpiryTimerMolecule(
@@ -50,13 +50,13 @@ fun SessionExpiryTimerMolecule(
             )
             Column {
                 Text(
-                    text = "Sessão Desbloqueada",
+                    text = "Session Unlocked",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFA7F3D0)
                 )
                 Text(
-                    text = "Tempo restante de autorização: $timeFormatted",
+                    text = "Remaining authorization time: $timeFormatted",
                     fontSize = 12.sp,
                     color = Color(0xFFD1FAE5)
                 )

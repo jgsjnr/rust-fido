@@ -38,22 +38,22 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
 
 /**
- * Destinos da navegação principal do AegisKey Hub.
- * 4 seções intuitivas e em português direto.
+ * Main navigation destinations for AegisKey Hub.
+ * ASD-STE100 standardized labels.
  */
 enum class HubDestination(
     val route: String,
     val label: String,
     val icon: ImageVector,
 ) {
-    VAULT(route = "vault", label = "Cofre", icon = Icons.Filled.Lock),
-    CODES(route = "codes", label = "Códigos", icon = Icons.Filled.Password),
-    KEYS(route = "keys", label = "Chaves", icon = Icons.Filled.VpnKey),
-    SETTINGS(route = "settings", label = "Ajustes", icon = Icons.Filled.Settings),
+    VAULT(route = "vault", label = "Vault", icon = Icons.Filled.Lock),
+    CODES(route = "codes", label = "TOTP", icon = Icons.Filled.Password),
+    KEYS(route = "keys", label = "Devices", icon = Icons.Filled.VpnKey),
+    SETTINGS(route = "settings", label = "Settings", icon = Icons.Filled.Settings),
 }
 
 /**
- * Template principal pós-pareamento com TopAppBar contida e NavigationBar responsiva.
+ * Global hub scaffold template with top bar and navigation bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,7 +94,7 @@ fun MainHubScaffoldTemplate(
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = activeKeyName.ifBlank { "Minha AegisKey" },
+                                text = activeKeyName.ifBlank { "Security Key" },
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -103,7 +103,7 @@ fun MainHubScaffoldTemplate(
                             )
                             Icon(
                                 imageVector = Icons.Filled.ArrowDropDown,
-                                contentDescription = "Trocar chave",
+                                contentDescription = "Switch security key",
                                 modifier = Modifier.size(16.dp),
                             )
                         }
@@ -120,7 +120,7 @@ fun MainHubScaffoldTemplate(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Palette,
-                            contentDescription = "Alternar aparência",
+                            contentDescription = "Toggle theme mode",
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp),
                         )

@@ -26,10 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
@@ -49,7 +47,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -85,9 +82,7 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BindingOps
 import dev.aegiskey.app.ble.VendorOps
-import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.AppThemeMode
-import dev.aegiskey.app.domain.model.SecurityToggles
 import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.security.RecoveryBackup
 import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
@@ -100,16 +95,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Gestor Completo de Hardware e Aba de Ajustes (Wave 11B-2).
- * 100% Material 3, layout compacto, ultra responsivo, sem quebra de linhas indevidas.
- * Cobre:
- * 1. Tema & Aparência (Material 3: Light, Dark, Auto, Dynamic Color Material You).
- * 2. Segurança & PIN (0x2C/0x2D): Biometria, bloqueio automático e modal interativo de PIN.
- * 3. Rede Wi-Fi da Chave (192.168.4.1): Portal AP, teste de conexão WifiApi.testConnection.
- * 4. Backup & Recuperação (24 Palavras BIP39) & Quorum DKEK (0x28..0x2A).
- * 5. Atualização de Firmware OTA (0x30..0x34): Versão, canal e checagem assinada Ed25519.
- * 6. Diagnóstico de Resgate (0x2E) & Auditoria de Eventos (0x38): Integridade NVS e flags.
- * 7. Posse da Chave, Reset & Vínculo (0x2B): Diálogo de liberação e assistente guiado.
+ * Settings and Preferences Screen (Tab 4).
+ * Conforms to ASD-STE100 (Simplified Technical English) and Material 3 Atomic Architecture.
+ * Exclusively provides:
+ * 1. Theme and Appearance (System, Light, Dark, Dynamic Color).
+ * 2. Security and Hardware PIN (Local Biometrics, Automatic Lock, Change PIN).
+ * 3. Wi-Fi Configuration (192.168.4.1 SoftAP and endpoints).
+ * 4. Recovery Backup & DKEK Quorum (24-word phrase and N-of-M quorum).
+ * 5. OTA Firmware Update (Signed Ed25519 verification).
+ * 6. Rescue Diagnostics & Audit (Self-test 0x2E and Event Logs 0x38).
+ * 7. Security Key Ownership & Factory Reset (0x2B unbind/reset).
+ * 8. Smart Card (PIV / Certificates NIST SP 800-73-4).
  */
 @Composable
 fun FriendlySettingsAndThemeScreen(
@@ -129,7 +125,6 @@ fun FriendlySettingsAndThemeScreen(
     val themePref by themeViewModel.themePreference.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Chave Ativa e Toggles de Segurança do Repositório (ou fallback reativo local)
     val activeKey = keysViewModel?.activeKey?.collectAsState()?.value
     var localBiometrics by remember { mutableStateOf(activeKey?.toggles?.requireBiometricsOnOpen ?: true) }
     var localLockOnWalkAway by remember { mutableStateOf(activeKey?.toggles?.lockOnWalkAway ?: true) }
@@ -137,13 +132,13 @@ fun FriendlySettingsAndThemeScreen(
     val biometricsChecked = activeKey?.toggles?.requireBiometricsOnOpen ?: localBiometrics
     val walkAwayChecked = activeKey?.toggles?.lockOnWalkAway ?: localLockOnWalkAway
 
-    // Estados dos Diálogos Interativos
+    // Interactive Dialog States
     var showPinDialog by remember { mutableStateOf(false) }
     var showPhraseDialog by remember { mutableStateOf(false) }
     var showDkekDialog by remember { mutableStateOf(false) }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
 
-    // Estado do Teste Wi-Fi (192.168.4.1)
+    // Wi-Fi Test and Config States (192.168.4.1)
     var wifiTesting by remember { mutableStateOf(false) }
     var wifiTestResult by remember { mutableStateOf<String?>(null) }
     var wifiTotpReading by remember { mutableStateOf(false) }
@@ -154,26 +149,14 @@ fun FriendlySettingsAndThemeScreen(
     var wifiConfigPowerSave by remember { mutableStateOf(false) }
     var wifiConfiguring by remember { mutableStateOf(false) }
 
-    // Estado da Checagem de Atualização OTA
+    // OTA Firmware Update States
     var otaChecking by remember { mutableStateOf(false) }
-    var otaStatusMessage by remember { mutableStateOf<String?>("Firmware v3.4.0-esp32s3 assinado e verificado.") }
-    var otaSelectedChannel by remember { mutableStateOf("Estável") }
+    var otaStatusMessage by remember { mutableStateOf<String?>("Firmware v3.4.0-esp32s3 signed and verified.") }
+    var otaSelectedChannel by remember { mutableStateOf("Stable") }
 
-    // Estado do Diagnóstico Rápido de Resgate
+    // Rescue Diagnostics States
     var rescueRefreshing by remember { mutableStateOf(false) }
-    var rescueTimestamp by remember { mutableStateOf("Agora mesmo") }
-
-    // Estado da Trava de Proximidade RSSI & Windows Dynamic Lock
-    val hostBridgeClient = remember { HostUsbUartBridgeClient() }
-    var proximityStatus by remember { mutableStateOf(HostUsbUartBridgeClient.ProximityLockStatus()) }
-    var proximityEvaluating by remember { mutableStateOf(false) }
-    var showProximityUnlockDialog by remember { mutableStateOf(false) }
-    var proximityUnlockPin by remember { mutableStateOf("12345678") }
-    var proximityFeedback by remember { mutableStateOf<String?>(null) }
-
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        proximityStatus = hostBridgeClient.fetchProximityStatus()
-    }
+    var rescueTimestamp by remember { mutableStateOf("Just now") }
 
     val currentUiThemeMode = when (themePref.mode) {
         AppThemeMode.SYSTEM -> ThemeMode.SYSTEM
@@ -187,7 +170,7 @@ fun FriendlySettingsAndThemeScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // --- 1. Bloco de Tema e Cores ---
+        // --- 1. Theme and Appearance ---
         item {
             ThemeSelectorOrganism(
                 selectedThemeMode = currentUiThemeMode,
@@ -204,10 +187,10 @@ fun FriendlySettingsAndThemeScreen(
             )
         }
 
-        // --- 2. Segurança do Dispositivo & PIN do Hardware (0x2C / 0x2D) ---
+        // --- 2. Security and Hardware PIN ---
         item {
             SettingsSectionHeader(
-                title = "Segurança & PIN do Hardware",
+                title = "Security and Hardware PIN",
                 icon = Icons.Filled.Security,
             )
         }
@@ -215,8 +198,8 @@ fun FriendlySettingsAndThemeScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingToggleRowMolecule(
-                    title = "Proteção por Biometria do Celular",
-                    description = "Exigir digital ou biometria para abrir o cofre e assinar.",
+                    title = "Biometric Verification",
+                    description = "Require biometric verification to unlock vault and sign.",
                     icon = Icons.Filled.Fingerprint,
                     checked = biometricsChecked,
                     onCheckedChange = { newVal ->
@@ -231,8 +214,8 @@ fun FriendlySettingsAndThemeScreen(
                 )
 
                 SettingToggleRowMolecule(
-                    title = "Bloqueio Automático ao Sair",
-                    description = "Bloquear cofre ao sair do app ou afastar-se da chave.",
+                    title = "Automatic Lock on Exit",
+                    description = "Lock vault when application closes.",
                     icon = Icons.Filled.Lock,
                     checked = walkAwayChecked,
                     onCheckedChange = { newVal ->
@@ -246,7 +229,7 @@ fun FriendlySettingsAndThemeScreen(
                     },
                 )
 
-                // Cartão Interativo de PIN do Hardware
+                // Hardware PIN Card
                 OutlinedCard(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.outlinedCardColors(
@@ -279,14 +262,14 @@ fun FriendlySettingsAndThemeScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "PIN do Hardware FIDO2 (0x2C / 0x2D)",
+                                    text = "Hardware PIN (FIDO2)",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = "Código de 4 a 8 dígitos protegido na chave física.",
+                                    text = "4 to 8 digit code secured inside physical key.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -307,7 +290,7 @@ fun FriendlySettingsAndThemeScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Alterar PIN da Chave",
+                                text = "Change Security Key PIN",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -316,317 +299,13 @@ fun FriendlySettingsAndThemeScreen(
                         }
                     }
                 }
-
-                // --- Cartão Interativo: Trava de Proximidade RSSI & Windows Dynamic Lock (Celular ↔ PC) ---
-                OutlinedCard(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = if (proximityStatus.locked) {
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        },
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (proximityStatus.locked) {
-                                    MaterialTheme.colorScheme.errorContainer
-                                } else {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Lock,
-                                        contentDescription = null,
-                                        tint = if (proximityStatus.locked) {
-                                            MaterialTheme.colorScheme.error
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        },
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Dynamic Lock & Proximidade RSSI",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = "Celular ↔ Computador (Windows Dynamic Lock)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Switch(
-                                checked = proximityStatus.enabled,
-                                onCheckedChange = { isEnabled ->
-                                    scope.launch {
-                                        hostBridgeClient.configureProximityLock(
-                                            enabled = isEnabled,
-                                            thresholdDbm = proximityStatus.thresholdDbm,
-                                            lockSeconds = proximityStatus.lockSeconds.toInt(),
-                                            enforceWindowsLock = proximityStatus.enforceWindowsLock
-                                        )
-                                        proximityStatus = hostBridgeClient.fetchProximityStatus()
-                                    }
-                                }
-                            )
-                        }
-
-                        // Telemetria em Tempo Real: Sinal RSSI, Estado e Rolling-Code
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "Sinal RSSI Atual",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    val rssiText = when {
-                                        proximityStatus.currentRssiDbm >= (proximityStatus.thresholdDbm + proximityStatus.hysteresisDb) ->
-                                            "${proximityStatus.currentRssiDbm} dBm (Próximo — Mesa Segura)"
-                                        proximityStatus.currentRssiDbm >= proximityStatus.thresholdDbm ->
-                                            "${proximityStatus.currentRssiDbm} dBm (Banda de Histerese)"
-                                        else ->
-                                            "${proximityStatus.currentRssiDbm} dBm (Afastado — Bloqueando PC e Cofre)"
-                                    }
-                                    val rssiColor = when {
-                                        proximityStatus.currentRssiDbm >= (proximityStatus.thresholdDbm + proximityStatus.hysteresisDb) ->
-                                            MaterialTheme.colorScheme.primary
-                                        proximityStatus.currentRssiDbm >= proximityStatus.thresholdDbm ->
-                                            MaterialTheme.colorScheme.tertiary
-                                        else ->
-                                            MaterialTheme.colorScheme.error
-                                    }
-                                    Text(
-                                        text = rssiText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = rssiColor,
-                                    )
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "Estado da Trava",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = when (proximityStatus.state) {
-                                                "NEAR" -> MaterialTheme.colorScheme.primaryContainer
-                                                "AWAY" -> MaterialTheme.colorScheme.tertiaryContainer
-                                                else -> MaterialTheme.colorScheme.errorContainer
-                                            },
-                                        ) {
-                                            Text(
-                                                text = proximityStatus.state,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = when (proximityStatus.state) {
-                                                    "NEAR" -> MaterialTheme.colorScheme.onPrimaryContainer
-                                                    "AWAY" -> MaterialTheme.colorScheme.onTertiaryContainer
-                                                    else -> MaterialTheme.colorScheme.onErrorContainer
-                                                },
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                        Text(
-                                            text = "Roll: 0x%04X".format(proximityStatus.rollingCounter),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Controles de Limiar de Distância (-65, -75, -85 dBm)
-                        Text(
-                            text = "Limiar de RSSI para Bloqueio:",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            listOf(-65, -75, -85).forEach { threshold ->
-                                FilterChip(
-                                    selected = proximityStatus.thresholdDbm == threshold,
-                                    onClick = {
-                                        scope.launch {
-                                            hostBridgeClient.configureProximityLock(
-                                                enabled = proximityStatus.enabled,
-                                                thresholdDbm = threshold,
-                                                lockSeconds = proximityStatus.lockSeconds.toInt(),
-                                                enforceWindowsLock = proximityStatus.enforceWindowsLock
-                                            )
-                                            proximityStatus = hostBridgeClient.fetchProximityStatus()
-                                        }
-                                    },
-                                    label = { Text("$threshold dBm") },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-
-                        // Controles de Tempo de Evasão (6s, 10s, 15s)
-                        Text(
-                            text = "Tempo de Evasão:",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            listOf(6, 10, 15).forEach { secs ->
-                                FilterChip(
-                                    selected = proximityStatus.lockSeconds.toInt() == secs,
-                                    onClick = {
-                                        scope.launch {
-                                            hostBridgeClient.configureProximityLock(
-                                                enabled = proximityStatus.enabled,
-                                                thresholdDbm = proximityStatus.thresholdDbm,
-                                                lockSeconds = secs,
-                                                enforceWindowsLock = proximityStatus.enforceWindowsLock
-                                            )
-                                            proximityStatus = hostBridgeClient.fetchProximityStatus()
-                                        }
-                                    },
-                                    label = { Text("${secs}s") },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-
-                        proximityFeedback?.let { feedback ->
-                            Text(
-                                text = feedback,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        // Botões de Ação e Simulação
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    scope.launch {
-                                        proximityEvaluating = true
-                                        proximityFeedback = "Simulando afastamento (-88 dBm)..."
-                                        try {
-                                            val updated = hostBridgeClient.sendPhoneRssiAndEvaluate(
-                                                rssiDbm = -88,
-                                                elapsedSeconds = proximityStatus.lockSeconds + 1.0
-                                            )
-                                            proximityStatus = updated
-                                            proximityFeedback = if (updated.locked) {
-                                                "PC & Cofre BLOQUEADOS por afastamento!"
-                                            } else {
-                                                "Sinal fraco detectado (${updated.awaySeconds}s acumulados)."
-                                            }
-                                        } finally {
-                                            proximityEvaluating = false
-                                        }
-                                    }
-                                },
-                                enabled = !proximityEvaluating,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Text("Afastar (-88 dBm)", style = MaterialTheme.typography.labelSmall)
-                            }
-
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        proximityEvaluating = true
-                                        proximityFeedback = "Confirmando presença próxima (-32 dBm)..."
-                                        try {
-                                            val updated = hostBridgeClient.sendPhoneRssiAndEvaluate(
-                                                rssiDbm = -32,
-                                                elapsedSeconds = 1.0
-                                            )
-                                            proximityStatus = updated
-                                            proximityFeedback = "Presença confirmada (Mesa segura)."
-                                        } finally {
-                                            proximityEvaluating = false
-                                        }
-                                    }
-                                },
-                                enabled = !proximityEvaluating,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Text("Aproximar (-32 dBm)", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-
-                        if (proximityStatus.locked) {
-                            Button(
-                                onClick = { showProximityUnlockDialog = true },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Text("Destravar Sessão com Toque UP + PIN")
-                            }
-                        }
-                    }
-                }
             }
         }
 
-        // --- 3. Rede Wi-Fi da Chave (192.168.4.1) ---
+        // --- 3. Wi-Fi Configuration (192.168.4.1) ---
         item {
             SettingsSectionHeader(
-                title = "Rede Wi-Fi da Chave (192.168.4.1)",
+                title = "Wi-Fi Configuration (192.168.4.1)",
                 icon = Icons.Filled.Wifi,
             )
         }
@@ -664,7 +343,7 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Ponto de Acesso Wireless (AP)",
+                                text = "Wireless Access Point (SoftAP)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -680,7 +359,7 @@ fun FriendlySettingsAndThemeScreen(
                         }
                     }
 
-                    // Detalhes da Conexão
+                    // Connection Details
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -695,12 +374,12 @@ fun FriendlySettingsAndThemeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    text = "Canal & Banda",
+                                    text = "Channel and Band",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
-                                    text = "Canal 6 · 2.4 GHz WPA2/WPA3",
+                                    text = "Channel 6 · 2.4 GHz WPA2/WPA3",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium,
                                 )
@@ -710,7 +389,7 @@ fun FriendlySettingsAndThemeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    text = "Endpoints CTAP/OATH",
+                                    text = "Endpoints",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -728,7 +407,7 @@ fun FriendlySettingsAndThemeScreen(
                         Text(
                             text = result,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (result.contains("acessível", ignoreCase = true)) {
+                            color = if (result.contains("accessible", ignoreCase = true) || result.contains("acessível", ignoreCase = true)) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.error
@@ -746,18 +425,18 @@ fun FriendlySettingsAndThemeScreen(
                             onClick = {
                                 scope.launch {
                                     wifiTesting = true
-                                    wifiTestResult = "Testando conexão com 192.168.4.1..."
+                                    wifiTestResult = "Testing connection to 192.168.4.1..."
                                     try {
                                         val reachable = withContext(Dispatchers.IO) {
                                             WifiApi.testConnection("http://192.168.4.1")
                                         }
                                         wifiTestResult = if (reachable) {
-                                            "Chave física acessível via Wi-Fi em 192.168.4.1 (ou fallback 10.0.2.2)."
+                                            "Security key accessible via Wi-Fi at 192.168.4.1."
                                         } else {
-                                            "Sem resposta no IP 192.168.4.1. Conecte ao AP AegisKey-AP."
+                                            "No response at IP 192.168.4.1. Connect to AegisKey-AP."
                                         }
                                     } catch (e: Exception) {
-                                        wifiTestResult = "Falha no teste: ${e.message?.take(48) ?: "Erro de rede"}"
+                                        wifiTestResult = "Test failed: ${e.message?.take(48) ?: "Network error"}"
                                     } finally {
                                         wifiTesting = false
                                     }
@@ -776,7 +455,7 @@ fun FriendlySettingsAndThemeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (wifiTesting) "Testando..." else "Testar Conexão",
+                                text = if (wifiTesting) "Testing..." else "Test Connection",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -790,7 +469,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Abrir Portal Wi-Fi",
+                                text = "Open Wi-Fi Portal",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -799,7 +478,7 @@ fun FriendlySettingsAndThemeScreen(
                         }
                     }
 
-                    // Ações de TOTP (/oath/code) e Configuração do AP
+                    // TOTP and Configuration Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -808,14 +487,14 @@ fun FriendlySettingsAndThemeScreen(
                             onClick = {
                                 scope.launch {
                                     wifiTotpReading = true
-                                    wifiTestResult = "Lendo código TOTP do chip via Wi-Fi (/oath/code)..."
+                                    wifiTestResult = "Reading TOTP code via Wi-Fi (/oath/code)..."
                                     try {
                                         val res = withContext(Dispatchers.IO) {
                                             WifiApi.fetchOathCode("http://192.168.4.1", "AegisKey:admin")
                                         }
                                         wifiTestResult = res.fold(
-                                            onSuccess = { "TOTP via Wi-Fi: ${it.code} (${it.remainingSeconds}s restantes)" },
-                                            onFailure = { "Falha ao obter TOTP: ${it.message ?: "Erro desconhecido"}" }
+                                            onSuccess = { "Wi-Fi TOTP: ${it.code} (${it.remainingSeconds}s remaining)" },
+                                            onFailure = { "Failed to read TOTP: ${it.message ?: "Unknown error"}" }
                                         )
                                     } finally {
                                         wifiTotpReading = false
@@ -835,7 +514,7 @@ fun FriendlySettingsAndThemeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (wifiTotpReading) "Lendo..." else "Ler TOTP via Wi-Fi",
+                                text = if (wifiTotpReading) "Reading..." else "Read TOTP via Wi-Fi",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -849,7 +528,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Configurar Wi-Fi",
+                                text = "Configure Wi-Fi",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -861,10 +540,10 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
-        // --- 4. Backup & Recuperação (24 Palavras BIP39) & Quorum DKEK (0x28..0x2A) ---
+        // --- 4. Recovery Backup & DKEK Quorum ---
         item {
             SettingsSectionHeader(
-                title = "Backup de Recuperação & Quorum DKEK",
+                title = "Recovery Backup & DKEK Quorum",
                 icon = Icons.Filled.Backup,
             )
         }
@@ -902,14 +581,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Cópia Segura & Quorum Guardiões (0x28..0x2A)",
+                                text = "Encrypted Backup & Guardians Quorum",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Envelopes AEGN (AES-256-GCM) + Frase 24 Palavras BIP39.",
+                                text = "AEGN Envelopes (AES-256-GCM) and 24-word recovery phrase.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -928,7 +607,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Frase 24 Palavras",
+                                text = "24-Word Recovery Phrase",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -942,7 +621,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Quorum DKEK",
+                                text = "DKEK Quorum",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -957,7 +636,7 @@ fun FriendlySettingsAndThemeScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = "Acessar Central de Backup & Envelopes",
+                            text = "Open Backup Central",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -968,10 +647,10 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
-        // --- 5. Atualização de Firmware OTA (0x30..0x34) ---
+        // --- 5. OTA Firmware Update ---
         item {
             SettingsSectionHeader(
-                title = "Atualização de Firmware OTA",
+                title = "OTA Firmware Update",
                 icon = Icons.Filled.SystemUpdate,
             )
         }
@@ -996,7 +675,7 @@ fun FriendlySettingsAndThemeScreen(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
                             modifier = Modifier.size(36.dp),
-                        ) {
+                            ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Filled.SystemUpdate,
@@ -1016,7 +695,7 @@ fun FriendlySettingsAndThemeScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Assinatura Ed25519 & Anti-rollback Ativos (0x30..0x34).",
+                                text = "Ed25519 signature and anti-rollback verification active.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1025,28 +704,28 @@ fun FriendlySettingsAndThemeScreen(
                         }
                     }
 
-                    // Seletor de Canal de Atualização (Estável vs Beta)
+                    // Update Channel Selector
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Canal:",
+                            text = "Channel:",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
                         )
                         FilterChip(
-                            selected = otaSelectedChannel == "Estável",
-                            onClick = { otaSelectedChannel = "Estável" },
-                            label = { Text("Estável (Produção)") },
+                            selected = otaSelectedChannel == "Stable",
+                            onClick = { otaSelectedChannel = "Stable" },
+                            label = { Text("Stable (Production)") },
                             shape = RoundedCornerShape(8.dp),
                             colors = FilterChipDefaults.filterChipColors(),
                         )
                         FilterChip(
-                            selected = otaSelectedChannel == "Beta Verificado",
-                            onClick = { otaSelectedChannel = "Beta Verificado" },
-                            label = { Text("Beta Verificado") },
+                            selected = otaSelectedChannel == "Verified Beta",
+                            onClick = { otaSelectedChannel = "Verified Beta" },
+                            label = { Text("Verified Beta") },
                             shape = RoundedCornerShape(8.dp),
                             colors = FilterChipDefaults.filterChipColors(),
                         )
@@ -1070,12 +749,12 @@ fun FriendlySettingsAndThemeScreen(
                             onClick = {
                                 scope.launch {
                                     otaChecking = true
-                                    otaStatusMessage = "Consultando manifesto assinado do servidor..."
+                                    otaStatusMessage = "Checking signed server manifest..."
                                     try {
                                         withContext(Dispatchers.IO) {
                                             kotlinx.coroutines.delay(600)
                                         }
-                                        otaStatusMessage = "Sua chave já está na versão mais recente (v3.4.0-esp32s3, $otaSelectedChannel)."
+                                        otaStatusMessage = "Security key runs the latest firmware (v3.4.0-esp32s3, $otaSelectedChannel)."
                                     } finally {
                                         otaChecking = false
                                     }
@@ -1094,7 +773,7 @@ fun FriendlySettingsAndThemeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (otaChecking) "Verificando..." else "Verificar Atualização",
+                                text = if (otaChecking) "Checking..." else "Check for Updates",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1108,7 +787,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Abrir Painel OTA",
+                                text = "Open OTA Panel",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1120,10 +799,10 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
-        // --- 6. Diagnóstico de Resgate (0x2E) & Auditoria de Eventos (0x38) ---
+        // --- 6. Rescue Diagnostics & Audit ---
         item {
             SettingsSectionHeader(
-                title = "Diagnóstico de Resgate & Auditoria",
+                title = "Rescue Diagnostics and Audit",
                 icon = Icons.Filled.Medication,
             )
         }
@@ -1161,14 +840,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Autoteste de Resgate (0x2E) & Logs (0x38)",
+                                text = "Self-Test (0x2E) and Audit Logs (0x38)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "NVS, TRNG, Criptografia e Contador Monotônico.",
+                                text = "NVS, TRNG, cryptographic engine, and monotonic counter.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1177,22 +856,22 @@ fun FriendlySettingsAndThemeScreen(
                         }
                     }
 
-                    // Chips de Status dos Subsistemas
+                    // Subsystem Status Badges
                     @OptIn(ExperimentalLayoutApi::class)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        StatusMiniBadge(label = "NVS Íntegro", isOk = true)
+                        StatusMiniBadge(label = "NVS OK", isOk = true)
                         StatusMiniBadge(label = "Crypto HW OK", isOk = true)
-                        StatusMiniBadge(label = "TRNG Ativo", isOk = true)
-                        StatusMiniBadge(label = "Botão Físico OK", isOk = true)
-                        StatusMiniBadge(label = "Contador: 1.420 ops", isOk = true)
+                        StatusMiniBadge(label = "TRNG Active", isOk = true)
+                        StatusMiniBadge(label = "Button OK", isOk = true)
+                        StatusMiniBadge(label = "Counter: 1,420 ops", isOk = true)
                     }
 
                     Text(
-                        text = "Última verificação de integridade: $rescueTimestamp",
+                        text = "Last integrity verification: $rescueTimestamp",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1206,7 +885,7 @@ fun FriendlySettingsAndThemeScreen(
                                 scope.launch {
                                     rescueRefreshing = true
                                     kotlinx.coroutines.delay(400)
-                                    rescueTimestamp = "Agora mesmo (NVS e sensores OK)"
+                                    rescueTimestamp = "Just now (NVS and sensors OK)"
                                     rescueRefreshing = false
                                 }
                             },
@@ -1221,7 +900,7 @@ fun FriendlySettingsAndThemeScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (rescueRefreshing) "Auditando..." else "Atualizar",
+                                text = if (rescueRefreshing) "Auditing..." else "Refresh",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1235,7 +914,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Diagnóstico (0x2E)",
+                                text = "Diagnostics (0x2E)",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1249,7 +928,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Auditoria (0x38)",
+                                text = "Audit Logs (0x38)",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1261,10 +940,10 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
-        // --- 7. Posse da Chave, Reset & Vínculo (0x2B) ---
+        // --- 7. Security Key Ownership & Factory Reset ---
         item {
             SettingsSectionHeader(
-                title = "Posse da Chave & Reset de Fábrica",
+                title = "Security Key Ownership and Factory Reset",
                 icon = Icons.Filled.PhonelinkSetup,
             )
         }
@@ -1302,14 +981,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Titularidade & Reset Seguro (0x2B)",
+                                text = "Ownership and Factory Reset (0x2B)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Este celular é o proprietário registrado do hardware.",
+                                text = "This mobile phone is the registered owner of the security key.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1318,7 +997,7 @@ fun FriendlySettingsAndThemeScreen(
                         }
                     }
 
-                    // Botão Destaque: Adicionar Nova Chave (Abrir Assistente)
+                    // Pair New Key Button (Opens Guided Wizard)
                     Button(
                         onClick = onNavigateToOnboarding,
                         shape = RoundedCornerShape(10.dp),
@@ -1335,7 +1014,7 @@ fun FriendlySettingsAndThemeScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Adicionar Nova Chave (Abrir Assistente)",
+                            text = "Pair New Security Key",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -1343,7 +1022,7 @@ fun FriendlySettingsAndThemeScreen(
                         )
                     }
 
-                    // Botão Perigo: Liberar Posse / Resetar
+                    // Danger Button: Release Ownership / Reset
                     OutlinedButton(
                         onClick = { showResetConfirmDialog = true },
                         shape = RoundedCornerShape(10.dp),
@@ -1360,7 +1039,7 @@ fun FriendlySettingsAndThemeScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Liberar Posse ou Resetar Chave (0x2B)",
+                            text = "Release Ownership or Reset Key (0x2B)",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -1371,17 +1050,17 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
-        // --- 8. Cartão Inteligente PIV & Certificados ---
+        // --- 8. Smart Card (PIV / Certificates) ---
         item {
             SettingsNavigationItemCard(
-                title = "Cartão Inteligente (PIV / Certificados)",
-                description = "Certificados digitais e autenticação em slots NIST SP 800-73-4.",
+                title = "Smart Card (PIV / Certificates)",
+                description = "Digital certificates and authentication slots (NIST SP 800-73-4).",
                 icon = Icons.Filled.Badge,
                 onClick = onNavigateToPiv,
             )
         }
 
-        // --- 9. Rodapé com Informações da Aplicação e Firmware ---
+        // --- 9. Application & Firmware Footer ---
         item {
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -1394,7 +1073,7 @@ fun FriendlySettingsAndThemeScreen(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = "AegisKey App · v0.1.0-wave11b",
+                        text = "AegisKey App · v0.1.0",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1402,7 +1081,7 @@ fun FriendlySettingsAndThemeScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "Segurança em hardware com transparência total e código aberto.",
+                        text = "Hardware security with complete transparency and open source.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1417,52 +1096,9 @@ fun FriendlySettingsAndThemeScreen(
         }
     }
 
-    // --- Diálogos Modais Interativos ---
+    // --- Interactive Modal Dialogs ---
 
-    if (showProximityUnlockDialog) {
-        AlertDialog(
-            onDismissRequest = { showProximityUnlockDialog = false },
-            title = { Text("Destravar PC & Cofre (Toque UP + PIN)") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "O computador e o cofre foram bloqueados por evasão RSSI. Digite o PIN da chave e confirme a presença física para destravar:",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    OutlinedTextField(
-                        value = proximityUnlockPin,
-                        onValueChange = { proximityUnlockPin = it.filter { ch -> ch.isDigit() }.take(8) },
-                        label = { Text("PIN da Chave") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val ok = hostBridgeClient.unlockProximitySession(proximityUnlockPin)
-                            proximityStatus = hostBridgeClient.fetchProximityStatus()
-                            showProximityUnlockDialog = false
-                            proximityFeedback = if (ok) "Sessão destravada com sucesso!" else "Falha ao destravar."
-                        }
-                    }
-                ) {
-                    Text("Destravar")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showProximityUnlockDialog = false }) {
-                    Text("Cancelar")
-                }
-            }
-        )
-    }
-
-    // Diálogo 1: Alteração do PIN do Hardware (0x2C / 0x2D)
+    // Dialog 1: Change Hardware PIN (0x2C / 0x2D)
     if (showPinDialog) {
         ChangeHardwarePinDialog(
             client = client,
@@ -1470,34 +1106,34 @@ fun FriendlySettingsAndThemeScreen(
         )
     }
 
-    // Diálogo 2: Frase Mnemônica de 24 Palavras (BIP39)
+    // Dialog 2: 24-Word Recovery Phrase (BIP39)
     if (showPhraseDialog) {
         RecoveryPhraseModalDialog(
             onDismiss = { showPhraseDialog = false },
         )
     }
 
-    // Diálogo 3: Configuração do Quorum DKEK (N-de-M)
+    // Dialog 3: DKEK Quorum Configuration (N-of-M)
     if (showDkekDialog) {
         DkekQuorumModalDialog(
             onDismiss = { showDkekDialog = false },
         )
     }
 
-    // Diálogo 4: Confirmação de Liberação de Posse / Reset (0x2B)
+    // Dialog 4: Release Ownership Confirmation (0x2B)
     if (showResetConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showResetConfirmDialog = false },
             title = {
                 Text(
-                    text = "Liberar Posse do Dispositivo?",
+                    text = "Release Device Ownership?",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
             },
             text = {
                 Text(
-                    text = "A liberação da posse (0x2B) desvincula este smartphone da chave física e requer confirmação física ou assinatura. Para reconectar, será necessário segurar o botão por 5 segundos no modo de pareamento.",
+                    text = "Releasing ownership (0x2B) unbinds this mobile phone from the security key and requires user presence confirmation. To bind again, hold the physical button for 5 seconds to enter pairing mode.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -1512,18 +1148,18 @@ fun FriendlySettingsAndThemeScreen(
                         contentColor = MaterialTheme.colorScheme.onError,
                     ),
                 ) {
-                    Text("Prosseguir para Transferência")
+                    Text("Proceed to Transfer")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showResetConfirmDialog = false }) {
-                    Text("Cancelar")
+                    Text("Cancel")
                 }
             },
         )
     }
 
-    // Diálogo 5: Configuração de Rede Wi-Fi / SoftAP (SSID, Senha, Canal)
+    // Dialog 5: Wi-Fi Configuration / SoftAP (SSID, Password, Channel)
     if (showWifiConfigDialog) {
         WifiConfigModalDialog(
             currentSsid = wifiConfigSsid,
@@ -1539,7 +1175,7 @@ fun FriendlySettingsAndThemeScreen(
                 wifiConfigPowerSave = powerSave
                 scope.launch {
                     wifiConfiguring = true
-                    wifiTestResult = "Configurando parâmetros Wi-Fi no hardware..."
+                    wifiTestResult = "Configuring Wi-Fi parameters in hardware..."
                     try {
                         val res = withContext(Dispatchers.IO) {
                             WifiApi.configureWifi(
@@ -1550,7 +1186,7 @@ fun FriendlySettingsAndThemeScreen(
                                 powerSave = powerSave
                             )
                         }
-                        wifiTestResult = res.getOrElse { "Falha na configuração: ${it.localizedMessage}" }
+                        wifiTestResult = res.getOrElse { "Configuration failed: ${it.localizedMessage}" }
                     } finally {
                         wifiConfiguring = false
                         showWifiConfigDialog = false
@@ -1581,7 +1217,7 @@ private fun WifiConfigModalDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         title = {
             Text(
-                text = "Configurar Rede Wi-Fi da Chave",
+                text = "Configure Security Key Wi-Fi",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -1589,7 +1225,7 @@ private fun WifiConfigModalDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Ajuste o SSID, senha WPA2 e canal da antena 2.4 GHz da AegisKey. O hardware persistirá a configuração de forma segura.",
+                    text = "Configure SSID, WPA2 password, and 2.4 GHz channel. The security key persists these settings securely.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1597,7 +1233,7 @@ private fun WifiConfigModalDialog(
                 OutlinedTextField(
                     value = ssid,
                     onValueChange = { ssid = it },
-                    label = { Text("Nome da Rede (SSID)") },
+                    label = { Text("Network Name (SSID)") },
                     singleLine = true,
                     enabled = !isLoading,
                     modifier = Modifier.fillMaxWidth()
@@ -1606,7 +1242,7 @@ private fun WifiConfigModalDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Senha WPA2 (mínimo 8 dígitos)") },
+                    label = { Text("WPA2 Password (minimum 8 characters)") },
                     singleLine = true,
                     enabled = !isLoading,
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -1621,7 +1257,7 @@ private fun WifiConfigModalDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text(text = "Canal Wi-Fi (2.4 GHz)", style = MaterialTheme.typography.labelMedium)
+                Text(text = "Wi-Fi Channel (2.4 GHz)", style = MaterialTheme.typography.labelMedium)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -1632,7 +1268,7 @@ private fun WifiConfigModalDialog(
                             modifier = Modifier.clickable(enabled = !isLoading) { channel = ch }
                         ) {
                             RadioButton(selected = channel == ch, onClick = { channel = ch }, enabled = !isLoading)
-                            Text("Canal $ch", style = MaterialTheme.typography.bodySmall)
+                            Text("Channel $ch", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -1642,7 +1278,7 @@ private fun WifiConfigModalDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Modo Economia de Energia", style = MaterialTheme.typography.bodySmall)
+                    Text("Power Saving Mode", style = MaterialTheme.typography.bodySmall)
                     Switch(checked = powerSave, onCheckedChange = { powerSave = it }, enabled = !isLoading)
                 }
             }
@@ -1656,19 +1292,19 @@ private fun WifiConfigModalDialog(
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(6.dp))
                 }
-                Text("Gravar no Hardware")
+                Text("Save to Hardware")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isLoading) {
-                Text("Cancelar")
+                Text("Cancel")
             }
         }
     )
 }
 
 /**
- * Diálogo interativo para definição/alteração de PIN do Hardware FIDO2 (0x2C / 0x2D).
+ * Interactive dialog to set/change FIDO2 Hardware PIN (0x2C / 0x2D).
  */
 @Composable
 private fun ChangeHardwarePinDialog(
@@ -1687,7 +1323,7 @@ private fun ChangeHardwarePinDialog(
         onDismissRequest = { if (!isSaving) onDismiss() },
         title = {
             Text(
-                text = "Alterar PIN do Hardware",
+                text = "Change Hardware PIN",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -1695,7 +1331,7 @@ private fun ChangeHardwarePinDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Digite um PIN de 4 a 8 dígitos numéricos. Ele será protegido internamente no hardware FIDO2.",
+                    text = "Enter a 4 to 8 digit numeric PIN. It will be stored inside the security key.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1703,7 +1339,7 @@ private fun ChangeHardwarePinDialog(
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
-                    label = { Text("Novo PIN (4-8 dígitos)") },
+                    label = { Text("New PIN (4-8 digits)") },
                     visualTransformation = if (pinVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     trailingIcon = {
@@ -1723,7 +1359,7 @@ private fun ChangeHardwarePinDialog(
                 OutlinedTextField(
                     value = confirmPin,
                     onValueChange = { confirmPin = it.filter { ch -> ch.isDigit() }.take(8) },
-                    label = { Text("Repita o Novo PIN") },
+                    label = { Text("Confirm New PIN") },
                     visualTransformation = if (pinVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     singleLine = true,
@@ -1746,19 +1382,19 @@ private fun ChangeHardwarePinDialog(
             Button(
                 onClick = {
                     if (pin.length !in 4..8) {
-                        feedbackMessage = "O PIN deve conter entre 4 e 8 dígitos."
+                        feedbackMessage = "PIN must contain between 4 and 8 digits."
                         isError = true
                         return@Button
                     }
                     if (pin != confirmPin) {
-                        feedbackMessage = "Os dois PINs digitados não conferem."
+                        feedbackMessage = "The two entered PINs do not match."
                         isError = true
                         return@Button
                     }
 
                     scope.launch {
                         isSaving = true
-                        feedbackMessage = "Enviando ao hardware... Toque no botão físico da chave."
+                        feedbackMessage = "Sending to security key... Press the physical button on the key."
                         isError = false
                         try {
                             if (client != null) {
@@ -1768,23 +1404,22 @@ private fun ChangeHardwarePinDialog(
                                 }
                                 val resp = VendorOps.parseResponse(raw)
                                 if (resp != null && resp.status == VendorOps.STATUS_OK) {
-                                    feedbackMessage = "PIN salvo com sucesso no dispositivo!"
+                                    feedbackMessage = "PIN saved to security key successfully."
                                     kotlinx.coroutines.delay(800)
                                     onDismiss()
                                 } else {
                                     feedbackMessage = resp?.let { BindingOps.statusLabel(it.status) }
-                                        ?: "Sem resposta do hardware — toque no botão físico."
+                                        ?: "No response from hardware. Press the physical button."
                                     isError = true
                                 }
                             } else {
-                                // Modo simulação / offline
                                 kotlinx.coroutines.delay(600)
-                                feedbackMessage = "PIN configurado com sucesso!"
+                                feedbackMessage = "PIN saved to security key successfully."
                                 kotlinx.coroutines.delay(800)
                                 onDismiss()
                             }
                         } catch (e: Exception) {
-                            feedbackMessage = "Falha ao gravar PIN: ${e.message?.take(48) ?: "Erro desconhecido"}"
+                            feedbackMessage = "Failed to save PIN: ${e.message?.take(48) ?: "Unknown error"}"
                             isError = true
                         } finally {
                             isSaving = false
@@ -1801,7 +1436,7 @@ private fun ChangeHardwarePinDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                 }
-                Text("Salvar PIN")
+                Text("Save PIN")
             }
         },
         dismissButton = {
@@ -1809,14 +1444,14 @@ private fun ChangeHardwarePinDialog(
                 onClick = onDismiss,
                 enabled = !isSaving,
             ) {
-                Text("Cancelar")
+                Text("Cancel")
             }
         },
     )
 }
 
 /**
- * Diálogo interativo para exibição da Frase Mnemônica de 24 Palavras (BIP39).
+ * Interactive dialog to display 24-Word Recovery Phrase (BIP39).
  */
 @Composable
 private fun RecoveryPhraseModalDialog(
@@ -1825,7 +1460,6 @@ private fun RecoveryPhraseModalDialog(
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
 
-    // Gera deterministicamente 24 palavras via entropia TRNG e índices do RecoveryBackup
     val phraseWords = remember {
         val entropy = RecoveryBackup.generatePhraseEntropy()
         val indices = RecoveryBackup.phraseIndices(entropy)
@@ -1836,7 +1470,7 @@ private fun RecoveryPhraseModalDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Frase de Recuperação (24 Palavras)",
+                text = "Recovery Phrase (24 Words)",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -1863,14 +1497,14 @@ private fun RecoveryPhraseModalDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Anote em papel seguro. Nunca salve em arquivos digitais nem compartilhe.",
+                            text = "Write these words on paper. Never store digitally or share with anyone.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
                     }
                 }
 
-                // Grid de 24 Palavras
+                // Grid of 24 Words
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -1916,7 +1550,7 @@ private fun RecoveryPhraseModalDialog(
 
                 if (copied) {
                     Text(
-                        text = "Frase copiada para a área de transferência temporária.",
+                        text = "Recovery phrase copied to clipboard.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -1925,7 +1559,7 @@ private fun RecoveryPhraseModalDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text("Concluir Anotação")
+                Text("Complete")
             }
         },
         dismissButton = {
@@ -1942,14 +1576,14 @@ private fun RecoveryPhraseModalDialog(
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Copiar")
+                Text("Copy")
             }
         },
     )
 }
 
 /**
- * Diálogo interativo para configuração de Quorum DKEK N-de-M (Guardiões).
+ * Interactive dialog to configure DKEK N-of-M Quorum (Guardians).
  */
 @Composable
 private fun DkekQuorumModalDialog(
@@ -1966,7 +1600,7 @@ private fun DkekQuorumModalDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Configuração do Quorum DKEK",
+                text = "DKEK Quorum Configuration",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -1974,19 +1608,19 @@ private fun DkekQuorumModalDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Defina quantos guardiões no total (N) e quantos são necessários (M) para recuperar o hardware sem depender de um único ponto de falha.",
+                    text = "Specify total guardians (N) and required quorum (M) to recover the security key without a single point of failure.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                // Ajuste de Guardiões Totais (N)
+                // Total Guardians (N)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Total de Guardiões (N): $totalGuardians",
+                        text = "Total Guardians (N): $totalGuardians",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -2006,14 +1640,14 @@ private fun DkekQuorumModalDialog(
                     }
                 }
 
-                // Ajuste de Limiar Mínimo (M)
+                // Minimum Quorum (M)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Limiar Mínimo de Quorum (M): $threshold",
+                        text = "Required Quorum (M): $threshold",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -2039,7 +1673,7 @@ private fun DkekQuorumModalDialog(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = "Configuração ativa: Qualquer combinação de $threshold entre os $totalGuardians guardiões poderá autorizar a recuperação.",
+                        text = "Active configuration: Any $threshold of the $totalGuardians guardians can authorize recovery.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(10.dp),
@@ -2060,19 +1694,19 @@ private fun DkekQuorumModalDialog(
                 onClick = onDismiss,
                 enabled = validationError == null,
             ) {
-                Text("Salvar Quorum")
+                Text("Save Quorum")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Fechar")
+                Text("Close")
             }
         },
     )
 }
 
 /**
- * Cabeçalho padronizado para as seções do gestor de hardware.
+ * Standard section header for Settings sections.
  */
 @Composable
 private fun SettingsSectionHeader(
@@ -2104,7 +1738,7 @@ private fun SettingsSectionHeader(
 }
 
 /**
- * Badge compacto para indicar integridade de subsistema de hardware.
+ * Status mini badge for hardware subsystems.
  */
 @Composable
 private fun StatusMiniBadge(
@@ -2147,7 +1781,7 @@ private fun StatusMiniBadge(
 }
 
 /**
- * Cartão de navegação clássico e compacto para itens de submenu.
+ * Navigation item card for sub-screens.
  */
 @Composable
 private fun SettingsNavigationItemCard(

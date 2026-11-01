@@ -30,8 +30,7 @@ import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.ui.theme.AegisColors
 
 /**
- * Indicador visual compacto de progresso por passos (ex: Passo 2 de 4).
- * O passo ativo expande suavemente como uma pílula enxuta.
+ * Step progress indicator.
  */
 @Composable
 fun StepProgressDotsAtom(
@@ -73,11 +72,7 @@ fun StepProgressDotsAtom(
 }
 
 /**
- * Anel circular compacto de 40.dp de contagem regressiva para códigos temporários (TOTP).
- * Altera de cor dinamicamente:
- * - > 10s: Esmeralda / Segurança
- * - 6 a 10s: Âmbar / Atenção
- * - <= 5s: Vermelho / Renovando
+ * Countdown ring for temporary codes (TOTP).
  */
 @Composable
 fun TotpCountdownRingAtom(
@@ -105,14 +100,12 @@ fun TotpCountdownRingAtom(
         modifier = modifier.size(40.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // Trilha de fundo translúcida
         CircularProgressIndicator(
             progress = { 1f },
             modifier = Modifier.size(40.dp),
             color = ringColor.copy(alpha = 0.15f),
             strokeWidth = 3.dp,
         )
-        // Progresso ativo
         CircularProgressIndicator(
             progress = { animatedProgress },
             modifier = Modifier.size(40.dp),
@@ -132,8 +125,7 @@ fun TotpCountdownRingAtom(
 }
 
 /**
- * Pílula informativa compacta de status de conexão física (Bluetooth, USB ou Simulador).
- * Garante que o texto fique em linha única (maxLines = 1, TextOverflow.Ellipsis).
+ * Compact connection status badge atom (Bluetooth, USB, or Virtual Simulator).
  */
 @Composable
 fun ConnectionStatusBadgeAtom(
@@ -141,7 +133,7 @@ fun ConnectionStatusBadgeAtom(
     transportLabel: String,
     modifier: Modifier = Modifier,
 ) {
-    val isSimulated = transportLabel.contains("Simulador", ignoreCase = true)
+    val isSimulated = transportLabel.contains("Simulator", ignoreCase = true) || transportLabel.contains("Simulador", ignoreCase = true)
     val badgeColor = when {
         !isConnected -> AegisColors.StatusDisconnected
         isSimulated -> AegisColors.StatusSimulated
@@ -158,7 +150,6 @@ fun ConnectionStatusBadgeAtom(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // Ponto de status compacto
             Box(
                 modifier = Modifier
                     .size(6.dp)
@@ -166,9 +157,9 @@ fun ConnectionStatusBadgeAtom(
                     .background(badgeColor),
             )
             val labelText = if (isConnected) {
-                "$transportLabel · Conectada"
+                "$transportLabel · Connected"
             } else {
-                "$transportLabel · Desconectada"
+                "$transportLabel · Disconnected"
             }
             Text(
                 text = labelText,

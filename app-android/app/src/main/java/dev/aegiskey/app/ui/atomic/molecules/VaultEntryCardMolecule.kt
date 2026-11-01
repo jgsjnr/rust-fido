@@ -37,14 +37,11 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 import dev.aegiskey.app.ui.theme.AegisAddressMonospaceStyle
 
-/**
- * Seleciona o ícone apropriado para o tipo de entrada do cofre.
- */
 private fun getIconForEntryType(entryType: String): ImageVector {
     val lower = entryType.lowercase()
     return when {
-        lower.contains("passkey") || lower.contains("acesso") -> Icons.Filled.Fingerprint
-        lower.contains("bitcoin") || lower.contains("ethereum") || lower.contains("solana") || lower.contains("polkadot") || lower.contains("carteira") -> Icons.Filled.AccountBalanceWallet
+        lower.contains("passkey") || lower.contains("access") -> Icons.Filled.Fingerprint
+        lower.contains("bitcoin") || lower.contains("ethereum") || lower.contains("solana") || lower.contains("polkadot") || lower.contains("wallet") -> Icons.Filled.AccountBalanceWallet
         lower.contains("piv") || lower.contains("smartcard") -> Icons.Filled.VpnKey
         lower.contains("envelope") || lower.contains("aegn") || lower.contains("oath") || lower.contains("totp") -> Icons.Filled.Lock
         else -> Icons.Filled.VpnKey
@@ -52,9 +49,7 @@ private fun getIconForEntryType(entryType: String): ImageVector {
 }
 
 /**
- * Cartão compacto e responsivo para itens do cofre (Passkeys, Carteiras e Contas).
- * Padding contido de 12.dp, ícone de 36.dp e caixa de endereço em linha horizontal única
- * com weight(1f) e TextOverflow.Ellipsis ao lado do botão de cópia.
+ * Vault entry card molecule (Passkeys, Crypto Wallets, and Smartcard credentials).
  */
 @Composable
 fun VaultEntryCardMolecule(
@@ -153,7 +148,7 @@ fun VaultEntryCardMolecule(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
-                            contentDescription = "Remover do cofre",
+                            contentDescription = "Delete from vault",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                             modifier = Modifier.size(16.dp),
                         )
@@ -161,7 +156,6 @@ fun VaultEntryCardMolecule(
                 }
             }
 
-            // Linha com Curva/Slot e Indicador "Gerenciar →"
             val badgeDetail = derivationPathOrSlotCode?.takeIf { it.isNotBlank() } ?: algorithmOrCurve
             Spacer(modifier = Modifier.height(6.dp))
             Row(
@@ -192,14 +186,14 @@ fun VaultEntryCardMolecule(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        text = "Gerenciar",
+                        text = "Manage",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Gerenciar",
+                        contentDescription = "Manage",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(12.dp),
                     )
@@ -232,7 +226,7 @@ fun VaultEntryCardMolecule(
                         Spacer(modifier = Modifier.width(6.dp))
 
                         QuickActionPillButton(
-                            text = "Copiar",
+                            text = "Copy",
                             icon = Icons.Filled.ContentCopy,
                             onClick = { onCopy(identifierToCopy) },
                         )

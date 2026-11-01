@@ -36,7 +36,6 @@ import dev.aegiskey.app.ui.theme.ThemeMode
 
 @Composable
 private fun ThemeModeOptionCard(
-    mode: ThemeMode,
     label: String,
     icon: ImageVector,
     isSelected: Boolean,
@@ -105,8 +104,7 @@ private fun ThemeModeOptionCard(
 }
 
 /**
- * Organismo compacto para seleção de tema com altura uniforme de 64.dp
- * e texto em linha única garantido.
+ * Theme and appearance selector organism.
  */
 @Composable
 fun ThemeSelectorOrganism(
@@ -121,21 +119,19 @@ fun ThemeSelectorOrganism(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Aparência e Cores",
+            text = "Theme and Appearance",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
 
-        // Seletor de 3 Modos com altura fixa de 64.dp
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ThemeModeOptionCard(
-                mode = ThemeMode.SYSTEM,
-                label = "Automático",
+                label = "System",
                 icon = Icons.Filled.BrightnessAuto,
                 isSelected = selectedThemeMode == ThemeMode.SYSTEM,
                 onSelect = { onThemeModeChange(ThemeMode.SYSTEM) },
@@ -143,8 +139,7 @@ fun ThemeSelectorOrganism(
             )
 
             ThemeModeOptionCard(
-                mode = ThemeMode.LIGHT,
-                label = "Claro",
+                label = "Light",
                 icon = Icons.Filled.LightMode,
                 isSelected = selectedThemeMode == ThemeMode.LIGHT,
                 onSelect = { onThemeModeChange(ThemeMode.LIGHT) },
@@ -152,8 +147,7 @@ fun ThemeSelectorOrganism(
             )
 
             ThemeModeOptionCard(
-                mode = ThemeMode.DARK,
-                label = "Escuro",
+                label = "Dark",
                 icon = Icons.Filled.DarkMode,
                 isSelected = selectedThemeMode == ThemeMode.DARK,
                 onSelect = { onThemeModeChange(ThemeMode.DARK) },
@@ -161,10 +155,9 @@ fun ThemeSelectorOrganism(
             )
         }
 
-        // Interruptor para Cores Dinâmicas
         SettingToggleRowMolecule(
-            title = "Cores Dinâmicas do Android",
-            description = "Adapta a paleta às cores do papel de parede do aparelho.",
+            title = "Dynamic Colors",
+            description = "Apply Material You dynamic palette from system wallpaper.",
             icon = Icons.Filled.Palette,
             checked = dynamicColorEnabled,
             onCheckedChange = onDynamicColorToggle,

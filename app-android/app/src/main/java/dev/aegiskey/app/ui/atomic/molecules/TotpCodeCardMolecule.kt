@@ -16,11 +16,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PlusOne
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +34,6 @@ import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 import dev.aegiskey.app.ui.atomic.atoms.TotpCountdownRingAtom
 import dev.aegiskey.app.ui.theme.AegisCodeMonospaceStyle
 
-/** Formata sequências numéricas em grupos de 3 dígitos (ex: "123456" -> "123 456"). */
 private fun formatGroupedDigits(rawCode: String): String {
     val clean = rawCode.filter { it.isDigit() }
     if (clean.length <= 3) return rawCode
@@ -45,7 +41,7 @@ private fun formatGroupedDigits(rawCode: String): String {
 }
 
 /**
- * Cartão compacto e responsivo de código de verificação TOTP e HOTP (RFC 4226 / RFC 6238).
+ * TOTP and HOTP verification code card molecule (RFC 4226 / RFC 6238).
  */
 @Composable
 fun TotpCodeCardMolecule(
@@ -76,7 +72,6 @@ fun TotpCodeCardMolecule(
                 .fillMaxWidth()
                 .padding(12.dp),
         ) {
-            // Cabeçalho: Ícone do serviço + Emissor / Conta + Botão de exclusão opcional
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -104,7 +99,7 @@ fun TotpCodeCardMolecule(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = issuer.ifBlank { "Código de Acesso" },
+                            text = issuer.ifBlank { "Access Code" },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -128,7 +123,7 @@ fun TotpCodeCardMolecule(
                     }
 
                     Text(
-                        text = accountName.ifBlank { "Conta principal" },
+                        text = accountName.ifBlank { "Primary Account" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -143,7 +138,7 @@ fun TotpCodeCardMolecule(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
-                            contentDescription = "Remover código",
+                            contentDescription = "Delete code",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                             modifier = Modifier.size(16.dp),
                         )
@@ -153,7 +148,6 @@ fun TotpCodeCardMolecule(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Linha Central: Código Monoespaçado com anel de tempo (TOTP) ou badge de contador (HOTP)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -176,7 +170,7 @@ fun TotpCodeCardMolecule(
                         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
                     ) {
                         Text(
-                            text = "Contador #$counter",
+                            text = "Counter #$counter",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -193,7 +187,6 @@ fun TotpCodeCardMolecule(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Rodapé: Ações de Cópia e Geração do Próximo HOTP
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -207,13 +200,13 @@ fun TotpCodeCardMolecule(
                     ) {
                         Icon(imageVector = Icons.Filled.PlusOne, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Gerar Próximo (+1)", style = MaterialTheme.typography.labelSmall)
+                        Text("Next Code (+1)", style = MaterialTheme.typography.labelSmall)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                 }
 
                 QuickActionPillButton(
-                    text = "Copiar código",
+                    text = "Copy code",
                     icon = Icons.Filled.ContentCopy,
                     onClick = { onCopyCode(code.filter { it.isDigit() }) },
                 )

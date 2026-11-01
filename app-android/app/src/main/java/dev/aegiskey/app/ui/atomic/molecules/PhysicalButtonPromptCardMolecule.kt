@@ -40,13 +40,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Cartão compacto e acolhedor de instrução para toque no botão físico da chave.
- * Padding de 14.dp, ícone contido e textos sem quebra desnecessária.
+ * Prompt card for user presence via physical button on the security key.
  */
 @Composable
 fun PhysicalButtonPromptCardMolecule(
     instruction: String,
-    title: String = "Confirmação na Chave",
+    title: String = "Security Key Confirmation",
     isLongPress: Boolean = false,
     isSimulatedMode: Boolean = false,
     onSimulateTouch: (() -> Unit)? = null,
@@ -123,7 +122,7 @@ fun PhysicalButtonPromptCardMolecule(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
             ) {
                 Text(
-                    text = if (isLongPress) "⏱ Segure por ~5 segundos até a luz piscar" else "⚡ Dê 1 toque rápido para confirmar",
+                    text = if (isLongPress) "Hold for 5 seconds until the LED flashes" else "Press once to confirm",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -154,7 +153,7 @@ fun PhysicalButtonPromptCardMolecule(
                             modifier = Modifier.size(16.dp),
                         )
                         Text(
-                            text = "Simular toque no botão",
+                            text = "Simulate button press",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,

@@ -59,6 +59,9 @@ import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.templates.WizardStepTemplate
 import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
 
+/**
+ * 5-step pairing wizard screen in full ASD-STE100 technical English.
+ */
 @Composable
 fun OnboardingWizardScreen(
     viewModel: OnboardingWizardViewModel,
@@ -67,14 +70,12 @@ fun OnboardingWizardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Launcher interativo de permissões BLE
     val requestBlePermissions = rememberBlePermissionLauncher { granted ->
         if (granted) {
             viewModel.refreshDiscovery()
         }
     }
 
-    // Solicita permissões de Bluetooth Runtime no Android 12+ (API 31+) durante descoberta
     if (uiState.selectedTransport == ConnectionTransportType.BLE &&
         (uiState.currentStep == OnboardingStep.HOLD_PHYSICAL_BUTTON || uiState.currentStep == OnboardingStep.DISCOVER_AND_CONNECT)
     ) {
@@ -91,24 +92,24 @@ fun OnboardingWizardScreen(
     val totalSteps = uiState.currentStep.totalSteps
 
     val stepTitle = when (uiState.currentStep) {
-        OnboardingStep.WELCOME_TRANSPORT -> "Conecte Sua Chave"
-        OnboardingStep.HOLD_PHYSICAL_BUTTON -> "Ativar Sua AegisKey"
-        OnboardingStep.DISCOVER_AND_CONNECT -> "Localizar e Parear"
-        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> "Confirmar Presença"
-        OnboardingStep.NAME_AND_FINISH -> "Nomear Sua Chave"
+        OnboardingStep.WELCOME_TRANSPORT -> "Select Connection Method"
+        OnboardingStep.HOLD_PHYSICAL_BUTTON -> "Activate Security Key"
+        OnboardingStep.DISCOVER_AND_CONNECT -> "Find Security Key"
+        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> "Confirm User Presence"
+        OnboardingStep.NAME_AND_FINISH -> "Name Security Key"
     }
 
     val stepSubtitle = when (uiState.currentStep) {
-        OnboardingStep.WELCOME_TRANSPORT -> "Escolha a forma mais conveniente para ligar sua chave ao celular."
-        OnboardingStep.HOLD_PHYSICAL_BUTTON -> "Segure o botão físico para colocar a chave no modo de descoberta."
-        OnboardingStep.DISCOVER_AND_CONNECT -> "Selecione sua chave na lista para conectar com segurança."
-        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> "Dê um toque no botão da chave e autorize o vínculo com a biometria."
-        OnboardingStep.NAME_AND_FINISH -> "Defina um nome amigável e conclua a configuração do seu cofre."
+        OnboardingStep.WELCOME_TRANSPORT -> "Select how to connect the security key to this device."
+        OnboardingStep.HOLD_PHYSICAL_BUTTON -> "Press and hold the physical button for 5 seconds."
+        OnboardingStep.DISCOVER_AND_CONNECT -> "Select your security key from the list to connect."
+        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> "Press the physical button once to confirm binding."
+        OnboardingStep.NAME_AND_FINISH -> "Enter a name for the security key and complete setup."
     }
 
     val nextButtonText = when (uiState.currentStep) {
-        OnboardingStep.NAME_AND_FINISH -> "Concluir e Abrir"
-        else -> "Próximo"
+        OnboardingStep.NAME_AND_FINISH -> "Complete Setup"
+        else -> "Next"
     }
 
     val isNextLoading = uiState.isConnecting || uiState.isBinding
@@ -138,7 +139,6 @@ fun OnboardingWizardScreen(
         } else null,
         modifier = modifier,
     ) {
-        // Mensagem de erro compacta caso exista
         if (!uiState.errorMessage.isNullOrBlank()) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -319,39 +319,39 @@ private fun WelcomeTransportStepContent(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         TransportOptionCard(
-            title = "Bluetooth Sem Fio",
-            description = "Conectar à chave por aproximação via Bluetooth (BLE)",
+            title = "Bluetooth Low Energy",
+            description = "Connect to the security key wirelessly via Bluetooth (BLE).",
             icon = Icons.Filled.Bluetooth,
             isSelected = selectedTransport == ConnectionTransportType.BLE,
-            badgeText = "Recomendado",
+            badgeText = "Recommended",
             onSelect = { onSelectTransport(ConnectionTransportType.BLE) },
         )
 
         TransportOptionCard(
-            title = "Cabo USB ou Porta Serial (UART)",
-            description = "Conectar via cabo USB-C direto ou ponte USB/UART no emulador",
+            title = "USB Cable or Serial (UART)",
+            description = "Connect via direct USB-C cable or host bridge emulator.",
             icon = Icons.Filled.Usb,
             isSelected = selectedTransport == ConnectionTransportType.USB,
-            badgeText = "Bancada / PC",
+            badgeText = "Wired",
             onSelect = { onSelectTransport(ConnectionTransportType.USB) },
         )
 
         TransportOptionCard(
-            title = "Rede Wi-Fi da Chave",
-            description = "Conectar ao ponto de acesso Wi-Fi da chave (192.168.4.1)",
+            title = "Wi-Fi Access Point",
+            description = "Connect to the security key access point (192.168.4.1).",
             icon = Icons.Filled.Wifi,
             isSelected = selectedTransport == ConnectionTransportType.WIFI,
-            badgeText = "Sem Fio Direto",
+            badgeText = "Direct",
             onSelect = { onSelectTransport(ConnectionTransportType.WIFI) },
         )
 
         if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
             TransportOptionCard(
-                title = "Simulador Virtual (Renode / Teste)",
-                description = "Permite testar funções mesmo sem ter a chave física.",
+                title = "Virtual Simulator (Renode / Test)",
+                description = "Connect to simulated hardware in memory or TCP bridge.",
                 icon = Icons.Filled.Computer,
                 isSelected = selectedTransport == ConnectionTransportType.SIMULATOR,
-                badgeText = "Teste",
+                badgeText = "Debug",
                 onSelect = { onSelectTransport(ConnectionTransportType.SIMULATOR) },
             )
         }
@@ -366,8 +366,8 @@ private fun HoldPhysicalButtonStepContent(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PhysicalButtonPromptCardMolecule(
-            title = "Segure o botão da chave",
-            instruction = "Pressione e segure o botão físico por ~5 segundos até a luz começar a piscar suavemente.",
+            title = "Press and hold the button",
+            instruction = "Press and hold the physical button for 5 seconds until the LED flashes.",
             isLongPress = true,
             isSimulatedMode = isSimulated,
             onSimulateTouch = onSimulateHold,
@@ -391,7 +391,7 @@ private fun HoldPhysicalButtonStepContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Sinal de ativação recebido! Clique em Próximo para continuar.",
+                        text = "Activation signal received. Tap Next to continue.",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -414,7 +414,6 @@ private fun DiscoverAndConnectStepContent(
     onRefresh: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Barra de Ação de Busca com Botão Compacto "Atualizar busca"
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -432,7 +431,7 @@ private fun DiscoverAndConnectStepContent(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
-                    text = if (isScanning) "Buscando dispositivos..." else "Dispositivos encontrados:",
+                    text = if (isScanning) "Scanning for security keys..." else "Discovered security keys:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -441,7 +440,7 @@ private fun DiscoverAndConnectStepContent(
             }
 
             QuickActionPillButton(
-                text = "Atualizar busca",
+                text = "Refresh scan",
                 icon = Icons.Filled.Refresh,
                 onClick = onRefresh,
             )
@@ -465,7 +464,7 @@ private fun DiscoverAndConnectStepContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Modo Simulador ativo: chave virtual conectada automaticamente.",
+                        text = "Simulator mode active: virtual security key connected automatically.",
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -486,7 +485,7 @@ private fun DiscoverAndConnectStepContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = "Nenhuma chave física encontrada no momento.",
+                        text = "No security key found.",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -494,9 +493,9 @@ private fun DiscoverAndConnectStepContent(
                     )
                     Text(
                         text = if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
-                            "Verifique se o botão foi pressionado ou teste com a chave virtual."
+                            "Ensure the button was pressed or test with the virtual security key."
                         } else {
-                            "Verifique se o Bluetooth ou USB está ativo e o botão da chave foi pressionado."
+                            "Ensure Bluetooth or USB is connected and press the button on the security key."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -513,7 +512,7 @@ private fun DiscoverAndConnectStepContent(
                             Icon(imageVector = Icons.Filled.Computer, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Usar Simulador de Teste",
+                                text = "Use Test Simulator",
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -565,14 +564,14 @@ private fun DiscoverAndConnectStepContent(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = candidate.name.ifBlank { "AegisKey" },
+                            text = candidate.name.ifBlank { "Security Key" },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "Toque para selecionar",
+                            text = "Tap to select",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -583,7 +582,7 @@ private fun DiscoverAndConnectStepContent(
                     if (isSelected) {
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = "Selecionada",
+                            contentDescription = "Selected",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp),
                         )
@@ -602,8 +601,8 @@ private fun TouchAndBiometricBindStepContent(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PhysicalButtonPromptCardMolecule(
-            title = "Dê 1 toque rápido na chave",
-            instruction = "Pressione o botão físico uma vez para confirmar que está com o dispositivo.",
+            title = "Press the button once",
+            instruction = "Press the physical button once to confirm user presence.",
             isLongPress = false,
             isSimulatedMode = isSimulated,
             onSimulateTouch = onSimulateTouch,
@@ -627,7 +626,7 @@ private fun TouchAndBiometricBindStepContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Toque confirmado! Clique em Próximo para continuar.",
+                        text = "Button press confirmed. Tap Next to continue.",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -663,14 +662,14 @@ private fun TouchAndBiometricBindStepContent(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Vínculo Seguro com Este Celular",
+                        text = "Cryptographic Device Binding",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "Seu celular criará uma chave de proteção no KeyStore.",
+                        text = "The device stores an encrypted credential in Android KeyStore.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -693,8 +692,8 @@ private fun NameAndFinishStepContent(
         OutlinedTextField(
             value = keyAlias,
             onValueChange = onKeyAliasChange,
-            label = { Text("Nome da chave", maxLines = 1) },
-            placeholder = { Text("Ex: Minha Chave Principal", maxLines = 1) },
+            label = { Text("Security key name", maxLines = 1) },
+            placeholder = { Text("e.g. Primary Security Key", maxLines = 1) },
             leadingIcon = {
                 Icon(imageVector = Icons.Filled.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
             },
@@ -706,8 +705,8 @@ private fun NameAndFinishStepContent(
         OutlinedTextField(
             value = recoveryPin,
             onValueChange = onRecoveryPinChange,
-            label = { Text("Código de Recuperação (Opcional)", maxLines = 1) },
-            placeholder = { Text("4 a 6 dígitos numéricos", maxLines = 1) },
+            label = { Text("Recovery PIN (Optional)", maxLines = 1) },
+            placeholder = { Text("4 to 16 numeric digits", maxLines = 1) },
             leadingIcon = {
                 Icon(imageVector = Icons.Filled.Pin, contentDescription = null, modifier = Modifier.size(18.dp))
             },
@@ -734,7 +733,7 @@ private fun NameAndFinishStepContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Pronto! Sua chave estará conectada e protegida para uso imediato.",
+                    text = "The security key is ready to protect your accounts and vault entries.",
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
