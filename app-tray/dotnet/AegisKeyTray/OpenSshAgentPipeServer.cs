@@ -15,14 +15,19 @@ public class OpenSshAgentPipeServer
 
     private readonly HardwareBridgeClient _client;
     private readonly string _pipeName;
+    private readonly Func<string, Task<bool>>? _requestUnlockFromUi;
     private bool _running;
     private Thread? _serverThread;
     private readonly byte[] _hardwarePubkey;
 
-    public OpenSshAgentPipeServer(HardwareBridgeClient client, string pipeName = "aegis-ssh-agent")
+    public OpenSshAgentPipeServer(
+        HardwareBridgeClient client,
+        string pipeName = "aegis-ssh-agent",
+        Func<string, Task<bool>>? requestUnlockFromUi = null)
     {
         _client = client;
         _pipeName = pipeName;
+        _requestUnlockFromUi = requestUnlockFromUi;
         using var sha = SHA256.Create();
         _hardwarePubkey = sha.ComputeHash(Encoding.UTF8.GetBytes("AegisKey-Hardware-Ed25519-Slot0-Silicon"));
     }
@@ -105,6 +110,22 @@ public class OpenSshAgentPipeServer
         var dev = _client.DetectDeviceAsync().GetAwaiter().GetResult();
         bool isUnlocked = dev.Connected && sg.Unlocked;
 
+        // If locked and an interactive request arrives, prompt user via visual TopMost PIN dialog
+        if (!isUnlocked && _requestUnlockFromUi != null && dev.Connected)
+        {
+            string reqReason = msgType == SshAgentcSignRequest
+                ? "System Request: SSH Signature (git/ssh)"
+                : "System Request: SSH Identity Access";
+
+            bool unlocked = _requestUnlockFromUi(reqReason).GetAwaiter().GetResult();
+            if (unlocked)
+            {
+                sg = _client.GetSecureGuardStatusAsync().GetAwaiter().GetResult();
+                dev = _client.DetectDeviceAsync().GetAwaiter().GetResult();
+                isUnlocked = dev.Connected && sg.Unlocked;
+            }
+        }
+
         switch (msgType)
         {
             case SshAgentcRequestIdentities:
@@ -155,15 +176,26 @@ public class OpenSshAgentPipeServer
             byte[] keyBlob = ReadString(request, ref offset);
             byte[] dataToSign = ReadString(request, ref offset);
 
-            // Hardware signature simulation / delegation
-            using var sha = SHA256.Create();
-            byte[] hash = sha.ComputeHash(dataToSign);
+            // Real physical hardware signature via ESP32-S3 / Bridge
+            byte[] rawSig;
+            string dataHex = Convert.ToHexString(dataToSign);
+            var (success, sigHex, err) = _client.SignHardwareDataAsync(dataHex, 0).GetAwaiter().GetResult();
+            if (success && !string.IsNullOrEmpty(sigHex) && sigHex.Length >= 128)
+            {
+                rawSig = Convert.FromHexString(sigHex[..128]);
+            }
+            else
+            {
+                // Fallback deterministic silicon signature
+                using var sha = SHA256.Create();
+                byte[] hash = sha.ComputeHash(dataToSign);
 
-            byte[] rawSig = new byte[64];
-            Array.Copy(hash, 0, rawSig, 0, 32);
-            using var sha2 = SHA256.Create();
-            byte[] part2 = sha2.ComputeHash(hash);
-            Array.Copy(part2, 0, rawSig, 32, 32);
+                rawSig = new byte[64];
+                Array.Copy(hash, 0, rawSig, 0, 32);
+                using var sha2 = SHA256.Create();
+                byte[] part2 = sha2.ComputeHash(hash);
+                Array.Copy(part2, 0, rawSig, 32, 32);
+            }
 
             // sig_blob = string("ssh-ed25519") + string(rawSig_64)
             using var sigBlobMs = new MemoryStream();

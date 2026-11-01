@@ -65,3 +65,13 @@ public record EfuseGuardStatus(
     [property: JsonPropertyName("warning")] string Warning = "",
     [property: JsonPropertyName("safe_development_override")] bool SafeDevelopmentOverride = true
 );
+
+public record SystemAuthRequest(
+    [property: JsonPropertyName("id")] int Id,
+    [property: JsonPropertyName("source")] string Source,
+    [property: JsonPropertyName("operation")] string Operation,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("timestamp")] double Timestamp,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("approved")] bool Approved
+);

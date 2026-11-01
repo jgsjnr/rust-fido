@@ -7,12 +7,14 @@ STRICT PRIVACY GUARANTEE:
 - Gated 100% by the physical AegisKey Secure Guard status.
 - Returns authorization ONLY when the physical key is connected and Secure Guard is UNLOCKED.
 - Immediately rejects authentication if Secure Guard is LOCKED, RATE_LIMITED, or DISCONNECTED.
+- If LOCKED, invokes the visual C# popup (AegisKeyTray.exe --askpass) to prompt for the PIN!
 """
 
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -41,7 +43,6 @@ def get_ephemeral_grant() -> str:
     try:
         with open(AUTH_GRANT_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Check expiry or revocation flag
             if data.get("revoked", False):
                 return ""
             return data.get("ephemeral_passphrase", "")
@@ -49,30 +50,48 @@ def get_ephemeral_grant() -> str:
         return ""
 
 
+def try_invoke_csharp_askpass(prompt: str) -> bool:
+    """Invokes AegisKeyTray.exe --askpass to trigger the visual TopMost PIN dialog."""
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "dotnet", "AegisKeyTray", "bin", "Debug", "net9.0-windows", "AegisKeyTray.exe"),
+        os.path.join(os.path.dirname(__file__), "dotnet", "AegisKeyTray", "bin", "Release", "net9.0-windows", "AegisKeyTray.exe"),
+        "AegisKeyTray.exe",
+    ]
+    for exe in candidates:
+        if os.path.exists(exe):
+            try:
+                proc = subprocess.run([exe, "--askpass", prompt or "OpenSSH / Git Authentication"], timeout=45)
+                return proc.returncode == 0
+            except Exception:
+                pass
+    return False
+
+
 def main():
     prompt = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
 
     # Hardware barrier: check if Secure Guard is UNLOCKED
     if not check_secure_guard_unlocked():
-        sys.stderr.write(
-            "[AegisKey SSH Guard] Access DENIED: Physical key is LOCKED or DISCONNECTED.\n"
-            "Unlock Secure Guard in the AegisKey System Tray to enable SSH authentication.\n"
-        )
-        sys.stderr.flush()
-        sys.exit(1)
+        # Attempt to prompt visually via C# Desktop Companion dialog
+        if try_invoke_csharp_askpass(prompt) and check_secure_guard_unlocked():
+            pass
+        else:
+            sys.stderr.write(
+                "[AegisKey SSH Guard] Access DENIED: Physical key is LOCKED or DISCONNECTED.\n"
+                "Unlock Secure Guard in the AegisKey System Tray to enable SSH authentication.\n"
+            )
+            sys.stderr.flush()
+            sys.exit(1)
 
     # Secure Guard is UNLOCKED: retrieve the ephemeral session authorization
     passphrase = get_ephemeral_grant()
 
     # Output authorization to OpenSSH
-    # If the user stored an ephemeral passphrase for the unlocked session, output it
     if passphrase:
         sys.stdout.write(passphrase + "\n")
         sys.stdout.flush()
         sys.exit(0)
     else:
-        # If no passphrase stored (e.g. resident FIDO2 confirmation or empty passphrase key)
-        # OpenSSH accepts empty string as yes/confirmation or empty passphrase
         sys.stdout.write("\n")
         sys.stdout.flush()
         sys.exit(0)

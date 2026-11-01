@@ -9,13 +9,33 @@ public class TrayApplicationContext : ApplicationContext
     private readonly MainWindow _mainWindow;
     private readonly HardwareBridgeClient _client;
     private readonly SshAgentGuard _sshGuard;
+    private readonly OpenSshAgentPipeServer _pipeServer;
+    private bool _forceExit = false;
 
-    public TrayApplicationContext()
+    public TrayApplicationContext() : this(new HardwareBridgeClient())
     {
-        _client = new HardwareBridgeClient();
-        _sshGuard = new SshAgentGuard(_client, OnSecurityNotification);
+    }
 
-        _mainWindow = new MainWindow(_client, _sshGuard);
+    private TrayApplicationContext(HardwareBridgeClient client)
+        : this(client, new SshAgentGuard(client))
+    {
+    }
+
+    private TrayApplicationContext(HardwareBridgeClient client, SshAgentGuard sshGuard)
+        : this(client, sshGuard, new MainWindow(client, sshGuard))
+    {
+    }
+
+    private TrayApplicationContext(HardwareBridgeClient client, SshAgentGuard sshGuard, MainWindow mainWindow)
+        : base(mainWindow)
+    {
+        _client = client;
+        _sshGuard = sshGuard;
+        _mainWindow = mainWindow;
+
+        // Native OpenSSH Agent Pipe Server with Interactive UI PIN Dialog prompt
+        _pipeServer = new OpenSshAgentPipeServer(_client, "aegis-ssh-agent", _mainWindow.RequestUnlockFromUiAsync);
+        _pipeServer.Start();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(I18n.T("tray_open"), null, (s, e) => ShowMainWindow());
@@ -26,7 +46,11 @@ public class TrayApplicationContext : ApplicationContext
         });
         menu.Items.Add(I18n.T("tray_purge_ssh"), null, (s, e) => _sshGuard.PurgeSshAgent());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(I18n.T("tray_exit"), null, (s, e) => ExitThread());
+        menu.Items.Add(I18n.T("tray_exit"), null, (s, e) =>
+        {
+            _forceExit = true;
+            ExitThread();
+        });
 
         _notifyIcon = new NotifyIcon
         {
@@ -43,7 +67,7 @@ public class TrayApplicationContext : ApplicationContext
         // Start background watchdog
         _sshGuard.StartWatchdog(2);
 
-        // REQUIREMENT: Open full Desktop Companion App window centered and visible on startup!
+        // Open compact mobile-style floating manager window centered on screen
         ShowMainWindow();
     }
 
@@ -57,20 +81,39 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OnSecurityNotification(string title, string message, int iconType)
     {
+        if (_mainWindow.IsDisposed) return;
+        if (_mainWindow.InvokeRequired)
+        {
+            _mainWindow.BeginInvoke(new Action(() => OnSecurityNotification(title, message, iconType)));
+            return;
+        }
+
         var icon = iconType switch
         {
             2 => ToolTipIcon.Warning,
             3 => ToolTipIcon.Error,
             _ => ToolTipIcon.Info
         };
-        _notifyIcon.ShowBalloonTip(3500, title, message, icon);
+        try
+        {
+            _notifyIcon.ShowBalloonTip(3500, title, message, icon);
+        }
+        catch { }
 
-        // Also notify the active window to refresh data immediately
         _ = _mainWindow.RefreshDataAsync();
+    }
+
+    protected override void OnMainFormClosed(object? sender, EventArgs e)
+    {
+        if (_forceExit)
+        {
+            base.OnMainFormClosed(sender, e);
+        }
     }
 
     protected override void ExitThreadCore()
     {
+        _pipeServer.Stop();
         _sshGuard.StopWatchdog();
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();

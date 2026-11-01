@@ -334,4 +334,92 @@ public class HardwareBridgeClient
         catch { }
         return null;
     }
+
+    // System-Auth / OS Integration (SSH, Git, CLI, System Popups)
+    public async Task<List<SystemAuthRequest>> GetPendingSystemAuthAsync()
+    {
+        var list = new List<SystemAuthRequest>();
+        try
+        {
+            var res = await _http.GetFromJsonAsync<JsonObject>($"{_baseUrl}/api/system-auth/pending");
+            if (res != null && res["requests"] is JsonArray arr)
+            {
+                foreach (var item in arr)
+                {
+                    if (item == null) continue;
+                    list.Add(new SystemAuthRequest(
+                        Id: item["id"]?.GetValue<int>() ?? 0,
+                        Source: item["source"]?.GetValue<string>() ?? "System",
+                        Operation: item["operation"]?.GetValue<string>() ?? "Hardware Access",
+                        Reason: item["reason"]?.GetValue<string>() ?? "",
+                        Timestamp: item["timestamp"]?.GetValue<double>() ?? 0,
+                        Status: item["status"]?.GetValue<string>() ?? "pending",
+                        Approved: item["approved"]?.GetValue<bool>() ?? false
+                    ));
+                }
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    public async Task<SystemAuthRequest?> CreateSystemAuthRequestAsync(string source, string operation, string reason = "")
+    {
+        try
+        {
+            var payload = new { source, operation, reason };
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/system-auth/request", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            if (json != null && json["request"] is JsonObject r)
+            {
+                return new SystemAuthRequest(
+                    Id: r["id"]?.GetValue<int>() ?? 0,
+                    Source: r["source"]?.GetValue<string>() ?? source,
+                    Operation: r["operation"]?.GetValue<string>() ?? operation,
+                    Reason: r["reason"]?.GetValue<string>() ?? reason,
+                    Timestamp: r["timestamp"]?.GetValue<double>() ?? 0,
+                    Status: r["status"]?.GetValue<string>() ?? "pending",
+                    Approved: r["approved"]?.GetValue<bool>() ?? false
+                );
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public async Task<bool> ResolveSystemAuthRequestAsync(int id, bool approved)
+    {
+        try
+        {
+            var payload = new { id, approved };
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/system-auth/resolve", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            return json != null && json["ok"]?.GetValue<bool>() == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<(bool Success, string SignatureHex, string Error)> SignHardwareDataAsync(string dataHex, int slot = 0)
+    {
+        try
+        {
+            var payload = new { data_hex = dataHex, slot };
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/hardware/sign", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            if (json != null && json["ok"]?.GetValue<bool>() == true)
+            {
+                string sig = json["signature_hex"]?.GetValue<string>() ?? "";
+                return (true, sig, "");
+            }
+            string err = json?["message"]?.GetValue<string>() ?? json?["error"]?.GetValue<string>() ?? "Erro na assinatura";
+            return (false, "", err);
+        }
+        catch (Exception ex)
+        {
+            return (false, "", ex.Message);
+        }
+    }
 }

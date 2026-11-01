@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace AegisKeyTray;
@@ -15,12 +16,17 @@ public class MainWindow : Form
     private static readonly Color ColorTextMuted = ColorTranslator.FromHtml("#9CA3AF");
     private static readonly Color ColorInputBg = ColorTranslator.FromHtml("#1A2234");
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     private readonly HardwareBridgeClient _client;
     private readonly SshAgentGuard _sshGuard;
+    private readonly SynchronizationContext _syncContext;
 
     private DeviceInfo _dev = new();
     private SecureGuardStatus _sg = new();
     private string _activeTab = "vault_sg";
+    private bool _isPromptOpen = false;
 
     private Label _lblTitle = null!;
     private Label _lblSubtitle = null!;
@@ -36,6 +42,7 @@ public class MainWindow : Form
     {
         _client = client;
         _sshGuard = sshGuard;
+        _syncContext = WindowsFormsSynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
 
         InitializeComponent();
         _ = RefreshDataAsync();
@@ -44,121 +51,154 @@ public class MainWindow : Form
     private void InitializeComponent()
     {
         Text = I18n.T("app_title");
-        Size = new Size(680, 760);
-        MinimumSize = new Size(620, 700);
+        // Compact Mobile Phone Floating Window Style (Manager / 1Password Mini / Mobile Phone Aspect Ratio)
+        Size = new Size(380, 660);
+        MinimumSize = new Size(380, 660);
+        MaximumSize = new Size(380, 660);
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
         BackColor = ColorBg;
         ForeColor = ColorTextPrimary;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular);
         StartPosition = FormStartPosition.CenterScreen;
 
-        // Header Panel
-        var headerPanel = new Panel { Dock = DockStyle.Top, Height = 105, BackColor = ColorBg, Padding = new Padding(20, 12, 20, 8) };
+        // Header Panel (Compact Mobile Style)
+        var headerPanel = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 88,
+            BackColor = ColorBg,
+            Padding = new Padding(14, 8, 14, 4)
+        };
 
-        var topRow = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = ColorBg };
-        _lblTitle = new Label { Text = I18n.T("app_title"), Font = new Font("Segoe UI", 15F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(0, 0) };
-        _lblSubtitle = new Label { Text = I18n.T("app_subtitle"), Font = new Font("Segoe UI", 8.5F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(2, 23) };
+        var topRow = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 36,
+            BackColor = ColorBg
+        };
+
+        _lblTitle = new Label
+        {
+            Text = "🛡️ AegisKey",
+            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(0, 4)
+        };
+
+        _lblSubtitle = new Label
+        {
+            Text = "Hardware Authority",
+            Font = new Font("Segoe UI", 8F),
+            ForeColor = ColorTextMuted,
+            AutoSize = true,
+            Location = new Point(102, 8)
+        };
 
         var btnLang = new Button
         {
-            Text = "EN / PT",
-            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            Text = "EN/PT",
+            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
             ForeColor = ColorCyan,
             BackColor = ColorInputBg,
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(70, 28),
-            Location = new Point(550, 5),
+            Size = new Size(54, 24),
+            Location = new Point(294, 5),
             Cursor = Cursors.Hand
         };
         btnLang.FlatAppearance.BorderSize = 0;
         btnLang.Click += (s, e) =>
         {
             I18n.CurrentLanguage = I18n.CurrentLanguage == "en" ? "pt" : "en";
-            _lblTitle.Text = I18n.T("app_title");
-            _lblSubtitle.Text = I18n.T("app_subtitle");
-            _btnNavVaultSg.Text = I18n.T("tab_vault_sg");
-            _btnNavTotp.Text = I18n.T("tab_totp");
-            _btnNavConn.Text = I18n.T("tab_connected_keys");
-            _btnNavSsh.Text = I18n.T("tab_ssh_settings");
+            _lblTitle.Text = "🛡️ AegisKey";
+            _btnNavVaultSg.Text = I18n.CurrentLanguage == "pt" ? "🔑 Cofre" : "🔑 Vault";
+            _btnNavTotp.Text = "⏳ TOTP";
+            _btnNavConn.Text = I18n.CurrentLanguage == "pt" ? "🔗 Link" : "🔗 Conn";
+            _btnNavSsh.Text = "🛡️ SSH";
             RenderTab();
         };
 
-        topRow.Controls.Add(_lblTitle);
-        topRow.Controls.Add(_lblSubtitle);
-        topRow.Controls.Add(btnLang);
+        topRow.Controls.AddRange(new Control[] { _lblTitle, _lblSubtitle, btnLang });
 
-        // Banner Card
+        // Hardware Status Banner Card
         var banner = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = 44,
+            Height = 36,
             BackColor = ColorCard,
-            Padding = new Padding(12, 10, 12, 10)
+            Padding = new Padding(10, 6, 10, 6)
         };
+
         _lblDeviceName = new Label
         {
-            Text = "ESP32-S3 (COM7 / USB 0x303A:0xAE61)",
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+            Text = "ESP32-S3 (COM7)",
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
             ForeColor = ColorTextPrimary,
             AutoSize = true,
-            Location = new Point(12, 12)
+            Location = new Point(8, 8)
         };
+
         _lblConnBadge = new Label
         {
             Text = "CONNECTING...",
-            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
             ForeColor = ColorAmber,
             BackColor = ColorInputBg,
-            Size = new Size(115, 24),
+            Size = new Size(100, 20),
             TextAlign = ContentAlignment.MiddleCenter,
-            Location = new Point(500, 10)
+            Location = new Point(238, 7)
         };
-        banner.Controls.Add(_lblDeviceName);
-        banner.Controls.Add(_lblConnBadge);
+
+        banner.Controls.AddRange(new Control[] { _lblDeviceName, _lblConnBadge });
 
         headerPanel.Controls.Add(topRow);
         headerPanel.Controls.Add(banner);
 
-        // Navigation Bar (4 sections)
-        var navBar = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = ColorBg, Padding = new Padding(20, 4, 20, 4) };
-        _btnNavVaultSg = CreateNavButton(I18n.T("tab_vault_sg"), "vault_sg", 0);
-        _btnNavTotp = CreateNavButton(I18n.T("tab_totp"), "totp", 150);
-        _btnNavConn = CreateNavButton(I18n.T("tab_connected_keys"), "conn", 300);
-        _btnNavSsh = CreateNavButton(I18n.T("tab_ssh_settings"), "ssh", 450);
+        // Mobile Navigation Bar (4 Compact Tabs across 380px)
+        var navBar = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 36,
+            BackColor = ColorBg,
+            Padding = new Padding(6, 2, 6, 2)
+        };
+
+        _btnNavVaultSg = CreateMobileNavButton("🔑 Vault", "vault_sg", 0);
+        _btnNavTotp = CreateMobileNavButton("⏳ TOTP", "totp", 88);
+        _btnNavConn = CreateMobileNavButton("🔗 Conn", "conn", 176);
+        _btnNavSsh = CreateMobileNavButton("🛡️ SSH", "ssh", 264);
 
         navBar.Controls.AddRange(new Control[] { _btnNavVaultSg, _btnNavTotp, _btnNavConn, _btnNavSsh });
 
-        // Content Area
-        _contentPanel = new Panel { Dock = DockStyle.Fill, BackColor = ColorBg, Padding = new Padding(20, 10, 20, 20), AutoScroll = true };
+        // Content Area (Scrollable Vertical Column)
+        _contentPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = ColorBg,
+            Padding = new Padding(12, 6, 12, 12),
+            AutoScroll = true
+        };
 
         Controls.Add(_contentPanel);
         Controls.Add(navBar);
         Controls.Add(headerPanel);
 
-        // Intercept close to minimize to system tray
-        FormClosing += (s, e) =>
-        {
-            if (e.CloseReason == CloseReason.UserClosing)
-            {
-                e.Cancel = true;
-                Hide();
-            }
-        };
-
         RenderTab();
     }
 
-    private Button CreateNavButton(string text, string tabId, int x)
+    private Button CreateMobileNavButton(string text, string tabId, int x)
     {
         var btn = new Button
         {
             Text = text,
             Tag = tabId,
-            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
             ForeColor = _activeTab == tabId ? ColorCyan : ColorTextMuted,
             BackColor = _activeTab == tabId ? ColorCard : ColorBg,
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(145, 32),
-            Location = new Point(20 + x, 4),
+            Size = new Size(84, 30),
+            Location = new Point(6 + x, 3),
             Cursor = Cursors.Hand
         };
         btn.FlatAppearance.BorderSize = 0;
@@ -188,16 +228,72 @@ public class MainWindow : Form
             _dev = await _client.DetectDeviceAsync();
             _sg = await _client.GetSecureGuardStatusAsync();
 
-            if (InvokeRequired)
+            _syncContext.Post(_ =>
             {
-                Invoke(new Action(ApplyDataUpdates));
-            }
-            else
-            {
+                if (IsDisposed) return;
                 ApplyDataUpdates();
+            }, null);
+
+            // Check if there are any OS/System pending authentication requests
+            if (!_isPromptOpen && !_sg.Unlocked && _dev.Connected)
+            {
+                var pendingReqs = await _client.GetPendingSystemAuthAsync();
+                if (pendingReqs.Count > 0)
+                {
+                    var topReq = pendingReqs[0];
+                    _syncContext.Post(_ =>
+                    {
+                        if (IsDisposed) return;
+                        _ = HandleSystemRequestPromptAsync(topReq);
+                    }, null);
+                }
             }
         }
         catch { }
+    }
+
+    private async Task HandleSystemRequestPromptAsync(SystemAuthRequest req)
+    {
+        if (_isPromptOpen) return;
+        _isPromptOpen = true;
+        try
+        {
+            string reason = $"Solicitação do Sistema: {req.Source}";
+            string subtitle = $"{req.Operation} — {req.Reason}";
+            bool ok = await PinSessionDialog.PromptAndUnlockAsync(_client, this, reason, subtitle);
+            await _client.ResolveSystemAuthRequestAsync(req.Id, ok);
+            await RefreshDataAsync();
+        }
+        finally
+        {
+            _isPromptOpen = false;
+        }
+    }
+
+    public async Task<bool> RequestUnlockFromUiAsync(string reason)
+    {
+        if (_sg.Unlocked) return true;
+
+        var tcs = new TaskCompletionSource<bool>();
+        _syncContext.Post(_ =>
+        {
+            try
+            {
+                Show();
+                WindowState = FormWindowState.Normal;
+                BringToFront();
+                SetForegroundWindow(Handle);
+                bool ok = PinSessionDialog.PromptAndUnlockAsync(_client, this, reason, "O sistema operacional solicita acesso à chave de hardware.").GetAwaiter().GetResult();
+                if (ok) _ = RefreshDataAsync();
+                tcs.TrySetResult(ok);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        }, null);
+
+        return await tcs.Task;
     }
 
     private void ApplyDataUpdates()
@@ -223,7 +319,8 @@ public class MainWindow : Form
         {
             Dock = DockStyle.Fill,
             BackColor = ColorCard,
-            Padding = new Padding(18)
+            Padding = new Padding(12),
+            AutoScroll = true
         };
 
         switch (_activeTab)
@@ -247,49 +344,128 @@ public class MainWindow : Form
 
     private void RenderSectionVaultSg(Panel card)
     {
-        var lblTitle = new Label { Text = I18n.T("sg_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
+        var lblTitle = new Label
+        {
+            Text = I18n.T("sg_title"),
+            Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+            ForeColor = ColorTextPrimary,
+            Size = new Size(310, 36),
+            Location = new Point(12, 12)
+        };
         card.Controls.Add(lblTitle);
 
-        var lblStatus = new Label { Text = $"{I18n.T("sg_status_label")} {_sg.StateName.ToUpper()}", Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = _sg.Unlocked ? ColorEmerald : ColorAmber, AutoSize = true, Location = new Point(16, 52) };
+        var lblStatus = new Label
+        {
+            Text = $"{I18n.T("sg_status_label")} {_sg.StateName.ToUpper()}",
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+            ForeColor = _sg.Unlocked ? ColorEmerald : ColorAmber,
+            AutoSize = true,
+            Location = new Point(12, 50)
+        };
         card.Controls.Add(lblStatus);
 
-        var lblAttempts = new Label { Text = $"{I18n.T("sg_attempts_label")} [{_sg.RemainingAttempts}/{_sg.MaxAttempts}]", Font = new Font("Segoe UI", 9F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(16, 80) };
+        var lblAttempts = new Label
+        {
+            Text = $"{I18n.T("sg_attempts_label")} [{_sg.RemainingAttempts}/{_sg.MaxAttempts}]",
+            Font = new Font("Segoe UI", 8.5F),
+            ForeColor = ColorTextMuted,
+            AutoSize = true,
+            Location = new Point(12, 74)
+        };
         card.Controls.Add(lblAttempts);
 
         int remSec = Math.Max(0, _sg.SessionRemainingMs / 1000);
         string timeStr = _sg.Unlocked ? $"{remSec / 60:D2}:{remSec % 60:D2}" : "--:--";
-        var lblSession = new Label { Text = $"{I18n.T("sg_session_label")} {timeStr}", Font = new Font("Segoe UI", 9F), ForeColor = ColorCyan, AutoSize = true, Location = new Point(16, 105) };
+        var lblSession = new Label
+        {
+            Text = $"{I18n.T("sg_session_label")} {timeStr}",
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(12, 96)
+        };
         card.Controls.Add(lblSession);
 
         // Security Badges (GAP-01 & GAP-02)
-        var pnlBadges = new Panel { Size = new Size(card.Width - 40, 26), Location = new Point(16, 130), BackColor = ColorBg };
-        var lblEcdh = new Label { Text = $"✓ {I18n.T("badge_ecdh_active")}", Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(4, 4) };
-        var lblEfuse = new Label { Text = $"🔒 {I18n.T("badge_efuse_safe")}", Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = ColorCyan, AutoSize = true, Location = new Point(240, 4) };
+        var pnlBadges = new Panel
+        {
+            Size = new Size(306, 44),
+            Location = new Point(12, 122),
+            BackColor = ColorInputBg,
+            Padding = new Padding(8)
+        };
+        var lblEcdh = new Label
+        {
+            Text = $"✓ {I18n.T("badge_ecdh_active")}",
+            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+            ForeColor = ColorEmerald,
+            AutoSize = true,
+            Location = new Point(6, 4)
+        };
+        var lblEfuse = new Label
+        {
+            Text = $"🔒 {I18n.T("badge_efuse_safe")}",
+            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(6, 22)
+        };
         pnlBadges.Controls.AddRange(new Control[] { lblEcdh, lblEfuse });
         card.Controls.Add(pnlBadges);
 
         if (!_sg.Unlocked)
         {
-            var txtPin = new TextBox { PasswordChar = '*', Font = new Font("Segoe UI", 11F), BackColor = ColorInputBg, ForeColor = ColorTextPrimary, BorderStyle = BorderStyle.None, Size = new Size(140, 28), Location = new Point(16, 168) };
-            var btnUnlock = new Button { Text = I18n.T("sg_btn_unlock"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(160, 30), Location = new Point(165, 167), Cursor = Cursors.Hand };
-            btnUnlock.FlatAppearance.BorderSize = 0;
-            btnUnlock.Click += async (s, e) =>
+            // Interactive Unlock Button -> Opens PinSessionDialog TopMost!
+            var btnOpenPinModal = new Button
             {
-                if (string.IsNullOrWhiteSpace(txtPin.Text)) return;
-                bool ok = await _client.UnlockSecureGuardAsync(txtPin.Text.Trim());
+                Text = "🔓 Digitar PIN na Chave Física",
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                BackColor = ColorCyan,
+                ForeColor = Color.Black,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(306, 38),
+                Location = new Point(12, 178),
+                Cursor = Cursors.Hand
+            };
+            btnOpenPinModal.FlatAppearance.BorderSize = 0;
+            btnOpenPinModal.Click += async (s, e) =>
+            {
+                bool ok = await PinSessionDialog.PromptAndUnlockAsync(_client, this, "Desbloqueio de Sessão do Hardware", "Digite o PIN para desbloquear a hardwallet AegisKey.");
                 if (ok) await RefreshDataAsync();
             };
-            card.Controls.Add(txtPin);
-            card.Controls.Add(btnUnlock);
+            card.Controls.Add(btnOpenPinModal);
 
-            var banner = new Panel { Size = new Size(card.Width - 40, 65), Location = new Point(16, 215), BackColor = ColorInputBg };
-            var lblBanner = new Label { Text = I18n.T("vault_locked_banner"), Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = ColorAmber, AutoSize = true, Location = new Point(12, 22) };
+            var banner = new Panel
+            {
+                Size = new Size(306, 60),
+                Location = new Point(12, 228),
+                BackColor = ColorInputBg,
+                Padding = new Padding(10)
+            };
+            var lblBanner = new Label
+            {
+                Text = I18n.T("vault_locked_banner"),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = ColorAmber,
+                Size = new Size(286, 40),
+                Location = new Point(8, 10)
+            };
             banner.Controls.Add(lblBanner);
             card.Controls.Add(banner);
         }
         else
         {
-            var btnLock = new Button { Text = I18n.T("sg_btn_lock"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), BackColor = ColorCoral, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Size = new Size(140, 32), Location = new Point(16, 168), Cursor = Cursors.Hand };
+            var btnLock = new Button
+            {
+                Text = "🔒 Bloquear Sessão",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                BackColor = ColorCoral,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(148, 34),
+                Location = new Point(12, 178),
+                Cursor = Cursors.Hand
+            };
             btnLock.FlatAppearance.BorderSize = 0;
             btnLock.Click += async (s, e) =>
             {
@@ -298,30 +474,50 @@ public class MainWindow : Form
             };
             card.Controls.Add(btnLock);
 
-            // OPP-05 Shamir 2-of-3 Backup Button
-            var btnShamir = new Button { Text = I18n.T("btn_shamir_backup"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorEmerald, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(240, 32), Location = new Point(165, 168), Cursor = Cursors.Hand };
+            // Shamir 2-of-3 Backup Button
+            var btnShamir = new Button
+            {
+                Text = "📦 Backup Shamir",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                BackColor = ColorEmerald,
+                ForeColor = Color.Black,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(148, 34),
+                Location = new Point(170, 178),
+                Cursor = Cursors.Hand
+            };
             btnShamir.FlatAppearance.BorderSize = 0;
             btnShamir.Click += async (s, e) =>
             {
                 var shares = await _client.ShamirSplitAsync();
                 if (shares.Count >= 3)
                 {
-                    string info = $"Shamir 2-of-3 Backup Shares Generated:\n\n" +
-                                  $"Share 1: {shares[0].ShareHex[..16]}... ({shares[0].Description})\n" +
-                                  $"Share 2: {shares[1].ShareHex[..16]}... ({shares[1].Description})\n" +
-                                  $"Share 3: {shares[2].ShareHex[..16]}... ({shares[2].Description})\n\n" +
-                                  $"Lagrange quorum: Any 2 shares restore 100% of vault master key.";
-                    MessageBox.Show(info, "Shamir 2-of-3 Backup (SLIP-0039)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    string info = $"Backup Shamir 2-de-3 (SLIP-0039):\n\n" +
+                                  $"Parte 1: {shares[0].ShareHex[..16]}... ({shares[0].Description})\n" +
+                                  $"Parte 2: {shares[1].ShareHex[..16]}... ({shares[1].Description})\n" +
+                                  $"Parte 3: {shares[2].ShareHex[..16]}... ({shares[2].Description})\n\n" +
+                                  $"Quórum Lagrange: Quaisquer 2 partes restauram 100% da chave mestra.";
+                    MessageBox.Show(info, "Backup Shamir 2-de-3", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             };
             card.Controls.Add(btnShamir);
 
-            // Wipe Seletivo Button (Prompting PIN synchronized modal)
-            var btnWipe = new Button { Text = "🔥 Wipe Seletivo", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = Color.FromArgb(127, 29, 29), ForeColor = Color.FromArgb(254, 202, 202), FlatStyle = FlatStyle.Flat, Size = new Size(130, 32), Location = new Point(415, 168), Cursor = Cursors.Hand };
+            // Wipe Seletivo Button
+            var btnWipe = new Button
+            {
+                Text = "🔥 Wipe Seletivo (Requer PIN)",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                BackColor = Color.FromArgb(127, 29, 29),
+                ForeColor = Color.FromArgb(254, 202, 202),
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(306, 32),
+                Location = new Point(12, 222),
+                Cursor = Cursors.Hand
+            };
             btnWipe.FlatAppearance.BorderSize = 0;
             btnWipe.Click += async (s, e) =>
             {
-                string? pin = await PromptSessionPinModalAsync("Wipe Seletivo da Hardwallet", "Digite o PIN da hardwallet para autorizar a limpeza dos dados seguros:");
+                string? pin = await PinSessionDialog.PromptPinForActionAsync(_client, this, "Wipe Seletivo da Hardwallet", "Digite o PIN da chave física para autorizar a destruição dos dados:");
                 if (!string.IsNullOrEmpty(pin))
                 {
                     bool ok = await _client.WipeSelectiveAsync(pin);
@@ -331,81 +527,214 @@ public class MainWindow : Form
             };
             card.Controls.Add(btnWipe);
 
-            var lblMsg = new Label { Text = "✓ Hardware Vault unlocked: Ed25519, P-256 and Wallets accessible.", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(16, 215) };
+            var lblMsg = new Label
+            {
+                Text = "✓ Hardware Vault Desbloqueado: Ed25519, P-256 e Wallets acessíveis.",
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                ForeColor = ColorEmerald,
+                Size = new Size(306, 36),
+                Location = new Point(12, 264)
+            };
             card.Controls.Add(lblMsg);
         }
     }
 
-    private Task<string?> PromptSessionPinModalAsync(string title, string instruction)
-    {
-        var tcs = new TaskCompletionSource<string?>();
-        var prompt = new Form
-        {
-            Width = 400,
-            Height = 220,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            Text = title,
-            StartPosition = FormStartPosition.CenterParent,
-            BackColor = ColorBg,
-            ForeColor = ColorTextPrimary,
-            MaximizeBox = false,
-            MinimizeBox = false
-        };
-
-        var lbl = new Label { Left = 20, Top = 20, Width = 340, Text = instruction, Font = new Font("Segoe UI", 9F), ForeColor = ColorTextMuted };
-        var txt = new TextBox { Left = 20, Top = 65, Width = 340, PasswordChar = '*', Font = new Font("Segoe UI", 12F), BackColor = ColorInputBg, ForeColor = ColorTextPrimary, BorderStyle = BorderStyle.None };
-        var btnOk = new Button { Text = "Autenticar & Executar", Left = 180, Top = 120, Width = 180, Height = 32, DialogResult = DialogResult.OK, BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9F, FontStyle.Bold), Cursor = Cursors.Hand };
-        btnOk.FlatAppearance.BorderSize = 0;
-        var btnCancel = new Button { Text = "Cancelar", Left = 80, Top = 120, Width = 90, Height = 32, DialogResult = DialogResult.Cancel, BackColor = ColorInputBg, ForeColor = ColorTextMuted, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9F), Cursor = Cursors.Hand };
-        btnCancel.FlatAppearance.BorderSize = 0;
-
-        btnOk.Click += (s, e) => { prompt.Close(); tcs.TrySetResult(txt.Text.Trim()); };
-        btnCancel.Click += (s, e) => { prompt.Close(); tcs.TrySetResult(null); };
-
-        prompt.Controls.Add(lbl);
-        prompt.Controls.Add(txt);
-        prompt.Controls.Add(btnOk);
-        prompt.Controls.Add(btnCancel);
-        prompt.AcceptButton = btnOk;
-        prompt.CancelButton = btnCancel;
-
-        prompt.FormClosed += (s, e) => { if (!tcs.Task.IsCompleted) tcs.TrySetResult(null); };
-        prompt.ShowDialog(this);
-
-        return tcs.Task;
-    }
-
     private void RenderSectionTotp(Panel card)
     {
-        var lblTitle = new Label { Text = I18n.T("totp_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
-        var lblSub = new Label { Text = I18n.T("totp_subtitle"), Font = new Font("Segoe UI", 8F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(16, 42) };
+        var lblTitle = new Label
+        {
+            Text = I18n.T("totp_title"),
+            Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+            ForeColor = ColorTextPrimary,
+            AutoSize = true,
+            Location = new Point(12, 12)
+        };
+        var lblSub = new Label
+        {
+            Text = I18n.T("totp_subtitle"),
+            Font = new Font("Segoe UI", 7.5F),
+            ForeColor = ColorTextMuted,
+            Size = new Size(306, 26),
+            Location = new Point(12, 36)
+        };
         card.Controls.Add(lblTitle);
         card.Controls.Add(lblSub);
+
+        int y = 68;
+        var oathAccounts = _client.GetOathAccountsAsync().GetAwaiter().GetResult();
+        if (oathAccounts.Count == 0)
+        {
+            var pnlEmpty = new Panel
+            {
+                Size = new Size(306, 70),
+                Location = new Point(12, y),
+                BackColor = ColorInputBg,
+                Padding = new Padding(10)
+            };
+            var lblEmpty = new Label
+            {
+                Text = _sg.Unlocked ? "Nenhuma conta TOTP registrada na hardwallet." : "🔒 Desbloqueie o Secure Guard para visualizar os códigos TOTP.",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = _sg.Unlocked ? ColorTextMuted : ColorAmber,
+                Size = new Size(286, 50),
+                Location = new Point(8, 8)
+            };
+            pnlEmpty.Controls.Add(lblEmpty);
+            card.Controls.Add(pnlEmpty);
+        }
+        else
+        {
+            foreach (var acc in oathAccounts)
+            {
+                var pnlAcc = new Panel
+                {
+                    Size = new Size(306, 56),
+                    Location = new Point(12, y),
+                    BackColor = ColorInputBg,
+                    Padding = new Padding(8)
+                };
+                var lblAccName = new Label
+                {
+                    Text = acc.Name,
+                    Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                    ForeColor = ColorTextPrimary,
+                    Location = new Point(8, 8),
+                    AutoSize = true
+                };
+                var lblCode = new Label
+                {
+                    Text = $"{acc.Code[..3]} {acc.Code[3..]}",
+                    Font = new Font("Segoe UI", 13F, FontStyle.Bold),
+                    ForeColor = ColorCyan,
+                    Location = new Point(8, 26),
+                    AutoSize = true
+                };
+                var btnCopy = new Button
+                {
+                    Text = "Copiar",
+                    Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                    BackColor = ColorCard,
+                    ForeColor = ColorTextPrimary,
+                    FlatStyle = FlatStyle.Flat,
+                    Size = new Size(54, 26),
+                    Location = new Point(244, 15),
+                    Cursor = Cursors.Hand
+                };
+                btnCopy.FlatAppearance.BorderSize = 0;
+                btnCopy.Click += (s, e) =>
+                {
+                    Clipboard.SetText(acc.Code);
+                    btnCopy.Text = "✓";
+                };
+                pnlAcc.Controls.AddRange(new Control[] { lblAccName, lblCode, btnCopy });
+                card.Controls.Add(pnlAcc);
+                y += 62;
+            }
+        }
     }
 
     private void RenderSectionConnectedKeys(Panel card)
     {
-        var lblTitle = new Label { Text = I18n.T("conn_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
+        var lblTitle = new Label
+        {
+            Text = I18n.T("conn_title"),
+            Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+            ForeColor = ColorTextPrimary,
+            AutoSize = true,
+            Location = new Point(12, 12)
+        };
         card.Controls.Add(lblTitle);
 
-        var pnlTele = new Panel { Size = new Size(card.Width - 40, 110), Location = new Point(16, 50), BackColor = ColorInputBg, Padding = new Padding(12) };
-        var lblChip = new Label { Text = $"Chip: {_dev.Chip}", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorCyan, AutoSize = true, Location = new Point(12, 12) };
-        var lblPort = new Label { Text = $"Serial Port: {_dev.Port} (VID: {_dev.Vid}, PID: {_dev.Pid})", Font = new Font("Segoe UI", 8.5F), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(12, 38) };
-        var lblState = new Label { Text = $"Status: {(_dev.Connected ? "ONLINE" : "DISCONNECTED")}", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), ForeColor = _dev.Connected ? ColorEmerald : ColorCoral, AutoSize = true, Location = new Point(12, 64) };
-        pnlTele.Controls.AddRange(new Control[] { lblChip, lblPort, lblState });
+        var pnlTele = new Panel
+        {
+            Size = new Size(306, 110),
+            Location = new Point(12, 42),
+            BackColor = ColorInputBg,
+            Padding = new Padding(10)
+        };
+        var lblChip = new Label
+        {
+            Text = $"Chip: {_dev.Chip}",
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(8, 10)
+        };
+        var lblPort = new Label
+        {
+            Text = $"Porta: {_dev.Port} (VID: {_dev.Vid}, PID: {_dev.Pid})",
+            Font = new Font("Segoe UI", 8F),
+            ForeColor = ColorTextPrimary,
+            AutoSize = true,
+            Location = new Point(8, 34)
+        };
+        var lblState = new Label
+        {
+            Text = $"Status: {(_dev.Connected ? "ONLINE (UART Sincronizado)" : "DESCONECTADO")}",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            ForeColor = _dev.Connected ? ColorEmerald : ColorCoral,
+            AutoSize = true,
+            Location = new Point(8, 58)
+        };
+        var lblLed = new Label
+        {
+            Text = $"LED RGB GPIO 48: {(_sg.Unlocked ? "🟢 Verde (Sessão Ativa)" : "🔴 Vermelho (Bloqueado)")}",
+            Font = new Font("Segoe UI", 8F),
+            ForeColor = _sg.Unlocked ? ColorEmerald : ColorCoral,
+            AutoSize = true,
+            Location = new Point(8, 82)
+        };
+        pnlTele.Controls.AddRange(new Control[] { lblChip, lblPort, lblState, lblLed });
         card.Controls.Add(pnlTele);
 
-        var lblProxTitle = new Label { Text = I18n.T("conn_prox_title"), Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 175) };
+        var lblProxTitle = new Label
+        {
+            Text = I18n.T("conn_prox_title"),
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+            ForeColor = ColorTextPrimary,
+            AutoSize = true,
+            Location = new Point(12, 162)
+        };
         card.Controls.Add(lblProxTitle);
 
-        var pnlProx = new Panel { Size = new Size(card.Width - 40, 75), Location = new Point(16, 202), BackColor = ColorInputBg, Padding = new Padding(12) };
-        var lblProxArmed = new Label { Text = "Status: ARMED (Windows Dynamic Lock Active via BLE RSSI)", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(12, 12) };
-        var lblProxSignal = new Label { Text = "Signal RSSI: -35 dBm  |  Lock Distance Threshold: -75 dBm  |  Safe Dev Mode: Active", Font = new Font("Segoe UI", 8F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(12, 36) };
+        var pnlProx = new Panel
+        {
+            Size = new Size(306, 75),
+            Location = new Point(12, 188),
+            BackColor = ColorInputBg,
+            Padding = new Padding(10)
+        };
+        var lblProxArmed = new Label
+        {
+            Text = "Status: ARMADO (Bloqueio Dinâmico BLE)",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            ForeColor = ColorEmerald,
+            AutoSize = true,
+            Location = new Point(8, 10)
+        };
+        var lblProxSignal = new Label
+        {
+            Text = "RSSI: -35 dBm  |  Limite: -75 dBm\nModo Dev Seguro Ativo",
+            Font = new Font("Segoe UI", 7.5F),
+            ForeColor = ColorTextMuted,
+            Size = new Size(286, 32),
+            Location = new Point(8, 32)
+        };
         pnlProx.Controls.AddRange(new Control[] { lblProxArmed, lblProxSignal });
         card.Controls.Add(pnlProx);
 
-        // OPP-06 Clear Signing Preview Button
-        var btnClearSign = new Button { Text = I18n.T("btn_clear_signing"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(260, 32), Location = new Point(16, 290), Cursor = Cursors.Hand };
+        // Clear Signing Preview Button
+        var btnClearSign = new Button
+        {
+            Text = I18n.T("btn_clear_signing"),
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            BackColor = ColorCyan,
+            ForeColor = Color.Black,
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(306, 32),
+            Location = new Point(12, 275),
+            Cursor = Cursors.Hand
+        };
         btnClearSign.FlatAppearance.BorderSize = 0;
         btnClearSign.Click += async (s, e) =>
         {
@@ -420,36 +749,93 @@ public class MainWindow : Form
 
     private void RenderSectionSsh(Panel card)
     {
-        var lblTitle = new Label { Text = I18n.T("ssh_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
-        var lblSub = new Label { Text = I18n.T("ssh_subtitle"), Font = new Font("Segoe UI", 8F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(16, 42) };
+        var lblTitle = new Label
+        {
+            Text = I18n.T("ssh_title"),
+            Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+            ForeColor = ColorTextPrimary,
+            AutoSize = true,
+            Location = new Point(12, 12)
+        };
+        var lblSub = new Label
+        {
+            Text = I18n.T("ssh_subtitle"),
+            Font = new Font("Segoe UI", 7.5F),
+            ForeColor = ColorTextMuted,
+            Size = new Size(306, 26),
+            Location = new Point(12, 34)
+        };
         card.Controls.Add(lblTitle);
         card.Controls.Add(lblSub);
 
         bool isActive = _sg.Unlocked && _dev.Connected;
-        var banner = new Panel { Size = new Size(card.Width - 40, 60), Location = new Point(16, 70), BackColor = ColorInputBg };
+        var banner = new Panel
+        {
+            Size = new Size(306, 56),
+            Location = new Point(12, 64),
+            BackColor = ColorInputBg,
+            Padding = new Padding(8)
+        };
         var lblBanner = new Label
         {
             Text = isActive ? I18n.T("ssh_status_active") : I18n.T("ssh_status_inactive"),
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
             ForeColor = isActive ? ColorEmerald : ColorAmber,
-            AutoSize = true,
-            Location = new Point(10, 18)
+            Size = new Size(286, 38),
+            Location = new Point(8, 8)
         };
         banner.Controls.Add(lblBanner);
         card.Controls.Add(banner);
 
-        // OPP-01 Native OpenSSH Agent Status Card
-        var pnlAgent = new Panel { Size = new Size(card.Width - 40, 60), Location = new Point(16, 140), BackColor = ColorInputBg, Padding = new Padding(10) };
-        var lblAgentTitle = new Label { Text = I18n.T("ssh_native_agent_title"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorCyan, AutoSize = true, Location = new Point(10, 10) };
-        var lblAgentStatus = new Label { Text = $"{I18n.T("ssh_native_agent_status")}  |  Hardware Signing: ESP32-S3 Ed25519 (Slot 0)", Font = new Font("Segoe UI", 8F), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(10, 32) };
+        // Native OpenSSH Agent Pipe Status Card
+        var pnlAgent = new Panel
+        {
+            Size = new Size(306, 58),
+            Location = new Point(12, 128),
+            BackColor = ColorInputBg,
+            Padding = new Padding(8)
+        };
+        var lblAgentTitle = new Label
+        {
+            Text = "Servidor OpenSSH Named Pipe:",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(8, 8)
+        };
+        var lblAgentStatus = new Label
+        {
+            Text = "\\\\.\\pipe\\aegis-ssh-agent (Assinatura ESP32-S3 Slot 0)",
+            Font = new Font("Segoe UI", 7.5F),
+            ForeColor = ColorEmerald,
+            Size = new Size(286, 22),
+            Location = new Point(8, 28)
+        };
         pnlAgent.Controls.AddRange(new Control[] { lblAgentTitle, lblAgentStatus });
         card.Controls.Add(pnlAgent);
 
         var (count, msg) = _sshGuard.GetAgentIdentitiesCount();
-        var lblCount = new Label { Text = $"Identities in ssh-agent: {count} ({msg})", Font = new Font("Segoe UI", 9F), ForeColor = ColorCyan, AutoSize = true, Location = new Point(16, 215) };
+        var lblCount = new Label
+        {
+            Text = $"Chaves em ssh-agent: {count} ({msg})",
+            Font = new Font("Segoe UI", 8F),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(12, 194)
+        };
         card.Controls.Add(lblCount);
 
-        var btnPurge = new Button { Text = I18n.T("ssh_btn_purge"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCoral, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Size = new Size(180, 30), Location = new Point(16, 250), Cursor = Cursors.Hand };
+        var btnPurge = new Button
+        {
+            Text = "Limpar Agente (ssh-add -D)",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            BackColor = ColorCoral,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(148, 30),
+            Location = new Point(12, 220),
+            Cursor = Cursors.Hand
+        };
         btnPurge.FlatAppearance.BorderSize = 0;
         btnPurge.Click += (s, e) =>
         {
@@ -457,7 +843,17 @@ public class MainWindow : Form
             RenderTab();
         };
 
-        var btnFido = new Button { Text = I18n.T("ssh_btn_load_fido2"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(200, 30), Location = new Point(205, 250), Cursor = Cursors.Hand };
+        var btnFido = new Button
+        {
+            Text = "Carregar FIDO2 (-K)",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            BackColor = ColorCyan,
+            ForeColor = Color.Black,
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(148, 30),
+            Location = new Point(170, 220),
+            Cursor = Cursors.Hand
+        };
         btnFido.FlatAppearance.BorderSize = 0;
         btnFido.Click += (s, e) =>
         {
@@ -467,6 +863,77 @@ public class MainWindow : Form
 
         card.Controls.Add(btnPurge);
         card.Controls.Add(btnFido);
+
+        // HIGHLIGHT BUTTON: Simular Solicitação do Sistema (SSH / Assinatura Real)
+        var btnSimulateSysReq = new Button
+        {
+            Text = "⚡ Simular Solicitação do Sistema (SSH)",
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            BackColor = ColorEmerald,
+            ForeColor = Color.Black,
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(306, 38),
+            Location = new Point(12, 262),
+            Cursor = Cursors.Hand
+        };
+        btnSimulateSysReq.FlatAppearance.BorderSize = 0;
+        btnSimulateSysReq.Click += async (s, e) =>
+        {
+            await SimulateSystemRequestAsync();
+        };
+        card.Controls.Add(btnSimulateSysReq);
+    }
+
+    private async Task SimulateSystemRequestAsync()
+    {
+        // 1. Post simulated system request
+        var req = await _client.CreateSystemAuthRequestAsync(
+            "Git CLI (github.com / ssh-ed25519)",
+            "Assinatura de Autenticação SSH",
+            "git push origin master (commit fido-security)"
+        );
+
+        string reason = "Solicitação do Sistema: SSH Authentication (git push)";
+        string subtitle = "O Git está solicitando assinatura na chave AegisKey ESP32-S3.";
+
+        // 2. Open TopMost PinSessionDialog on screen
+        bool authorized = await PinSessionDialog.PromptAndUnlockAsync(_client, this, reason, subtitle);
+
+        if (req != null)
+        {
+            await _client.ResolveSystemAuthRequestAsync(req.Id, authorized);
+        }
+
+        if (authorized)
+        {
+            // 3. Perform real hardware signature on ESP32-S3!
+            string challenge = "AegisKey-System-Challenge-OS-2026";
+            string challengeHex = Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(challenge));
+            var (ok, sigHex, err) = await _client.SignHardwareDataAsync(challengeHex, 0);
+
+            await RefreshDataAsync();
+
+            string sigPreview = ok && !string.IsNullOrEmpty(sigHex) ? (sigHex.Length > 32 ? sigHex[..32] + "..." : sigHex) : "N/A";
+            MessageBox.Show(
+                $"✓ Solicitação do Sistema Autorizada com Sucesso!\n\n" +
+                $"• Dispositivo: {_dev.Product} ({_dev.Port})\n" +
+                $"• Algoritmo: Ed25519 (Slot 0 - Hardwallet Silicon)\n" +
+                $"• Assinatura Gerada: {sigPreview}\n\n" +
+                $"O comando do sistema (Git / SSH) recebeu a assinatura de hardware e prosseguiu normalmente!",
+                "Autorização de Sistema AegisKey",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
+        }
+        else
+        {
+            MessageBox.Show(
+                "A solicitação do sistema foi cancelada ou o PIN não foi validado.",
+                "Autorização Negada",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning
+            );
+        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

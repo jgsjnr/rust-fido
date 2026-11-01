@@ -20,7 +20,14 @@ public class SshAgentGuard
 
     public void StartWatchdog(int intervalSeconds = 2)
     {
-        _timer = new System.Threading.Timer(async _ => await TickAsync(), null, 0, intervalSeconds * 1000);
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await TickAsync();
+            }
+            catch { }
+        }, null, 0, intervalSeconds * 1000);
     }
 
     public void StopWatchdog()
