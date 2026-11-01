@@ -1,41 +1,29 @@
 package dev.aegiskey.app.ui.atomic.templates
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
+import dev.aegiskey.app.R
+import dev.aegiskey.app.domain.model.SecureGuardStateEnum
+import dev.aegiskey.app.ui.atomic.organisms.ConnectedKeyHeaderOrganism
 
 /**
  * Main navigation destinations for AegisKey Hub.
@@ -53,7 +41,7 @@ enum class HubDestination(
 }
 
 /**
- * Global hub scaffold template with top bar and navigation bar.
+ * Global hub scaffold template with responsive ConnectedKeyHeaderOrganism top bar and navigation bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,70 +54,20 @@ fun MainHubScaffoldTemplate(
     onSwitchKeyClick: () -> Unit,
     onToggleThemeClick: () -> Unit,
     modifier: Modifier = Modifier,
+    guardState: SecureGuardStateEnum? = null,
     snackbarHost: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .widthIn(max = 190.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(onClick = onSwitchKeyClick),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.VpnKey,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = activeKeyName.ifBlank { "Security Key" },
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Icon(
-                                imageVector = Icons.Filled.ArrowDropDown,
-                                contentDescription = "Switch security key",
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    ConnectionStatusBadgeAtom(
-                        isConnected = isConnected,
-                        transportLabel = transportLabel,
-                    )
-                    IconButton(
-                        onClick = onToggleThemeClick,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Palette,
-                            contentDescription = "Toggle theme mode",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
+            ConnectedKeyHeaderOrganism(
+                activeKeyName = activeKeyName,
+                isConnected = isConnected,
+                transportLabel = transportLabel,
+                onSwitchKeyClick = onSwitchKeyClick,
+                onToggleThemeClick = onToggleThemeClick,
+                guardState = guardState,
             )
         },
         bottomBar = {
@@ -139,19 +77,26 @@ fun MainHubScaffoldTemplate(
             ) {
                 HubDestination.entries.forEach { destination ->
                     val isSelected = destination == currentDestination
+                    val labelText = when (destination) {
+                        HubDestination.VAULT -> stringResource(R.string.nav_vault)
+                        HubDestination.CODES -> stringResource(R.string.nav_totp)
+                        HubDestination.KEYS -> stringResource(R.string.nav_devices)
+                        HubDestination.SETTINGS -> stringResource(R.string.nav_settings)
+                    }
+
                     NavigationBarItem(
                         selected = isSelected,
                         onClick = { onNavigateToDestination(destination) },
                         icon = {
                             Icon(
                                 imageVector = destination.icon,
-                                contentDescription = destination.label,
+                                contentDescription = labelText,
                                 modifier = Modifier.size(22.dp),
                             )
                         },
                         label = {
                             Text(
-                                text = destination.label,
+                                text = labelText,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 maxLines = 1,

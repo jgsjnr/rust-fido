@@ -15,9 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.aegiskey.app.R
 
 /**
  * Countdown timer molecule for active Unlocked session.
@@ -39,6 +42,7 @@ fun SessionExpiryTimerMolecule(
             .padding(12.dp)
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -48,17 +52,21 @@ fun SessionExpiryTimerMolecule(
                 color = Color(0xFF10B981),
                 strokeWidth = 3.dp,
             )
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Session Unlocked",
+                    text = stringResource(R.string.guard_session_unlocked),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFA7F3D0)
+                    color = Color(0xFFA7F3D0),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Remaining authorization time: $timeFormatted",
+                    text = stringResource(R.string.guard_session_remaining, timeFormatted),
                     fontSize = 12.sp,
-                    color = Color(0xFFD1FAE5)
+                    color = Color(0xFFD1FAE5),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

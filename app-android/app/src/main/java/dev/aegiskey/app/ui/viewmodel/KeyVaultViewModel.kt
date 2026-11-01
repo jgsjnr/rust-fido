@@ -12,6 +12,9 @@ import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
+import dev.aegiskey.app.domain.model.SecureGuardStateEnum
+import dev.aegiskey.app.domain.model.SecureGuardStatus
+import dev.aegiskey.app.domain.repository.SecureGuardRepository
 import dev.aegiskey.app.domain.usecase.DeleteVaultEntryUseCase
 import dev.aegiskey.app.domain.usecase.EnrollOrUpdatePivPinUseCase
 import dev.aegiskey.app.domain.usecase.ExportKeyEnvelopeAegnUseCase
@@ -29,6 +32,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -46,7 +51,10 @@ data class KeyVaultUiState(
     val isGeneratingKey: Boolean = false,
     val healthCheckStatus: String? = null,
     val userMessage: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isKeyConnected: Boolean = false,
+    val isGuardUnlocked: Boolean = true,
+    val guardState: SecureGuardStateEnum = SecureGuardStateEnum.UNLOCKED,
 )
 
 private data class KeyVaultInternalState(
@@ -79,22 +87,31 @@ class KeyVaultViewModel(
     private val fetchHardwareDiagnosticsUseCase: FetchHardwareDiagnosticsUseCase? = null,
     private val resetHardwareVaultUseCase: ResetHardwareVaultUseCase? = null,
     private val keysStore: EncryptedKeysStore? = null,
+    private val secureGuardRepository: SecureGuardRepository? = null,
 ) : ViewModel() {
 
     val activeKey: StateFlow<ConnectedKeyDevice?> = getActiveKeyUseCase()
     val vaultEntries: StateFlow<List<VaultKeyEntry>> = getVaultEntriesUseCase()
+
+    val guardStatusFlow: StateFlow<SecureGuardStatus?> = secureGuardRepository?.statusFlow
+        ?: MutableStateFlow(null)
 
     private val _internalState = MutableStateFlow(KeyVaultInternalState())
 
     val uiState: StateFlow<KeyVaultUiState> = combine(
         activeKey,
         vaultEntries,
+        guardStatusFlow,
         _internalState
-    ) { key, entries, internal ->
-        val selected = entries.find { it.slotId == internal.selectedSlotId }
+    ) { key, entries, guardStatus, internal ->
+        val isConnected = key?.isCurrentlyConnected == true
+        val isGuardUnlocked = guardStatus == null || guardStatus.state == SecureGuardStateEnum.UNLOCKED
+        val visibleEntries = if (isConnected && isGuardUnlocked) entries else emptyList()
+
+        val selected = visibleEntries.find { it.slotId == internal.selectedSlotId }
         KeyVaultUiState(
             activeKey = key,
-            entries = entries,
+            entries = visibleEntries,
             selectedEntry = selected,
             selectedCategoryFilter = internal.selectedCategoryFilter,
             lastSignatureResult = internal.lastSignatureResult,
@@ -105,23 +122,36 @@ class KeyVaultViewModel(
             isGeneratingKey = internal.isLoading,
             healthCheckStatus = internal.healthCheckStatus,
             userMessage = internal.userMessage,
-            errorMessage = internal.errorMessage
+            errorMessage = internal.errorMessage,
+            isKeyConnected = isConnected,
+            isGuardUnlocked = isGuardUnlocked,
+            guardState = guardStatus?.state ?: SecureGuardStateEnum.UNLOCKED,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = KeyVaultUiState(
             activeKey = activeKey.value,
-            entries = vaultEntries.value
+            entries = if (activeKey.value?.isCurrentlyConnected == true) vaultEntries.value else emptyList()
         )
     )
 
     init {
         val currentKey = activeKey.value
-        if (currentKey != null) {
+        if (currentKey != null && currentKey.isCurrentlyConnected) {
             refreshVault()
             loadHardwareDiagnostics()
         }
+
+        // Whenever Secure Guard transitions to UNLOCKED, auto-reload real hardware keys
+        secureGuardRepository?.statusFlow?.onEach { status ->
+            if (status.state == SecureGuardStateEnum.UNLOCKED) {
+                val key = activeKey.value
+                if (key != null && key.isCurrentlyConnected) {
+                    refreshVault()
+                }
+            }
+        }?.launchIn(viewModelScope)
     }
 
     fun clearMessages() {
@@ -171,8 +201,14 @@ class KeyVaultViewModel(
         extraParam: String = ""
     ) {
         val currentKey = activeKey.value
-        if (currentKey == null) {
+        if (currentKey == null || !currentKey.isCurrentlyConnected) {
             _internalState.update { it.copy(errorMessage = "Nenhuma chave física conectada no momento.") }
+            return
+        }
+
+        val guardStatus = guardStatusFlow.value
+        if (guardStatus != null && guardStatus.state != SecureGuardStateEnum.UNLOCKED) {
+            _internalState.update { it.copy(errorMessage = "Secure Guard está bloqueado. Desbloqueie o Secure Guard para gerar chaves.") }
             return
         }
 
@@ -464,6 +500,7 @@ class KeyVaultViewModel(
                         fetchHardwareDiagnosticsUseCase = container.fetchHardwareDiagnosticsUseCase,
                         resetHardwareVaultUseCase = container.resetHardwareVaultUseCase,
                         keysStore = container.keysStore,
+                        secureGuardRepository = container.secureGuardRepository,
                     ) as T
                 }
             }

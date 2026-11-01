@@ -11,6 +11,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -79,6 +80,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
 
     val hasAnyKey by keysViewModel.hasAnyConnectedKey.collectAsState()
     val activeKey by keysViewModel.activeKey.collectAsState()
+    val guardUiState by secureGuardViewModel.uiState.collectAsState()
 
     AegisTheme(darkTheme = darkTheme, dynamicColor = themePref.useDynamicColors) {
         // Guided onboarding displays in full screen when no security key is connected.
@@ -112,11 +114,11 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
             }
 
             val transportLabel = when (activeKey?.transportType) {
-                ConnectionTransportType.BLE -> "Bluetooth"
-                ConnectionTransportType.USB -> "USB Cable"
-                ConnectionTransportType.WIFI -> "Wi-Fi"
-                ConnectionTransportType.SIMULATOR -> "Virtual Simulator"
-                null -> "Security Key"
+                ConnectionTransportType.BLE -> stringResource(R.string.transport_ble)
+                ConnectionTransportType.USB -> stringResource(R.string.transport_usb)
+                ConnectionTransportType.WIFI -> stringResource(R.string.transport_wifi)
+                ConnectionTransportType.SIMULATOR -> stringResource(R.string.transport_simulator)
+                null -> stringResource(R.string.default_security_key_name)
             }
 
             MainHubScaffoldTemplate(
@@ -128,9 +130,10 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                         restoreState = true
                     }
                 },
-                activeKeyName = activeKey?.displayName ?: "Security Key",
+                activeKeyName = activeKey?.displayName ?: stringResource(R.string.default_security_key_name),
                 isConnected = activeKey?.isCurrentlyConnected == true,
                 transportLabel = transportLabel,
+                guardState = guardUiState.status.state,
                 onSwitchKeyClick = {
                     nav.navigate(HubDestination.KEYS.route) {
                         popUpTo(nav.graph.findStartDestination().id) { saveState = true }

@@ -1,4 +1,146 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- App & Navigation -->
     <string name="app_name">AegisKey</string>
+    <string name="nav_vault">Vault</string>
+    <string name="nav_totp">TOTP</string>
+    <string name="nav_devices">Devices</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Top Bar & Header -->
+    <string name="default_security_key_name">Security Key</string>
+    <string name="cd_switch_key">Switch security key</string>
+    <string name="cd_toggle_theme">Toggle theme mode</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="transport_ble">Bluetooth</string>
+    <string name="transport_usb">USB Cable</string>
+    <string name="transport_wifi">Wi-Fi</string>
+    <string name="transport_simulator">Virtual Simulator</string>
+
+    <!-- Secure Guard Authority -->
+    <string name="guard_title">Secure Guard</string>
+    <string name="guard_subtitle">Zero-Trust On-Device Authority</string>
+    <string name="guard_refresh">Refresh</string>
+    <string name="guard_remaining_attempts">Remaining Attempts:</string>
+    <string name="guard_rate_limit_active">Rate Limit Active</string>
+    <string name="guard_rate_limit_wait">Wait %1$ds to try again</string>
+    <string name="guard_session_unlocked">Session Unlocked</string>
+    <string name="guard_session_remaining">Remaining authorization time: %1$s</string>
+    <string name="guard_unprovisioned_desc">Secure Guard is not initialized. Enter a 4 to 16 digit PIN to protect your keys.</string>
+    <string name="guard_new_pin">New Vault PIN</string>
+    <string name="guard_init_btn">Initialize Secure Guard</string>
+    <string name="guard_unlock_pin">Unlock PIN</string>
+    <string name="guard_unlock_btn">Unlock</string>
+    <string name="guard_emergency_recovery">Emergency Recovery</string>
+    <string name="guard_lock_now">Lock Now</string>
+    <string name="guard_change_pin">Change PIN</string>
+    <string name="guard_security_policies">Security Policies</string>
+    <string name="guard_selective_wipe">Selective Wipe</string>
+    <string name="guard_max_attempts_reached">Maximum attempts limit reached</string>
+    <string name="guard_recovery_desc">Secure Guard is locked for security. Enter your 16-character Recovery Code to restore access.</string>
+    <string name="guard_check_connection">Check Security Key Connection</string>
+    <string name="guard_recovery_code_label">Emergency Recovery Code:</string>
+    <string name="guard_recovery_code_hint">Store this recovery code in a secure offline location.</string>
+    <string name="guard_dialog_change_pin_title">Change Vault PIN</string>
+    <string name="guard_curr_pin_label">Current PIN</string>
+    <string name="guard_next_pin_label">New PIN (4 to 16 digits)</string>
+    <string name="guard_save_pin_btn">Save New PIN</string>
+    <string name="guard_recovery_dialog_title">Emergency Recovery with Recovery Code</string>
+    <string name="guard_recovery_code_input_label">Recovery Code (XXXX-XXXX-XXXX-XXXX)</string>
+    <string name="guard_recover_and_save_btn">Recover and Save</string>
+    <string name="guard_policies_title">On-Chip Security Policies</string>
+    <string name="guard_policy_wipe_on_5">Automatic wipe after 5 consecutive failed attempts</string>
+    <string name="guard_policy_protect_keys">Protect private keys and AEGN envelopes</string>
+    <string name="guard_policy_protect_oath">Protect OATH accounts (TOTP / HOTP)</string>
+    <string name="guard_policy_test_mode">Non-destructive test mode (Simulated wipe)</string>
+    <string name="guard_save_policies_btn">Save Policies</string>
+    <string name="guard_wipe_title">Selective Wipe of Protected Resources</string>
+    <string name="guard_wipe_instruction">Type CONFIRM_WIPE_AEGIS_GUARD to confirm selective wipe.</string>
+    <string name="guard_confirm_token_label">Confirmation Token</string>
+    <string name="guard_confirm_wipe_btn">Confirm Wipe</string>
+    <string name="guard_btn_cancel">Cancel</string>
+    <string name="guard_btn_close">Close</string>
+    <string name="guard_provision_success">Secure Guard provisioned successfully.</string>
+    <string name="guard_unlock_success">Vault unlocked successfully.</string>
+    <string name="guard_lock_success">Vault locked immediately.</string>
+    <string name="guard_change_pin_success">PIN changed successfully. Vault locked.</string>
+
+    <!-- Keypad Molecule -->
+    <string name="pin_label_default">Vault PIN</string>
+    <string name="pin_btn_confirm">Confirm</string>
+    <string name="pin_min_digits">Minimum 4 digits</string>
+    <string name="pin_keypad_clear">C</string>
+    <string name="pin_keypad_backspace">⌫</string>
+
+    <!-- Vault Hub Screen -->
+    <string name="vault_btn_generate">Generate Key in Security Key</string>
+    <string name="vault_filter_all">All (%1$d)</string>
+    <string name="vault_filter_passkeys">Passkeys &amp; SSH</string>
+    <string name="vault_filter_crypto">Crypto Wallets</string>
+    <string name="vault_filter_piv">PIV Smartcard</string>
+    <string name="vault_filter_aegn">AEGN Envelope</string>
+    <string name="vault_disconnected_title">Security Key Disconnected</string>
+    <string name="vault_disconnected_desc">Connect the security key to view hardware keys.</string>
+    <string name="vault_guard_locked_title">Secure Guard Locked</string>
+    <string name="vault_guard_locked_desc">Secure Guard is locked. Unlock Secure Guard to view and use hardware keys.</string>
+    <string name="vault_empty_title">No keys on security key</string>
+    <string name="vault_empty_desc">No keys on security key. Tap Create Key to generate a hardware key.</string>
+    <string name="vault_delete_title">Delete Key?</string>
+    <string name="vault_delete_confirm_msg">Do you want to delete \"%1$s\"? The key pair will be permanently removed from the security key.</string>
+    <string name="vault_delete_btn">Delete Key</string>
+    <string name="vault_cancel_btn">Cancel</string>
+    <string name="vault_hardware_status_title">Security Key Hardware Status</string>
+    <string name="vault_channel_slots">Channel: %1$s · Slots: %2$d used, %3$d available</string>
+    <string name="vault_supported_curves">Supported curves: %1$s</string>
+    <string name="vault_show_diagnostics">Show Hardware Diagnostics</string>
+    <string name="vault_hide_diagnostics">Hide Hardware Diagnostics</string>
+    <string name="vault_quick_check">Run Quick Health Check</string>
+
+    <!-- Key Generation Dialog -->
+    <string name="keygen_title">Generate Key in Security Key</string>
+    <string name="keygen_label_hint">Key Label (e.g. GitHub Passkey)</string>
+    <string name="keygen_type_label">Credential Type</string>
+    <string name="keygen_curve_label">Cryptographic Curve</string>
+    <string name="keygen_confirm_btn">Generate Key</string>
+    <string name="keygen_cancel_btn">Cancel</string>
+
+    <!-- TOTP Screen -->
+    <string name="totp_add_btn">Add Code (TOTP / HOTP)</string>
+    <string name="totp_section_title">Verification Codes</string>
+    <string name="totp_empty_title">No verification codes</string>
+    <string name="totp_empty_desc">Add accounts to generate one-time codes on your security key.</string>
+    <string name="totp_delete_title">Remove Code?</string>
+    <string name="totp_delete_desc">Do you want to remove \"%1$s\" from the security key?</string>
+    <string name="totp_delete_btn">Delete</string>
+    <string name="totp_sync_codes">Sync codes</string>
+
+    <!-- Connected Keys Repository Screen -->
+    <string name="keys_screen_title">Security Keys</string>
+    <string name="keys_connect_new">Connect New Key</string>
+    <string name="keys_dynamic_lock_pc">Dynamic Lock PC</string>
+    <string name="keys_empty_title">No security keys connected</string>
+    <string name="keys_empty_desc">Pair a security key via Bluetooth or connect via USB to start.</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Theme &amp; Appearance</string>
+    <string name="settings_security">Security &amp; Hardware PIN</string>
+    <string name="settings_biometrics">Biometric Verification</string>
+    <string name="settings_walkaway">Lock on Walk Away</string>
+
+    <!-- Onboarding Wizard -->
+    <string name="wizard_title_transport">Select Connection Method</string>
+    <string name="wizard_desc_transport">Select how to connect the security key to this device.</string>
+    <string name="wizard_title_hold">Activate Security Key</string>
+    <string name="wizard_desc_hold">Press and hold the physical button for 5 seconds.</string>
+    <string name="wizard_title_discover">Find Security Key</string>
+    <string name="wizard_desc_discover">Select your security key from the list to connect.</string>
+    <string name="wizard_title_bind">Confirm User Presence</string>
+    <string name="wizard_desc_bind">Press the physical button once to confirm binding.</string>
+    <string name="wizard_title_name">Name Security Key</string>
+    <string name="wizard_desc_name">Enter a name for the security key and complete setup.</string>
+    <string name="wizard_btn_next">Next</string>
+    <string name="wizard_btn_complete">Complete Setup</string>
+    <string name="wizard_btn_back">Back</string>
 </resources>

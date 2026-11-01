@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -29,10 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.ui.atomic.atoms.SecureGuardBadgeAtom
@@ -43,8 +48,9 @@ import dev.aegiskey.app.ui.viewmodel.SecureGuardUiState
 
 /**
  * Secure Guard authority organism (Zero-Trust On-Device Authority Vault).
- * Standardized in ASD-STE100 technical English.
+ * Standardized in ASD-STE100 technical English with 100% responsive Layouts.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SecureGuardCardOrganism(
     uiState: SecureGuardUiState,
@@ -75,38 +81,54 @@ fun SecureGuardCardOrganism(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header: Title + Badge + Refresh
+            // Header: Title + Badge + Refresh Action (Responsive)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "🛡️ Secure Guard",
+                            text = "🛡️ ${stringResource(R.string.guard_title)}",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         SecureGuardBadgeAtom(state = status.state)
                     }
                     Text(
-                        text = "Zero-Trust On-Device Authority",
+                        text = stringResource(R.string.guard_subtitle),
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     if (uiState.isLoading) {
                         CircularProgressIndicator(modifier = Modifier.padding(end = 4.dp), strokeWidth = 2.dp)
                     }
-                    OutlinedButton(onClick = onRefresh, modifier = Modifier.padding(0.dp)) {
-                        Text("Refresh", fontSize = 12.sp)
+                    OutlinedButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.padding(0.dp)
+                    ) {
+                        Text(stringResource(R.string.guard_refresh), fontSize = 12.sp)
                     }
                 }
             }
@@ -121,9 +143,10 @@ fun SecureGuardCardOrganism(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Remaining Attempts:",
+                    text = stringResource(R.string.guard_remaining_attempts),
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 Text(
                     text = "[ ${status.remainingAttempts} / ${status.maxAttempts} ]",
@@ -169,7 +192,7 @@ fun SecureGuardCardOrganism(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "Emergency Recovery Code:",
+                            text = stringResource(R.string.guard_recovery_code_label),
                             fontSize = 11.sp,
                             color = Color(0xFF94A3B8)
                         )
@@ -181,7 +204,7 @@ fun SecureGuardCardOrganism(
                             color = Color(0xFF38BDF8)
                         )
                         Text(
-                            text = "Store this recovery code in a secure offline location.",
+                            text = stringResource(R.string.guard_recovery_code_hint),
                             fontSize = 10.sp,
                             color = Color(0xFF64748B)
                         )
@@ -193,13 +216,13 @@ fun SecureGuardCardOrganism(
             when (status.state) {
                 SecureGuardStateEnum.UNPROVISIONED -> {
                     Text(
-                        text = "Secure Guard is not initialized. Enter a 4 to 16 digit PIN to protect your crypto wallets.",
+                        text = stringResource(R.string.guard_unprovisioned_desc),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     SecurePinKeypadMolecule(
-                        label = "New Vault PIN",
-                        buttonText = "Initialize Secure Guard",
+                        label = stringResource(R.string.guard_new_pin),
+                        buttonText = stringResource(R.string.guard_init_btn),
                         enabled = !uiState.isLoading,
                         errorMessage = uiState.errorMessage,
                         onSubmit = { pin -> onProvision(pin, null, null) }
@@ -208,8 +231,8 @@ fun SecureGuardCardOrganism(
 
                 SecureGuardStateEnum.LOCKED, SecureGuardStateEnum.RATE_LIMITED -> {
                     SecurePinKeypadMolecule(
-                        label = "Unlock PIN",
-                        buttonText = "Unlock",
+                        label = stringResource(R.string.guard_unlock_pin),
+                        buttonText = stringResource(R.string.guard_unlock_btn),
                         enabled = !uiState.isLoading && status.state != SecureGuardStateEnum.RATE_LIMITED,
                         errorMessage = uiState.errorMessage,
                         onSubmit = onUnlock
@@ -217,44 +240,38 @@ fun SecureGuardCardOrganism(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextButton(onClick = { showRecoverDialog = !showRecoverDialog }) {
-                            Text("Emergency Recovery", fontSize = 12.sp, color = Color(0xFFF59E0B))
+                            Text(stringResource(R.string.guard_emergency_recovery), fontSize = 12.sp, color = Color(0xFFF59E0B))
                         }
                     }
                 }
 
                 SecureGuardStateEnum.UNLOCKED -> {
-                    Row(
+                    // FlowRow to prevent clipping/wrapping collisions on narrow screens
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
                             onClick = onLock,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                            modifier = Modifier.weight(1f)
                         ) {
-                            Text("🔒 Lock Now")
+                            Text("🔒 ${stringResource(R.string.guard_lock_now)}")
                         }
                         OutlinedButton(
-                            onClick = { showChangePinDialog = !showChangePinDialog },
-                            modifier = Modifier.weight(1f)
+                            onClick = { showChangePinDialog = !showChangePinDialog }
                         ) {
-                            Text("Change PIN")
+                            Text(stringResource(R.string.guard_change_pin))
                         }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
                         TextButton(onClick = { showPolicySettings = !showPolicySettings }) {
-                            Text("⚙️ Security Policies", fontSize = 12.sp)
+                            Text("⚙️ ${stringResource(R.string.guard_security_policies)}", fontSize = 12.sp)
                         }
                         TextButton(onClick = { showWipeConfirm = !showWipeConfirm }) {
-                            Text("🔥 Selective Wipe", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                            Text("🔥 ${stringResource(R.string.guard_selective_wipe)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -268,13 +285,13 @@ fun SecureGuardCardOrganism(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "⚠️ Maximum attempts limit reached",
+                                text = "⚠️ ${stringResource(R.string.guard_max_attempts_reached)}",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFF97316)
                             )
                             Text(
-                                text = "Secure Guard is locked for security. Enter your 16-character Recovery Code to restore access.",
+                                text = stringResource(R.string.guard_recovery_desc),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -285,7 +302,7 @@ fun SecureGuardCardOrganism(
 
                 else -> {
                     OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-                        Text("Check Security Key Connection")
+                        Text(stringResource(R.string.guard_check_connection))
                     }
                 }
             }
@@ -302,21 +319,25 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Change Vault PIN", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(stringResource(R.string.guard_dialog_change_pin_title), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     OutlinedTextField(
                         value = currPin,
                         onValueChange = { currPin = it },
-                        label = { Text("Current PIN") },
+                        label = { Text(stringResource(R.string.guard_curr_pin_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = nextPin,
                         onValueChange = { nextPin = it },
-                        label = { Text("New PIN (4 to 16 digits)") },
+                        label = { Text(stringResource(R.string.guard_next_pin_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showChangePinDialog = false }) { Text("Cancel") }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextButton(onClick = { showChangePinDialog = false }) { Text(stringResource(R.string.guard_btn_cancel)) }
                         Button(
                             onClick = {
                                 onChangePin(currPin, nextPin)
@@ -324,7 +345,7 @@ fun SecureGuardCardOrganism(
                             },
                             enabled = currPin.isNotEmpty() && nextPin.length >= 4
                         ) {
-                            Text("Save New PIN")
+                            Text(stringResource(R.string.guard_save_pin_btn))
                         }
                     }
                 }
@@ -342,21 +363,25 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Emergency Recovery with Recovery Code", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFFF59E0B))
+                    Text(stringResource(R.string.guard_recovery_dialog_title), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFFF59E0B))
                     OutlinedTextField(
                         value = rcInput,
                         onValueChange = { rcInput = it },
-                        label = { Text("Recovery Code (XXXX-XXXX-XXXX-XXXX)") },
+                        label = { Text(stringResource(R.string.guard_recovery_code_input_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = newPinInput,
                         onValueChange = { newPinInput = it },
-                        label = { Text("New PIN (4 to 16 digits)") },
+                        label = { Text(stringResource(R.string.guard_next_pin_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showRecoverDialog = false }) { Text("Cancel") }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextButton(onClick = { showRecoverDialog = false }) { Text(stringResource(R.string.guard_btn_cancel)) }
                         Button(
                             onClick = {
                                 onRecover(rcInput, newPinInput)
@@ -365,7 +390,7 @@ fun SecureGuardCardOrganism(
                             enabled = rcInput.length >= 16 && newPinInput.length >= 4,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
                         ) {
-                            Text("Recover and Save")
+                            Text(stringResource(R.string.guard_recover_and_save_btn))
                         }
                     }
                 }
@@ -385,25 +410,57 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("On-Chip Security Policies", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.guard_policies_title), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Checkbox(checked = wipeOn5, onCheckedChange = { wipeOn5 = it })
-                        Text("Automatic wipe after 5 consecutive failed attempts", fontSize = 12.sp)
+                        Text(
+                            stringResource(R.string.guard_policy_wipe_on_5),
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Checkbox(checked = protectKeys, onCheckedChange = { protectKeys = it })
-                        Text("Protect private keys and AEGN envelopes", fontSize = 12.sp)
+                        Text(
+                            stringResource(R.string.guard_policy_protect_keys),
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Checkbox(checked = protectOath, onCheckedChange = { protectOath = it })
-                        Text("Protect OATH accounts (TOTP / HOTP)", fontSize = 12.sp)
+                        Text(
+                            stringResource(R.string.guard_policy_protect_oath),
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Checkbox(checked = testModeWipe, onCheckedChange = { testModeWipe = it })
-                        Text("Non-destructive test mode (Simulated wipe)", fontSize = 12.sp)
+                        Text(
+                            stringResource(R.string.guard_policy_test_mode),
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showPolicySettings = false }) { Text("Close") }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextButton(onClick = { showPolicySettings = false }) { Text(stringResource(R.string.guard_btn_close)) }
                         Button(
                             onClick = {
                                 onUpdatePolicy(
@@ -417,7 +474,7 @@ fun SecureGuardCardOrganism(
                                 showPolicySettings = false
                             }
                         ) {
-                            Text("Save Policies")
+                            Text(stringResource(R.string.guard_save_policies_btn))
                         }
                     }
                 }
@@ -435,16 +492,28 @@ fun SecureGuardCardOrganism(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("⚠️ Selective Wipe of Protected Resources", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
-                    Text("Type CONFIRM_WIPE_AEGIS_GUARD to confirm selective wipe.", fontSize = 11.sp)
+                    Text(
+                        text = "⚠️ ${stringResource(R.string.guard_wipe_title)}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = stringResource(R.string.guard_wipe_instruction),
+                        fontSize = 11.sp
+                    )
                     OutlinedTextField(
                         value = confirmToken,
                         onValueChange = { confirmToken = it },
-                        label = { Text("Confirmation Token") },
+                        label = { Text(stringResource(R.string.guard_confirm_token_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showWipeConfirm = false }) { Text("Cancel") }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextButton(onClick = { showWipeConfirm = false }) { Text(stringResource(R.string.guard_btn_cancel)) }
                         Button(
                             onClick = {
                                 onWipeSelective(0, confirmToken)
@@ -453,7 +522,7 @@ fun SecureGuardCardOrganism(
                             enabled = confirmToken == "CONFIRM_WIPE_AEGIS_GUARD",
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                         ) {
-                            Text("Confirm Wipe")
+                            Text(stringResource(R.string.guard_confirm_wipe_btn))
                         }
                     }
                 }

@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App & Navigation -->
+    <string name="app_name">AegisKey</string>
+    <string name="nav_vault">Cofre</string>
+    <string name="nav_totp">TOTP</string>
+    <string name="nav_devices">Dispositivos</string>
+    <string name="nav_settings">Configurações</string>
+
+    <!-- Top Bar & Header -->
+    <string name="default_security_key_name">Chave de Segurança</string>
+    <string name="cd_switch_key">Trocar chave de segurança</string>
+    <string name="cd_toggle_theme">Alternar modo de tema</string>
+    <string name="status_connected">Conectado</string>
+    <string name="status_disconnected">Desconectado</string>
+    <string name="transport_ble">Bluetooth</string>
+    <string name="transport_usb">Cabo USB</string>
+    <string name="transport_wifi">Wi-Fi</string>
+    <string name="transport_simulator">Simulador Virtual</string>
+
+    <!-- Secure Guard Authority -->
+    <string name="guard_title">Secure Guard</string>
+    <string name="guard_subtitle">Autoridade Zero-Trust no Chip</string>
+    <string name="guard_refresh">Atualizar</string>
+    <string name="guard_remaining_attempts">Tentativas Restantes:</string>
+    <string name="guard_rate_limit_active">Bloqueio Temporário Ativo</string>
+    <string name="guard_rate_limit_wait">Aguarde %1$ds para tentar novamente</string>
+    <string name="guard_session_unlocked">Sessão Desbloqueada</string>
+    <string name="guard_session_remaining">Tempo de autorização restante: %1$s</string>
+    <string name="guard_unprovisioned_desc">Secure Guard não inicializado. Digite um PIN de 4 a 16 dígitos para proteger suas chaves.</string>
+    <string name="guard_new_pin">Novo PIN do Cofre</string>
+    <string name="guard_init_btn">Inicializar Secure Guard</string>
+    <string name="guard_unlock_pin">PIN de Desbloqueio</string>
+    <string name="guard_unlock_btn">Desbloquear</string>
+    <string name="guard_emergency_recovery">Recuperação de Emergência</string>
+    <string name="guard_lock_now">Bloquear Agora</string>
+    <string name="guard_change_pin">Alterar PIN</string>
+    <string name="guard_security_policies">Políticas de Segurança</string>
+    <string name="guard_selective_wipe">Limpeza Seletiva</string>
+    <string name="guard_max_attempts_reached">Limite de tentativas excedido</string>
+    <string name="guard_recovery_desc">Secure Guard bloqueado por segurança. Digite o código de recuperação de 16 caracteres para restaurar o acesso.</string>
+    <string name="guard_check_connection">Verificar Conexão da Chave</string>
+    <string name="guard_recovery_code_label">Código de Recuperação de Emergência:</string>
+    <string name="guard_recovery_code_hint">Guarde este código em local seguro e offline.</string>
+    <string name="guard_dialog_change_pin_title">Alterar PIN do Cofre</string>
+    <string name="guard_curr_pin_label">PIN Atual</string>
+    <string name="guard_next_pin_label">Novo PIN (4 a 16 dígitos)</string>
+    <string name="guard_save_pin_btn">Salvar Novo PIN</string>
+    <string name="guard_recovery_dialog_title">Recuperação com Código de Emergência</string>
+    <string name="guard_recovery_code_input_label">Código de Recuperação (XXXX-XXXX-XXXX-XXXX)</string>
+    <string name="guard_recover_and_save_btn">Recuperar e Salvar</string>
+    <string name="guard_policies_title">Políticas de Segurança no Chip</string>
+    <string name="guard_policy_wipe_on_5">Limpeza automática após 5 tentativas falhas consecutivas</string>
+    <string name="guard_policy_protect_keys">Proteger chaves privadas e envelopes AEGN</string>
+    <string name="guard_policy_protect_oath">Proteger contas OATH (TOTP / HOTP)</string>
+    <string name="guard_policy_test_mode">Modo de teste não destrutivo (Limpeza simulada)</string>
+    <string name="guard_save_policies_btn">Salvar Políticas</string>
+    <string name="guard_wipe_title">Limpeza Seletiva de Recursos Protegidos</string>
+    <string name="guard_wipe_instruction">Digite CONFIRM_WIPE_AEGIS_GUARD para confirmar a limpeza seletiva.</string>
+    <string name="guard_confirm_token_label">Token de Confirmação</string>
+    <string name="guard_confirm_wipe_btn">Confirmar Limpeza</string>
+    <string name="guard_btn_cancel">Cancelar</string>
+    <string name="guard_btn_close">Fechar</string>
+    <string name="guard_provision_success">Secure Guard provisionado com sucesso.</string>
+    <string name="guard_unlock_success">Cofre desbloqueado com sucesso.</string>
+    <string name="guard_lock_success">Cofre bloqueado imediatamente.</string>
+    <string name="guard_change_pin_success">PIN alterado com sucesso. Cofre bloqueado.</string>
+
+    <!-- Keypad Molecule -->
+    <string name="pin_label_default">PIN do Cofre</string>
+    <string name="pin_btn_confirm">Confirmar</string>
+    <string name="pin_min_digits">Mínimo de 4 dígitos</string>
+    <string name="pin_keypad_clear">C</string>
+    <string name="pin_keypad_backspace">⌫</string>
+
+    <!-- Vault Hub Screen -->
+    <string name="vault_btn_generate">Gerar Chave na Chave de Segurança</string>
+    <string name="vault_filter_all">Todas (%1$d)</string>
+    <string name="vault_filter_passkeys">Passkeys e SSH</string>
+    <string name="vault_filter_crypto">Carteiras Cripto</string>
+    <string name="vault_filter_piv">Smartcard PIV</string>
+    <string name="vault_filter_aegn">Envelope AEGN</string>
+    <string name="vault_disconnected_title">Chave de Segurança Desconectada</string>
+    <string name="vault_disconnected_desc">Conecte a chave de segurança para ver as chaves de hardware.</string>
+    <string name="vault_guard_locked_title">Secure Guard Bloqueado</string>
+    <string name="vault_guard_locked_desc">Secure Guard bloqueado. Desbloqueie o Secure Guard para ver e usar as chaves.</string>
+    <string name="vault_empty_title">Nenhuma chave no dispositivo</string>
+    <string name="vault_empty_desc">Nenhuma chave no dispositivo. Toque em Gerar Chave para criar uma chave no hardware.</string>
+    <string name="vault_delete_title">Excluir Chave?</string>
+    <string name="vault_delete_confirm_msg">Deseja excluir \"%1$s\"? O par de chaves será removido permanentemente do dispositivo.</string>
+    <string name="vault_delete_btn">Excluir Chave</string>
+    <string name="vault_cancel_btn">Cancelar</string>
+    <string name="vault_hardware_status_title">Status do Hardware da Chave</string>
+    <string name="vault_channel_slots">Canal: %1$s · Slots: %2$d usados, %3$d disponíveis</string>
+    <string name="vault_supported_curves">Curvas suportadas: %1$s</string>
+    <string name="vault_show_diagnostics">Exibir Diagnósticos de Hardware</string>
+    <string name="vault_hide_diagnostics">Ocultar Diagnósticos de Hardware</string>
+    <string name="vault_quick_check">Executar Verificação Rápida</string>
+
+    <!-- Key Generation Dialog -->
+    <string name="keygen_title">Gerar Chave no Hardware</string>
+    <string name="keygen_label_hint">Rótulo da Chave (ex: GitHub Passkey)</string>
+    <string name="keygen_type_label">Tipo de Credencial</string>
+    <string name="keygen_curve_label">Curva Criptográfica</string>
+    <string name="keygen_confirm_btn">Gerar Chave</string>
+    <string name="keygen_cancel_btn">Cancelar</string>
+
+    <!-- TOTP Screen -->
+    <string name="totp_add_btn">Adicionar Código (TOTP / HOTP)</string>
+    <string name="totp_section_title">Códigos de Verificação</string>
+    <string name="totp_empty_title">Nenhum código cadastrado</string>
+    <string name="totp_empty_desc">Adicione contas para gerar códigos temporários na sua chave.</string>
+    <string name="totp_delete_title">Remover Código?</string>
+    <string name="totp_delete_desc">Deseja remover \"%1$s\" da chave de segurança?</string>
+    <string name="totp_delete_btn">Excluir</string>
+    <string name="totp_sync_codes">Sincronizar códigos</string>
+
+    <!-- Connected Keys Repository Screen -->
+    <string name="keys_screen_title">Chaves de Segurança</string>
+    <string name="keys_connect_new">Conectar Nova Chave</string>
+    <string name="keys_dynamic_lock_pc">Bloqueio Dinâmico do PC</string>
+    <string name="keys_empty_title">Nenhuma chave conectada</string>
+    <string name="keys_empty_desc">Pareie uma chave via Bluetooth ou conecte via USB para começar.</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Configurações</string>
+    <string name="settings_appearance">Tema e Aparência</string>
+    <string name="settings_security">Segurança e PIN de Hardware</string>
+    <string name="settings_biometrics">Verificação Biométrica</string>
+    <string name="settings_walkaway">Bloquear ao se Afastar</string>
+
+    <!-- Onboarding Wizard -->
+    <string name="wizard_title_transport">Selecione o Método de Conexão</string>
+    <string name="wizard_desc_transport">Selecione como conectar a chave de segurança a este dispositivo.</string>
+    <string name="wizard_title_hold">Ative a Chave de Segurança</string>
+    <string name="wizard_desc_hold">Pressione e segure o botão físico por 5 segundos.</string>
+    <string name="wizard_title_discover">Encontre a Chave de Segurança</string>
+    <string name="wizard_desc_discover">Selecione sua chave de segurança na lista para conectar.</string>
+    <string name="wizard_title_bind">Confirme a Presença do Usuário</string>
+    <string name="wizard_desc_bind">Pressione o botão físico uma vez para confirmar o pareamento.</string>
+    <string name="wizard_title_name">Nomeie a Chave de Segurança</string>
+    <string name="wizard_desc_name">Digite um nome para a chave de segurança e conclua a configuração.</string>
+    <string name="wizard_btn_next">Avançar</string>
+    <string name="wizard_btn_complete">Concluir Configuração</string>
+    <string name="wizard_btn_back">Voltar</string>
+</resources>

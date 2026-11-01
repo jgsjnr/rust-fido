@@ -26,11 +26,11 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -51,9 +51,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
@@ -67,7 +69,7 @@ import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
 
 /**
  * Vault Hub Screen (Aba 1: Vault).
- * Exclusively responsible for Secure Guard Authority Card + Vault Keys & Wallets.
+ * Exclusively responsible for Secure Guard Authority Card + Real Hardware Vault Keys & Wallets.
  * Standardized in ASD-STE100 technical English.
  */
 @Composable
@@ -96,6 +98,13 @@ fun KeyVaultHubScreen(
         uiState.errorMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessages()
+        }
+    }
+
+    // Auto-reload from hardware when key connects and Secure Guard is unlocked
+    LaunchedEffect(uiState.isKeyConnected, uiState.isGuardUnlocked) {
+        if (uiState.isKeyConnected && uiState.isGuardUnlocked) {
+            viewModel.refreshVault()
         }
     }
 
@@ -146,14 +155,29 @@ fun KeyVaultHubScreen(
                     val sgState by secureGuardViewModel.uiState.collectAsState()
                     SecureGuardCardOrganism(
                         uiState = sgState,
-                        onProvision = { pin, rc, pol -> secureGuardViewModel.provision(pin, rc, pol) },
-                        onUnlock = { pin -> secureGuardViewModel.unlock(pin) },
-                        onLock = { secureGuardViewModel.lock() },
+                        onProvision = { pin, rc, pol ->
+                            secureGuardViewModel.provision(pin, rc, pol)
+                            viewModel.refreshVault()
+                        },
+                        onUnlock = { pin ->
+                            secureGuardViewModel.unlock(pin)
+                            viewModel.refreshVault()
+                        },
+                        onLock = {
+                            secureGuardViewModel.lock()
+                            viewModel.refreshVault()
+                        },
                         onChangePin = { curr, next -> secureGuardViewModel.changePin(curr, next) },
                         onRecover = { rc, next -> secureGuardViewModel.recover(rc, next) },
                         onUpdatePolicy = { pol -> secureGuardViewModel.updatePolicy(pol) },
-                        onWipeSelective = { scope, token -> secureGuardViewModel.wipeSelective(scope, token) },
-                        onRefresh = { secureGuardViewModel.refreshStatus() },
+                        onWipeSelective = { scope, token ->
+                            secureGuardViewModel.wipeSelective(scope, token)
+                            viewModel.refreshVault()
+                        },
+                        onRefresh = {
+                            secureGuardViewModel.refreshStatus()
+                            viewModel.refreshVault()
+                        },
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                 }
@@ -174,14 +198,17 @@ fun KeyVaultHubScreen(
                 )
             }
 
-            // 3. Primary Button: Generate New Key in Hardware
+            // 3. Primary Button: Generate New Key in Hardware (disabled when key is disconnected or Secure Guard is locked)
             item {
                 Button(
                     onClick = { showCreateDialog = true },
+                    enabled = uiState.isKeyConnected && uiState.isGuardUnlocked && !uiState.isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -191,7 +218,7 @@ fun KeyVaultHubScreen(
                         Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Generate Key in Security Key",
+                            text = stringResource(R.string.vault_btn_generate),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -212,34 +239,109 @@ fun KeyVaultHubScreen(
                     FilterChip(
                         selected = uiState.selectedCategoryFilter == "ALL",
                         onClick = { viewModel.setCategoryFilter("ALL") },
-                        label = { Text("All (${uiState.entries.size})", style = MaterialTheme.typography.labelSmall) },
+                        label = { Text(stringResource(R.string.vault_filter_all, uiState.entries.size), style = MaterialTheme.typography.labelSmall) },
                         colors = FilterChipDefaults.filterChipColors()
                     )
                     FilterChip(
                         selected = uiState.selectedCategoryFilter == "PASSKEYS",
                         onClick = { viewModel.setCategoryFilter("PASSKEYS") },
-                        label = { Text("Passkeys & SSH", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.vault_filter_passkeys), style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = uiState.selectedCategoryFilter == "CRYPTO",
                         onClick = { viewModel.setCategoryFilter("CRYPTO") },
-                        label = { Text("Crypto Wallets", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.vault_filter_crypto), style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = uiState.selectedCategoryFilter == "PIV",
                         onClick = { viewModel.setCategoryFilter("PIV") },
-                        label = { Text("PIV Smartcard", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.vault_filter_piv), style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = uiState.selectedCategoryFilter == "AEGN",
                         onClick = { viewModel.setCategoryFilter("AEGN") },
-                        label = { Text("AEGN Envelope", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.vault_filter_aegn), style = MaterialTheme.typography.labelSmall) }
                     )
                 }
             }
 
-            // 5. Empty State
-            if (filteredEntries.isEmpty() && !uiState.isLoading) {
+            // 5. Responsive States: Disconnected vs Locked Guard vs Empty Hardware Vault vs Keys List
+            if (!uiState.isKeyConnected) {
+                // State 1: Key Disconnected
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.VpnKey,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(32.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.vault_disconnected_title),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = stringResource(R.string.vault_disconnected_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            } else if (!uiState.isGuardUnlocked) {
+                // State 2: Key Connected, BUT Secure Guard is LOCKED (Gatekeeper enforcement)
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(32.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.vault_guard_locked_title),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = stringResource(R.string.vault_guard_locked_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            } else if (filteredEntries.isEmpty() && !uiState.isLoading) {
+                // State 3: Key Connected and Unlocked, but zero keys on hardware
                 item {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -258,14 +360,14 @@ fun KeyVaultHubScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "No keys in vault",
+                                text = stringResource(R.string.vault_empty_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Tap the button above to generate a passkey or crypto wallet.",
+                                text = stringResource(R.string.vault_empty_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -274,32 +376,32 @@ fun KeyVaultHubScreen(
                         }
                     }
                 }
-            }
+            } else {
+                // State 4: List of verified Real Hardware Vault Keys
+                items(filteredEntries, key = { it.slotId }) { entry ->
+                    val typeLabel = when (entry.type) {
+                        AccessKeyType.PASSKEY_FIDO -> "Passkey"
+                        AccessKeyType.VENDOR_SIGNING_KEY -> "Vendor Key"
+                        AccessKeyType.CRYPTO_WALLET_BTC -> "Bitcoin"
+                        AccessKeyType.CRYPTO_WALLET_ETH -> "Ethereum"
+                        AccessKeyType.CRYPTO_WALLET_SOL -> "Solana"
+                        AccessKeyType.CRYPTO_WALLET_DOT -> "Polkadot"
+                        AccessKeyType.PIV_SMARTCARD_SLOT -> "PIV Smartcard"
+                        AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "AEGN Envelope"
+                    }
 
-            // 6. List of Vault Keys
-            items(filteredEntries, key = { it.slotId }) { entry ->
-                val typeLabel = when (entry.type) {
-                    AccessKeyType.PASSKEY_FIDO -> "Passkey"
-                    AccessKeyType.VENDOR_SIGNING_KEY -> "Vendor Key"
-                    AccessKeyType.CRYPTO_WALLET_BTC -> "Bitcoin"
-                    AccessKeyType.CRYPTO_WALLET_ETH -> "Ethereum"
-                    AccessKeyType.CRYPTO_WALLET_SOL -> "Solana"
-                    AccessKeyType.CRYPTO_WALLET_DOT -> "Polkadot"
-                    AccessKeyType.PIV_SMARTCARD_SLOT -> "PIV Smartcard"
-                    AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "AEGN Envelope"
+                    VaultEntryCardMolecule(
+                        title = entry.label,
+                        subtitle = entry.publicSummary,
+                        entryType = typeLabel,
+                        identifierToCopy = entry.publicSummary,
+                        algorithmOrCurve = entry.algorithmOrCurve,
+                        derivationPathOrSlotCode = entry.derivationPathOrSlotCode,
+                        onOpenDetail = { viewModel.openKeyDetail(entry.slotId) },
+                        onCopy = { viewModel.copyIdentifier(it) },
+                        onDelete = { entryToDelete = entry },
+                    )
                 }
-
-                VaultEntryCardMolecule(
-                    title = entry.label,
-                    subtitle = entry.publicSummary,
-                    entryType = typeLabel,
-                    identifierToCopy = entry.publicSummary,
-                    algorithmOrCurve = entry.algorithmOrCurve,
-                    derivationPathOrSlotCode = entry.derivationPathOrSlotCode,
-                    onOpenDetail = { viewModel.openKeyDetail(entry.slotId) },
-                    onCopy = { viewModel.copyIdentifier(it) },
-                    onDelete = { entryToDelete = entry },
-                )
             }
 
             item {
@@ -341,7 +443,7 @@ fun KeyVaultHubScreen(
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Delete Key?",
+                    text = stringResource(R.string.vault_delete_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -350,7 +452,7 @@ fun KeyVaultHubScreen(
             },
             text = {
                 Text(
-                    text = "Do you want to delete \"${entry.label}\"? The key pair will be permanently removed from the security key.",
+                    text = stringResource(R.string.vault_delete_confirm_msg, entry.label),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
@@ -370,12 +472,12 @@ fun KeyVaultHubScreen(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.height(38.dp),
                 ) {
-                    Text("Delete Key", maxLines = 1)
+                    Text(stringResource(R.string.vault_delete_btn), maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { entryToDelete = null }) {
-                    Text("Cancel", maxLines = 1)
+                    Text(stringResource(R.string.vault_cancel_btn), maxLines = 1)
                 }
             },
         )
@@ -393,11 +495,11 @@ private fun HardwareManagerSummaryPanel(
 ) {
     val fwVersion = diagnostics?.firmwareVersion ?: "v0.2.1-esp32s3"
     val channel = when (activeTransport) {
-        ConnectionTransportType.BLE -> "BLE"
-        ConnectionTransportType.USB -> "USB/UART"
-        ConnectionTransportType.WIFI -> "Wi-Fi"
-        ConnectionTransportType.SIMULATOR -> "Simulator"
-        null -> "Security Key"
+        ConnectionTransportType.BLE -> stringResource(R.string.transport_ble)
+        ConnectionTransportType.USB -> stringResource(R.string.transport_usb)
+        ConnectionTransportType.WIFI -> stringResource(R.string.transport_wifi)
+        ConnectionTransportType.SIMULATOR -> stringResource(R.string.transport_simulator)
+        null -> stringResource(R.string.default_security_key_name)
     }
     val freeSlots = diagnostics?.freeSlotsRemaining ?: (16 - totalOccupied).coerceAtLeast(0)
 
@@ -410,12 +512,18 @@ private fun HardwareManagerSummaryPanel(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Header Row: title on left with weight(1f), fwVersion on right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Memory,
                         contentDescription = null,
@@ -424,7 +532,7 @@ private fun HardwareManagerSummaryPanel(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Security Key Hardware Status",
+                        text = stringResource(R.string.vault_hardware_status_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -440,7 +548,9 @@ private fun HardwareManagerSummaryPanel(
                         text = fwVersion,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -450,7 +560,7 @@ private fun HardwareManagerSummaryPanel(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Channel: $channel · Slots: $totalOccupied used, $freeSlots available",
+                    text = stringResource(R.string.vault_channel_slots, channel, totalOccupied, freeSlots),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -460,7 +570,7 @@ private fun HardwareManagerSummaryPanel(
 
             val curvesText = diagnostics?.fido2SupportedCurves?.joinToString(", ") ?: "Ed25519, ES256, ES384, ES512, ES256K"
             Text(
-                text = "Supported curves: $curvesText",
+                text = stringResource(R.string.vault_supported_curves, curvesText),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -484,7 +594,7 @@ private fun HardwareManagerSummaryPanel(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isExpanded) "Hide Hardware Diagnostics" else "Show Hardware Diagnostics",
+                        text = if (isExpanded) stringResource(R.string.vault_hide_diagnostics) else stringResource(R.string.vault_show_diagnostics),
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
@@ -531,7 +641,7 @@ private fun HardwareManagerSummaryPanel(
                     ) {
                         Icon(imageVector = Icons.Filled.HealthAndSafety, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Run Quick Health Check", style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.vault_quick_check), style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }

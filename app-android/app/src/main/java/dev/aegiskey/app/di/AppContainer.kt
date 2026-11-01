@@ -323,6 +323,7 @@ class AppContainer(val context: Context) {
             fetchHardwareDiagnosticsUseCase = fetchHardwareDiagnosticsUseCase,
             resetHardwareVaultUseCase = resetHardwareVaultUseCase,
             keysStore = keysStore,
+            secureGuardRepository = secureGuardRepository,
         )
     }
 

@@ -23,10 +23,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ui.theme.AegisColors
 
 /**
@@ -156,11 +158,12 @@ fun ConnectionStatusBadgeAtom(
                     .clip(CircleShape)
                     .background(badgeColor),
             )
-            val labelText = if (isConnected) {
-                "$transportLabel · Connected"
+            val statusText = if (isConnected) {
+                stringResource(R.string.status_connected)
             } else {
-                "$transportLabel · Disconnected"
+                stringResource(R.string.status_disconnected)
             }
+            val labelText = "$transportLabel · $statusText"
             Text(
                 text = labelText,
                 style = MaterialTheme.typography.labelSmall.copy(

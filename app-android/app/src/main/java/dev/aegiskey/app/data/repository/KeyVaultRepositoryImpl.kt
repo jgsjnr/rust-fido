@@ -57,14 +57,18 @@ class KeyVaultRepositoryImpl(
     override val vaultEntries: StateFlow<List<VaultKeyEntry>> = _vaultEntries.asStateFlow()
 
     init {
-        val initialKeyId = connectedKeysRepository.activeKey.value?.id
-        if (initialKeyId != null) {
-            _vaultEntries.value = keysStore.loadVaultEntries(initialKeyId)
+        val initialKey = connectedKeysRepository.activeKey.value
+        if (initialKey != null && initialKey.isCurrentlyConnected) {
+            _vaultEntries.value = keysStore.loadVaultEntries(initialKey.id)
+        } else {
+            _vaultEntries.value = emptyList()
         }
 
         connectedKeysRepository.activeKey.onEach { key ->
-            if (key != null) {
+            if (key != null && key.isCurrentlyConnected) {
                 _vaultEntries.value = keysStore.loadVaultEntries(key.id)
+            } else {
+                _vaultEntries.value = emptyList()
             }
         }.launchIn(scope)
     }
@@ -221,14 +225,16 @@ class KeyVaultRepositoryImpl(
                 }
             }
 
-            if (mergedEntries.isNotEmpty()) {
+            val hasHardwareResponse = (rawKeyList != null && rawKeyList.size >= 2 && rawKeyList[1].toInt() == VendorOps.STATUS_OK) ||
+                (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK)
+
+            if (hasHardwareResponse) {
                 keysStore.saveVaultEntries(keyId, mergedEntries)
                 _vaultEntries.value = mergedEntries
                 mergedEntries
             } else {
-                val local = keysStore.loadVaultEntries(keyId)
-                _vaultEntries.value = local
-                local
+                _vaultEntries.value = emptyList()
+                emptyList()
             }
         }
     }

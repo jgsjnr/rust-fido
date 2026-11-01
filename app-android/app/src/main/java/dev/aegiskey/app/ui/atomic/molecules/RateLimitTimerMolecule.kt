@@ -15,9 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.aegiskey.app.R
 
 /**
  * Countdown timer molecule for RateLimited backoff state.
@@ -36,6 +39,7 @@ fun RateLimitTimerMolecule(
             .padding(12.dp)
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -45,17 +49,21 @@ fun RateLimitTimerMolecule(
                 color = Color(0xFFF59E0B),
                 strokeWidth = 3.dp,
             )
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Rate Limit Active",
+                    text = stringResource(R.string.guard_rate_limit_active),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFFDE68A)
+                    color = Color(0xFFFDE68A),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Wait ${remainingSec}s to try again",
+                    text = stringResource(R.string.guard_rate_limit_wait, remainingSec),
                     fontSize = 12.sp,
-                    color = Color(0xFFFEF3C7)
+                    color = Color(0xFFFEF3C7),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
