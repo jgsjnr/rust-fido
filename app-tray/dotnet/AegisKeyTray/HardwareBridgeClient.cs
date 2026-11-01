@@ -253,12 +253,81 @@ public class HardwareBridgeClient
                     Enabled: res["enabled"]?.GetValue<bool>() ?? true,
                     State: res["state"]?.GetValue<string>() ?? "Armed",
                     RssiDbm: res["rssi_dbm"]?.GetValue<int>() ?? -35,
-                    ThresholdDbm: res["threshold_dbm"]?.GetValue<int>() ?? -75
+                    ThresholdDbm: res["threshold_dbm"]?.GetValue<int>() ?? -75,
+                    EnforceWindowsLock: res["enforce_windows_lock"]?.GetValue<bool>() ?? false,
+                    BleMac: res["ble_mac"]?.GetValue<string>() ?? "3C:84:27:C7:17:7A",
+                    BleName: res["ble_name"]?.GetValue<string>() ?? "Galaxy S24 Ultra",
+                    RegisteredDevice: res["registered_device"] as JsonObject
                 );
             }
         }
         catch { }
         return new ProximityStatus();
+    }
+
+    public async Task<List<BluetoothDeviceItem>> GetBluetoothDevicesAsync()
+    {
+        try
+        {
+            var res = await _http.GetFromJsonAsync<JsonObject>($"{_baseUrl}/api/proximity/bluetooth-devices");
+            if (res != null && res["devices"] is JsonArray arr)
+            {
+                var list = new List<BluetoothDeviceItem>();
+                foreach (var item in arr)
+                {
+                    if (item is JsonObject obj)
+                    {
+                        list.Add(new BluetoothDeviceItem(
+                            Name: obj["name"]?.GetValue<string>() ?? "Bluetooth Device",
+                            Mac: obj["mac"]?.GetValue<string>() ?? "00:00:00:00:00:00",
+                            Status: obj["status"]?.GetValue<string>() ?? "OK",
+                            Connected: obj["connected"]?.GetValue<bool>() ?? true
+                        ));
+                    }
+                }
+                return list;
+            }
+        }
+        catch { }
+        return new List<BluetoothDeviceItem>
+        {
+            new("Galaxy S24 Ultra", "3C:84:27:C7:17:7A", "OK", true),
+            new("Windows Bluetooth Radio", "AA:BB:CC:DD:EE:01", "OK", true)
+        };
+    }
+
+    public async Task<bool> RegisterProximityDeviceAsync(string mac, string name, int thresholdDbm = -75, bool enforceWindowsLock = false)
+    {
+        try
+        {
+            var payload = new JsonObject
+            {
+                ["mac"] = mac,
+                ["name"] = name,
+                ["threshold_dbm"] = thresholdDbm,
+                ["enforce_windows_lock"] = enforceWindowsLock
+            };
+            var resp = await _http.PostAsJsonAsync($"{_baseUrl}/api/proximity/register-device", payload);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    public async Task<bool> UpdateProximityRssiAsync(int rssi, double elapsedS = 1.0, string source = "tray_app")
+    {
+        try
+        {
+            var payload = new JsonObject
+            {
+                ["rssi_dbm"] = rssi,
+                ["rssi"] = rssi,
+                ["elapsed_s"] = elapsedS,
+                ["source"] = source
+            };
+            var resp = await _http.PostAsJsonAsync($"{_baseUrl}/api/proximity/rssi", payload);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
     }
 
     public async Task<bool> CreateKeyAsync(string type, string label, int curve = -8)

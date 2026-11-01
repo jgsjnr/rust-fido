@@ -1,7 +1,7 @@
 //! AegisKey YKOATH Protocol Engine
 //! 100% Native Rust Implementation for ESP32-S3
 //!
-//! Compliant with Yubico Authenticator (YKOATH v5.4.3 specification):
+//! Compliant with Standard OATH Compatible Layer (YKOATH v5.4.3 specification):
 //! - Full TOTP and HOTP support (RFC 6238 and RFC 4226)
 //! - HMAC-SHA1, HMAC-SHA256, HMAC-SHA512 algorithms
 //! - Presence verification via GPIO 0 touch button

@@ -580,4 +580,46 @@ mod tests {
         assert!(engine.verify_pin_or_active_session(Some(TEST_PIN), 2200).is_ok());
         assert!(engine.verify_pin_or_active_session(None, 2300).is_ok());
     }
+
+    #[test]
+    fn test_ble_proximity_registration_and_walk_away_lock() {
+        let (mut engine, _) = create_test_engine();
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // 1. Register device in memory
+        let phone_mac = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC];
+        engine.register_ble_proximity_device(phone_mac, b"Junior Phone");
+        assert!(engine.ble_proximity_registered());
+        assert_eq!(engine.paired_ble_mac(), &phone_mac);
+        assert!(engine.auto_lock_on_ble_away());
+        assert!(!engine.ble_proximity_away());
+
+        // 2. Unlock with PIN while near
+        assert!(engine.unlock_with_pin(TEST_PIN, 1500).is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // 3. Proximity update: near (-35 dBm)
+        let locked = engine.on_ble_proximity_update(&phone_mac, -35, false, 1600).unwrap();
+        assert!(!locked);
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // 4. Proximity update: away (-92 dBm, is_away = true) -> IMMEDIATELY LOCKS
+        let locked2 = engine.on_ble_proximity_update(&phone_mac, -92, true, 2000).unwrap();
+        assert!(locked2, "Must trigger immediate lock when moving away");
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+        assert!(engine.ble_proximity_away());
+
+        // 5. While away, unlock is rejected with BleProximityLocked
+        let unlock_err = engine.unlock_with_pin(TEST_PIN, 2100);
+        assert_eq!(unlock_err, Err(SecureGuardError::BleProximityLocked));
+
+        // 6. Returns near (-40 dBm, is_away = false)
+        let locked3 = engine.on_ble_proximity_update(&phone_mac, -40, false, 2500).unwrap();
+        assert!(!locked3);
+        assert!(!engine.ble_proximity_away());
+
+        // 7. Now unlock succeeds
+        assert!(engine.unlock_with_pin(TEST_PIN, 2600).is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+    }
 }

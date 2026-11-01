@@ -29,6 +29,12 @@ pub struct SecureGuardEngine {
     last_wipe_simulated: bool,
     last_rotated_recovery_code: Option<[u8; 16]>,
     audit_log: AuditRingBuffer,
+    paired_ble_mac: [u8; 6],
+    paired_ble_name: [u8; 24],
+    ble_proximity_registered: bool,
+    last_ble_rssi_dbm: i8,
+    ble_proximity_away: bool,
+    auto_lock_on_ble_away: bool,
 }
 
 impl Default for SecureGuardEngine {
@@ -55,6 +61,12 @@ impl SecureGuardEngine {
             last_wipe_simulated: false,
             last_rotated_recovery_code: None,
             audit_log: AuditRingBuffer::new(),
+            paired_ble_mac: [0u8; 6],
+            paired_ble_name: [0u8; 24],
+            ble_proximity_registered: false,
+            last_ble_rssi_dbm: 0,
+            ble_proximity_away: false,
+            auto_lock_on_ble_away: true,
         }
     }
 
@@ -74,6 +86,10 @@ impl SecureGuardEngine {
         engine.failed_attempts = record.failed_attempts;
         engine.rate_limit_until_ms = record.rate_limit_until_ms;
         engine.last_wipe_simulated = record.last_wipe_simulated;
+        engine.paired_ble_mac = record.paired_ble_mac;
+        engine.paired_ble_name = record.paired_ble_name;
+        engine.ble_proximity_registered = record.ble_proximity_registered;
+        engine.auto_lock_on_ble_away = record.auto_lock_on_ble_away;
 
         if !record.is_provisioned {
             engine.state = SecureGuardState::Unprovisioned;
@@ -122,6 +138,7 @@ impl SecureGuardEngine {
             recovery_salt: self.recovery_salt,
             recovery_verifier: self.recovery_verifier,
             policy: self.policy.clone(),
+            ..Default::default()
         }
     }
 
@@ -175,6 +192,91 @@ impl SecureGuardEngine {
     /// Read-only access to the audit log ring buffer.
     pub fn audit_log(&self) -> &AuditRingBuffer {
         &self.audit_log
+    }
+
+    /// 6-byte MAC address of paired Bluetooth device registered via App.
+    pub fn paired_ble_mac(&self) -> &[u8; 6] {
+        &self.paired_ble_mac
+    }
+
+    /// 24-byte name of paired Bluetooth device registered in memory.
+    pub fn paired_ble_name(&self) -> &[u8; 24] {
+        &self.paired_ble_name
+    }
+
+    /// True if a Bluetooth proximity device is registered.
+    pub fn ble_proximity_registered(&self) -> bool {
+        self.ble_proximity_registered
+    }
+
+    /// Last observed RSSI in dBm.
+    pub fn last_ble_rssi_dbm(&self) -> i8 {
+        self.last_ble_rssi_dbm
+    }
+
+    /// True if the registered Bluetooth device is currently away.
+    pub fn ble_proximity_away(&self) -> bool {
+        self.ble_proximity_away
+    }
+
+    /// True if auto-lock on Bluetooth away is enabled.
+    pub fn auto_lock_on_ble_away(&self) -> bool {
+        self.auto_lock_on_ble_away
+    }
+
+    /// Enables or disables auto-lock on Bluetooth away.
+    pub fn set_auto_lock_on_ble_away(&mut self, enabled: bool) {
+        self.auto_lock_on_ble_away = enabled;
+    }
+
+    /// Registers a Bluetooth proximity device in memory (and for persistence).
+    pub fn register_ble_proximity_device(&mut self, mac: [u8; 6], name: &[u8]) {
+        self.paired_ble_mac = mac;
+        let mut n = [0u8; 24];
+        let copy_len = name.len().min(24);
+        n[..copy_len].copy_from_slice(&name[..copy_len]);
+        self.paired_ble_name = n;
+        self.ble_proximity_registered = true;
+        self.auto_lock_on_ble_away = true;
+        self.ble_proximity_away = false;
+    }
+
+    /// Continuous observation of registered Bluetooth proximity.
+    ///
+    /// If the registered Bluetooth device moves away (`is_away == true` or `rssi_dbm < threshold_dbm`
+    /// or disconnection), and the Secure Guard engine is Unlocked:
+    /// - Immediately locks the session (Locked), instantly revoking access to vault keys,
+    ///   wallets, TOTP, KeePassXC, and SSH!
+    ///
+    /// Returns Ok(true) if this update triggered an immediate lock, or Ok(false) otherwise.
+    pub fn on_ble_proximity_update(
+        &mut self,
+        mac: &[u8; 6],
+        rssi_dbm: i8,
+        is_away: bool,
+        now_ms: u64,
+    ) -> Result<bool, SecureGuardError> {
+        // If registered, match MAC or accept if wildcard [0; 6]
+        if self.ble_proximity_registered && self.paired_ble_mac != [0u8; 6] && self.paired_ble_mac != *mac {
+            return Ok(false);
+        }
+
+        self.last_ble_rssi_dbm = rssi_dbm;
+        self.ble_proximity_away = is_away;
+
+        if is_away && self.auto_lock_on_ble_away && self.state == SecureGuardState::Unlocked {
+            self.session_expires_at_ms = 0;
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
+            self.audit_log.push(
+                now_ms,
+                SecureGuardAuditEventType::SessionExpired {
+                    reason: SessionExpiryReason::BleProximityAway,
+                },
+            );
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     // --- State Machine Transitions ---
@@ -322,6 +424,10 @@ impl SecureGuardEngine {
             self.transition_to(SecureGuardState::Locked, now_ms)?;
             self.audit_log
                 .push(now_ms, SecureGuardAuditEventType::RateLimitExpired);
+        }
+
+        if self.ble_proximity_registered && self.ble_proximity_away && self.auto_lock_on_ble_away {
+            return Err(SecureGuardError::BleProximityLocked);
         }
 
         if self.state != SecureGuardState::Locked {
@@ -548,6 +654,18 @@ impl SecureGuardEngine {
     /// Validates session deadlines (absolute and inactivity), locking automatically if expired.
     pub fn check_and_touch_session(&mut self, now_ms: u64) -> Result<bool, SecureGuardError> {
         if self.state != SecureGuardState::Unlocked {
+            return Ok(false);
+        }
+
+        if self.ble_proximity_registered && self.ble_proximity_away && self.auto_lock_on_ble_away {
+            self.session_expires_at_ms = 0;
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
+            self.audit_log.push(
+                now_ms,
+                SecureGuardAuditEventType::SessionExpired {
+                    reason: SessionExpiryReason::BleProximityAway,
+                },
+            );
             return Ok(false);
         }
 

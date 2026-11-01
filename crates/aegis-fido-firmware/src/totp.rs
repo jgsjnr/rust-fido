@@ -26,7 +26,7 @@ pub const TOTP_PERIOD_SECS: u64 = 30;
 pub const OTP_MIN_SECRET_LEN: usize = 10;
 /// Segredo maximo (teto de memoria; HMAC aceita mais, firmware nao).
 pub const OTP_MAX_SECRET_LEN: usize = 128;
-/// Digitos minimos (Yubico/OATH interop).
+/// Digitos minimos (OATH Compatible Layer interop).
 pub const OTP_MIN_DIGITS: u8 = 6;
 /// Digitos maximos (RFC 6238 usa 8).
 pub const OTP_MAX_DIGITS: u8 = 8;

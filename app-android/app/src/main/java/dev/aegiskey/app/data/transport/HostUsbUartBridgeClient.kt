@@ -365,7 +365,10 @@ class HostUsbUartBridgeClient(
         val rollingCounter: Long = 0xFFFE,
         val locked: Boolean = false,
         val lastLockEpochMs: Long = 0L,
-        val message: String? = null
+        val message: String? = null,
+        val bleMac: String? = null,
+        val bleName: String? = null,
+        val registeredDevice: String? = null
     )
 
     @Volatile
@@ -571,6 +574,56 @@ class HostUsbUartBridgeClient(
         true
     }
 
+
+    /**
+     * Registra o dispositivo Bluetooth atual em memoria no motor de proximidade e no Secure Guard.
+     * Chama POST /api/proximity/register-device.
+     */
+    suspend fun registerBleProximityDevice(
+        mac: String,
+        name: String,
+        thresholdDbm: Int = -75,
+        enforceWindowsLock: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost()
+        if (host != null) {
+            try {
+                val url = URL("$host/api/proximity/register-device")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    applyAuthHeaders()
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 1500
+                    readTimeout = 2000
+                    doOutput = true
+                }
+                val payload = JSONObject().apply {
+                    put("mac", mac)
+                    put("name", name)
+                    put("threshold_dbm", thresholdDbm)
+                    put("enforce_windows_lock", enforceWindowsLock)
+                }
+                conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val ok = conn.responseCode in 200..299
+                conn.disconnect()
+                if (ok) {
+                    localProximityState = localProximityState.copy(
+                        bleMac = mac,
+                        bleName = name,
+                        registeredDevice = "$name ($mac)"
+                    )
+                    return@withContext true
+                }
+            } catch (_: Throwable) {}
+        }
+        localProximityState = localProximityState.copy(
+            bleMac = mac,
+            bleName = name,
+            registeredDevice = "$name ($mac)"
+        )
+        true
+    }
+
     private fun parseProximityJson(json: JSONObject): ProximityLockStatus {
         return ProximityLockStatus(
             enabled = json.optBoolean("enabled", true),
@@ -584,7 +637,13 @@ class HostUsbUartBridgeClient(
             rollingCounter = json.optLong("rolling_counter", json.optLong("rolling_ctr", 0xFFFE)),
             locked = json.optBoolean("locked", false),
             lastLockEpochMs = json.optLong("last_lock_epoch_ms", 0L),
-            message = if (json.has("message")) json.optString("message") else null
+            message = if (json.has("message")) json.optString("message") else null,
+            bleMac = if (json.has("ble_mac")) json.optString("ble_mac") else null,
+            bleName = if (json.has("ble_name")) json.optString("ble_name") else null,
+            registeredDevice = if (json.has("registered_device")) {
+                val rd = json.optJSONObject("registered_device")
+                if (rd != null) rd.optString("name", "Device") + " (" + rd.optString("mac", "") + ")" else json.optString("registered_device", null)
+            } else null
         )
     }
 

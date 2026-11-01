@@ -629,7 +629,7 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
     # TEST 16: KeePassXC Hardware Unlock (.kdbx) & JIT SRAM Zeroize
     # -------------------------------------------------------------------------
     def test_16_keepassxc_hardware_unlock_and_jit_ram_zeroize(self):
-        """Audits KeePassXC Challenge-Response (YubiKey HMAC-SHA1 Slots 1 & 2), JIT SRAM Zeroize, and PSRAM."""
+        """Audits KeePassXC Challenge-Response (HMAC-SHA1 CR Compatible Layer Slots 1 & 2), JIT SRAM Zeroize, and PSRAM."""
         import hmac
         import hashlib
 
@@ -690,14 +690,14 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
         self.assertEqual(actual_hmac, expected_hmac, "KeePassXC response must match exact HMAC-SHA1(secret, challenge)")
 
         # 5. Challenge-Response on Slot 1 and CRC-16 Verification
-        def yk_crc16(data: bytes) -> int:
+        def cr_compat_crc16(data: bytes) -> int:
             c = 0xFFFF
             for b in data:
                 c ^= b
                 for _ in range(8):
                     c = (c >> 1) ^ 0x8408 if (c & 1) else c >> 1
             return c
-        self.assertEqual(res_cr2.get("crc16_hex"), f"{yk_crc16(actual_hmac):04x}", "YubiKey CRC-16 must match polynomial 0x8408")
+        self.assertEqual(res_cr2.get("crc16_hex"), f"{cr_compat_crc16(actual_hmac):04x}", "CRC-16 ISO 13239 must match polynomial 0x8408")
 
         st_cr1, res_cr1 = self._http_post_json("/api/keepassxc/challenge-response", {
             "slot": 1,
@@ -716,6 +716,86 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
         self.assertTrue(res_fido.get("ok"))
         self.assertEqual(len(res_fido.get("output1_hex", "")), 64, "FIDO2 hmac-secret output must be 32 bytes (64 hex)")
         print("\n[PASS] TEST 16: KeePassXC Hardware Unlock (.kdbx) + FIDO2 hmac-secret & JIT SRAM Zeroize Verified.")
+
+    # -------------------------------------------------------------------------
+    # TEST 17: BLE PROXIMITY MEMORY REGISTRATION & WALK-AWAY LOCKS SECURE GUARD & PC
+    # -------------------------------------------------------------------------
+    def test_17_ble_proximity_memory_registration_locks_secure_guard_and_pc(self):
+        """Audits in-memory BLE device registration, walk-away detection, immediate Secure Guard lock, and Dynamic Lock trigger."""
+        # 1. Discover Bluetooth devices via GET /api/proximity/bluetooth-devices
+        st_bt, res_bt = self._http_get_json("/api/proximity/bluetooth-devices")
+        self.assertEqual(st_bt, 200)
+        self.assertIn("devices", res_bt)
+        self.assertIsInstance(res_bt["devices"], list)
+
+        # 2. Register Bluetooth device in memory
+        test_ble_mac = "3C:84:27:C7:17:7A"
+        test_ble_name = "Galaxy S24 Ultra"
+        st_reg, res_reg = self._http_post_json("/api/proximity/register-device", {
+            "mac": test_ble_mac,
+            "name": test_ble_name,
+            "threshold_dbm": -75,
+            "enforce_windows_lock": False
+        })
+        self.assertEqual(st_reg, 200)
+        self.assertTrue(res_reg.get("ok"))
+        self.assertTrue(res_reg.get("ble_proximity_registered"))
+        self.assertEqual(res_reg.get("paired_ble_mac"), test_ble_mac)
+        self.assertEqual(res_reg.get("paired_ble_name"), test_ble_name)
+
+        # Check telemetry in /api/proximity/status
+        st_st, res_st = self._http_get_json("/api/proximity/status")
+        self.assertEqual(st_st, 200)
+        self.assertEqual(res_st.get("ble_mac"), test_ble_mac)
+        self.assertEqual(res_st.get("ble_name"), test_ble_name)
+        reg_dev = res_st.get("registered_device", {})
+        self.assertEqual(reg_dev.get("paired_ble_mac"), test_ble_mac)
+        self.assertEqual(reg_dev.get("paired_ble_name"), test_ble_name)
+
+        # 3. Unlock Secure Guard and verify vault is accessible when present
+        self.client.unlock_secure_guard(self.test_pin)
+        st_v, res_v = self._http_get_json("/api/vault")
+        self.assertEqual(st_v, 200, "Vault must be accessible when Secure Guard is unlocked and user is present")
+
+        # 4. Simulate RSSI near (-35 dBm)
+        st_near, res_near = self._http_post_json("/api/proximity/rssi", {
+            "mac": test_ble_mac,
+            "rssi_dbm": -35,
+            "elapsed_s": 1.0,
+            "source": "ble_scanner"
+        })
+        self.assertEqual(st_near, 200)
+        self.assertFalse(res_near.get("lock_triggered"))
+        self.assertFalse(res_near.get("secure_guard_locked"))
+
+        # 5. Simulate walk-away (-92 dBm for 10 seconds)
+        st_away, res_away = self._http_post_json("/api/proximity/rssi", {
+            "mac": test_ble_mac,
+            "rssi_dbm": -92,
+            "elapsed_s": 10.0,
+            "source": "ble_scanner"
+        })
+        self.assertEqual(st_away, 200)
+        self.assertTrue(res_away.get("lock_triggered"), "Proximity engine must trigger lock upon walk-away")
+        self.assertTrue(res_away.get("secure_guard_locked"), "Secure Guard must be locked immediately upon walk-away")
+        self.assertEqual(res_away.get("state"), "Away")
+
+        # 6. Verify that Secure Guard is LOCKED and Vault access is forbidden
+        st_v_locked, res_v_locked = self._http_get_json("/api/vault")
+        self.assertEqual(st_v_locked, 403, "Vault must be locked when user walks away with paired BLE device")
+        self.assertEqual(res_v_locked.get("error"), "CTAP2_ERR_PIN_REQUIRED")
+
+        # 7. Verify enforce_windows_lock registration
+        st_reg_win, res_reg_win = self._http_post_json("/api/proximity/register-device", {
+            "mac": test_ble_mac,
+            "name": test_ble_name,
+            "threshold_dbm": -75,
+            "enforce_windows_lock": True
+        })
+        self.assertEqual(st_reg_win, 200)
+        self.assertTrue(res_reg_win.get("enforce_windows_lock"))
+
+        print("\n[PASS] TEST 17: BLE Proximity in-memory registration & walk-away lock (Secure Guard + Windows Hello) verified.")
 
 
 if __name__ == "__main__":

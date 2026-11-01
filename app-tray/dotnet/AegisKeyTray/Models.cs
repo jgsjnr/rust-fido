@@ -22,7 +22,13 @@ public record SecureGuardStatus(
     [property: JsonPropertyName("max_attempts")] int MaxAttempts = 5,
     [property: JsonPropertyName("session_remaining_ms")] int SessionRemainingMs = 0,
     [property: JsonPropertyName("rate_limit_remaining_ms")] int RateLimitRemainingMs = 0,
-    [property: JsonPropertyName("inactivity_timeout_ms")] int InactivityTimeoutMs = 120000
+    [property: JsonPropertyName("inactivity_timeout_ms")] int InactivityTimeoutMs = 120000,
+    [property: JsonPropertyName("paired_ble_mac")] string PairedBleMac = "",
+    [property: JsonPropertyName("paired_ble_name")] string PairedBleName = "",
+    [property: JsonPropertyName("ble_proximity_registered")] bool BleProximityRegistered = false,
+    [property: JsonPropertyName("last_ble_rssi_dbm")] int LastBleRssiDbm = -35,
+    [property: JsonPropertyName("ble_proximity_away")] bool BleProximityAway = false,
+    [property: JsonPropertyName("auto_lock_on_ble_away")] bool AutoLockOnBleAway = true
 );
 
 public record VaultItem(
@@ -46,11 +52,22 @@ public record OathAccount(
     [property: JsonPropertyName("period")] int Period = 30
 );
 
+public record BluetoothDeviceItem(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("mac")] string Mac,
+    [property: JsonPropertyName("status")] string Status = "OK",
+    [property: JsonPropertyName("connected")] bool Connected = true
+);
+
 public record ProximityStatus(
     [property: JsonPropertyName("enabled")] bool Enabled = true,
     [property: JsonPropertyName("state")] string State = "Armed",
     [property: JsonPropertyName("rssi_dbm")] int RssiDbm = -35,
-    [property: JsonPropertyName("threshold_dbm")] int ThresholdDbm = -75
+    [property: JsonPropertyName("threshold_dbm")] int ThresholdDbm = -75,
+    [property: JsonPropertyName("enforce_windows_lock")] bool EnforceWindowsLock = false,
+    [property: JsonPropertyName("ble_mac")] string BleMac = "3C:84:27:C7:17:7A",
+    [property: JsonPropertyName("ble_name")] string BleName = "Galaxy S24 Ultra",
+    [property: JsonPropertyName("registered_device")] System.Text.Json.Nodes.JsonObject? RegisteredDevice = null
 );
 
 public record ShamirShare(

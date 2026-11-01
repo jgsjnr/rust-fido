@@ -212,7 +212,7 @@ def otp_typer_input(s: str) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# F3 item 4: ykman / nitrokey / YubiOTP routes + honest 6D00 outside scope.
+# F3 item 4: ykman / nitrokey / legacy OTP routes + honest 6D00 outside scope.
 # ---------------------------------------------------------------------------
 
 def ext_route_status(route: str) -> bytes:

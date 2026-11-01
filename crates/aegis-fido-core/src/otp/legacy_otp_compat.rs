@@ -13,7 +13,7 @@ use super::modhex;
 pub const CRC_OK_RESIDUE: u16 = 0xF0B8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum YubiOtpError {
+pub enum LegacyOtpError {
     InvalidLength,
     InvalidModhex,
     InvalidCrc,
@@ -22,7 +22,7 @@ pub enum YubiOtpError {
     DecryptionError,
 }
 
-/// Compute ISO 13239 / YubiKey CRC-16
+/// Compute ISO 13239 / Legacy OTP CRC-16 (Compatible Layer)
 pub fn calculate_crc(data: &[u8]) -> u16 {
     let mut crc: u16 = 0xFFFF;
     for &b in data {
@@ -38,9 +38,9 @@ pub fn calculate_crc(data: &[u8]) -> u16 {
     crc
 }
 
-/// YubiKey OTP Decrypted Payload (16 bytes)
+/// Legacy OTP Decrypted Payload (16 bytes) - Compatible Layer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct YubiOtpPayload {
+pub struct LegacyOtpPayload {
     pub uid: [u8; 6],
     pub use_counter: u16,
     pub timestamp_low: u16,
@@ -50,7 +50,7 @@ pub struct YubiOtpPayload {
     pub crc: u16,
 }
 
-impl YubiOtpPayload {
+impl LegacyOtpPayload {
     pub fn new(
         uid: [u8; 6],
         use_counter: u16,
@@ -92,9 +92,9 @@ impl YubiOtpPayload {
         b
     }
 
-    pub fn from_bytes(bytes: &[u8; 16]) -> Result<Self, YubiOtpError> {
+    pub fn from_bytes(bytes: &[u8; 16]) -> Result<Self, LegacyOtpError> {
         if calculate_crc(bytes) != CRC_OK_RESIDUE {
-            return Err(YubiOtpError::InvalidCrc);
+            return Err(LegacyOtpError::InvalidCrc);
         }
 
         let mut uid = [0u8; 6];
@@ -119,9 +119,9 @@ impl YubiOtpPayload {
     }
 }
 
-/// YubiKey OTP Generator State
+/// Legacy OTP Generator State - Compatible Layer
 #[derive(Debug, Clone)]
-pub struct YubiOtpGenerator {
+pub struct LegacyOtpGenerator {
     pub public_id: Vec<u8>,
     pub private_id: [u8; 6],
     pub aes_key: [u8; 16],
@@ -131,7 +131,7 @@ pub struct YubiOtpGenerator {
     pub timestamp_high: u8,
 }
 
-impl YubiOtpGenerator {
+impl LegacyOtpGenerator {
     pub fn new(public_id: &[u8], private_id: [u8; 6], aes_key: [u8; 16]) -> Self {
         Self {
             public_id: public_id.to_vec(),
@@ -158,11 +158,11 @@ impl YubiOtpGenerator {
         self.session_counter = 0;
     }
 
-    /// Generate next YubiKey OTP token string (Modhex public ID + Modhex encrypted token)
+    /// Generate next Legacy OTP token string (Modhex public ID + Modhex encrypted token)
     pub fn generate_token(&mut self, random_nonce: u16) -> String {
         self.session_counter = self.session_counter.wrapping_add(1);
 
-        let payload = YubiOtpPayload::new(
+        let payload = LegacyOtpPayload::new(
             self.private_id,
             self.use_counter,
             self.timestamp_low,
@@ -186,25 +186,25 @@ impl YubiOtpGenerator {
         &self,
         token: &str,
         expected_public_id: Option<&[u8]>,
-    ) -> Result<YubiOtpPayload, YubiOtpError> {
+    ) -> Result<LegacyOtpPayload, LegacyOtpError> {
         if token.len() < 32 {
-            return Err(YubiOtpError::InvalidLength);
+            return Err(LegacyOtpError::InvalidLength);
         }
 
         let prefix_len = token.len() - 32;
         let (prefix_str, ciphertext_str) = token.split_at(prefix_len);
 
         if let Some(exp_pub) = expected_public_id {
-            let actual_pub = modhex::decode(prefix_str).map_err(|_| YubiOtpError::InvalidModhex)?;
+            let actual_pub = modhex::decode(prefix_str).map_err(|_| LegacyOtpError::InvalidModhex)?;
             if actual_pub != exp_pub {
-                return Err(YubiOtpError::InvalidUid);
+                return Err(LegacyOtpError::InvalidUid);
             }
         }
 
         let cipher_bytes =
-            modhex::decode(ciphertext_str).map_err(|_| YubiOtpError::InvalidModhex)?;
+            modhex::decode(ciphertext_str).map_err(|_| LegacyOtpError::InvalidModhex)?;
         if cipher_bytes.len() != 16 {
-            return Err(YubiOtpError::InvalidLength);
+            return Err(LegacyOtpError::InvalidLength);
         }
 
         let cipher = Aes128::new_from_slice(&self.aes_key).expect("AES-128 key is always 16 bytes");
@@ -214,9 +214,9 @@ impl YubiOtpGenerator {
         let mut payload_bytes = [0u8; 16];
         payload_bytes.copy_from_slice(&block[..]);
 
-        let payload = YubiOtpPayload::from_bytes(&payload_bytes)?;
+        let payload = LegacyOtpPayload::from_bytes(&payload_bytes)?;
         if payload.uid != self.private_id {
-            return Err(YubiOtpError::InvalidUid);
+            return Err(LegacyOtpError::InvalidUid);
         }
 
         Ok(payload)
@@ -228,12 +228,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_yubikey_otp_generation_and_verification() {
+    fn test_legacy_otp_generation_and_verification() {
         let public_id = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05]; // 6 bytes
         let private_id = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
         let aes_key = [0x42u8; 16];
 
-        let mut generator = YubiOtpGenerator::new(&public_id, private_id, aes_key);
+        let mut generator = LegacyOtpGenerator::new(&public_id, private_id, aes_key);
         generator.advance_timer(256);
 
         let token = generator.generate_token(0x1234);
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(verified.random_number, 0x1234);
 
         // Verification with wrong key fails
-        let wrong_gen = YubiOtpGenerator::new(&public_id, private_id, [0x00; 16]);
+        let wrong_gen = LegacyOtpGenerator::new(&public_id, private_id, [0x00; 16]);
         assert!(wrong_gen.verify_token(&token, Some(&public_id)).is_err());
     }
 }

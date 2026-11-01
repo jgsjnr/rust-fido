@@ -748,7 +748,13 @@ pub fn app_main_freertos_demo() -> (usize, usize, u64) {
         || false,
     );
     let house = sched.spawn_housekeeping_task();
-    std::thread::sleep(Duration::from_millis(50));
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while (remaining.load(Ordering::SeqCst) > 0 || boot_count.load(Ordering::SeqCst) <= 2)
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::thread::sleep(Duration::from_millis(20));
     sched.request_stop();
     let drained = usb.join().unwrap_or(0);
     let presses = button.join().unwrap_or(0);

@@ -4,7 +4,7 @@ use crate::error::SdkError;
 use crate::request::OtpRequest;
 use crate::response::SdkResponse;
 
-/// Executes [`OtpRequest`] (keyboard modhex / Ykman / Nitrokey / YubiOTP).
+/// Executes [`OtpRequest`] (keyboard modhex / Ykman / Nitrokey / Legacy OTP).
 ///
 /// Typing/crypto live in firmware; never here.
 pub trait OtpProvider {

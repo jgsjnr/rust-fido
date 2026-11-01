@@ -30,7 +30,7 @@ impl CapabilitySet {
     pub const OTA: Self = Self { bits: 1 << 7 };
     /// PIV/CCID family (feature `piv`; enroll `0x39`, APDUs otherwise).
     pub const PIV: Self = Self { bits: 1 << 8 };
-    /// OTP family (feature `otp`; keyboard/Ykman/Nitrokey/YubiOTP + rescue `0x2E`).
+    /// OTP family (feature `otp`; keyboard/Ykman/Nitrokey/Legacy OTP + rescue `0x2E`).
     pub const OTP: Self = Self { bits: 1 << 9 };
     /// Proximity family (feature `proximity`; service `0xFFFE`, never `0xFFFD`).
     pub const PROXIMITY: Self = Self { bits: 1 << 10 };

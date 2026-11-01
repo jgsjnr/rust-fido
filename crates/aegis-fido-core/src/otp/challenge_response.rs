@@ -26,7 +26,7 @@ pub enum ChallengeResponseError {
     CryptoError,
 }
 
-/// Configuration for a YubiKey Challenge-Response slot
+/// Configuration for a HMAC-SHA1 Challenge-Response Compatible Layer slot
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChallengeResponseSlot {
     pub key: Vec<u8>,

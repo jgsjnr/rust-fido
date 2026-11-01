@@ -1317,6 +1317,14 @@ pub fn run_authenticator_freertos() {
                     }
                     let wifi_active = wifi_ap_mgr.is_active(freertos_now_ms) || sta_mgr.is_up();
                     prox.tick(prox_now_ms, usb_active, wifi_active, pairing_mgr.state());
+                    // Proximidade acoplada diretamente ao Secure Guard:
+                    let prox_is_away = matches!(prox.state(), crate::proximity::ProximityState::Away | crate::proximity::ProximityState::Locked);
+                    let _ = secure_guard.on_ble_proximity_update(
+                        secure_guard.paired_ble_mac(),
+                        if prox_is_away { -90 } else { -40 },
+                        prox_is_away,
+                        freertos_now_ms,
+                    );
                 }
                 // Display + LED (seção B legada): tick + efeito por estado.
                 // TEST_LED_* (hold) vence o pipeline quando armado.

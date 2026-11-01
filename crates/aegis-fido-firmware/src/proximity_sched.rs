@@ -360,6 +360,11 @@ impl ProxSchedState {
     }
 
     /// Registra presença física (borda de subida do BOOT).
+    /// Estado atual do monitor de proximidade (Near, Away, Locked).
+    pub fn state(&self) -> ProximityState {
+        self.monitor.state()
+    }
+
     pub fn note_presence(&mut self, now_ms: u64) {
         self.presence_until_ms = Some(now_ms.saturating_add(PROX_PRESENCE_MS));
     }

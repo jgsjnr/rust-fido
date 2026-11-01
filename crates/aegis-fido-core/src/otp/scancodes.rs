@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use super::yubikey_otp::YubiOtpGenerator;
+use super::legacy_otp_compat::LegacyOtpGenerator;
 use alloc::vec::Vec;
 
 /// USB HID Keyboard Scancodes (Usage Page 0x07)
@@ -128,7 +128,7 @@ impl OtpAutoTyper {
     }
 
     /// On button press trigger (e.g. GPIO 0 press), generate OTP and return HID keyboard report stream
-    pub fn on_button_press(&self, generator: &mut YubiOtpGenerator, nonce: u16) -> Vec<[u8; 8]> {
+    pub fn on_button_press(&self, generator: &mut LegacyOtpGenerator, nonce: u16) -> Vec<[u8; 8]> {
         let token = generator.generate_token(nonce);
         string_to_hid_reports(&token, self.append_enter)
     }
@@ -154,7 +154,7 @@ mod tests {
         let private_id = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
         let aes_key = [0x77u8; 16];
 
-        let mut generator = YubiOtpGenerator::new(&public_id, private_id, aes_key);
+        let mut generator = LegacyOtpGenerator::new(&public_id, private_id, aes_key);
         let auto_typer = OtpAutoTyper::new(true);
 
         let reports = auto_typer.on_button_press(&mut generator, 0x55AA);

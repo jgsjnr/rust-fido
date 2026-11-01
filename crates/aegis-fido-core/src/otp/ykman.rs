@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-/// Yubico Management Applet AID
+/// Management Applet AID (Legacy Compatibility Layer)
 pub const YK_MGMT_AID: [u8; 8] = [0xA0, 0x00, 0x00, 0x05, 0x27, 0x47, 0x11, 0x17];
 
 /// Management Instructions
@@ -148,9 +148,9 @@ impl YkmanDeviceInfo {
     }
 }
 
-/// YubiKey OTP Status Structure (6 bytes)
+/// Legacy OTP Status Structure (6 bytes) - Compatible Layer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct YubiOtpStatus {
+pub struct LegacyOtpStatus {
     pub version_major: u8,
     pub version_minor: u8,
     pub version_build: u8,
@@ -159,7 +159,7 @@ pub struct YubiOtpStatus {
     pub flags: u8,
 }
 
-impl Default for YubiOtpStatus {
+impl Default for LegacyOtpStatus {
     fn default() -> Self {
         Self {
             version_major: 5,
@@ -172,7 +172,7 @@ impl Default for YubiOtpStatus {
     }
 }
 
-impl YubiOtpStatus {
+impl LegacyOtpStatus {
     pub fn to_bytes(&self) -> [u8; 6] {
         [
             self.version_major,

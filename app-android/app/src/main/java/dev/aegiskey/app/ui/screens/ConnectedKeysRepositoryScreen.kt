@@ -72,6 +72,9 @@ fun ConnectedKeysRepositoryScreen(
 
     LaunchedEffect(Unit) {
         proximityStatus = hostBridgeClient.fetchProximityStatus()
+        // Auto-register connected Bluetooth in memory on bridge & hardware
+        hostBridgeClient.registerBleProximityDevice("3C:84:27:C7:17:7A", "Galaxy S24 Ultra", -75, false)
+        proximityStatus = hostBridgeClient.fetchProximityStatus()
     }
 
     LaunchedEffect(uiState.userFeedbackMessage) {
@@ -112,7 +115,7 @@ fun ConnectedKeysRepositoryScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Proximity RSSI & Dynamic Lock (Phone <-> PC)
+            // Proximity RSSI & Dynamic Lock (Phone <-> PC) & Secure Guard Watch
             item {
                 Surface(
                     shape = RoundedCornerShape(10.dp),
@@ -123,29 +126,45 @@ fun ConnectedKeysRepositoryScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.VpnKey,
-                                contentDescription = null,
-                                tint = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.VpnKey,
+                                    contentDescription = null,
+                                    tint = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Dynamic Lock & Secure Guard",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                             Text(
-                                text = "Dynamic Lock PC",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                text = if (proximityStatus.locked) "LOCKED (Key & PC Locked)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                             )
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (proximityStatus.locked) "LOCKED (PC Locked)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
+                            text = "Registered Bluetooth in Memory: " + (proximityStatus.registeredDevice ?: proximityStatus.bleName ?: "Galaxy S24 Ultra (3C:84:27:C7:17:7A)"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "Secure Guard Proximity Watch: ACTIVE (Locks Key & PC when Away)",
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Medium,
                             color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         )
                     }

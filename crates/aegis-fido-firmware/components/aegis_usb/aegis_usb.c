@@ -1,7 +1,8 @@
 /*
  * AegisKey S3 USB Transport Bridge (TinyUSB HID CTAPHID)
  *
- * Implements standard USB HID FIDO2 interface for ESP32-S3.
+ * Implements standard USB HID FIDO2 interface for ESP32-S3
+ * with HMAC-SHA1 Challenge-Response Compatible Layer 8-byte Feature Report support.
  */
 
 #include <string.h>
@@ -41,7 +42,7 @@ static const tusb_desc_device_t desc_device = {
     .bNumConfigurations = 0x01
 };
 
-// Standard FIDO2 / CTAPHID Report Descriptor (34 bytes)
+// Standard FIDO2 / CTAPHID Report Descriptor with 8-byte Feature Report (47 bytes)
 static const uint8_t desc_hid_report[] = {
     0x06, 0xD0, 0xF1, // Usage Page (FIDO Alliance 0xF1D0)
     0x09, 0x01,       // Usage (U2F / FIDO Authenticator 0x0001)
@@ -58,6 +59,12 @@ static const uint8_t desc_hid_report[] = {
     0x75, 0x08,       //   Report Size (8 bits)
     0x95, 0x40,       //   Report Count (64 bytes)
     0x91, 0x02,       //   Output (Data, Variable, Absolute)
+    0x09, 0x22,       //   Usage (Vendor / Feature)
+    0x15, 0x00,       //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08,       //   Report Size (8 bits)
+    0x95, 0x08,       //   Report Count (8 bytes)
+    0xB1, 0x02,       //   Feature (Data, Variable, Absolute)
     0xC0              // End Collection
 };
 
@@ -105,7 +112,7 @@ static const uint8_t desc_configuration[] = {
     0x00, 0x00,             // wLcdLayout
     0x00,                   // bPINSupport
     0x01,                   // bMaxCCIDBusySlots
-// EP bulk OUT
+    // EP bulk OUT
     7, TUSB_DESC_ENDPOINT, EPNUM_CCID_OUT, TUSB_XFER_BULK, 64, 0, 0,
     // EP bulk IN
     7, TUSB_DESC_ENDPOINT, EPNUM_CCID_IN, TUSB_XFER_BULK, 64, 0, 0,
@@ -133,6 +140,27 @@ typedef struct {
 static QueueHandle_t s_rx_queue = NULL;
 static aegis_hid_rx_callback_t s_rx_callback = NULL;
 static volatile bool s_is_mounted = false;
+
+// ----------------------------------------------------------------------------
+// HMAC-SHA1 Challenge-Response Compatible Layer Support
+// ----------------------------------------------------------------------------
+
+#define SLOT_CHAL_HMAC1     0x30
+#define SLOT_CHAL_HMAC2     0x38
+#define SLOT_WRITE_FLAG     0x80
+#define RESP_PENDING_FLAG   0x40
+
+extern int aegis_usb_cr_compat_layer_process(uint8_t slot, const uint8_t *challenge, uint16_t challenge_len, uint8_t *response_out, uint16_t *response_out_len);
+
+static uint8_t s_cr_frame[70];
+static uint8_t s_cr_frame_received = 0;
+static uint8_t s_cr_active_slot = 2; // Default to Slot 2
+
+static uint8_t s_cr_resp[36];
+static uint16_t s_cr_resp_len = 0;
+static uint16_t s_cr_resp_offset = 0;
+static uint8_t s_cr_resp_seq = 0;
+static bool s_cr_resp_pending = false;
 
 // ----------------------------------------------------------------------------
 // TinyUSB Callbacks
@@ -167,18 +195,78 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen) {
     (void)instance;
     (void)report_id;
-    (void)report_type;
-    (void)buffer;
-    (void)reqlen;
+
+    if (report_type == HID_REPORT_TYPE_FEATURE || reqlen == 8) {
+        if (buffer == NULL || reqlen < 8) {
+            return 0;
+        }
+        memset(buffer, 0, 8);
+        if (s_cr_resp_pending && s_cr_resp_offset < s_cr_resp_len) {
+            uint16_t remaining = s_cr_resp_len - s_cr_resp_offset;
+            uint16_t chunk = (remaining > 7) ? 7 : remaining;
+            memcpy(buffer, &s_cr_resp[s_cr_resp_offset], chunk);
+            s_cr_resp_offset += chunk;
+            if (s_cr_resp_offset < s_cr_resp_len) {
+                buffer[7] = RESP_PENDING_FLAG | (s_cr_resp_seq & 0x0F);
+                s_cr_resp_seq++;
+            } else {
+                buffer[7] = s_cr_resp_seq & 0x0F;
+                s_cr_resp_pending = false;
+            }
+            return 8;
+        } else {
+            // Idle status report (firmware 5.4.3, ready)
+            buffer[0] = 5; // Major
+            buffer[1] = 4; // Minor
+            buffer[2] = 3; // Build
+            buffer[3] = 0; // Seq
+            buffer[4] = 0; // Touch level
+            buffer[5] = 0;
+            buffer[6] = 0;
+            buffer[7] = 0; // Flags: ready
+            return 8;
+        }
+    }
     return 0;
 }
 
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize) {
     (void)instance;
     (void)report_id;
-    (void)report_type;
 
     if (bufsize == 0 || buffer == NULL) {
+        return;
+    }
+
+    // 8-byte Feature Report handling (CR Compatible Layer)
+    if (report_type == HID_REPORT_TYPE_FEATURE || bufsize == 8) {
+        uint8_t flags = buffer[7];
+        uint8_t seq = flags & 0x1F;
+        if (seq == 0) {
+            memset(s_cr_frame, 0, sizeof(s_cr_frame));
+            s_cr_frame_received = 0;
+            if (buffer[6] == SLOT_CHAL_HMAC1 || (flags & 0x38) == SLOT_CHAL_HMAC1) {
+                s_cr_active_slot = 1;
+            } else {
+                s_cr_active_slot = 2;
+            }
+        }
+        if (seq < 10) {
+            memcpy(&s_cr_frame[seq * 7], buffer, 7);
+            s_cr_frame_received++;
+        }
+        if (seq == 9 || s_cr_frame_received >= 10) {
+            // Full 70-byte frame received: compute challenge response
+            s_cr_resp_len = 0;
+            int res = aegis_usb_cr_compat_layer_process(s_cr_active_slot, s_cr_frame, 64, s_cr_resp, &s_cr_resp_len);
+            if (res == 0 && s_cr_resp_len > 0) {
+                s_cr_resp_pending = true;
+                s_cr_resp_offset = 0;
+                s_cr_resp_seq = 0;
+            } else {
+                s_cr_resp_pending = false;
+            }
+        }
         return;
     }
 
@@ -218,12 +306,6 @@ esp_err_t aegis_usb_init(void) {
         .vbus_monitor_io = -1
     };
 
-    // NOTE: do NOT wrap `tinyusb_driver_install` in vTaskSuspendAll()/
-    // xTaskResumeAll(): the install blocks internally on a queue, and a
-    // suspended scheduler with ticksToWait != 0 asserts (queue.c). The IDF
-    // `TinyUSB: TinyUSB Driver installed` line may interleave bytes on
-    // UART0 (cosmetic only; enumeration proves function; Rust `[INIT]`
-    // line serialization still holds).
     esp_err_t err = tinyusb_driver_install(&tusb_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "tinyusb_driver_install failed: 0x%x", err);

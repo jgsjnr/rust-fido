@@ -108,7 +108,7 @@ pub struct PivRequest {
     pub payload: Vec<u8>,
 }
 
-/// OTP request (feature `otp`; keyboard modhex / Ykman / Nitrokey / YubiOTP).
+/// OTP request (feature `otp`; keyboard modhex / Ykman / Nitrokey / Legacy OTP).
 ///
 /// Opaque carrier only; typing/crypto lives in firmware.
 #[derive(Debug, Clone, PartialEq, Eq)]

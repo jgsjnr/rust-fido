@@ -38,6 +38,14 @@ pub struct SecureGuardPersistentRecord {
     pub recovery_verifier: [u8; 32],
     /// Security policy configuration.
     pub policy: SecureGuardPolicy,
+    /// 6-byte MAC address of paired Bluetooth device registered via App.
+    pub paired_ble_mac: [u8; 6],
+    /// 24-byte UTF-8 name of paired Bluetooth device registered in memory.
+    pub paired_ble_name: [u8; 24],
+    /// True if a Bluetooth proximity device has been registered by the App.
+    pub ble_proximity_registered: bool,
+    /// Whether moving away triggers immediate vault lock.
+    pub auto_lock_on_ble_away: bool,
 }
 
 impl Default for SecureGuardPersistentRecord {
@@ -53,6 +61,10 @@ impl Default for SecureGuardPersistentRecord {
             recovery_salt: [0u8; 16],
             recovery_verifier: [0u8; 32],
             policy: SecureGuardPolicy::default(),
+            paired_ble_mac: [0u8; 6],
+            paired_ble_name: [0u8; 24],
+            ble_proximity_registered: false,
+            auto_lock_on_ble_away: true,
         }
     }
 }
@@ -89,7 +101,12 @@ impl SecureGuardPersistentRecord {
         out[134..142].copy_from_slice(&self.policy.inactivity_timeout_ms.to_be_bytes());
         out[142..146].copy_from_slice(&self.policy.pbkdf2_iterations.to_be_bytes());
 
-        // Bytes 146..252 remain zeroed as reserved padding
+        out[146..152].copy_from_slice(&self.paired_ble_mac);
+        out[152..176].copy_from_slice(&self.paired_ble_name);
+        out[176] = self.ble_proximity_registered as u8;
+        out[177] = self.auto_lock_on_ble_away as u8;
+
+        // Bytes 178..252 remain zeroed as reserved padding
 
         // Compute CRC32 over bytes 0..252
         let crc = crc32(&out[0..252]);
@@ -169,6 +186,15 @@ impl SecureGuardPersistentRecord {
                 )?),
             };
 
+        let mut paired_ble_mac = [0u8; 6];
+        paired_ble_mac.copy_from_slice(&bytes[146..152]);
+
+        let mut paired_ble_name = [0u8; 24];
+        paired_ble_name.copy_from_slice(&bytes[152..176]);
+
+        let ble_proximity_registered = bytes[176] != 0;
+        let auto_lock_on_ble_away = bytes[177] != 0;
+
         Ok(Self {
             is_provisioned,
             state_wire,
@@ -180,6 +206,10 @@ impl SecureGuardPersistentRecord {
             recovery_salt,
             recovery_verifier,
             policy,
+            paired_ble_mac,
+            paired_ble_name,
+            ble_proximity_registered,
+            auto_lock_on_ble_away,
         })
     }
 }
@@ -212,6 +242,10 @@ mod tests {
                 inactivity_timeout_ms: 60_000,
                 pbkdf2_iterations: 5_000,
             },
+            paired_ble_mac: [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+            paired_ble_name: *b"AegisKey Phone Test \0\0\0\0",
+            ble_proximity_registered: true,
+            auto_lock_on_ble_away: true,
         };
 
         let bytes = record.to_bytes();

@@ -96,6 +96,7 @@ pub mod wallet_exec;
 pub mod watchdog;
 pub mod wifi_ap;
 pub mod wifi_station;
+pub mod hmac_cr_compat_layer;
 pub mod zeroize;
 
 pub use crate::crypto_aead::{AeadAlgorithm, AeadBackend, AeadError};

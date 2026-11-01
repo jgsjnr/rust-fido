@@ -78,6 +78,8 @@ pub enum SessionExpiryReason {
     ManualLock,
     /// Physical or logical transport disconnected.
     TransportDisconnect,
+    /// Registered Bluetooth proximity device moved away.
+    BleProximityAway,
 }
 
 /// Fixed-size ring buffer for audit events to ensure predictable memory usage in `no_std`.

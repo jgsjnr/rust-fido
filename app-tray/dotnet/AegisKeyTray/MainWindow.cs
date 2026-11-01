@@ -25,6 +25,8 @@ public class MainWindow : Form
 
     private DeviceInfo _dev = new();
     private SecureGuardStatus _sg = new();
+    private ProximityStatus _proxStatus = new();
+    private bool _enforceWindowsLock = true;
     private string _activeTab = "vault_sg";
     private bool _isPromptOpen = false;
 
@@ -238,6 +240,7 @@ public class MainWindow : Form
         {
             _dev = await _client.DetectDeviceAsync();
             _sg = await _client.GetSecureGuardStatusAsync();
+            _proxStatus = await _client.GetProximityStatusAsync();
 
             _syncContext.Post(_ =>
             {
@@ -657,7 +660,7 @@ public class MainWindow : Form
                     $"✓ Desafio KeePassXC executado com sucesso!\n\n" +
                     $"• Desafio: {testChalHex[..20]}...\n" +
                     $"• Resposta HMAC-SHA1: {respHex}\n" +
-                    $"• YubiKey CRC-16: 0x{crcHex}\n" +
+                    $"• CRC-16 (CR Compatible Layer): 0x{crcHex}\n" +
                     $"• Just-in-Time SRAM Zeroize: EXECUTADO (chave apagada da RAM imediatamente).",
                     "Teste KeePassXC Bem-sucedido",
                     MessageBoxButtons.OK,
@@ -832,31 +835,16 @@ public class MainWindow : Form
         };
         card.Controls.Add(lblProxTitle);
 
-        var pnlProx = new Panel
+        var proxPanel = new ProximityControlPanel(_client, async () =>
         {
-            Size = new Size(306, 75),
-            Location = new Point(12, 188),
-            BackColor = ColorInputBg,
-            Padding = new Padding(10)
-        };
-        var lblProxArmed = new Label
+            await RefreshDataAsync();
+        })
         {
-            Text = "Status: ARMADO (Bloqueio Dinâmico BLE)",
-            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
-            ForeColor = ColorEmerald,
-            AutoSize = true,
-            Location = new Point(8, 10)
+            Location = new Point(12, 188)
         };
-        var lblProxSignal = new Label
-        {
-            Text = "RSSI: -35 dBm  |  Limite: -75 dBm\nModo Dev Seguro Ativo",
-            Font = new Font("Segoe UI", 7.5F),
-            ForeColor = ColorTextMuted,
-            Size = new Size(286, 32),
-            Location = new Point(8, 32)
-        };
-        pnlProx.Controls.AddRange(new Control[] { lblProxArmed, lblProxSignal });
-        card.Controls.Add(pnlProx);
+        proxPanel.EnforceWindowsLock = _enforceWindowsLock;
+        proxPanel.UpdateStatus(_proxStatus);
+        card.Controls.Add(proxPanel);
 
         // Clear Signing Preview Button
         var btnClearSign = new Button
@@ -867,7 +855,7 @@ public class MainWindow : Form
             ForeColor = Color.Black,
             FlatStyle = FlatStyle.Flat,
             Size = new Size(306, 32),
-            Location = new Point(12, 275),
+            Location = new Point(12, 375),
             Cursor = Cursors.Hand
         };
         btnClearSign.FlatAppearance.BorderSize = 0;

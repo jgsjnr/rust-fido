@@ -2,22 +2,25 @@
 //! 100% Native Rust Implementation for ESP32-S3
 //!
 //! Features:
-//! - Full YubiKey OTP emulation (Modhex encoding, 16-byte payload with session/usage counter, 8Hz timestamp, CRC-16, AES-128-ECB).
+//! - Full Legacy OTP emulation (Modhex encoding, 16-byte payload with session/usage counter, 8Hz timestamp, CRC-16, AES-128-ECB) - Compatible Layer.
 //! - Dual-slot Challenge-Response (HMAC-SHA1 in Slot 1 and Slot 2 with optional touch requirement).
 //! - USB HID Keyboard scancode generator for auto-typing OTP + Enter upon GPIO 0 button press.
-//! - External tools compatibility: Yubico YKMAN CLI (Management Applet AID, Device Info TLV) and Nitrokey nitropy/nitroapp.
+//! - External tools compatibility: Management Applet CLI (Compatible AID, Device Info TLV) and Nitrokey nitropy/nitroapp.
 //! - Rescue Protocol (Interface de Resgate) for emergency hardware diagnostics, factory wipe, and recovery.
 
 pub mod challenge_response;
+pub mod legacy_otp_compat;
 pub mod modhex;
 pub mod nitrokey;
 pub mod rescue;
 pub mod scancodes;
 pub mod ykman;
-pub mod yubikey_otp;
 
 pub use challenge_response::{
     ChallengeResponseError, ChallengeResponseManager, ChallengeResponseSlot, SlotIndex,
+};
+pub use legacy_otp_compat::{
+    calculate_crc, LegacyOtpError, LegacyOtpGenerator, LegacyOtpPayload, CRC_OK_RESIDUE,
 };
 pub use modhex::{
     decode as modhex_decode, encode as modhex_encode, hex_to_modhex, modhex_to_hex, ModhexError,
@@ -31,10 +34,7 @@ pub use rescue::{
 pub use scancodes::{
     char_to_hid_scancode, string_to_hid_reports, HidKeyboardReport, OtpAutoTyper, HID_KEY_ENTER,
 };
-pub use ykman::{YkmanDeviceInfo, YubiOtpStatus, ALL_SUPPORTED_CAPS, YK_MGMT_AID};
-pub use yubikey_otp::{
-    calculate_crc, YubiOtpError, YubiOtpGenerator, YubiOtpPayload, CRC_OK_RESIDUE,
-};
+pub use ykman::{YkmanDeviceInfo, LegacyOtpStatus, ALL_SUPPORTED_CAPS, YK_MGMT_AID};
 
 #[cfg(test)]
 mod tests {
@@ -47,8 +47,8 @@ mod tests {
         let private_id = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02];
         let aes_key = [0x55u8; 16];
 
-        // 1. Initialize YubiKey OTP generator
-        let mut otp_gen = YubiOtpGenerator::new(&public_id, private_id, aes_key);
+        // 1. Initialize Legacy OTP generator
+        let mut otp_gen = LegacyOtpGenerator::new(&public_id, private_id, aes_key);
 
         // 2. Generate OTP token
         let token = otp_gen.generate_token(0xABCD);

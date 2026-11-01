@@ -57,6 +57,8 @@ pub enum SecureGuardError {
     InvalidEcdhKey,
     /// Secure channel replay counter invalid or out of sequence.
     ReplayCounterInvalid,
+    /// Operation blocked because registered BLE proximity device is away.
+    BleProximityLocked,
 }
 
 impl core::fmt::Display for SecureGuardError {
@@ -117,6 +119,9 @@ impl core::fmt::Display for SecureGuardError {
             Self::SecureChannelAuthFailed => write!(f, "Secure channel authentication failed"),
             Self::InvalidEcdhKey => write!(f, "Invalid ECDH public key"),
             Self::ReplayCounterInvalid => write!(f, "Secure channel replay counter invalid"),
+            Self::BleProximityLocked => {
+                write!(f, "Access locked because registered BLE device is away")
+            }
         }
     }
 }

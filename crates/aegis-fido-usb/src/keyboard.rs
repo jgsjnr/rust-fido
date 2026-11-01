@@ -1,6 +1,6 @@
 //! USB HID Keyboard Transport for Automatic OTP Typing.
 //!
-//! Converts OTP strings (TOTP, HOTP, YubiKey Modhex OTP) into standard 8-byte
+//! Converts OTP strings (TOTP, HOTP, Legacy Modhex OTP) into standard 8-byte
 //! USB HID Keyboard reports for automated keystroke injection into host systems.
 //! 100% Native Rust implementation.
 
@@ -67,7 +67,7 @@ pub fn ascii_to_keycode(ch: char) -> Option<(u8, u8)> {
     }
 }
 
-/// Modhex characters used in YubiKey OTPs: 'c', 'b', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'n', 'r', 't', 'u', 'v'.
+/// Modhex characters used in Legacy OTPs (Compatible Layer): 'c', 'b', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'n', 'r', 't', 'u', 'v'.
 pub const MODHEX_ALPHABET: &[char] = &[
     'c', 'b', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'n', 'r', 't', 'u', 'v',
 ];

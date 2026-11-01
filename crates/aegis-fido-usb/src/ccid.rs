@@ -1,7 +1,7 @@
 //! USB CCID (Smart Card / PC/SC) Protocol Transport & APDU Parser.
 //!
 //! Compliant with ISO 7816-4 and USB CCID Specification Rev 1.1.
-//! Supports Yubico OATH applet (YKOATH) and FIDO U2F/CTAP applet routing.
+//! Supports OATH applet (YKOATH Compatible Layer) and FIDO U2F/CTAP applet routing.
 //! 100% Native Rust implementation.
 //!
 //! PIV routing is wired through [`crate::piv::PivApplet`] owned by
@@ -46,7 +46,7 @@ pub const RDR_TO_PC_DATA_RATE_AND_CLOCK: u8 = 0x84;
 // ============================================================================
 // Well-known Application IDs (AID)
 // ============================================================================
-/// Yubico OATH Application ID: A0 00 00 05 27 21 01
+/// OATH Application ID (Compatible Layer): A0 00 00 05 27 21 01
 pub const AID_YKOATH: &[u8] = &[0xA0, 0x00, 0x00, 0x05, 0x27, 0x21, 0x01];
 
 /// FIDO U2F Application ID: A0 00 00 06 47 2F 00 01
