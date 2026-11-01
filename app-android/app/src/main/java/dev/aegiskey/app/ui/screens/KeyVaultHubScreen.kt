@@ -669,6 +669,24 @@ private fun HardwareManagerSummaryPanel(
                                 text = "Device binding: ${if (diagnostics?.isBoundToThisPhone == true) "Bound to this device" else "Unbound"}",
                                 style = MaterialTheme.typography.labelSmall
                             )
+                            Text(
+                                text = stringResource(R.string.keepassxc_slot_status),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = stringResource(R.string.keepassxc_jit_zeroize),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = stringResource(R.string.keepassxc_crypto_ready),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = stringResource(R.string.keepassxc_psram_status),
+                                style = MaterialTheme.typography.labelSmall
+                            )
                         }
                     }
 

@@ -625,6 +625,98 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
         self.assertEqual(buf_len, 1024, "Virtual OLED display buffer must be exactly 1024 bytes")
         print(f"\n[PASS] OPP-06 Clear-Signing Verified: 1024-byte virtual monochrome buffer generated (hardware_i2c_oled_attached=False).")
 
+    # -------------------------------------------------------------------------
+    # TEST 16: KeePassXC Hardware Unlock (.kdbx) & JIT SRAM Zeroize
+    # -------------------------------------------------------------------------
+    def test_16_keepassxc_hardware_unlock_and_jit_ram_zeroize(self):
+        """Audits KeePassXC Challenge-Response (YubiKey HMAC-SHA1 Slots 1 & 2), JIT SRAM Zeroize, and PSRAM."""
+        import hmac
+        import hashlib
+
+        # 1. When Locked -> 403 Forbidden with CTAP2_ERR_PIN_REQUIRED
+        self.client.lock_secure_guard()
+        st_cr_lk, res_cr_lk = self._http_post_json("/api/keepassxc/challenge-response", {
+            "slot": 1,
+            "challenge_hex": "0102030405060708090a0b0c0d0e0f10"
+        })
+        self.assertEqual(st_cr_lk, 403, "KeePassXC challenge-response must be blocked when Secure Guard is locked")
+        self.assertEqual(res_cr_lk.get("error"), "CTAP2_ERR_PIN_REQUIRED")
+        self.assertTrue(res_cr_lk.get("pending_system_request"))
+
+        st_cfg_lk, res_cfg_lk = self._http_post_json("/api/keepassxc/configure-slot", {
+            "slot": 2,
+            "secret_hex": "11" * 20
+        })
+        self.assertEqual(st_cfg_lk, 403, "KeePassXC configure-slot must be blocked when Secure Guard is locked")
+
+        # 2. When Unlocked -> Query status & telemetry
+        self.client.unlock_secure_guard(self.test_pin)
+        st_stat, res_stat = self._http_get_json("/api/keepassxc/status")
+        self.assertEqual(st_stat, 200)
+        self.assertTrue(res_stat.get("ok"))
+        self.assertTrue(res_stat.get("slot1_configured"))
+        self.assertTrue(res_stat.get("just_in_time_ram_zeroize"))
+        self.assertTrue(res_stat.get("psram_8mb_enabled"))
+        self.assertTrue(res_stat.get("chacha20_poly1305_enabled"))
+        self.assertTrue(res_stat.get("rsa_ds_enabled"))
+
+        # 3. Provision Slot 2 with known 20-byte HMAC-SHA1 secret
+        slot2_secret = bytes.fromhex("33" * 20)
+        st_cfg2, res_cfg2 = self._http_post_json("/api/keepassxc/configure-slot", {
+            "slot": 2,
+            "secret_hex": slot2_secret.hex(),
+            "require_touch": False
+        })
+        self.assertEqual(st_cfg2, 200)
+        self.assertTrue(res_cfg2.get("ok"))
+        self.assertEqual(res_cfg2.get("slot"), 2)
+        self.assertTrue(res_cfg2.get("slot2_configured"))
+        self.assertTrue(res_cfg2.get("just_in_time_ram_zeroize"))
+
+        # 4. Challenge-Response on Slot 2 and verify mathematical HMAC-SHA1 output
+        challenge = bytes.fromhex("aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899")
+        st_cr2, res_cr2 = self._http_post_json("/api/keepassxc/challenge-response", {
+            "slot": 2,
+            "challenge_hex": challenge.hex()
+        })
+        self.assertEqual(st_cr2, 200)
+        self.assertTrue(res_cr2.get("ok"))
+        self.assertEqual(res_cr2.get("slot"), 2)
+        self.assertTrue(res_cr2.get("just_in_time_ram_zeroize"))
+        self.assertTrue(res_cr2.get("psram_8mb_enabled"))
+
+        expected_hmac = hmac.new(slot2_secret, challenge, hashlib.sha1).digest()
+        actual_hmac = bytes.fromhex(res_cr2.get("response_hex", ""))
+        self.assertEqual(actual_hmac, expected_hmac, "KeePassXC response must match exact HMAC-SHA1(secret, challenge)")
+
+        # 5. Challenge-Response on Slot 1 and CRC-16 Verification
+        def yk_crc16(data: bytes) -> int:
+            c = 0xFFFF
+            for b in data:
+                c ^= b
+                for _ in range(8):
+                    c = (c >> 1) ^ 0x8408 if (c & 1) else c >> 1
+            return c
+        self.assertEqual(res_cr2.get("crc16_hex"), f"{yk_crc16(actual_hmac):04x}", "YubiKey CRC-16 must match polynomial 0x8408")
+
+        st_cr1, res_cr1 = self._http_post_json("/api/keepassxc/challenge-response", {
+            "slot": 1,
+            "challenge_hex": "44" * 32
+        })
+        self.assertEqual(st_cr1, 200)
+        self.assertTrue(res_cr1.get("ok"))
+        self.assertEqual(len(res_cr1.get("response_hex", "")), 40, "Slot 1 response must be 20 bytes (40 hex chars)")
+
+        # 6. Integrated FIDO2 hmac-secret derivation right after KeePassXC challenge-response
+        st_fido, res_fido = self._http_post_json("/api/ctap21/hmac-secret", {
+            "salt1_hex": "55" * 32,
+            "cred_id_hex": "66" * 16,
+        })
+        self.assertEqual(st_fido, 200)
+        self.assertTrue(res_fido.get("ok"))
+        self.assertEqual(len(res_fido.get("output1_hex", "")), 64, "FIDO2 hmac-secret output must be 32 bytes (64 hex)")
+        print("\n[PASS] TEST 16: KeePassXC Hardware Unlock (.kdbx) + FIDO2 hmac-secret & JIT SRAM Zeroize Verified.")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

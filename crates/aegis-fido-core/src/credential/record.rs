@@ -1,6 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CredentialRecord {
@@ -35,5 +36,17 @@ impl CredentialRecord {
             }
         }
         true
+    }
+}
+
+impl Drop for CredentialRecord {
+    fn drop(&mut self) {
+        self.private_key.zeroize();
+        if let Some(ref mut k) = self.hmac_secret_key {
+            k.zeroize();
+        }
+        if let Some(ref mut lb) = self.large_blob_key {
+            lb.zeroize();
+        }
     }
 }

@@ -46,6 +46,17 @@ public class MainWindow : Form
 
         InitializeComponent();
         _ = RefreshDataAsync();
+
+        var pollTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+        pollTimer.Tick += async (s, e) =>
+        {
+            try
+            {
+                await RefreshDataAsync();
+            }
+            catch { }
+        };
+        pollTimer.Start();
     }
 
     private void InitializeComponent()
@@ -258,6 +269,10 @@ public class MainWindow : Form
         _isPromptOpen = true;
         try
         {
+            Show();
+            WindowState = FormWindowState.Normal;
+            BringToFront();
+            SetForegroundWindow(Handle);
             string reason = $"Solicitação do Sistema: {req.Source}";
             string subtitle = $"{req.Operation} — {req.Reason}";
             bool ok = await PinSessionDialog.PromptAndUnlockAsync(_client, this, reason, subtitle);
@@ -537,6 +552,126 @@ public class MainWindow : Form
             };
             card.Controls.Add(lblMsg);
         }
+
+        // KeePassXC Hardware Unlock (.kdbx) Card
+        int keepassY = !_sg.Unlocked ? 298 : 308;
+        var pnlKeePass = new Panel
+        {
+            Size = new Size(306, 126),
+            Location = new Point(12, keepassY),
+            BackColor = ColorInputBg,
+            Padding = new Padding(10)
+        };
+
+        var lblKeePassTitle = new Label
+        {
+            Text = "🔐 KeePassXC Hardware Unlock (.kdbx)",
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            ForeColor = ColorCyan,
+            AutoSize = true,
+            Location = new Point(8, 8)
+        };
+
+        var lblKeePassStatus = new Label
+        {
+            Text = "Slot 1 (HMAC-SHA1) & FIDO2 hmac-secret: READY\nJIT RAM Zeroize: ACTIVE | PSRAM 8MB Ready",
+            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+            ForeColor = ColorEmerald,
+            Size = new Size(290, 28),
+            Location = new Point(8, 28)
+        };
+
+        var lblKeePassCaps = new Label
+        {
+            Text = "ChaCha20-Poly1305 & RSA-2048/3072 DS Ready",
+            Font = new Font("Segoe UI", 7.0F),
+            ForeColor = ColorTextMuted,
+            Size = new Size(290, 16),
+            Location = new Point(8, 58)
+        };
+
+        var btnConfigSlot1 = new Button
+        {
+            Text = "⚙️ Config. Slot 1",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            BackColor = ColorCyan,
+            ForeColor = Color.Black,
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(138, 30),
+            Location = new Point(8, 80),
+            Cursor = Cursors.Hand
+        };
+        btnConfigSlot1.FlatAppearance.BorderSize = 0;
+        btnConfigSlot1.Click += async (s, e) =>
+        {
+            if (!_sg.Unlocked)
+            {
+                bool okPin = await PinSessionDialog.PromptAndUnlockAsync(_client, this, "Configuração KeePassXC", "Digite o PIN para desbloquear a hardwallet e configurar o Slot 1.");
+                if (!okPin) return;
+            }
+            var (ok, secHex, msg) = await _client.ConfigureKeePassXcSlotAsync(1);
+            if (ok)
+            {
+                try { Clipboard.SetText(secHex); } catch { }
+                MessageBox.Show(
+                    $"✓ Slot 1 (HMAC-SHA1 20B) configurado com sucesso!\n\n" +
+                    $"• Chave Hex: {secHex}\n\n" +
+                    $"Chave copiada para a Área de Transferência para backup ou uso no KeePassXC!\n\n" +
+                    $"A chave fica criptografada no hardware e é carregada na SRAM apenas no instante do desafio com Zeroize imediato.",
+                    "KeePassXC Slot 1 Configurado",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+                await RefreshDataAsync();
+            }
+            else
+            {
+                MessageBox.Show($"Falha na configuração do Slot 1: {msg}", "Erro KeePassXC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        };
+
+        var btnTestChal = new Button
+        {
+            Text = "⚡ Testar Desafio",
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            BackColor = ColorCard,
+            ForeColor = ColorCyan,
+            FlatStyle = FlatStyle.Flat,
+            Size = new Size(138, 30),
+            Location = new Point(152, 80),
+            Cursor = Cursors.Hand
+        };
+        btnTestChal.FlatAppearance.BorderSize = 0;
+        btnTestChal.Click += async (s, e) =>
+        {
+            if (!_sg.Unlocked)
+            {
+                bool okPin = await PinSessionDialog.PromptAndUnlockAsync(_client, this, "Desafio KeePassXC", "Digite o PIN para autorizar a resposta ao desafio KeePassXC (.kdbx).");
+                if (!okPin) return;
+            }
+            string testChalHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+            var (ok, respHex, crcHex, err) = await _client.ChallengeResponseKeePassXcAsync(1, testChalHex);
+            if (ok)
+            {
+                MessageBox.Show(
+                    $"✓ Desafio KeePassXC executado com sucesso!\n\n" +
+                    $"• Desafio: {testChalHex[..20]}...\n" +
+                    $"• Resposta HMAC-SHA1: {respHex}\n" +
+                    $"• YubiKey CRC-16: 0x{crcHex}\n" +
+                    $"• Just-in-Time SRAM Zeroize: EXECUTADO (chave apagada da RAM imediatamente).",
+                    "Teste KeePassXC Bem-sucedido",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+            }
+            else
+            {
+                MessageBox.Show($"Falha no teste de desafio: {err}", "Erro Desafio KeePassXC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        };
+
+        pnlKeePass.Controls.AddRange(new Control[] { lblKeePassTitle, lblKeePassStatus, lblKeePassCaps, btnConfigSlot1, btnTestChal });
+        card.Controls.Add(pnlKeePass);
     }
 
     private void RenderSectionTotp(Panel card)

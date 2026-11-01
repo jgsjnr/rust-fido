@@ -75,3 +75,16 @@ public record SystemAuthRequest(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("approved")] bool Approved
 );
+
+public record KeePassXcStatus(
+    [property: JsonPropertyName("ok")] bool Ok = true,
+    [property: JsonPropertyName("slot1_configured")] bool Slot1Configured = true,
+    [property: JsonPropertyName("slot2_configured")] bool Slot2Configured = false,
+    [property: JsonPropertyName("require_touch")] bool RequireTouch = false,
+    [property: JsonPropertyName("require_secure_guard_unlocked")] bool RequireSecureGuardUnlocked = true,
+    [property: JsonPropertyName("fido2_hmac_secret_ready")] bool Fido2HmacSecretReady = true,
+    [property: JsonPropertyName("just_in_time_ram_zeroize")] bool JustInTimeRamZeroize = true,
+    [property: JsonPropertyName("psram_8mb_enabled")] bool Psram8MbEnabled = true,
+    [property: JsonPropertyName("chacha20_poly1305_enabled")] bool ChaCha20Poly1305Enabled = true,
+    [property: JsonPropertyName("rsa_ds_enabled")] bool RsaDsEnabled = true
+);

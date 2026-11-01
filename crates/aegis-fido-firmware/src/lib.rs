@@ -65,6 +65,7 @@ pub mod piv_cmd;
 pub mod piv_store;
 pub mod provision;
 pub mod prod_strict_guard;
+pub mod psram_public_alloc;
 #[cfg(feature = "proximity")]
 pub mod proximity;
 pub mod proximity_crypto;

@@ -2,11 +2,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
 use rand_core::{CryptoRng, RngCore};
+use zeroize::Zeroize;
 
 use crate::credential::non_resident::CredentialWrapper;
 use crate::credential::record::CredentialRecord;
 use crate::credential::store::CredentialStore;
-use crate::crypto::ecdh::EcdhKeyAgreement;
 use crate::crypto::hash::{hmac_sha256, sha256};
 use crate::crypto::keys::FidoKeyPair;
 use crate::crypto::pin_protocol::{PinProtocol1, PinProtocol2};
@@ -162,7 +162,14 @@ impl GetAssertionHandler {
         assertion_state.cached_rp_id_hash = rp_id_hash;
         assertion_state.cached_uv_success = uv_success;
 
-        Self::format_assertion_response(store, assertion_state, &ext_inputs, total_candidates, rng)
+        Self::format_assertion_response(
+            store,
+            Some(pin_state),
+            assertion_state,
+            &ext_inputs,
+            total_candidates,
+            rng,
+        )
     }
 
     pub fn handle_next<S: CredentialStore, R: RngCore + CryptoRng>(
@@ -177,11 +184,12 @@ impl GetAssertionHandler {
 
         let total = assertion_state.pending_assertions.len();
         let dummy_ext = ExtensionInputs::default();
-        Self::format_assertion_response(store, assertion_state, &dummy_ext, total, rng)
+        Self::format_assertion_response(store, None, assertion_state, &dummy_ext, total, rng)
     }
 
     fn format_assertion_response<S: CredentialStore, R: RngCore + CryptoRng>(
         store: &mut S,
+        pin_state: Option<&ClientPinState>,
         state: &mut GetAssertionState,
         ext_inputs: &ExtensionInputs,
         total_candidates: usize,
@@ -207,23 +215,63 @@ impl GetAssertionHandler {
         // 1. hmac-secret (PRF)
         if let Some(ref hmac_in) = ext_inputs.hmac_secret_get_assertion {
             if let Some(ref cred_hmac_key) = cred.hmac_secret_key {
-                let ecdh = EcdhKeyAgreement::generate(rng);
-                let shared_secret = ecdh
+                let ps = pin_state.ok_or(CtapError::PinAuthInvalid)?;
+                let ecdh = ps
+                    .key_agreement
+                    .as_ref()
+                    .or(ps.ephemeral_key.as_ref())
+                    .ok_or(CtapError::PinAuthInvalid)?;
+                let mut shared_secret = ecdh
                     .compute_shared_secret(&hmac_in.key_agreement)
                     .map_err(|_| CtapError::InvalidParameter)?;
 
-                let decrypted_salts = match hmac_in.pin_uv_protocol {
+                // Validate salt_auth if provided
+                if !hmac_in.salt_auth.is_empty() {
+                    let valid_auth = match hmac_in.pin_uv_protocol {
+                        1 => {
+                            let k = PinProtocol1::kdf(&shared_secret);
+                            let expected = PinProtocol1::authenticate(&k, &hmac_in.salt_enc);
+                            crate::oath::crypto::constant_time_eq(&hmac_in.salt_auth, &expected)
+                        }
+                        2 => {
+                            let (_e_ks, m_ks) = PinProtocol2::kdf(&shared_secret);
+                            let expected = PinProtocol2::authenticate(&m_ks, &hmac_in.salt_enc);
+                            if hmac_in.salt_auth.len() == 16 {
+                                crate::oath::crypto::constant_time_eq(&hmac_in.salt_auth, &expected[..16])
+                            } else {
+                                crate::oath::crypto::constant_time_eq(&hmac_in.salt_auth, &expected)
+                            }
+                        }
+                        _ => {
+                            shared_secret.zeroize();
+                            return Err(CtapError::InvalidParameter);
+                        }
+                    };
+                    if !valid_auth {
+                        shared_secret.zeroize();
+                        return Err(CtapError::PinAuthInvalid);
+                    }
+                }
+
+                let mut decrypted_salts = match hmac_in.pin_uv_protocol {
                     1 => {
                         let k = PinProtocol1::kdf(&shared_secret);
-                        PinProtocol1::decrypt(&k, &hmac_in.salt_enc)
-                            .map_err(|_| CtapError::PinAuthInvalid)?
+                        PinProtocol1::decrypt(&k, &hmac_in.salt_enc).map_err(|_| {
+                            shared_secret.zeroize();
+                            CtapError::PinAuthInvalid
+                        })?
                     }
                     2 => {
                         let (e_ks, _m_ks) = PinProtocol2::kdf(&shared_secret);
-                        PinProtocol2::decrypt(&e_ks, &hmac_in.salt_enc)
-                            .map_err(|_| CtapError::PinAuthInvalid)?
+                        PinProtocol2::decrypt(&e_ks, &hmac_in.salt_enc).map_err(|_| {
+                            shared_secret.zeroize();
+                            CtapError::PinAuthInvalid
+                        })?
                     }
-                    _ => return Err(CtapError::InvalidParameter),
+                    _ => {
+                        shared_secret.zeroize();
+                        return Err(CtapError::InvalidParameter);
+                    }
                 };
 
                 if decrypted_salts.len() >= 32 {
@@ -248,11 +296,19 @@ impl GetAssertionHandler {
                             rng.fill_bytes(&mut iv);
                             PinProtocol2::encrypt(&e_ks, &iv, &prf_output)
                         }
-                        _ => return Err(CtapError::InvalidParameter),
+                        _ => {
+                            prf_output.zeroize();
+                            decrypted_salts.zeroize();
+                            shared_secret.zeroize();
+                            return Err(CtapError::InvalidParameter);
+                        }
                     };
 
+                    prf_output.zeroize();
                     ext_outputs.hmac_secret_output_enc = Some(enc_output);
                 }
+                decrypted_salts.zeroize();
+                shared_secret.zeroize();
             }
         }
 
@@ -358,5 +414,322 @@ impl GetAssertionHandler {
         }
 
         encode_cbor_value(&Value::Map(resp))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypto::cose::CoseKey;
+    use crate::crypto::ecdh::EcdhKeyAgreement;
+    use crate::crypto::pin_protocol::PinProtocol1;
+    use crate::ctap::cbor::{decode_cbor_map, encode_cbor_value, get_int_key};
+    use crate::ctap::status_code::CTAP1_ERR_SUCCESS;
+    use crate::ctap::{
+        CtapEngine, CTAP_CMD_CLIENT_PIN, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL,
+    };
+
+    #[test]
+    fn test_keepassxc_hmac_secret_client_e2e() {
+        let mut engine = CtapEngine::new([0x42u8; 32], 1000);
+        let mut rng = rand::thread_rng();
+
+        // Step 1: Client calls authenticatorClientPIN(getKeyAgreement)
+        let pin_req = vec![
+            (Value::Integer(1.into()), Value::Integer(1.into())),
+            (Value::Integer(2.into()), Value::Integer(2.into())),
+        ];
+        let mut pin_pkt = vec![CTAP_CMD_CLIENT_PIN];
+        pin_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(pin_req)).unwrap());
+        let pin_res = engine.process_packet(&pin_pkt, 1001, &mut rng);
+        assert_eq!(pin_res[0], CTAP1_ERR_SUCCESS, "getKeyAgreement must succeed");
+
+        let pin_map = decode_cbor_map(&pin_res[1..]).unwrap();
+        let auth_cose_val = get_int_key(&pin_map, 1).expect("authenticatorKeyAgreement missing");
+        let auth_cose = CoseKey::from_cbor_value(auth_cose_val).expect("valid COSE key");
+
+        // Step 2: MakeCredential with {"hmac-secret": true}
+        let client_data_hash = [0x55u8; 32];
+        let rp_id = "keepassxc.org";
+        let mc_req = vec![
+            (Value::Integer(1.into()), Value::Bytes(client_data_hash.to_vec())),
+            (
+                Value::Integer(2.into()),
+                Value::Map(vec![
+                    (Value::Text("id".into()), Value::Text(rp_id.into())),
+                    (Value::Text("name".into()), Value::Text("KeePassXC".into())),
+                ]),
+            ),
+            (
+                Value::Integer(3.into()),
+                Value::Map(vec![
+                    (Value::Text("id".into()), Value::Bytes(vec![1, 2, 3])),
+                    (Value::Text("name".into()), Value::Text("user".into())),
+                ]),
+            ),
+            (
+                Value::Integer(4.into()),
+                Value::Array(vec![Value::Map(vec![
+                    (Value::Text("type".into()), Value::Text("public-key".into())),
+                    (Value::Text("alg".into()), Value::Integer((-7).into())),
+                ])]),
+            ),
+            (
+                Value::Integer(6.into()),
+                Value::Map(vec![(Value::Text("hmac-secret".into()), Value::Bool(true))]),
+            ),
+            (
+                Value::Integer(7.into()),
+                Value::Map(vec![(Value::Text("rk".into()), Value::Bool(true))]),
+            ),
+        ];
+        let mut mc_pkt = vec![CTAP_CMD_MAKE_CREDENTIAL];
+        mc_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(mc_req)).unwrap());
+        let mc_res = engine.process_packet(&mc_pkt, 1002, &mut rng);
+        assert_eq!(mc_res[0], CTAP1_ERR_SUCCESS, "MakeCredential must succeed");
+
+        let mc_map = decode_cbor_map(&mc_res[1..]).unwrap();
+        let auth_data_val = get_int_key(&mc_map, 2).expect("authData missing");
+        let auth_data = match auth_data_val {
+            Value::Bytes(b) => b,
+            _ => panic!("authData not bytes"),
+        };
+        let cred_id_len = u16::from_be_bytes([auth_data[53], auth_data[54]]) as usize;
+        let cred_id = auth_data[55..55 + cred_id_len].to_vec();
+
+        // Step 3: Client generates ephemeral ECDH pair and encrypts salt
+        let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
+        let shared_secret = client_ecdh
+            .compute_shared_secret(&auth_cose)
+            .expect("client ECDH shared secret");
+        let k = PinProtocol1::kdf(&shared_secret);
+
+        let salt1 = [0xAAu8; 32];
+        let salt_enc = PinProtocol1::encrypt(&k, &salt1);
+        let salt_auth = PinProtocol1::authenticate(&k, &salt_enc);
+
+        // Step 4: GetAssertion with hmac-secret extension
+        let hmac_ext_val = Value::Map(vec![
+            (Value::Integer(1.into()), client_ecdh.to_cose_key().to_cbor_value()),
+            (Value::Integer(2.into()), Value::Bytes(salt_enc)),
+            (Value::Integer(3.into()), Value::Bytes(salt_auth.to_vec())),
+            (Value::Integer(4.into()), Value::Integer(1.into())),
+        ]);
+        let ga_req = vec![
+            (Value::Integer(1.into()), Value::Text(rp_id.into())),
+            (Value::Integer(2.into()), Value::Bytes(client_data_hash.to_vec())),
+            (
+                Value::Integer(3.into()),
+                Value::Array(vec![Value::Map(vec![
+                    (Value::Text("type".into()), Value::Text("public-key".into())),
+                    (Value::Text("id".into()), Value::Bytes(cred_id)),
+                ])]),
+            ),
+            (
+                Value::Integer(4.into()),
+                Value::Map(vec![(Value::Text("hmac-secret".into()), hmac_ext_val)]),
+            ),
+        ];
+        let mut ga_pkt = vec![CTAP_CMD_GET_ASSERTION];
+        ga_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(ga_req)).unwrap());
+        let ga_res = engine.process_packet(&ga_pkt, 1003, &mut rng);
+        assert_eq!(ga_res[0], CTAP1_ERR_SUCCESS, "GetAssertion must succeed");
+
+        let ga_map = decode_cbor_map(&ga_res[1..]).unwrap();
+        let ga_auth_data_val = get_int_key(&ga_map, 2).expect("ga authData missing");
+        let ga_auth_data = match ga_auth_data_val {
+            Value::Bytes(b) => b,
+            _ => panic!("ga authData not bytes"),
+        };
+
+        let flags = ga_auth_data[32];
+        assert_ne!(flags & 0x80, 0, "Extension data bit ED must be set in flags");
+        let ext_cbor = &ga_auth_data[37..];
+        let ext_map = decode_cbor_map(ext_cbor).expect("extensions map decode");
+        let hmac_out_enc_val = ext_map
+            .iter()
+            .find_map(|(k, v)| match k {
+                Value::Text(s) if s == "hmac-secret" => Some(v),
+                _ => None,
+            })
+            .expect("hmac-secret extension in authData");
+        let hmac_out_enc = match hmac_out_enc_val {
+            Value::Bytes(b) => b,
+            _ => panic!("hmac-secret output not bytes"),
+        };
+
+        // Step 5: Client decrypts output1
+        let decrypted_out = PinProtocol1::decrypt(&k, hmac_out_enc)
+            .expect("client successfully decrypts hmac-secret output");
+        assert_eq!(decrypted_out.len(), 32, "Decrypted output must be 32 bytes");
+
+        // Verify the output matches authenticator's HMAC-SHA256(cred_hmac_key, salt1)
+        let cred = engine
+            .store
+            .find_by_rp_id(rp_id)
+            .into_iter()
+            .next()
+            .expect("credential found");
+        let expected_hmac = hmac_sha256(cred.hmac_secret_key.as_ref().unwrap(), &salt1);
+        assert_eq!(
+            decrypted_out.as_slice(),
+            &expected_hmac,
+            "100% match with expected HMAC output"
+        );
+    }
+
+    #[test]
+    fn test_keepassxc_hmac_secret_64byte_salts() {
+        let mut engine = CtapEngine::new([0x33u8; 32], 2000);
+        let mut rng = rand::thread_rng();
+
+        // 1. Client calls getKeyAgreement
+        let pin_req = vec![
+            (Value::Integer(1.into()), Value::Integer(1.into())),
+            (Value::Integer(2.into()), Value::Integer(2.into())),
+        ];
+        let mut pin_pkt = vec![CTAP_CMD_CLIENT_PIN];
+        pin_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(pin_req)).unwrap());
+        let pin_res = engine.process_packet(&pin_pkt, 2001, &mut rng);
+        let pin_map = decode_cbor_map(&pin_res[1..]).unwrap();
+        let auth_cose = CoseKey::from_cbor_value(get_int_key(&pin_map, 1).unwrap()).unwrap();
+
+        // 2. MakeCredential
+        let client_data_hash = [0x77u8; 32];
+        let rp_id = "keepassxc.org";
+        let mc_req = vec![
+            (Value::Integer(1.into()), Value::Bytes(client_data_hash.to_vec())),
+            (
+                Value::Integer(2.into()),
+                Value::Map(vec![
+                    (Value::Text("id".into()), Value::Text(rp_id.into())),
+                    (Value::Text("name".into()), Value::Text("KeePassXC".into())),
+                ]),
+            ),
+            (
+                Value::Integer(3.into()),
+                Value::Map(vec![
+                    (Value::Text("id".into()), Value::Bytes(vec![4, 5, 6])),
+                    (Value::Text("name".into()), Value::Text("vault".into())),
+                ]),
+            ),
+            (
+                Value::Integer(4.into()),
+                Value::Array(vec![Value::Map(vec![
+                    (Value::Text("type".into()), Value::Text("public-key".into())),
+                    (Value::Text("alg".into()), Value::Integer((-7).into())),
+                ])]),
+            ),
+            (
+                Value::Integer(6.into()),
+                Value::Map(vec![(Value::Text("hmac-secret".into()), Value::Bool(true))]),
+            ),
+            (
+                Value::Integer(7.into()),
+                Value::Map(vec![(Value::Text("rk".into()), Value::Bool(true))]),
+            ),
+        ];
+        let mut mc_pkt = vec![CTAP_CMD_MAKE_CREDENTIAL];
+        mc_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(mc_req)).unwrap());
+        let mc_res = engine.process_packet(&mc_pkt, 2002, &mut rng);
+        let mc_map = decode_cbor_map(&mc_res[1..]).unwrap();
+        let auth_data = match get_int_key(&mc_map, 2).unwrap() {
+            Value::Bytes(b) => b,
+            _ => panic!("bytes"),
+        };
+        let cred_id_len = u16::from_be_bytes([auth_data[53], auth_data[54]]) as usize;
+        let cred_id = auth_data[55..55 + cred_id_len].to_vec();
+
+        // 3. Client ECDH & 64-byte salt encryption (two 32-byte salts)
+        let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
+        let shared_secret = client_ecdh.compute_shared_secret(&auth_cose).unwrap();
+        let k = PinProtocol1::kdf(&shared_secret);
+
+        let salt1 = [0x11u8; 32];
+        let salt2 = [0x22u8; 32];
+        let mut both_salts = [0u8; 64];
+        both_salts[..32].copy_from_slice(&salt1);
+        both_salts[32..].copy_from_slice(&salt2);
+
+        let salt_enc = PinProtocol1::encrypt(&k, &both_salts);
+        let salt_auth = PinProtocol1::authenticate(&k, &salt_enc);
+
+        // 4. GetAssertion
+        let hmac_ext_val = Value::Map(vec![
+            (Value::Integer(1.into()), client_ecdh.to_cose_key().to_cbor_value()),
+            (Value::Integer(2.into()), Value::Bytes(salt_enc)),
+            (Value::Integer(3.into()), Value::Bytes(salt_auth.to_vec())),
+            (Value::Integer(4.into()), Value::Integer(1.into())),
+        ]);
+        let ga_req = vec![
+            (Value::Integer(1.into()), Value::Text(rp_id.into())),
+            (Value::Integer(2.into()), Value::Bytes(client_data_hash.to_vec())),
+            (
+                Value::Integer(3.into()),
+                Value::Array(vec![Value::Map(vec![
+                    (Value::Text("type".into()), Value::Text("public-key".into())),
+                    (Value::Text("id".into()), Value::Bytes(cred_id.clone())),
+                ])]),
+            ),
+            (
+                Value::Integer(4.into()),
+                Value::Map(vec![(Value::Text("hmac-secret".into()), hmac_ext_val)]),
+            ),
+        ];
+        let mut ga_pkt = vec![CTAP_CMD_GET_ASSERTION];
+        ga_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(ga_req)).unwrap());
+        let ga_res = engine.process_packet(&ga_pkt, 2003, &mut rng);
+        assert_eq!(ga_res[0], CTAP1_ERR_SUCCESS);
+
+        let ga_map = decode_cbor_map(&ga_res[1..]).unwrap();
+        let ga_auth_data = match get_int_key(&ga_map, 2).unwrap() {
+            Value::Bytes(b) => b,
+            _ => panic!("bytes"),
+        };
+        let ext_map = decode_cbor_map(&ga_auth_data[37..]).unwrap();
+        let hmac_out_enc = match ext_map.iter().find_map(|(k, v)| match k {
+            Value::Text(s) if s == "hmac-secret" => Some(v),
+            _ => None,
+        }).unwrap() {
+            Value::Bytes(b) => b,
+            _ => panic!("bytes"),
+        };
+
+        let decrypted_out = PinProtocol1::decrypt(&k, hmac_out_enc).unwrap();
+        assert_eq!(decrypted_out.len(), 64, "Decrypted output must be 64 bytes (output1 + output2)");
+
+        let cred = engine.store.find_by_rp_id(rp_id).into_iter().next().unwrap();
+        let expected1 = hmac_sha256(cred.hmac_secret_key.as_ref().unwrap(), &salt1);
+        let expected2 = hmac_sha256(cred.hmac_secret_key.as_ref().unwrap(), &salt2);
+        assert_eq!(&decrypted_out[..32], &expected1);
+        assert_eq!(&decrypted_out[32..], &expected2);
+
+        // 5. Test bad salt_auth rejection
+        let bad_salt_auth = vec![0xFFu8; 16];
+        let bad_ext_val = Value::Map(vec![
+            (Value::Integer(1.into()), client_ecdh.to_cose_key().to_cbor_value()),
+            (Value::Integer(2.into()), Value::Bytes(PinProtocol1::encrypt(&k, &salt1))),
+            (Value::Integer(3.into()), Value::Bytes(bad_salt_auth)),
+            (Value::Integer(4.into()), Value::Integer(1.into())),
+        ]);
+        let bad_ga_req = vec![
+            (Value::Integer(1.into()), Value::Text(rp_id.into())),
+            (Value::Integer(2.into()), Value::Bytes(client_data_hash.to_vec())),
+            (
+                Value::Integer(3.into()),
+                Value::Array(vec![Value::Map(vec![
+                    (Value::Text("type".into()), Value::Text("public-key".into())),
+                    (Value::Text("id".into()), Value::Bytes(cred_id)),
+                ])]),
+            ),
+            (
+                Value::Integer(4.into()),
+                Value::Map(vec![(Value::Text("hmac-secret".into()), bad_ext_val)]),
+            ),
+        ];
+        let mut bad_ga_pkt = vec![CTAP_CMD_GET_ASSERTION];
+        bad_ga_pkt.extend_from_slice(&encode_cbor_value(&Value::Map(bad_ga_req)).unwrap());
+        let bad_res = engine.process_packet(&bad_ga_pkt, 2004, &mut rng);
+        assert_ne!(bad_res[0], CTAP1_ERR_SUCCESS, "Bad saltAuth must be rejected with error status");
     }
 }

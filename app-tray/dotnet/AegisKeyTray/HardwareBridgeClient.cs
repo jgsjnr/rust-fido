@@ -422,4 +422,92 @@ public class HardwareBridgeClient
             return (false, "", ex.Message);
         }
     }
+
+    // KeePassXC Challenge-Response & JIT RAM Zeroize
+    public async Task<KeePassXcStatus> GetKeePassXcStatusAsync()
+    {
+        try
+        {
+            var res = await _http.GetFromJsonAsync<JsonObject>($"{_baseUrl}/api/keepassxc/status");
+            if (res != null && res["ok"]?.GetValue<bool>() == true)
+            {
+                return new KeePassXcStatus(
+                    Ok: true,
+                    Slot1Configured: res["slot1_configured"]?.GetValue<bool>() ?? true,
+                    Slot2Configured: res["slot2_configured"]?.GetValue<bool>() ?? false,
+                    RequireTouch: res["require_touch"]?.GetValue<bool>() ?? false,
+                    RequireSecureGuardUnlocked: res["require_secure_guard_unlocked"]?.GetValue<bool>() ?? true,
+                    Fido2HmacSecretReady: res["fido2_hmac_secret_ready"]?.GetValue<bool>() ?? true,
+                    JustInTimeRamZeroize: res["just_in_time_ram_zeroize"]?.GetValue<bool>() ?? true,
+                    Psram8MbEnabled: res["psram_8mb_enabled"]?.GetValue<bool>() ?? true,
+                    ChaCha20Poly1305Enabled: res["chacha20_poly1305_enabled"]?.GetValue<bool>() ?? true,
+                    RsaDsEnabled: res["rsa_ds_enabled"]?.GetValue<bool>() ?? true
+                );
+            }
+        }
+        catch { }
+        return new KeePassXcStatus();
+    }
+
+    public async Task<(bool Success, string SecretHex, string Message)> ConfigureKeePassXcSlotAsync(
+        int slot = 1,
+        string? secretHex = null,
+        string? pin = null,
+        bool requireTouch = false)
+    {
+        try
+        {
+            var payload = new
+            {
+                slot,
+                secret_hex = secretHex ?? "",
+                pin = pin ?? "",
+                require_touch = requireTouch
+            };
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/keepassxc/configure-slot", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            if (json != null && json["ok"]?.GetValue<bool>() == true)
+            {
+                string sec = json["secret_hex"]?.GetValue<string>() ?? "";
+                string msg = json["message"]?.GetValue<string>() ?? "Slot configurado com sucesso";
+                return (true, sec, msg);
+            }
+            string err = json?["message"]?.GetValue<string>() ?? json?["error"]?.GetValue<string>() ?? "Erro ao configurar slot KeePassXC";
+            return (false, "", err);
+        }
+        catch (Exception ex)
+        {
+            return (false, "", ex.Message);
+        }
+    }
+
+    public async Task<(bool Success, string ResponseHex, string Crc16Hex, string Message)> ChallengeResponseKeePassXcAsync(
+        int slot = 1,
+        string challengeHex = "",
+        string? pin = null)
+    {
+        try
+        {
+            var payload = new
+            {
+                slot,
+                challenge_hex = challengeHex,
+                pin = pin ?? ""
+            };
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/keepassxc/challenge-response", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            if (json != null && json["ok"]?.GetValue<bool>() == true)
+            {
+                string resp = json["response_hex"]?.GetValue<string>() ?? "";
+                string crc = json["crc16_hex"]?.GetValue<string>() ?? "";
+                return (true, resp, crc, "");
+            }
+            string err = json?["message"]?.GetValue<string>() ?? json?["error"]?.GetValue<string>() ?? "Erro no desafio KeePassXC";
+            return (false, "", "", err);
+        }
+        catch (Exception ex)
+        {
+            return (false, "", "", ex.Message);
+        }
+    }
 }

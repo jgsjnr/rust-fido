@@ -329,6 +329,56 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
+        // --- KeePassXC & Advanced Cryptography Compatibility ---
+        item {
+            SettingsSectionHeader(
+                title = stringResource(R.string.keepassxc_card_title),
+                icon = Icons.Filled.Key,
+            )
+        }
+
+        item {
+            OutlinedCard(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.keepassxc_slot_status),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = stringResource(R.string.keepassxc_jit_zeroize),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(R.string.keepassxc_crypto_ready),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(R.string.keepassxc_psram_status),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.keepassxc_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         // --- 3. Wi-Fi Configuration (192.168.4.1) ---
         item {
             SettingsSectionHeader(

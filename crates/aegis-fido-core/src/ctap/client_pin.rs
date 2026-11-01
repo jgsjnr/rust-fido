@@ -52,6 +52,7 @@ pub struct ClientPinState {
     pub pin_complexity_policy: bool,
     pub active_session: Option<PinUvTokenSession>,
     pub ephemeral_key: Option<EcdhKeyAgreement>,
+    pub key_agreement: Option<EcdhKeyAgreement>,
 }
 
 impl Default for ClientPinState {
@@ -65,6 +66,7 @@ impl Default for ClientPinState {
             pin_complexity_policy: false,
             active_session: None,
             ephemeral_key: None,
+            key_agreement: None,
         }
     }
 }
@@ -221,6 +223,7 @@ impl ClientPinHandler {
     ) -> Result<Vec<u8>, CtapError> {
         let ecdh = EcdhKeyAgreement::generate(rng);
         let cose_key = ecdh.to_cose_key();
+        state.key_agreement = Some(ecdh.clone());
         state.ephemeral_key = Some(ecdh);
 
         let map = vec![(Value::Integer(1.into()), cose_key.to_cbor_value())];

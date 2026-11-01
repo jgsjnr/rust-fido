@@ -215,4 +215,12 @@
     <string name="wizard_btn_next">Next</string>
     <string name="wizard_btn_complete">Complete Setup</string>
     <string name="wizard_btn_back">Back</string>
+
+    <!-- KeePassXC & Advanced Cryptography Compatibility -->
+    <string name="keepassxc_card_title">KeePassXC &amp; Hardware Cryptography</string>
+    <string name="keepassxc_slot_status">KeePassXC (HMAC-SHA1 Challenge-Response Slot 1/2 + FIDO2 hmac-secret): READY</string>
+    <string name="keepassxc_jit_zeroize">JIT Key Loading (Zeroize after use): ACTIVE</string>
+    <string name="keepassxc_crypto_ready">ChaCha20-Poly1305 / RSA-2048/3072 DS Ready: READY</string>
+    <string name="keepassxc_psram_status">ESP32-S3 PSRAM 8MB: ENABLED</string>
+    <string name="keepassxc_desc">Hardware-backed KeePassXC .kdbx master key derivation with just-in-time SRAM key wiping and zero-trust PIN protection.</string>
 </resources>

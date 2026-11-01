@@ -1,9 +1,20 @@
-# NOTA: legado, nao aplicado pelo build S3 (o build aplica o arquivo do
-# workspace root via ESP_IDF_SDKCONFIG_DEFAULTS em scripts/common.ps1).
-# Mantido por historico; o bloco BT/NimBLE vivo esta no sdkconfig.defaults.esp32s3 do workspace root.
+# NOTA: aplicado pelo build S3 do ESP32-S3-WROOM-1-N16R8.
 CONFIG_TINYUSB=y
 CONFIG_TINYUSB_HID_COUNT=1
 CONFIG_TINYUSB_NO_DEFAULT_TASK=n
 CONFIG_TINYUSB_TASK_STACK_SIZE=4096
 CONFIG_TINYUSB_TASK_PRIORITY=5
 
+# Octal PSRAM de 8 MB (ESP32-S3-WROOM-1-N16R8)
+# CONFIG_SPIRAM_USE_MALLOC=y com CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+# garante que alocações normais e buffers criptográficos (<16KB) fiquem 100% na SRAM Interna (512 KB),
+# enquanto buffers grandes de rede/CBOR/JSON/filas (>16KB) usem os 8MB de PSRAM.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_OCCUPY_NO_HOST=y
+CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
