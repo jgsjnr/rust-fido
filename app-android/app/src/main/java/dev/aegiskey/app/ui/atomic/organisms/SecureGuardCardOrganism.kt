@@ -9,21 +9,33 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,13 +54,15 @@ import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.ui.atomic.atoms.SecureGuardBadgeAtom
 import dev.aegiskey.app.ui.atomic.molecules.RateLimitTimerMolecule
-import dev.aegiskey.app.ui.atomic.molecules.SecurePinKeypadMolecule
 import dev.aegiskey.app.ui.atomic.molecules.SessionExpiryTimerMolecule
 import dev.aegiskey.app.ui.viewmodel.SecureGuardUiState
 
 /**
  * Secure Guard authority organism (Zero-Trust On-Device Authority Vault).
  * Standardized in ASD-STE100 technical English with 100% responsive Layouts.
+ *
+ * Utiliza o HardwareSessionPinPopupDialog modal para solicitar PIN por sessão sincronizada,
+ * mantendo o card limpo e compacto sem teclado gigante estático ocupando a tela.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -65,10 +79,17 @@ fun SecureGuardCardOrganism(
     modifier: Modifier = Modifier
 ) {
     val status = uiState.status
+    var activePopupOperation by remember { mutableStateOf<HardwareSessionOperationType?>(null) }
     var showChangePinDialog by remember { mutableStateOf(false) }
     var showRecoverDialog by remember { mutableStateOf(false) }
     var showPolicySettings by remember { mutableStateOf(false) }
-    var showWipeConfirm by remember { mutableStateOf(false) }
+
+    // Close modal if status becomes unlocked or operation finished successfully
+    LaunchedEffect(status.isUnlocked, uiState.successMessage) {
+        if (status.isUnlocked && activePopupOperation == HardwareSessionOperationType.UNLOCK_SESSION) {
+            activePopupOperation = null
+        }
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -79,7 +100,7 @@ fun SecureGuardCardOrganism(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Header: Title + Badge + Refresh Action (Responsive)
             Row(
@@ -121,18 +142,20 @@ fun SecureGuardCardOrganism(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (uiState.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.padding(end = 4.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     }
                     OutlinedButton(
                         onClick = onRefresh,
                         modifier = Modifier.padding(0.dp)
                     ) {
+                        Icon(imageVector = Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(stringResource(R.string.guard_refresh), fontSize = 12.sp)
                     }
                 }
             }
 
-            // Attempts Badge & Telemetry Bar
+            // Synchronized Hardware Session Status Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -141,12 +164,22 @@ fun SecureGuardCardOrganism(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.guard_remaining_attempts),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (status.isUnlocked) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = if (status.isUnlocked) Color(0xFF10B981) else Color(0xFFF59E0B),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (status.isUnlocked) stringResource(R.string.guard_session_active_badge) else stringResource(R.string.guard_session_locked_badge),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (status.isUnlocked) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
                 Text(
                     text = "[ ${status.remainingAttempts} / ${status.maxAttempts} ]",
                     fontSize = 13.sp,
@@ -155,7 +188,7 @@ fun SecureGuardCardOrganism(
                 )
             }
 
-            // Live Timers
+            // Live Timers (Rate Limit or Session Expiry)
             if (status.state == SecureGuardStateEnum.RATE_LIMITED && status.rateLimitRemainingMs > 0) {
                 RateLimitTimerMolecule(remainingMs = status.rateLimitRemainingMs)
             } else if (status.state == SecureGuardStateEnum.UNLOCKED && status.sessionRemainingMs > 0) {
@@ -163,7 +196,7 @@ fun SecureGuardCardOrganism(
             }
 
             // Feedback Messages
-            if (uiState.errorMessage != null) {
+            if (uiState.errorMessage != null && activePopupOperation == null) {
                 Text(
                     text = "⚠️ ${uiState.errorMessage}",
                     color = MaterialTheme.colorScheme.error,
@@ -211,7 +244,7 @@ fun SecureGuardCardOrganism(
                 }
             }
 
-            // State-Specific Action Panels
+            // Clean, Compact Actions Bar (Triggering Modal Popups for PIN)
             when (status.state) {
                 SecureGuardStateEnum.UNPROVISIONED -> {
                     Text(
@@ -219,37 +252,42 @@ fun SecureGuardCardOrganism(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    SecurePinKeypadMolecule(
-                        label = stringResource(R.string.guard_new_pin),
-                        buttonText = stringResource(R.string.guard_init_btn),
-                        enabled = !uiState.isLoading,
-                        errorMessage = uiState.errorMessage,
-                        onSubmit = { pin -> onProvision(pin, null, null) }
-                    )
+                    Button(
+                        onClick = { activePopupOperation = HardwareSessionOperationType.PROVISION_SESSION },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(imageVector = Icons.Filled.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.guard_init_btn))
+                    }
                 }
 
                 SecureGuardStateEnum.LOCKED, SecureGuardStateEnum.RATE_LIMITED -> {
-                    SecurePinKeypadMolecule(
-                        label = stringResource(R.string.guard_unlock_pin),
-                        buttonText = stringResource(R.string.guard_unlock_btn),
-                        enabled = !uiState.isLoading && status.state != SecureGuardStateEnum.RATE_LIMITED,
-                        errorMessage = uiState.errorMessage,
-                        onSubmit = onUnlock
-                    )
-
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        TextButton(onClick = { showRecoverDialog = !showRecoverDialog }) {
+                        Button(
+                            onClick = { activePopupOperation = HardwareSessionOperationType.UNLOCK_SESSION },
+                            enabled = !uiState.isLoading && status.state != SecureGuardStateEnum.RATE_LIMITED,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        ) {
+                            Icon(imageVector = Icons.Filled.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.guard_btn_unlock_session))
+                        }
+
+                        OutlinedButton(
+                            onClick = { showRecoverDialog = !showRecoverDialog }
+                        ) {
                             Text(stringResource(R.string.guard_emergency_recovery), fontSize = 12.sp, color = Color(0xFFF59E0B))
                         }
                     }
                 }
 
                 SecureGuardStateEnum.UNLOCKED -> {
-                    // FlowRow to prevent clipping/wrapping collisions on narrow screens
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -269,7 +307,7 @@ fun SecureGuardCardOrganism(
                         TextButton(onClick = { showPolicySettings = !showPolicySettings }) {
                             Text("⚙️ ${stringResource(R.string.guard_security_policies)}", fontSize = 12.sp)
                         }
-                        TextButton(onClick = { showWipeConfirm = !showWipeConfirm }) {
+                        TextButton(onClick = { activePopupOperation = HardwareSessionOperationType.WIPE_SELECTIVE }) {
                             Text("🔥 ${stringResource(R.string.guard_selective_wipe)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -294,9 +332,14 @@ fun SecureGuardCardOrganism(
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
+                            Button(
+                                onClick = { showRecoverDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316))
+                            ) {
+                                Text(stringResource(R.string.guard_emergency_recovery))
+                            }
                         }
                     }
-                    showRecoverDialog = true
                 }
 
                 else -> {
@@ -478,54 +521,35 @@ fun SecureGuardCardOrganism(
                     }
                 }
             }
+        }
+    }
 
-            // Sub-Panel: Selective Wipe
-            AnimatedVisibility(visible = showWipeConfirm) {
-                var confirmToken by remember { mutableStateOf("") }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "⚠️ ${stringResource(R.string.guard_wipe_title)}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Text(
-                        text = stringResource(R.string.guard_wipe_instruction),
-                        fontSize = 11.sp
-                    )
-                    OutlinedTextField(
-                        value = confirmToken,
-                        onValueChange = { confirmToken = it },
-                        label = { Text(stringResource(R.string.guard_confirm_token_label)) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        TextButton(onClick = { showWipeConfirm = false }) { Text(stringResource(R.string.guard_btn_cancel)) }
-                        Button(
-                            onClick = {
-                                onWipeSelective(0, confirmToken)
-                                showWipeConfirm = false
-                            },
-                            enabled = confirmToken == "CONFIRM_WIPE_AEGIS_GUARD",
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text(stringResource(R.string.guard_confirm_wipe_btn))
-                        }
+    // Modal Popup de PIN por Sessão Sincronizada
+    activePopupOperation?.let { opType ->
+        HardwareSessionPinPopupDialog(
+            isOpen = true,
+            status = status,
+            operationType = opType,
+            isLoading = uiState.isLoading,
+            errorMessage = uiState.errorMessage,
+            onDismissRequest = { activePopupOperation = null },
+            onConfirmPin = { pin, token ->
+                when (opType) {
+                    HardwareSessionOperationType.PROVISION_SESSION -> {
+                        onProvision(pin, null, null)
+                    }
+                    HardwareSessionOperationType.UNLOCK_SESSION -> {
+                        onUnlock(pin)
+                    }
+                    HardwareSessionOperationType.WIPE_SELECTIVE -> {
+                        onWipeSelective(0, token ?: "CONFIRM_WIPE_AEGIS_GUARD")
+                        activePopupOperation = null
+                    }
+                    else -> {
+                        onUnlock(pin)
                     }
                 }
             }
-        }
+        )
     }
 }

@@ -316,9 +316,63 @@ public class MainWindow : Form
             };
             card.Controls.Add(btnShamir);
 
+            // Wipe Seletivo Button (Prompting PIN synchronized modal)
+            var btnWipe = new Button { Text = "🔥 Wipe Seletivo", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = Color.FromArgb(127, 29, 29), ForeColor = Color.FromArgb(254, 202, 202), FlatStyle = FlatStyle.Flat, Size = new Size(130, 32), Location = new Point(415, 168), Cursor = Cursors.Hand };
+            btnWipe.FlatAppearance.BorderSize = 0;
+            btnWipe.Click += async (s, e) =>
+            {
+                string? pin = await PromptSessionPinModalAsync("Wipe Seletivo da Hardwallet", "Digite o PIN da hardwallet para autorizar a limpeza dos dados seguros:");
+                if (!string.IsNullOrEmpty(pin))
+                {
+                    bool ok = await _client.WipeSelectiveAsync(pin);
+                    MessageBox.Show(ok ? "Wipe seletivo executado com sucesso na hardwallet!" : "PIN incorreto ou falha na autorização do Wipe.", "Wipe Seletivo", MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                    await RefreshDataAsync();
+                }
+            };
+            card.Controls.Add(btnWipe);
+
             var lblMsg = new Label { Text = "✓ Hardware Vault unlocked: Ed25519, P-256 and Wallets accessible.", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(16, 215) };
             card.Controls.Add(lblMsg);
         }
+    }
+
+    private Task<string?> PromptSessionPinModalAsync(string title, string instruction)
+    {
+        var tcs = new TaskCompletionSource<string?>();
+        var prompt = new Form
+        {
+            Width = 400,
+            Height = 220,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = title,
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = ColorBg,
+            ForeColor = ColorTextPrimary,
+            MaximizeBox = false,
+            MinimizeBox = false
+        };
+
+        var lbl = new Label { Left = 20, Top = 20, Width = 340, Text = instruction, Font = new Font("Segoe UI", 9F), ForeColor = ColorTextMuted };
+        var txt = new TextBox { Left = 20, Top = 65, Width = 340, PasswordChar = '*', Font = new Font("Segoe UI", 12F), BackColor = ColorInputBg, ForeColor = ColorTextPrimary, BorderStyle = BorderStyle.None };
+        var btnOk = new Button { Text = "Autenticar & Executar", Left = 180, Top = 120, Width = 180, Height = 32, DialogResult = DialogResult.OK, BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9F, FontStyle.Bold), Cursor = Cursors.Hand };
+        btnOk.FlatAppearance.BorderSize = 0;
+        var btnCancel = new Button { Text = "Cancelar", Left = 80, Top = 120, Width = 90, Height = 32, DialogResult = DialogResult.Cancel, BackColor = ColorInputBg, ForeColor = ColorTextMuted, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9F), Cursor = Cursors.Hand };
+        btnCancel.FlatAppearance.BorderSize = 0;
+
+        btnOk.Click += (s, e) => { prompt.Close(); tcs.TrySetResult(txt.Text.Trim()); };
+        btnCancel.Click += (s, e) => { prompt.Close(); tcs.TrySetResult(null); };
+
+        prompt.Controls.Add(lbl);
+        prompt.Controls.Add(txt);
+        prompt.Controls.Add(btnOk);
+        prompt.Controls.Add(btnCancel);
+        prompt.AcceptButton = btnOk;
+        prompt.CancelButton = btnCancel;
+
+        prompt.FormClosed += (s, e) => { if (!tcs.Task.IsCompleted) tcs.TrySetResult(null); };
+        prompt.ShowDialog(this);
+
+        return tcs.Task;
     }
 
     private void RenderSectionTotp(Panel card)

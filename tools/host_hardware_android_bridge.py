@@ -646,22 +646,7 @@ class HardwareBridgeManager:
             except Exception:
                 pass
 
-            # 2. Send TEST_PIN_OK text command
-            if hasattr(self.session, "link") and hasattr(self.session.link, "write"):
-                try:
-                    self.session.link.write(b"TEST_PIN_OK\n")
-                    time.sleep(0.05)
-                    res.append("TEST_PIN_OK_sent")
-                except Exception as e:
-                    res.append(f"test_pin_err({e})")
-            elif hasattr(self.session, "send_text_line"):
-                try:
-                    self.session.send_text_line("TEST_PIN_OK", timeout_s=1.0)
-                    res.append("TEST_PIN_OK_sent")
-                except Exception:
-                    pass
-
-            # 3. Arm pairing and UP
+            # 2. Arm pairing and UP (Zero hardcoded PIN)
             self._pairing_open_internal()
             self._touch_up_internal()
 
@@ -980,8 +965,15 @@ class ProximityEngine:
 
             return lock_triggered
 
-    def unlock_with_hw(self, pin: str = "123456") -> dict:
+    def unlock_with_hw(self, pin: Optional[str] = None) -> dict:
         with self.lock:
+            if not pin:
+                return {
+                    "ok": False,
+                    "unlocked": False,
+                    "error": "PIN is required",
+                    "message": "User PIN must be provided to unlock proximity session"
+                }
             up_res = None
             pin_st = 0x00
             try:
@@ -990,7 +982,7 @@ class ProximityEngine:
                 print(f"[proximity] touch_up error: {e}")
 
             try:
-                pin_b = (pin or "123456").encode("utf-8")
+                pin_b = pin.encode("utf-8")
                 pin_st, _ = HW_MANAGER.send_vendor(0x2D, pin_b)
             except Exception as e:
                 print(f"[proximity] pin verify error: {e}")
@@ -2339,6 +2331,62 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         self.send_json({"error": "not found", "path": self.path}, status_code=404)
 
+    def _validate_session_or_pin(self, data: dict) -> tuple[bool, Optional[dict], int]:
+        """
+        Validates that either a valid user PIN was supplied in the payload to unlock/sync the hardware session,
+        or that the hardwallet Secure Guard session is currently active and Unlocked.
+        Zero PIN hardcoded.
+        """
+        if not SECURE_GUARD_ENGINE.is_provisioned:
+            if self.path == "/api/reset":
+                return True, None, 200
+            return False, {
+                "ok": False,
+                "status": 0x36,
+                "error": "PIN_SESSION_REQUIRED",
+                "session_expired": True,
+                "state_name": "Unprovisioned",
+                "remaining_attempts": 5,
+                "message": "Hardwallet não provisionada. Defina seu PIN primeiro."
+            }, 403
+
+        pin = data.get("pin")
+        if pin is not None and str(pin).strip():
+            pin_str = str(pin).strip()
+            res = SECURE_GUARD_ENGINE.unlock(pin_str)
+            if not res.get("success"):
+                return False, {
+                    "ok": False,
+                    "status": 0x36,
+                    "error": "Invalid PIN",
+                    "message": res.get("error", "PIN incorreto"),
+                    "failed_attempts": res.get("failed_attempts"),
+                    "remaining_attempts": res.get("remaining_attempts"),
+                    "rate_limit_remaining_ms": res.get("rate_limit_remaining_ms", 0),
+                    "state_name": res.get("state_name")
+                }, 401
+            try:
+                HW_MANAGER.send_vendor(0x2D, pin_str.encode("utf-8"))
+            except Exception:
+                pass
+            return True, None, 200
+
+        # No PIN in body: verify active session
+        status_dict = SECURE_GUARD_ENGINE.get_status_dict()
+        if not SECURE_GUARD_ENGINE.is_unlocked():
+            return False, {
+                "ok": False,
+                "status": 0x36,
+                "error": "PIN_SESSION_REQUIRED",
+                "session_expired": True,
+                "state_name": status_dict.get("state_name", "Locked"),
+                "remaining_attempts": status_dict.get("remaining_attempts", 5),
+                "rate_limit_remaining_ms": status_dict.get("rate_limit_remaining_ms", 0),
+                "message": "Sessão na hardwallet expirada ou cofre trancado. Autenticação de PIN necessária."
+            }, 403
+
+        return True, None, 200
+
     def do_POST(self):
         global SECURE_GUARD_ENGINE
         if not self._check_security_barrier():
@@ -2685,16 +2733,12 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
                 self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
                 return
-            if SECURE_GUARD_ENGINE.is_wallet_blocked():
-                self.send_json({
-                    "ok": False,
-                    "status": 0x36,
-                    "error": "CTAP2_ERR_PIN_REQUIRED",
-                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
-                }, status_code=403)
-                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 ktype = data.get("type", "PASSKEY_FIDO")
                 label = data.get("label", "Nova Chave")
                 curve_str = str(data.get("curve", "-8"))
@@ -2774,7 +2818,12 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
                 elif ktype == "PIV_SMARTCARD_SLOT":
                     piv_slot = data.get("pivSlot", "9A")
-                    payload = bytes([6]) + b"123456" + b"12345678"
+                    piv_pin = data.get("pin", "")
+                    piv_puk = data.get("puk", "")
+                    if not piv_pin or not piv_puk:
+                        self.send_json({"ok": False, "error": "PIN and PUK required for PIV enroll"}, status_code=400)
+                        return
+                    payload = bytes([len(piv_pin)]) + piv_pin.encode("utf-8") + piv_puk.encode("utf-8")
                     st, resp = HW_MANAGER.send_vendor(0x39, payload)
                     self.send_json({
                         "ok": True,
@@ -2809,16 +2858,12 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
                 self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
                 return
-            if SECURE_GUARD_ENGINE.is_wallet_blocked():
-                self.send_json({
-                    "ok": False,
-                    "status": 0x36,
-                    "error": "CTAP2_ERR_PIN_REQUIRED",
-                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
-                }, status_code=403)
-                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 slot_id = int(data.get("slot", 0))
                 del_payload = bytes([0x01, 1, slot_id])
                 st, resp = HW_MANAGER.send_vendor(0x23, del_payload)
@@ -2832,16 +2877,12 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
                 self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
                 return
-            if SECURE_GUARD_ENGINE.is_wallet_blocked():
-                self.send_json({
-                    "ok": False,
-                    "status": 0x36,
-                    "error": "CTAP2_ERR_PIN_REQUIRED",
-                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
-                }, status_code=403)
-                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 slot_id = int(data.get("slot", 0))
                 msg = data.get("message", "AegisKey_Sign_Challenge")
                 HW_MANAGER.touch_up()
@@ -2876,16 +2917,12 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             if not HW_MANAGER.is_connected and not HW_MANAGER.detect_and_connect():
                 self.send_json({"ok": False, "error": "Device Disconnected"}, status_code=503)
                 return
-            if SECURE_GUARD_ENGINE.is_wallet_blocked():
-                self.send_json({
-                    "ok": False,
-                    "status": 0x36,
-                    "error": "CTAP2_ERR_PIN_REQUIRED",
-                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária"
-                }, status_code=403)
-                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 network = data.get("network", "BTC")
                 net_code = 1 if network == "BTC" else (2 if network == "ETH" else 3)
                 label = data.get("label", f"wallet:{network}_Vault")
@@ -2974,8 +3011,11 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 slot = data.get("slot", "9A")
-                pin = data.get("pin", "123456")
-                puk = data.get("puk", "12345678")
+                pin = data.get("pin")
+                puk = data.get("puk")
+                if not pin or not puk:
+                    self.send_json({"ok": False, "error": "PIN and PUK are required"}, status_code=400)
+                    return
                 HW_MANAGER.touch_up()
                 pin_b = pin.encode("utf-8")
                 puk_b = puk.encode("utf-8")[:8]
@@ -3023,7 +3063,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/proximity/unlock":
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-                pin = data.get("pin", "123456")
+                pin = data.get("pin")
+                if not pin:
+                    self.send_json({"ok": False, "error": "PIN is required"}, status_code=400)
+                    return
                 res = PROXIMITY_ENGINE.unlock_with_hw(pin)
                 self.send_json(res)
             except Exception as e:
@@ -3090,16 +3133,12 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # POST /api/backup/shamir-split -> OPP-05 Shamir 2-of-3 split
         if path == "/api/backup/shamir-split":
-            if SECURE_GUARD_ENGINE.is_wallet_blocked():
-                self.send_json({
-                    "ok": False,
-                    "status": 0x36,
-                    "error": "CTAP2_ERR_PIN_REQUIRED",
-                    "message": "Secure Guard cofre bloqueado: autenticação de PIN necessária para Shamir Split",
-                }, status_code=403)
-                return
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 secret_hex = data.get("secret_hex")
                 if secret_hex:
                     secret = bytes.fromhex(secret_hex)
@@ -3252,6 +3291,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/secure-guard/config":
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 res = SECURE_GUARD_ENGINE.update_policy(data)
                 self.send_json({"ok": True, "policy": res})
             except Exception as e:
@@ -3262,6 +3305,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/secure-guard/wipe-selective":
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 scope = int(data.get("scope", 0))
                 confirm = data.get("confirmation", "")
                 res = SECURE_GUARD_ENGINE.wipe_selective(scope, confirm)
@@ -3273,6 +3320,11 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/reset":
             try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                ok_auth, err_resp, err_code = self._validate_session_or_pin(data)
+                if not ok_auth:
+                    self.send_json(err_resp, status_code=err_code)
+                    return
                 HW_MANAGER.touch_up()
                 st, resp = HW_MANAGER.send_vendor(0x2B, b"")
                 SECURE_GUARD_ENGINE = SecureGuardEngine()

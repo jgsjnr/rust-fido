@@ -305,16 +305,37 @@ class AegisHardwareClient:
             }
         return resp
 
-    def create_key(self, key_type: str, label: str, curve: int = -8) -> Dict[str, Any]:
-        """Creates a hardware credential on the physical device."""
+    def create_key(self, key_type: str, label: str, curve: int = -8, pin: Optional[str] = None) -> Dict[str, Any]:
+        """Creates a hardware credential on the physical device, validating synchronized PIN session."""
         payload = {"type": key_type, "label": label, "curve": str(curve)}
+        if pin:
+            payload["pin"] = pin
         res = self._http_post("/api/key/create", payload)
         return res or {"ok": False, "error": "Creation failed"}
 
-    def delete_key(self, slot_id: int) -> Dict[str, Any]:
-        """Deletes a key from hardware slot."""
-        res = self._http_post("/api/key/delete", {"slot": slot_id})
+    def delete_key(self, slot_id: int, pin: Optional[str] = None) -> Dict[str, Any]:
+        """Deletes a key from hardware slot with synchronized PIN session check."""
+        payload: Dict[str, Any] = {"slot": slot_id}
+        if pin:
+            payload["pin"] = pin
+        res = self._http_post("/api/key/delete", payload)
         return res or {"ok": False, "error": "Deletion failed"}
+
+    def wipe_selective(self, confirmation: str = "CONFIRM_WIPE_AEGIS_GUARD", scope: int = 0, pin: Optional[str] = None) -> Dict[str, Any]:
+        """Executes zero-trust Selective Wipe verified by user PIN synchronized with hardwallet."""
+        payload: Dict[str, Any] = {"confirmation": confirmation, "scope": scope}
+        if pin:
+            payload["pin"] = pin
+        res = self._http_post("/api/secure-guard/wipe-selective", payload)
+        return res or {"ok": False, "error": "Selective wipe failed"}
+
+    def reset_device(self, pin: Optional[str] = None) -> Dict[str, Any]:
+        """Releases vault binding and resets device state, authenticated by PIN."""
+        payload: Dict[str, Any] = {}
+        if pin:
+            payload["pin"] = pin
+        res = self._http_post("/api/reset", payload)
+        return res or {"ok": False, "error": "Device reset failed"}
 
     def sign_key(self, slot_id: int, data_bytes: bytes) -> Dict[str, Any]:
         """Requests Ed25519 signature from hardware silicon slot."""

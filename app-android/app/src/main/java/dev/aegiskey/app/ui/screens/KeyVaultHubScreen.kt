@@ -64,6 +64,9 @@ import dev.aegiskey.app.ui.atomic.molecules.VaultEntryCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.organisms.KeyGenerationDialogOrganism
 import dev.aegiskey.app.ui.atomic.organisms.SecureGuardCardOrganism
+import dev.aegiskey.app.ui.atomic.organisms.HardwareSessionOperationType
+import dev.aegiskey.app.ui.atomic.organisms.HardwareSessionPinPopupDialog
+import androidx.compose.material.icons.filled.LockOpen
 import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
 import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
 
@@ -198,11 +201,17 @@ fun KeyVaultHubScreen(
                 )
             }
 
-            // 3. Primary Button: Generate New Key in Hardware (disabled when key is disconnected or Secure Guard is locked)
+            // 3. Primary Button: Generate New Key in Hardware (synchronized PIN prompt if session locked)
             item {
                 Button(
-                    onClick = { showCreateDialog = true },
-                    enabled = uiState.isKeyConnected && uiState.isGuardUnlocked && !uiState.isLoading,
+                    onClick = {
+                        if (!uiState.isGuardUnlocked && secureGuardViewModel != null) {
+                            secureGuardViewModel.openUnlockPrompt()
+                        } else {
+                            showCreateDialog = true
+                        }
+                    },
+                    enabled = uiState.isKeyConnected && !uiState.isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -337,6 +346,17 @@ fun KeyVaultHubScreen(
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (secureGuardViewModel != null) {
+                                Button(
+                                    onClick = { secureGuardViewModel.openUnlockPrompt() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Filled.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.guard_btn_unlock_session))
+                                }
+                            }
                         }
                     }
                 }
@@ -481,6 +501,25 @@ fun KeyVaultHubScreen(
                 }
             },
         )
+    }
+
+    // Modal Popup de PIN por Sessão Sincronizada com a Hardwallet
+    if (secureGuardViewModel != null) {
+        val sgState by secureGuardViewModel.uiState.collectAsState()
+        if (sgState.isUnlockPromptOpen) {
+            HardwareSessionPinPopupDialog(
+                isOpen = true,
+                status = sgState.status,
+                operationType = HardwareSessionOperationType.UNLOCK_SESSION,
+                isLoading = sgState.isLoading,
+                errorMessage = sgState.errorMessage,
+                onDismissRequest = { secureGuardViewModel.dismissUnlockPrompt() },
+                onConfirmPin = { pin, _ ->
+                    secureGuardViewModel.unlock(pin)
+                    viewModel.refreshVault()
+                }
+            )
+        }
     }
 }
 

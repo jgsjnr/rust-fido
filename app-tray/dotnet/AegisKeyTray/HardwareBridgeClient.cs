@@ -137,6 +137,39 @@ public class HardwareBridgeClient
         }
     }
 
+    public async Task<bool> WipeSelectiveAsync(string pin)
+    {
+        try
+        {
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/secure-guard/wipe-selective", new
+            {
+                scope = 0,
+                confirmation = "CONFIRM_WIPE_AEGIS_GUARD",
+                pin
+            });
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            return json != null && json["ok"]?.GetValue<bool>() == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> ResetDeviceAsync(string pin)
+    {
+        try
+        {
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/reset", new { pin });
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            return json != null && json["ok"]?.GetValue<bool>() == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<List<VaultItem>> GetVaultKeysAsync()
     {
         var list = new List<VaultItem>();

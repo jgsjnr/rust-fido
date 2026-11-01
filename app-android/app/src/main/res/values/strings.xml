@@ -65,6 +65,20 @@
     <string name="guard_unlock_success">Vault unlocked successfully.</string>
     <string name="guard_lock_success">Vault locked immediately.</string>
     <string name="guard_change_pin_success">PIN changed successfully. Vault locked.</string>
+    <string name="guard_session_pin_title">Hardware Session Authentication</string>
+    <string name="guard_session_pin_desc_unlock">Enter your PIN to authenticate and unlock a synchronized session with the hardware wallet.</string>
+    <string name="guard_session_pin_desc_wipe">Enter your PIN to authenticate and authorize a Selective Wipe on the hardware wallet.</string>
+    <string name="guard_session_pin_desc_reset">Enter your PIN to authenticate and execute a Factory Reset on the hardware wallet.</string>
+    <string name="guard_session_pin_desc_config">Enter your PIN to authenticate and update Security Policies on the hardware wallet.</string>
+    <string name="guard_session_pin_desc_key_op">Hardware session required. Enter your PIN to authenticate this operation with the hardware wallet.</string>
+    <string name="guard_session_unprovisioned_hint">No default PIN is stored in hardware. Enter your PIN (e.g. 123456 for initial setup) to authenticate this session with the hardware wallet.</string>
+    <string name="guard_session_active_badge">Session Active</string>
+    <string name="guard_session_locked_badge">Session Locked</string>
+    <string name="guard_session_unprovisioned_badge">Unprovisioned</string>
+    <string name="guard_btn_unlock_session">Unlock Session</string>
+    <string name="guard_reset_title">Factory Reset Hardware</string>
+    <string name="guard_confirm_reset_btn">Confirm Reset</string>
+    <string name="vault_sign_btn">Sign Transaction</string>
 
     <!-- Keypad Molecule -->
     <string name="pin_label_default">Vault PIN</string>

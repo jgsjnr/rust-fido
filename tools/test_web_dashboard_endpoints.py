@@ -508,6 +508,7 @@ def run_battery():
         st, _, sg_wipe = http_post_json("/api/secure-guard/wipe-selective", {
             "scope": 0,
             "confirmation": "CONFIRM_WIPE_AEGIS_GUARD",
+            "pin": "123456",
         })
         ok = (st == 200) and (sg_wipe.get("ok") is True) and (sg_wipe.get("state") == 0)  # STATE_UNPROVISIONED = 0
         log_test("13.11 POST /api/secure-guard/wipe-selective (Wipe Seguro / Simulado)", ok, f"state={sg_wipe.get('state')}, simulated={sg_wipe.get('simulated')}")

@@ -428,20 +428,53 @@ class AegisDesktopApp:
                 )
                 btn_prov.pack(anchor="w", pady=(8, 0))
         else:
+            btn_row = tk.Frame(actions_box, bg=COLOR_CARD)
+            btn_row.pack(fill="x")
+
             btn_lock = tk.Button(
-                actions_box,
+                btn_row,
                 text=t("sg_btn_lock", self.lang),
                 font=("Segoe UI", 9, "bold"),
                 bg=COLOR_CORAL,
                 fg="#FFFFFF",
                 relief="flat",
                 bd=0,
-                padx=16,
-                pady=6,
+                padx=14,
+                pady=5,
                 cursor="hand2",
                 command=self._action_lock_now,
             )
-            btn_lock.pack(anchor="w")
+            btn_lock.pack(side="left", padx=(0, 8))
+
+            btn_wipe = tk.Button(
+                btn_row,
+                text="🔥 " + t("sg_wipe_btn", self.lang, default="Wipe Seletivo"),
+                font=("Segoe UI", 9, "bold"),
+                bg="#7F1D1D",
+                fg="#FCA5A5",
+                relief="flat",
+                bd=0,
+                padx=12,
+                pady=5,
+                cursor="hand2",
+                command=self._action_wipe_modal,
+            )
+            btn_wipe.pack(side="left", padx=(0, 8))
+
+            btn_reset = tk.Button(
+                btn_row,
+                text="🔄 " + t("sg_reset_btn", self.lang, default="Reset Hardwallet"),
+                font=("Segoe UI", 9),
+                bg=COLOR_INPUT_BG,
+                fg=COLOR_AMBER,
+                relief="flat",
+                bd=0,
+                padx=12,
+                pady=5,
+                cursor="hand2",
+                command=self._action_reset_modal,
+            )
+            btn_reset.pack(side="left")
 
         # Feedback label
         self.lbl_sg_feedback = tk.Label(
@@ -639,7 +672,145 @@ class AegisDesktopApp:
         else:
             self.lbl_sg_feedback.config(text=f"Provisioning failed: {res.get('error')}", fg=COLOR_CORAL)
 
+    def _open_pin_modal_dialog(self, title: str, instruction: str, action_name: str, extra_data: dict = None):
+        """Opens a modal popup dialog requesting user PIN synchronized with hardwallet."""
+        popup = tk.Toplevel(self.root)
+        popup.title(title)
+        popup.geometry("420x240")
+        popup.configure(bg=COLOR_CARD)
+        popup.transient(self.root)
+        popup.grab_set()
+        popup.resizable(False, False)
+
+        p_frame = tk.Frame(popup, bg=COLOR_CARD, padx=20, pady=18)
+        p_frame.pack(fill="both", expand=True)
+
+        tk.Label(
+            p_frame,
+            text=title,
+            font=("Segoe UI", 12, "bold"),
+            fg=COLOR_TEXT_PRIMARY,
+            bg=COLOR_CARD,
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            p_frame,
+            text=instruction,
+            font=("Segoe UI", 9),
+            fg=COLOR_TEXT_MUTED,
+            bg=COLOR_CARD,
+            wraplength=380,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        ent_modal_pin = tk.Entry(
+            p_frame,
+            show="*",
+            font=("Segoe UI", 12),
+            bg=COLOR_INPUT_BG,
+            fg=COLOR_TEXT_PRIMARY,
+            insertbackground=COLOR_CYAN,
+            relief="flat",
+            bd=0,
+        )
+        ent_modal_pin.pack(fill="x", ipady=6, pady=(0, 6))
+        ent_modal_pin.focus_set()
+
+        lbl_modal_err = tk.Label(
+            p_frame,
+            text="",
+            font=("Segoe UI", 8),
+            fg=COLOR_CORAL,
+            bg=COLOR_CARD,
+            wraplength=380,
+            justify="left",
+        )
+        lbl_modal_err.pack(anchor="w", pady=(0, 8))
+
+        btn_box = tk.Frame(p_frame, bg=COLOR_CARD)
+        btn_box.pack(fill="x", side="bottom")
+
+        def submit():
+            pin_val = ent_modal_pin.get().strip()
+            if not pin_val:
+                lbl_modal_err.config(text="Informe o PIN para autenticar.", fg=COLOR_AMBER)
+                return
+
+            if action_name == "unlock":
+                res = self.hw_client.unlock_secure_guard(pin_val)
+            elif action_name == "wipe":
+                res = self.hw_client.wipe_selective(pin=pin_val)
+            elif action_name == "reset":
+                res = self.hw_client.reset_device(pin=pin_val)
+            elif action_name == "create_key":
+                res = self.hw_client.create_key("PASSKEY_FIDO", "ed25519", curve=-8, pin=pin_val)
+            else:
+                res = self.hw_client.unlock_secure_guard(pin_val)
+
+            if res.get("ok"):
+                popup.destroy()
+                self.lbl_sg_feedback.config(text=f"Operação {title} autenticada com sucesso!", fg=COLOR_EMERALD)
+                self._sync_immediate()
+            else:
+                err = res.get("error") or res.get("message") or "PIN incorreto ou falha na hardwallet."
+                lbl_modal_err.config(text=f"Erro: {err}", fg=COLOR_CORAL)
+                self._sync_immediate()
+
+        ent_modal_pin.bind("<Return>", lambda e: submit())
+
+        btn_cancel = tk.Button(
+            btn_box,
+            text="Cancelar",
+            font=("Segoe UI", 9),
+            bg=COLOR_INPUT_BG,
+            fg=COLOR_TEXT_MUTED,
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=4,
+            cursor="hand2",
+            command=popup.destroy,
+        )
+        btn_cancel.pack(side="right", padx=(8, 0))
+
+        btn_confirm = tk.Button(
+            btn_box,
+            text="Autenticar & Executar",
+            font=("Segoe UI", 9, "bold"),
+            bg=COLOR_CYAN,
+            fg="#000000",
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=4,
+            cursor="hand2",
+            command=submit,
+        )
+        btn_confirm.pack(side="right")
+
+    def _action_wipe_modal(self):
+        self._open_pin_modal_dialog(
+            title="Wipe Seletivo da Hardwallet",
+            instruction="Operação crítica: digite seu PIN da hardwallet para confirmar e autorizar a limpeza dos dados seguros.",
+            action_name="wipe",
+        )
+
+    def _action_reset_modal(self):
+        self._open_pin_modal_dialog(
+            title="Factory Reset da Hardwallet",
+            instruction="Digite seu PIN para liberar o vínculo com a chave física e reiniciar as autoridades de segurança.",
+            action_name="reset",
+        )
+
     def _action_create_key(self):
+        if not self.current_guard.unlocked:
+            self._open_pin_modal_dialog(
+                title="Criar Chave Hardware (Sessão Bloqueada)",
+                instruction="A sessão com a hardwallet está bloqueada. Digite seu PIN para autenticar a sessão e criar a chave Ed25519.",
+                action_name="create_key",
+            )
+            return
+
         res = self.hw_client.create_key("PASSKEY_FIDO", "ed25519", curve=-8)
         if res.get("ok"):
             self._render_current_tab()
