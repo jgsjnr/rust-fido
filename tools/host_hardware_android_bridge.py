@@ -404,6 +404,9 @@ class OledClearSignPreview:
 
         return {
             "mode": "CODE_ONLY_VIRTUAL_DISPLAY",
+            "hardware_i2c_oled_attached": False,
+            "virtual_oled_buffer_hex": bytes(buf).hex(),
+            "oled_lines": ascii_frame,
             "screen": {
                 "width": 128,
                 "height": 64,

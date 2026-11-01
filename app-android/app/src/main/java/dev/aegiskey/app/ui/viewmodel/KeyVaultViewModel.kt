@@ -144,7 +144,7 @@ class KeyVaultViewModel(
         }
 
         // Whenever Secure Guard transitions to UNLOCKED, auto-reload real hardware keys
-        secureGuardRepository?.statusFlow?.onEach { status ->
+        secureGuardRepository?.statusFlow?.onEach { status: SecureGuardStatus ->
             if (status.state == SecureGuardStateEnum.UNLOCKED) {
                 val key = activeKey.value
                 if (key != null && key.isCurrentlyConnected) {

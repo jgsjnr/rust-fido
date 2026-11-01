@@ -97,12 +97,6 @@ class HostUsbUartBridgeClient(
     @Volatile
     var authToken: String? = null
 
-    fun setAuthToken(token: String?) {
-        authToken = token
-    }
-
-    fun getAuthToken(): String? = authToken
-
     private fun HttpURLConnection.applyAuthHeaders() {
         authToken?.takeIf { it.isNotBlank() }?.let { token ->
             setRequestProperty("X-Aegis-Token", token)

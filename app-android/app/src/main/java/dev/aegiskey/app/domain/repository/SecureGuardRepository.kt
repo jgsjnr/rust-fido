@@ -2,6 +2,8 @@ package dev.aegiskey.app.domain.repository
 
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStatus
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Contrato de repositório para o cofre de autoridade on-device Secure Guard (Zero-Trust).
@@ -10,6 +12,9 @@ import dev.aegiskey.app.domain.model.SecureGuardStatus
  * PINs ou Recovery Codes em texto plano na camada móvel.
  */
 interface SecureGuardRepository {
+    val statusFlow: StateFlow<SecureGuardStatus>
+        get() = MutableStateFlow(SecureGuardStatus())
+
     suspend fun getStatus(): Result<SecureGuardStatus>
     suspend fun provision(pin: String, recoveryCode: String? = null, policy: SecureGuardPolicy? = null): Result<String>
     suspend fun unlock(pin: String): Result<SecureGuardStatus>

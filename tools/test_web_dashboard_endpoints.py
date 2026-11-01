@@ -181,12 +181,21 @@ def run_battery():
                 "policy": {"test_mode_non_destructive_wipe": True}
             })
         elif not sg_st.get("unlocked", False):
-            for test_pin in ("123456", "112233", "654321"):
+            unlocked = False
+            for test_pin in ("849201", "123456", "112233", "654321"):
                 try:
-                    http_post_json("/api/secure-guard/unlock", {"pin": test_pin})
-                    break
+                    st_u, _, _ = http_post_json("/api/secure-guard/unlock", {"pin": test_pin})
+                    if st_u == 200:
+                        unlocked = True
+                        break
                 except Exception:
                     pass
+            if not unlocked:
+                http_post_json("/api/reset", {})
+                http_post_json("/api/secure-guard/provision", {
+                    "pin": "123456",
+                    "policy": {"test_mode_non_destructive_wipe": True}
+                })
     except Exception as e:
         print(f"Notice setting up Secure Guard: {e}")
 

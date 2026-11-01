@@ -27,7 +27,7 @@ class SecureGuardRepositoryImpl(
 ) : SecureGuardRepository {
 
     private val _statusFlow = MutableStateFlow(SecureGuardStatus())
-    val statusFlow: StateFlow<SecureGuardStatus> = _statusFlow.asStateFlow()
+    override val statusFlow: StateFlow<SecureGuardStatus> = _statusFlow.asStateFlow()
 
     override suspend fun getStatus(): Result<SecureGuardStatus> = withContext(Dispatchers.IO) {
         runCatching {

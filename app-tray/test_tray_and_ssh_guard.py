@@ -74,6 +74,17 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
             cls.server_thread.start()
             time.sleep(0.8)
 
+        # Ensure active HTTP bridge is provisioned with test_pin
+        try:
+            client_setup = AegisHardwareClient(base_url="http://127.0.0.1:5678")
+            client_setup._http_post("/api/secure-guard/provision", {
+                "pin": cls.test_pin,
+                "policy": {"wipe_on_5_failures": False, "test_mode_non_destructive_wipe": True}
+            })
+            client_setup.lock_secure_guard()
+        except Exception:
+            pass
+
     @classmethod
     def tearDownClass(cls):
         if getattr(cls, "server_started_by_us", False) and hasattr(cls, "httpd"):
@@ -317,6 +328,302 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
 
         app.ssh_guard.stop_watchdog()
         root.destroy()
+
+
+    def _http_get_json(self, path: str, headers: dict = None) -> tuple[int, dict]:
+        import urllib.request, urllib.error
+        req_headers = {"Accept": "application/json"}
+        if headers:
+            req_headers.update(headers)
+        req = urllib.request.Request(f"http://127.0.0.1:5678{path}", headers=req_headers)
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as he:
+            try:
+                return he.code, json.loads(he.read().decode("utf-8"))
+            except Exception:
+                return he.code, {"error": str(he)}
+
+    def _http_post_json(self, path: str, body: dict, headers: dict = None) -> tuple[int, dict]:
+        import urllib.request, urllib.error
+        req_headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if headers:
+            req_headers.update(headers)
+        req = urllib.request.Request(
+            f"http://127.0.0.1:5678{path}",
+            data=json.dumps(body).encode("utf-8"),
+            headers=req_headers,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as he:
+            try:
+                return he.code, json.loads(he.read().decode("utf-8"))
+            except Exception:
+                return he.code, {"error": str(he)}
+
+    # -------------------------------------------------------------------------
+    # TEST 8: GAP-01/03/07 eFuse Hard-Lock Security Audit
+    # -------------------------------------------------------------------------
+    def test_08_gap_security_efuse_guard(self):
+        """Audits GAP-01/03/07: permanent eFuse burn is hard-locked to prevent bricking."""
+        st, res = self._http_get_json("/api/security/efuse-guard-status")
+        self.assertEqual(st, 200)
+        self.assertTrue(res.get("ok"))
+        self.assertFalse(res.get("burn_allowed"))
+        self.assertTrue(res.get("otp_hardware_write_blocked") or res.get("efuse_write_hard_locked"))
+        self.assertIn("DO NOT EXECUTE", res.get("warning", ""))
+        print(f"\n[PASS] GAP-01/03/07 eFuse Hard-Lock Verified: {res['warning']}")
+
+    # -------------------------------------------------------------------------
+    # TEST 9: GAP-05 Bridge Auth & DNS Rebinding Protection
+    # -------------------------------------------------------------------------
+    def test_09_gap_bridge_auth_and_dns_rebinding(self):
+        """Audits GAP-05: DNS rebinding protection blocks malicious Host headers (403 Forbidden)."""
+        # 1. Normal local query
+        st, res = self._http_get_json("/api/security/bridge-auth-status")
+        self.assertEqual(st, 200)
+        self.assertEqual(res.get("dns_rebinding_protection"), "ACTIVE")
+
+        # 2. Malicious DNS Rebinding Host query
+        st_rebind, body_rebind = self._http_get_json(
+            "/api/security/bridge-auth-status",
+            headers={"Host": "evil.attacker.com"}
+        )
+        self.assertEqual(st_rebind, 403, "DNS Rebinding Host 'evil.attacker.com' must be rejected with HTTP 403 Forbidden")
+        print("\n[PASS] GAP-05 Bridge Auth & DNS Rebinding Active: Host 'evil.attacker.com' rejected with 403 Forbidden.")
+
+    # -------------------------------------------------------------------------
+    # TEST 10: GAP-02 Ephemeral P-256 ECDH Encrypted PIN Unlock
+    # -------------------------------------------------------------------------
+    def test_10_gap_ecdh_encrypted_pin_handshake(self):
+        """Audits GAP-02: Secure Guard PIN unlock over ephemeral P-256 ECDH + AES-256-GCM."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization, hashes
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        # 1. Handshake
+        st, hs = self._http_get_json("/api/secure-guard/ecdh-handshake")
+        self.assertEqual(st, 200)
+        self.assertTrue(hs.get("ok"))
+        self.assertEqual(hs.get("curve"), "P-256")
+
+        # 2. Client ephemeral key
+        client_priv = ec.generate_private_key(ec.SECP256R1())
+        client_pub_bytes = client_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.X962,
+            format=serialization.PublicFormat.UncompressedPoint
+        )
+
+        # 3. Derive AES-256-GCM key
+        bridge_pub_bytes = bytes.fromhex(hs["bridge_ephemeral_pub_hex"])
+        bridge_pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bridge_pub_bytes)
+        shared_secret = client_priv.exchange(ec.ECDH(), bridge_pub)
+        salt = bytes.fromhex(hs.get("salt_hex", ""))
+        info = hs.get("info", "AegisKey-Vendor-Guard-Channel").encode()
+        aes_key = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=info).derive(shared_secret)
+
+        # 4. Encrypt PIN
+        aesgcm = AESGCM(aes_key)
+        nonce = b"ecdh_pin_12b"
+        ciphertext = aesgcm.encrypt(nonce, self.test_pin.encode(), None)
+        encrypted_payload_hex = (nonce + ciphertext).hex()
+
+        # 5. Lock first then Unlock via ECDH
+        self.client.lock_secure_guard()
+        st_unl, res_unl = self._http_post_json("/api/secure-guard/unlock", {
+            "client_ephemeral_pub_hex": client_pub_bytes.hex(),
+            "encrypted_pin_hex": encrypted_payload_hex,
+        })
+        self.assertEqual(st_unl, 200)
+        self.assertTrue(res_unl.get("ok"))
+        self.assertTrue(res_unl.get("ecdh_encrypted_channel"))
+        self.assertTrue(res_unl.get("unlocked") or res_unl.get("success"))
+        print("\n[PASS] GAP-02 Ephemeral P-256 ECDH Channel Verified: PIN safely encrypted and decrypted on bridge.")
+
+    # -------------------------------------------------------------------------
+    # TEST 11: OPP-01 OpenSSH Native Agent RFC Protocol Exchange
+    # -------------------------------------------------------------------------
+    def test_11_opp_openssh_native_agent_protocol(self):
+        """Audits OPP-01: OpenSSH agent binary protocol exchange on lock & unlock."""
+        import struct
+        from openssh_native_agent import (
+            OpenSshNativeAgent, ssh_pack_message, ssh_pack_string,
+            SSH_AGENTC_REQUEST_IDENTITIES, SSH_AGENTC_SIGN_REQUEST,
+            SSH_AGENT_IDENTITIES_ANSWER, SSH_AGENT_SIGN_RESPONSE, SSH_AGENT_FAILURE
+        )
+
+        agent = OpenSshNativeAgent(hardware_client=self.client)
+
+        # 1. When Locked: 0 identities, sign requests fail
+        self.client.lock_secure_guard()
+        req_id = ssh_pack_message(SSH_AGENTC_REQUEST_IDENTITIES)
+        resp_locked = agent.process_message(req_id)
+        _, msg_type = struct.unpack_from(">IB", resp_locked, 0)
+        count_locked, = struct.unpack_from(">I", resp_locked, 5)
+        self.assertEqual(msg_type, SSH_AGENT_IDENTITIES_ANSWER)
+        self.assertEqual(count_locked, 0, "When locked, agent must report 0 identities")
+
+        dummy_blob = ssh_pack_string(b"ssh-ed25519") + ssh_pack_string(agent.hardware_pubkey)
+        sign_req = ssh_pack_message(
+            SSH_AGENTC_SIGN_REQUEST,
+            ssh_pack_string(dummy_blob) + ssh_pack_string(b"ChallengeTest") + struct.pack(">I", 0)
+        )
+        sign_locked = agent.process_message(sign_req)
+        _, sign_locked_type = struct.unpack_from(">IB", sign_locked, 0)
+        self.assertEqual(sign_locked_type, SSH_AGENT_FAILURE, "Sign request must fail when locked")
+
+        # 2. When Unlocked: 1 hardware identity, hardware signs challenge
+        self.client.unlock_secure_guard(self.test_pin)
+        resp_unlocked = agent.process_message(req_id)
+        _, msg_unl_type = struct.unpack_from(">IB", resp_unlocked, 0)
+        count_unlocked, = struct.unpack_from(">I", resp_unlocked, 5)
+        self.assertEqual(msg_unl_type, SSH_AGENT_IDENTITIES_ANSWER)
+        self.assertEqual(count_unlocked, 1, "When unlocked, resident identity must be present")
+
+        sign_unlocked = agent.process_message(sign_req)
+        _, sign_unl_type = struct.unpack_from(">IB", sign_unlocked, 0)
+        self.assertEqual(sign_unl_type, SSH_AGENT_SIGN_RESPONSE, "Hardware signature must be returned when unlocked")
+        print("\n[PASS] OPP-01 OpenSSH Native Agent Protocol Verified: Instant revocation on Lock, hardware signing on Unlock.")
+
+    # -------------------------------------------------------------------------
+    # TEST 12: OPP-02 CTAP 2.1 HMAC-Secret & Large-Blobs
+    # -------------------------------------------------------------------------
+    def test_12_opp_ctap21_hmac_secret_and_large_blobs(self):
+        """Audits OPP-02: CTAP 2.1 hmac-secret derivation and large-blob storage gated by Secure Guard."""
+        # 1. Locked -> 403 Forbidden
+        self.client.lock_secure_guard()
+        st_hmac_lk, _ = self._http_post_json("/api/ctap21/hmac-secret", {"salt1_hex": "11" * 32})
+        self.assertEqual(st_hmac_lk, 403, "hmac-secret must be blocked when locked")
+        st_lb_lk, _ = self._http_post_json("/api/ctap21/large-blobs", {"blob_hex": "cafe" * 16})
+        self.assertEqual(st_lb_lk, 403, "large-blobs write must be blocked when locked")
+
+        # 2. Unlocked -> Deterministic HMAC output and large-blob persistence
+        self.client.unlock_secure_guard(self.test_pin)
+        st_hmac_unl, res_hmac = self._http_post_json("/api/ctap21/hmac-secret", {"salt1_hex": "22" * 32})
+        self.assertEqual(st_hmac_unl, 200)
+        self.assertTrue(res_hmac.get("ok"))
+        self.assertIn("output1_hex", res_hmac)
+        self.assertEqual(len(res_hmac["output1_hex"]), 64)
+
+        # Test Large-Blob write and read
+        test_blob = "feedfacecafebeef0102030405060708"
+        st_lb_w, res_lb_w = self._http_post_json("/api/ctap21/large-blobs", {"blob_hex": test_blob})
+        self.assertEqual(st_lb_w, 200)
+        self.assertTrue(res_lb_w.get("ok"))
+
+        st_lb_r, res_lb_r = self._http_get_json("/api/ctap21/large-blobs")
+        self.assertEqual(st_lb_r, 200)
+        self.assertTrue(res_lb_r.get("ok"))
+        self.assertEqual(res_lb_r.get("blob_hex"), test_blob)
+        print("\n[PASS] OPP-02 CTAP 2.1 Features Verified: Gated when locked (403), HMAC derived & Large Blobs stored.")
+
+    # -------------------------------------------------------------------------
+    # TEST 13: OPP-04 OS Login Companion Safety Architecture
+    # -------------------------------------------------------------------------
+    def test_13_opp_os_login_companion_safety(self):
+        """Audits OPP-04: enforce_os_workstation_lock == False by default, CDF & PAM templates generated."""
+        from os_login_companion import OsLoginCompanion
+
+        companion = OsLoginCompanion(hardware_client=self.client)
+        self.assertFalse(companion.enforce_os_workstation_lock, "Critical safety: enforce_os_workstation_lock must be False by default to prevent locking developer screens")
+
+        # Verify simulation mode does not lock screen but records event
+        res_lock = companion.lock_workstation()
+        self.assertTrue(res_lock)
+
+        # Verify Linux PAM configuration generation
+        pam = companion.generate_linux_pam_config()
+        self.assertIn("pam_u2f.so", pam["pam_sudo"])
+        self.assertIn("pam_u2f.so", pam["pam_gdm"])
+
+        # Verify Windows Hello CDF manifest generation
+        cdf = companion.generate_windows_cdf_manifest()
+        self.assertEqual(cdf["manifest"]["CompanionDevice"]["DeviceId"], "AegisKey-S3-FIDO2-CDF")
+        self.assertIn("WalkAwayAutoLock", cdf["manifest"]["CompanionDevice"]["Capabilities"])
+        print("\n[PASS] OPP-04 OS Login Companion Safety Verified: Workstation lock disabled by default, CDF & PAM valid.")
+
+    # -------------------------------------------------------------------------
+    # TEST 14: OPP-05 SLIP-0039 Shamir Secret Sharing Quorum (2-of-3)
+    # -------------------------------------------------------------------------
+    def test_14_opp_shamir_2_of_3_backup_quorum(self):
+        """Audits OPP-05: SLIP-0039 2-of-3 secret sharing: 403 when locked, exact recovery from any 2 shares."""
+        secret_hex = "a0b1c2d3e4f5061728394a5b6c7d8e9fa0b1c2d3e4f5061728394a5b6c7d8e9f"
+
+        # 1. Locked -> 403 Forbidden
+        self.client.lock_secure_guard()
+        st_sp_lk, _ = self._http_post_json("/api/backup/shamir-split", {
+            "secret_hex": secret_hex,
+            "threshold": 2,
+            "shares": 3
+        })
+        self.assertEqual(st_sp_lk, 403, "Shamir split must be blocked when locked")
+
+        # 2. Unlocked -> Split into 3 shares
+        self.client.unlock_secure_guard(self.test_pin)
+        st_sp, res_sp = self._http_post_json("/api/backup/shamir-split", {
+            "secret_hex": secret_hex,
+            "threshold": 2,
+            "shares": 3
+        })
+        self.assertEqual(st_sp, 200)
+        self.assertTrue(res_sp.get("ok"))
+        shares = res_sp.get("shares", [])
+        self.assertEqual(len(shares), 3)
+
+        # 3. Test all 3 combinations: (0,1), (0,2), (1,2)
+        for i, j in [(0, 1), (0, 2), (1, 2)]:
+            st_rc, res_rc = self._http_post_json("/api/backup/shamir-recover", {
+                "shares": [shares[i], shares[j]]
+            })
+            self.assertEqual(st_rc, 200)
+            self.assertTrue(res_rc.get("ok"))
+            self.assertEqual(
+                res_rc.get("recovered_secret_hex"),
+                secret_hex,
+                f"Lagrange recovery from shares {i+1} and {j+1} must match original secret exactly"
+            )
+        print("\n[PASS] OPP-05 Shamir 2-of-3 Backup Quorum Verified: Exact recovery from all 3 pair combinations.")
+
+    # -------------------------------------------------------------------------
+    # TEST 15: OPP-06 Clear-Signing Virtual OLED Preview
+    # -------------------------------------------------------------------------
+    def test_15_opp_clear_signing_virtual_oled(self):
+        """Audits OPP-06: EIP-1559 clear signing decode into 1024-byte virtual monochrome frame buffer."""
+        sample_tx = {
+            "type": "EIP-1559",
+            "chainId": 1,
+            "nonce": 42,
+            "maxPriorityFeePerGas": "0x77359400",
+            "maxFeePerGas": "0x2540be400",
+            "gasLimit": "0x5208",
+            "to": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+            "value": "0xde0b6b3a7640000",
+            "data": "0x",
+        }
+
+        # 1. Locked -> 403 Forbidden
+        self.client.lock_secure_guard()
+        st_cs_lk, _ = self._http_post_json("/api/wallet/clear-sign-preview", {
+            "transaction": sample_tx
+        })
+        self.assertEqual(st_cs_lk, 403, "Clear signing preview must be blocked when locked")
+
+        # 2. Unlocked -> 1024-byte virtual OLED monochrome buffer
+        self.client.unlock_secure_guard(self.test_pin)
+        st_cs, res_cs = self._http_post_json("/api/wallet/clear-sign-preview", {
+            "transaction": sample_tx
+        })
+        self.assertEqual(st_cs, 200)
+        self.assertTrue(res_cs.get("ok"))
+        self.assertFalse(res_cs.get("hardware_i2c_oled_attached"))
+        self.assertEqual(res_cs.get("mode"), "CODE_ONLY_VIRTUAL_DISPLAY")
+        buf_len = len(res_cs.get("virtual_oled_buffer_hex", "")) // 2
+        self.assertEqual(buf_len, 1024, "Virtual OLED display buffer must be exactly 1024 bytes")
+        print(f"\n[PASS] OPP-06 Clear-Signing Verified: 1024-byte virtual monochrome buffer generated (hardware_i2c_oled_attached=False).")
 
 
 if __name__ == "__main__":
