@@ -651,7 +651,7 @@ impl SecureGuardEngine {
 
     // --- Authorization Barriers ---
 
-    /// Authorizes a generic operation by resource classification.
+    /// Authorizes a generic operation by resource classification with anti-glitching barrier (`GAP-06`).
     pub fn authorize_operation(
         &mut self,
         resource: ProtectedResourceClass,
@@ -664,7 +664,14 @@ impl SecureGuardEngine {
 
         let _ = self.check_and_touch_session(now_ms);
 
-        if resource.requires_unlock(&self.policy) && self.state != SecureGuardState::Unlocked {
+        let needs_unlock = resource.requires_unlock(&self.policy);
+        let is_unlocked = self.state == SecureGuardState::Unlocked;
+        let authorized = !needs_unlock || is_unlocked;
+        let authorized_inv = !authorized;
+
+        let jitter = (now_ms as u32) ^ 0xACE1;
+        let check = super::glitch_guard::double_check_authorization(authorized, authorized_inv, jitter)?;
+        if !check.is_true() {
             return Err(SecureGuardError::AccessDeniedLocked {
                 state: self.state,
                 opcode: 0x00,
@@ -674,7 +681,7 @@ impl SecureGuardEngine {
         Ok(())
     }
 
-    /// Authorizes execution of a vendor opcode byte.
+    /// Authorizes execution of a vendor opcode byte with anti-glitching barrier (`GAP-06`).
     pub fn authorize_vendor_opcode(
         &mut self,
         opcode: u8,
@@ -683,7 +690,14 @@ impl SecureGuardEngine {
         let resource = ProtectedResourceClass::from_vendor_opcode(opcode);
         let _ = self.check_and_touch_session(now_ms);
 
-        if resource.requires_unlock(&self.policy) && self.state != SecureGuardState::Unlocked {
+        let needs_unlock = resource.requires_unlock(&self.policy);
+        let is_unlocked = self.state == SecureGuardState::Unlocked;
+        let authorized = !needs_unlock || is_unlocked;
+        let authorized_inv = !authorized;
+
+        let jitter = (now_ms as u32) ^ (opcode as u32);
+        let check = super::glitch_guard::double_check_authorization(authorized, authorized_inv, jitter)?;
+        if !check.is_true() {
             return Err(SecureGuardError::AccessDeniedLocked {
                 state: self.state,
                 opcode,

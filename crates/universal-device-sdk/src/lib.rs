@@ -28,6 +28,8 @@ extern crate alloc;
 
 mod auth;
 mod capabilities;
+pub mod clear_signing;
+pub mod ctap21;
 mod envelope;
 mod error;
 #[cfg(feature = "hardwallet")]
@@ -37,13 +39,24 @@ mod request;
 mod response;
 #[cfg(feature = "secmon")]
 pub mod secmon;
+pub mod secure_channel;
 pub mod secure_guard;
+pub mod shamir;
 mod status;
 #[cfg(feature = "test-mode")]
 pub mod test_hooks;
 
 pub use auth::AuthContext;
 pub use capabilities::{capabilities, CapabilitySet};
+pub use clear_signing::{
+    decode_clear_sign_summary, decode_oled_preview, encode_clear_sign_summary, encode_oled_preview,
+    ClearSignSummaryDto, OledPreviewDto,
+};
+pub use ctap21::{
+    decode_hmac_secret_request, decode_hmac_secret_response, encode_hmac_secret_request,
+    encode_hmac_secret_response, HmacSecretRequestDto, HmacSecretResponseDto, LargeBlobEntryDto,
+    LargeBlobStoreStatusDto,
+};
 pub use envelope::{
     check_envelope_auth, open_envelope, seal_envelope, EnvelopeError, OpenedEnvelope, ReplayWindow,
     SealParams, ENVELOPE_MAGIC, ENVELOPE_VERSION, HEADER_LEN, MAX_CIPHERTEXT_BYTES,
@@ -70,6 +83,10 @@ pub use secmon::{
     PolicyContext, PolicyDecision, PolicyGate, PolicyOpClass, PolicyOutcome, SecurityHeartbeat,
     SecurityStatus, StoreIntegrity, TamperEvent, Transport,
 };
+pub use secure_channel::{
+    decode_encrypted_pin_payload, decode_secure_channel_key_exchange, encode_encrypted_pin_payload,
+    encode_secure_channel_key_exchange, EncryptedPinPayloadDto, SecureChannelKeyExchangeDto,
+};
 pub use secure_guard::{
     decode_secure_guard_change_pin_response, decode_secure_guard_config_response,
     decode_secure_guard_lock_response, decode_secure_guard_provision_response,
@@ -86,6 +103,11 @@ pub use secure_guard::{
     OP_SECURE_GUARD_WIPE_SELECTIVE, STATE_AUTHENTICATING, STATE_ERROR_LOCKED, STATE_LOCKED,
     STATE_PROVISIONING, STATE_RATE_LIMITED, STATE_RECOVERY_REQUIRED, STATE_UNLOCKED,
     STATE_UNPROVISIONED, STATE_WIPE_IN_PROGRESS, STATE_WIPE_PENDING,
+};
+pub use shamir::{
+    decode_shamir_recover_request, decode_shamir_split_response, encode_shamir_recover_request,
+    encode_shamir_split_response, DsHmacSeedEnvelopeDto, ShamirRecoverRequestDto,
+    ShamirRecoverResponseDto, ShamirShareDto, ShamirSplitRequestDto, ShamirSplitResponseDto,
 };
 pub use status::{
     STATUS_BAD_ENVELOPE, STATUS_NEED_BINDING, STATUS_NEED_PIN, STATUS_NEED_UP, STATUS_NO_SLOT,

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "aegis-fido-firmware"
 version.workspace = true
 edition.workspace = true
@@ -20,6 +20,8 @@ proximity = []
 debug-terminal = ["aegis-fido-core/debug-terminal"]
 # Wave7: TEST_LIFETIME_DUMP serial diagnostic (default OFF; absent without it).
 test-mode = []
+# GAP-04: Strict production mode: disallows test hooks, simulated touch, and debug bypasses
+prod-strict = []
 # Variante FreeRTOS em Rust (tasks + queue + event-group; ver src/freertos.rs).
 freertos = []
 

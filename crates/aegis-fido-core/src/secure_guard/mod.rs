@@ -9,9 +9,11 @@ pub mod audit;
 pub mod crypto;
 pub mod engine;
 pub mod error;
+pub mod glitch_guard;
 pub mod persistence;
 pub mod policy;
 pub mod resource;
+pub mod secure_channel;
 pub mod state;
 
 pub use audit::{
@@ -19,11 +21,13 @@ pub use audit::{
     AUDIT_LOG_CAPACITY,
 };
 pub use crypto::{
-    constant_time_eq_32, crc32, derive_verifier, hmac_sha256, pbkdf2_hmac_sha256,
-    PBKDF2_DEFAULT_ITERATIONS,
+    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored, hmac_sha256,
+    pbkdf2_hmac_sha256, HardwareHmacPeripheral, SimulatedDevHardwareHmac,
+    DO_NOT_BURN_EFUSE_BLOCK7_WARNING, PBKDF2_DEFAULT_ITERATIONS,
 };
 pub use engine::SecureGuardEngine;
 pub use error::SecureGuardError;
+pub use glitch_guard::{double_check_authorization, GlitchResistantBool};
 pub use persistence::{
     SecureGuardPersistentRecord, PERSISTENCE_MAGIC, PERSISTENCE_VERSION, PERSISTENT_RECORD_SIZE,
 };
@@ -34,6 +38,9 @@ pub use resource::{
     OP_OATH_LIST, OP_OATH_PUT, OP_SECURE_GUARD_CONFIG, OP_SECURE_GUARD_LOCK,
     OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK, OP_SECURE_GUARD_WIPE_SELECTIVE, OP_WALLET_ADDR,
     OP_WALLET_GEN, OP_WALLET_LIST,
+};
+pub use secure_channel::{
+    SealedPinPayload, SecureGuardEcdhChannel, SECURE_CHANNEL_HKDF_INFO, SECURE_CHANNEL_HKDF_SALT,
 };
 pub use state::SecureGuardState;
 

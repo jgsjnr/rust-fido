@@ -15,7 +15,10 @@ pub mod secure_guard;
 pub mod vault;
 pub mod wallet;
 
-pub use ctap::CtapEngine;
+pub use ctap::{
+    CtapEngine, CredRandomMaterial, Ctap21ExtensionError, HmacSecretExtension, HmacSecretOutput,
+    LargeBlobEntry, LargeBlobStore, DEFAULT_LARGE_BLOB_CAPACITY, LARGE_BLOB_TAG_LEN,
+};
 pub use lifetime::{
     record, snapshot, write_dump, LifetimeCategory, LifetimeEvent, LifetimeSnapshot,
 };
@@ -28,8 +31,16 @@ pub use oath::tlv::{
 };
 pub use policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
 pub use secure_guard::{
-    ProtectedResourceClass, SecureGuardAdminOp, SecureGuardAuditEvent, SecureGuardAuditEventType,
-    SecureGuardEngine, SecureGuardError, SecureGuardPersistentRecord, SecureGuardPolicy,
-    SecureGuardState, SecureGuardWipeScope, MAX_ATTEMPTS,
+    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored,
+    double_check_authorization, GlitchResistantBool, HardwareHmacPeripheral,
+    ProtectedResourceClass, SealedPinPayload, SecureGuardAdminOp, SecureGuardAuditEvent,
+    SecureGuardAuditEventType, SecureGuardEngine, SecureGuardEcdhChannel, SecureGuardError,
+    SecureGuardPersistentRecord, SecureGuardPolicy, SecureGuardState, SecureGuardWipeScope,
+    SimulatedDevHardwareHmac, DO_NOT_BURN_EFUSE_BLOCK7_WARNING, MAX_ATTEMPTS,
 };
 pub use vault::AegisVault;
+pub use wallet::{
+    parse_bitcoin_tx, parse_ethereum_tx, parse_solana_tx, recover_secret_from_2_shares,
+    split_secret_2_of_3, ClearSignError, ClearSignTransactionSummary, DsHmacSeedEnvelope,
+    OledFrame128x64, ShamirError, ShamirShare, WalletStore,
+};

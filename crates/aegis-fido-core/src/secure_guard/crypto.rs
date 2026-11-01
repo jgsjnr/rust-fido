@@ -1,7 +1,8 @@
 //! Cryptographic Primitives for Secure Guard
 //!
-//! Hardened KDF (PBKDF2-HMAC-SHA256), constant-time comparisons,
-//! and CRC32 integrity verification adhering to `no_std` and Zero Secrets principles.
+//! Hardened KDF (PBKDF2-HMAC-SHA256, Hardware-Anchored KDF), constant-time comparisons
+//! with anti-glitching barriers, and CRC32 integrity verification adhering to `no_std`
+//! and Zero Secrets principles.
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -13,11 +14,79 @@ type HmacSha256 = Hmac<Sha256>;
 /// Default iterations for MCU-optimized PBKDF2-HMAC-SHA256.
 pub const PBKDF2_DEFAULT_ITERATIONS: u32 = 2_000;
 
+/// Explicit warning constant guaranteeing zero permanent silicon lock on dev/bench boards.
+pub const DO_NOT_BURN_EFUSE_BLOCK7_WARNING: &str =
+    "WARNING: DO NOT BURN EFUSE BLOCK7 IN DEV/TEST — PERMANENT ONE-TIME PROGRAMMABLE LOCK";
+
+/// Abstract hardware peripheral interface for silicon-anchored HMAC-SHA256 operations (`GAP-03`).
+///
+/// NOTE: In production firmware, this peripheral interacts with the ESP32-S3 hardware
+/// HMAC peripheral in upstream mode (`HMAC_UP`) using key slot `BLOCK7`.
+///
+/// # Inviolable Security Rule
+/// DO NOT BURN EFUSE BLOCK7 IN DEV/TEST ENVIRONMENTS!
+pub trait HardwareHmacPeripheral {
+    /// Computes hardware-accelerated HMAC-SHA256 over message using on-chip silicon key.
+    /// Does NOT perform any permanent OTP eFuse burning.
+    fn hardware_hmac_sha256(&self, message: &[u8]) -> Result<[u8; 32], &'static str>;
+}
+
+/// Non-destructive simulated hardware HMAC for test benches and dev environments.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SimulatedDevHardwareHmac {
+    pub key: [u8; 32],
+}
+
+impl SimulatedDevHardwareHmac {
+    pub fn new(key: [u8; 32]) -> Self {
+        Self { key }
+    }
+}
+
+impl HardwareHmacPeripheral for SimulatedDevHardwareHmac {
+    fn hardware_hmac_sha256(&self, message: &[u8]) -> Result<[u8; 32], &'static str> {
+        Ok(hmac_sha256(&self.key, message))
+    }
+}
+
 /// Derives a 32-byte verifier from a secret and 16-byte salt using PBKDF2-HMAC-SHA256.
 pub fn derive_verifier(secret: &[u8], salt: &[u8; 16], iterations: u32) -> [u8; 32] {
     let mut verifier = [0u8; 32];
     pbkdf2_hmac_sha256(secret, salt, iterations, &mut verifier);
     verifier
+}
+
+/// Derives a 32-byte verifier from PIN/secret and salt, anchored in hardware HMAC when available (`GAP-03`).
+///
+/// Combines PBKDF2-HMAC-SHA256 with an optional second-stage silicon-backed HMAC (`HMAC_UP`).
+/// When `hw_hmac` is `None` (such as in local unit tests or bench development mode),
+/// falls back to deterministic software domain-separated HMAC without attempting to burn
+/// or access unprovisioned eFuse blocks.
+pub fn derive_verifier_hardware_anchored(
+    pin: &[u8],
+    salt: &[u8; 16],
+    iterations: u32,
+    hw_hmac: Option<&dyn HardwareHmacPeripheral>,
+) -> [u8; 32] {
+    let mut pbkdf2_out = [0u8; 32];
+    pbkdf2_hmac_sha256(pin, salt, iterations, &mut pbkdf2_out);
+
+    let final_verifier = match hw_hmac {
+        Some(peripheral) => match peripheral.hardware_hmac_sha256(&pbkdf2_out) {
+            Ok(hw_digest) => hw_digest,
+            Err(_) => {
+                // Fail-safe domain separation fallback
+                hmac_sha256(b"AEGIS_HW_HMAC_FAILSAFE_KEY", &pbkdf2_out)
+            }
+        },
+        None => {
+            // Development / unit test software fallback (never burns eFuse)
+            hmac_sha256(b"AEGIS_DEV_SOFTWARE_ANCHOR_NO_EFUSE", &pbkdf2_out)
+        }
+    };
+
+    pbkdf2_out.zeroize();
+    final_verifier
 }
 
 /// Computes PBKDF2-HMAC-SHA256 producing exactly 32 bytes (block 1, dkLen = 32).
@@ -54,10 +123,16 @@ pub fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &m
     t.zeroize();
 }
 
-/// Constant-time comparison of two 32-byte digests/verifiers.
+/// Constant-time comparison of two 32-byte digests/verifiers with anti-glitching double verification.
 #[inline]
 pub fn constant_time_eq_32(a: &[u8; 32], b: &[u8; 32]) -> bool {
-    a.ct_eq(b).into()
+    let eq1: bool = a.ct_eq(b).into();
+    let eq2_inv: bool = !eq1;
+    // Anti-glitching double check
+    matches!(
+        super::glitch_guard::double_check_authorization(eq1, eq2_inv, 0x55AA_33CC),
+        Ok(super::glitch_guard::GlitchResistantBool::True)
+    )
 }
 
 /// Computes HMAC-SHA256 of data with the given key.
@@ -132,5 +207,24 @@ mod tests {
         // Standard check: CRC-32 of ASCII "123456789" is 0xCBF43926
         let vector = b"123456789";
         assert_eq!(crc32(vector), 0xCBF43926);
+    }
+
+    #[test]
+    fn test_hardware_anchored_kdf() {
+        let salt = [0x11u8; 16];
+        let pin = b"123456";
+
+        // 1. Software dev fallback (no hardware peripheral, no eFuse burn)
+        let v_dev = derive_verifier_hardware_anchored(pin, &salt, 10, None);
+        assert_ne!(v_dev, [0u8; 32]);
+
+        // 2. Simulated hardware peripheral (dev bench)
+        let sim_hw = SimulatedDevHardwareHmac::new([0x42u8; 32]);
+        let v_hw = derive_verifier_hardware_anchored(pin, &salt, 10, Some(&sim_hw));
+        assert_ne!(v_hw, [0u8; 32]);
+        assert_ne!(v_hw, v_dev);
+
+        // Warning constant verification
+        assert!(DO_NOT_BURN_EFUSE_BLOCK7_WARNING.contains("DO NOT BURN EFUSE BLOCK7"));
     }
 }

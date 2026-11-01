@@ -32,6 +32,7 @@ pub mod display;
 pub mod dkek;
 pub mod efuse;
 pub mod efuse_plan;
+pub mod efuse_safety_lock;
 pub mod freertos;
 #[cfg(target_os = "espidf")]
 pub mod freertos_native;
@@ -50,6 +51,7 @@ pub mod net;
 pub mod nvs_backend;
 pub mod oath_cmd;
 pub mod oath_store;
+pub mod oled_ssd1306_code_only;
 pub mod openpgp_applet;
 pub mod openpgp_cmd;
 pub mod ota;
@@ -62,6 +64,7 @@ pub mod pin_uv;
 pub mod piv_cmd;
 pub mod piv_store;
 pub mod provision;
+pub mod prod_strict_guard;
 #[cfg(feature = "proximity")]
 pub mod proximity;
 pub mod proximity_crypto;
@@ -101,6 +104,20 @@ pub use crate::crypto_hrng::{HrngError, HrngSource};
 pub use crate::crypto_p256::{P256Error, P256Secret};
 pub use crate::crypto_rsa::{RsaError, RsaKeyBits, RsaScheme};
 pub use crate::efuse_plan::{EfusePlan, PlanError};
+pub use crate::efuse_safety_lock::{
+    inspect_efuse_safety_status, EfuseSafetyError, EfuseSafetyStatusReport,
+    FlashEncryptionAesXtsSpec, HardwareHmacEfuseBlock7Spec, MonotonicAntiRollbackEfuseSpec,
+    SecureBootV2Rsa3072Spec, EFUSE_PERMANENT_LOCK_WARNING, EFUSE_WRITE_HARD_LOCKED,
+};
+pub use crate::oled_ssd1306_code_only::{
+    Ssd1306Driver, VirtualOledDisplayBuffer, HARDWARE_I2C_OLED_ATTACHED, OLED_FRAME_BYTES,
+    OLED_HEIGHT, OLED_WIDTH, SSD1306_DEFAULT_I2C_ADDR, SSD1306_DEFAULT_SCL_PIN,
+    SSD1306_DEFAULT_SDA_PIN,
+};
+pub use crate::prod_strict_guard::{
+    is_software_touch_allowed, verify_software_touch_allowed, ProductionIsolationGate,
+    PROD_STRICT_ACTIVE,
+};
 pub use crate::led_policy::{LedAuthError, LedCommand, LedPolicy};
 pub use crate::up_policy::{OperationHash, UpDeny, UpGrant, UpPolicy};
 pub use crate::zeroize::{scrub, SecretBytes};

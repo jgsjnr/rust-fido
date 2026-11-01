@@ -31,11 +31,22 @@
 //! leak), and `should_never_touch_non_wallet_slots` pins the property.
 
 pub mod address;
+pub mod clear_signing;
+pub mod shamir_slip39;
 pub mod store;
 pub mod types;
 
 pub use address::{
     address_for_public_key, bitcoin_p2wpkh_address, ethereum_address, solana_address,
+};
+pub use clear_signing::{
+    parse_bitcoin_tx, parse_ethereum_tx, parse_solana_tx, ClearSignError,
+    ClearSignTransactionSummary, OledFrame128x64, OLED_BUFFER_SIZE, OLED_HEIGHT, OLED_PAGES,
+    OLED_WIDTH,
+};
+pub use shamir_slip39::{
+    gf256_div, gf256_inv, gf256_mul, recover_secret_from_2_shares, split_secret_2_of_3,
+    DsHmacSeedEnvelope, ShamirError, ShamirShare,
 };
 pub use store::{WalletStore, WALLET_LABEL_PREFIX};
 pub use types::{CryptoNetwork, WalletRecord};

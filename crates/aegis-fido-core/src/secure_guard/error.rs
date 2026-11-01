@@ -49,6 +49,14 @@ pub enum SecureGuardError {
     PersistenceCorrupted(&'static str),
     /// Unrecognized wire state code.
     UnknownStateCode(u8),
+    /// Glitch, fault injection, or invariant violation detected by anti-glitching guard.
+    GlitchDetected,
+    /// Secure channel decryption or MAC authentication failed.
+    SecureChannelAuthFailed,
+    /// Invalid ECDH public key.
+    InvalidEcdhKey,
+    /// Secure channel replay counter invalid or out of sequence.
+    ReplayCounterInvalid,
 }
 
 impl core::fmt::Display for SecureGuardError {
@@ -105,6 +113,10 @@ impl core::fmt::Display for SecureGuardError {
             Self::UnknownStateCode(code) => {
                 write!(f, "Unknown state code 0x{:02X}", code)
             }
+            Self::GlitchDetected => write!(f, "Glitch or fault injection detected"),
+            Self::SecureChannelAuthFailed => write!(f, "Secure channel authentication failed"),
+            Self::InvalidEcdhKey => write!(f, "Invalid ECDH public key"),
+            Self::ReplayCounterInvalid => write!(f, "Secure channel replay counter invalid"),
         }
     }
 }

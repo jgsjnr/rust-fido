@@ -3,12 +3,18 @@ pub mod cbor;
 pub mod client_pin;
 pub mod config;
 pub mod cred_mgmt;
+pub mod extensions_ctap21;
 pub mod get_assertion;
 pub mod info;
 pub mod large_blobs;
 pub mod make_cred;
 pub mod reset;
 pub mod status_code;
+
+pub use extensions_ctap21::{
+    CredRandomMaterial, Ctap21ExtensionError, HmacSecretExtension, HmacSecretOutput,
+    LargeBlobEntry, LargeBlobStore, DEFAULT_LARGE_BLOB_CAPACITY, LARGE_BLOB_TAG_LEN,
+};
 
 use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
