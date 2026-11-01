@@ -1,0 +1,2146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisKey — Interactive Architecture & Connection Map</title>
+  <style>
+    :root {
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+      
+      /* Dark Theme (Default) */
+      --bg-base: #06090e;
+      --bg-surface: #0d131f;
+      --bg-card: #131b2c;
+      --bg-card-hover: #1a253c;
+      --bg-glass: rgba(19, 27, 44, 0.75);
+      --border-subtle: #1e293b;
+      --border-bright: #334155;
+      --border-focus: #00e5ff;
+      
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      
+      --accent-cyan: #00e5ff;
+      --accent-cyan-glow: rgba(0, 229, 255, 0.25);
+      --accent-green: #00e676;
+      --accent-green-glow: rgba(0, 230, 118, 0.2);
+      --accent-amber: #ffb300;
+      --accent-amber-glow: rgba(255, 179, 0, 0.2);
+      --accent-red: #ff1744;
+      --accent-red-glow: rgba(255, 23, 68, 0.2);
+      --accent-purple: #b388ff;
+      --accent-purple-glow: rgba(179, 136, 255, 0.2);
+      
+      --layer-1-color: #00e5ff;
+      --layer-2-color: #b388ff;
+      --layer-3-color: #ffb300;
+      --layer-4-color: #00e676;
+      
+      --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+      --shadow-glow: 0 0 16px var(--accent-cyan-glow);
+      
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
+      
+      --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    [data-theme="light"] {
+      --bg-base: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-hover: #f1f5f9;
+      --bg-glass: rgba(255, 255, 255, 0.85);
+      --border-subtle: #e2e8f0;
+      --border-bright: #cbd5e1;
+      --border-focus: #0284c7;
+      
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-dim: #94a3b8;
+      
+      --accent-cyan: #0284c7;
+      --accent-cyan-glow: rgba(2, 132, 199, 0.15);
+      --accent-green: #16a34a;
+      --accent-green-glow: rgba(22, 163, 74, 0.15);
+      --accent-amber: #d97706;
+      --accent-amber-glow: rgba(217, 119, 6, 0.15);
+      --accent-red: #dc2626;
+      --accent-red-glow: rgba(220, 38, 38, 0.15);
+      --accent-purple: #7c3aed;
+      --accent-purple-glow: rgba(124, 58, 237, 0.15);
+      
+      --layer-1-color: #0284c7;
+      --layer-2-color: #7c3aed;
+      --layer-3-color: #d97706;
+      --layer-4-color: #16a34a;
+      
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+      --shadow-glow: 0 0 12px rgba(2, 132, 199, 0.2);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-main);
+      background: var(--bg-base);
+      color: var(--text-main);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top App Bar */
+    header.app-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-glass);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #000;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .brand-titles h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-titles h1 span.badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--accent-cyan-glow);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .brand-titles p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .search-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-input {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      color: var(--text-main);
+      padding: 8px 12px 8px 36px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      width: 240px;
+      transition: var(--transition);
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-cyan-glow);
+      width: 300px;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      width: 16px;
+      height: 16px;
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    .btn-icon {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      color: var(--text-main);
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .btn-icon:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+    }
+
+    .btn-action {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      color: var(--text-main);
+      padding: 8px 14px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: var(--transition);
+    }
+
+    .btn-action:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+    }
+
+    /* Filter Chips Bar */
+    .filter-bar {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .filter-chip {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--transition);
+    }
+
+    .filter-chip:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-main);
+    }
+
+    .filter-chip.active {
+      background: var(--bg-card);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+      font-weight: 600;
+      box-shadow: 0 0 8px var(--accent-cyan-glow);
+    }
+
+    .chip-count {
+      font-size: 11px;
+      background: var(--bg-base);
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--border-subtle);
+    }
+
+    /* Main Content Area */
+    main.content-area {
+      flex: 1;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* Section Headers */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title .indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+    }
+
+    .section-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Visual Topology Interactive Map (SVG Diagram) */
+    .topology-container {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-md);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .topology-svg-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      display: flex;
+      justify-content: center;
+    }
+
+    svg.topology-diagram {
+      max-width: 100%;
+      height: auto;
+      min-width: 900px;
+      user-select: none;
+    }
+
+    /* SVG Diagram Styling */
+    .svg-node {
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .svg-node rect {
+      transition: var(--transition);
+    }
+
+    .svg-node:hover rect {
+      filter: drop-shadow(0 0 10px var(--accent-cyan));
+      stroke: var(--accent-cyan);
+      stroke-width: 2px;
+    }
+
+    .svg-wire {
+      stroke-dasharray: 6 3;
+      animation: wireFlow 25s linear infinite;
+    }
+
+    @keyframes wireFlow {
+      from { stroke-dashoffset: 200; }
+      to { stroke-dashoffset: 0; }
+    }
+
+    /* Layer Containers & Grid */
+    .layer-group {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .layer-header-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      border-left: 4px solid var(--accent-cyan);
+      border-top: 1px solid var(--border-subtle);
+      border-right: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .layer-banner-title {
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .layer-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 16px;
+    }
+
+    /* Architecture Cards */
+    .arch-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      cursor: pointer;
+      position: relative;
+      transition: var(--transition);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .arch-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-bright);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .arch-card.highlighted {
+      border-color: var(--accent-cyan);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .card-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-subtitle {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+
+    .card-status-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .status-verified {
+      background: var(--accent-green-glow);
+      color: var(--accent-green);
+      border: 1px solid var(--accent-green);
+    }
+
+    .status-barrier {
+      background: var(--accent-amber-glow);
+      color: var(--accent-amber);
+      border: 1px solid var(--accent-amber);
+    }
+
+    .status-protected {
+      background: var(--accent-red-glow);
+      color: var(--accent-red);
+      border: 1px solid var(--accent-red);
+    }
+
+    .card-description {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .card-meta-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 10px;
+      font-size: 12px;
+    }
+
+    .card-meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .meta-label {
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .meta-value {
+      font-family: var(--font-mono);
+      color: var(--text-main);
+      font-size: 11px;
+      background: var(--bg-surface);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    .tag-chip {
+      font-size: 11px;
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--border-subtle);
+    }
+
+    /* Repository Folder Layout Table */
+    .repo-table-container {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow-md);
+      overflow-x: auto;
+    }
+
+    table.repo-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    table.repo-table th {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 12px 16px;
+      border-bottom: 2px solid var(--border-subtle);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+
+    table.repo-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-main);
+    }
+
+    table.repo-table tr:hover td {
+      background: var(--bg-card-hover);
+    }
+
+    .folder-name {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Modal / Slide-over Drawer */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .detail-drawer {
+      width: 540px;
+      max-width: 95vw;
+      height: 100%;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-bright);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-overlay.open .detail-drawer {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      background: var(--bg-card);
+    }
+
+    .drawer-title-group h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .drawer-title-group p {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--accent-cyan);
+      margin-top: 2px;
+    }
+
+    .drawer-close {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+    }
+
+    .drawer-close:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-main);
+    }
+
+    .drawer-tabs {
+      display: flex;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 0 24px;
+      gap: 8px;
+    }
+
+    .drawer-tab {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: var(--transition);
+    }
+
+    .drawer-tab:hover {
+      color: var(--text-main);
+    }
+
+    .drawer-tab.active {
+      color: var(--accent-cyan);
+      border-bottom-color: var(--accent-cyan);
+    }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .tab-content {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .tab-content.active {
+      display: flex;
+    }
+
+    .detail-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .detail-text {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .code-box {
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-main);
+      overflow-x: auto;
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      color: var(--text-muted);
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .copy-btn:hover {
+      background: var(--bg-card-hover);
+      color: var(--accent-cyan);
+    }
+
+    .wire-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .wire-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+    }
+
+    .wire-arrow {
+      color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    /* Footer */
+    footer.app-footer {
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    footer a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      header.app-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .search-input {
+        width: 100%;
+      }
+      .cards-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top App Bar -->
+  <header class="app-bar">
+    <div class="brand-section">
+      <div class="brand-icon">🛡️</div>
+      <div class="brand-titles">
+        <h1>AegisKey Architecture Map <span class="badge">Live 2026</span></h1>
+        <p>Interactive System Topology, Protocol Routes, and Component Registry (ASD-STE100)</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search component, opcode, file...">
+      </div>
+
+      <button id="themeToggleBtn" class="btn-icon" title="Toggle Dark/Light Mode">
+        <span id="themeIcon">☀️</span>
+      </button>
+
+      <a href="/dashboard" class="btn-action" title="Open Web Dashboard">
+        <span>Web Dashboard</span> ↗
+      </a>
+    </div>
+  </header>
+
+  <!-- Filter Chips Bar -->
+  <nav class="filter-bar">
+    <button class="filter-chip active" data-filter="all">
+      <span>All Layers</span>
+      <span class="chip-count" id="count-all">14</span>
+    </button>
+    <button class="filter-chip" data-filter="layer-1">
+      <span style="color: var(--layer-1-color);">●</span> Layer 1: Clients & Interfaces
+      <span class="chip-count" id="count-l1">2</span>
+    </button>
+    <button class="filter-chip" data-filter="layer-2">
+      <span style="color: var(--layer-2-color);">●</span> Layer 2: Transport & Bridge SDK
+      <span class="chip-count" id="count-l2">6</span>
+    </button>
+    <button class="filter-chip" data-filter="layer-3">
+      <span style="color: var(--layer-3-color);">●</span> Layer 3: FreeRTOS Firmware
+      <span class="chip-count" id="count-l3">3</span>
+    </button>
+    <button class="filter-chip" data-filter="layer-4">
+      <span style="color: var(--layer-4-color);">●</span> Layer 4: Crypto Core & Hardware
+      <span class="chip-count" id="count-l4">3</span>
+    </button>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="content-area">
+
+    <!-- Interactive Visual Diagram Section -->
+    <section>
+      <div class="section-header">
+        <div>
+          <div class="section-title">
+            <div class="indicator"></div>
+            Interactive System Topology & Data Paths
+          </div>
+          <div class="section-desc">Click any node to inspect wire opcodes, upstream/downstream connections, and source files.</div>
+        </div>
+      </div>
+
+      <div class="topology-container">
+        <div class="topology-svg-wrapper">
+          <svg class="topology-diagram" viewBox="0 0 1100 680" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="l1Grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="#00e5ff" stop-opacity="0.05"/>
+              </linearGradient>
+              <linearGradient id="l2Grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#b388ff" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="#b388ff" stop-opacity="0.05"/>
+              </linearGradient>
+              <linearGradient id="l3Grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ffb300" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="#ffb300" stop-opacity="0.05"/>
+              </linearGradient>
+              <linearGradient id="l4Grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#00e676" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="#00e676" stop-opacity="0.05"/>
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Background Layer Bands -->
+            <rect x="20" y="20" width="1060" height="90" rx="10" fill="url(#l1Grad)" stroke="#00e5ff" stroke-opacity="0.3" stroke-width="1"/>
+            <text x="35" y="42" fill="#00e5ff" font-size="12" font-weight="700" letter-spacing="1">LAYER 1: CLIENTS & USER INTERFACES</text>
+
+            <rect x="20" y="130" width="1060" height="150" rx="10" fill="url(#l2Grad)" stroke="#b388ff" stroke-opacity="0.3" stroke-width="1"/>
+            <text x="35" y="152" fill="#b388ff" font-size="12" font-weight="700" letter-spacing="1">LAYER 2: PROTOCOL CODECS, UNIFFI BRIDGE & PHYSICAL TRANSPORTS</text>
+
+            <rect x="20" y="300" width="1060" height="180" rx="10" fill="url(#l3Grad)" stroke="#ffb300" stroke-opacity="0.3" stroke-width="1"/>
+            <text x="35" y="322" fill="#ffb300" font-size="12" font-weight="700" letter-spacing="1">LAYER 3: ESP32-S3 FREERTOS KERNEL & ZERO-TRUST AUTHORIZATION BARRIER</text>
+
+            <rect x="20" y="500" width="1060" height="160" rx="10" fill="url(#l4Grad)" stroke="#00e676" stroke-opacity="0.3" stroke-width="1"/>
+            <text x="35" y="522" fill="#00e676" font-size="12" font-weight="700" letter-spacing="1">LAYER 4: NO_STD CRYPTOGRAPHIC CORE & SILICON PERIPHERALS</text>
+
+            <!-- Inter-layer Connecting Wires -->
+            <!-- L1 -> L2 -->
+            <path d="M 270 90 L 270 170" stroke="#00e5ff" stroke-width="2" class="svg-wire"/>
+            <path d="M 830 90 L 830 170" stroke="#00e5ff" stroke-width="2" class="svg-wire"/>
+
+            <!-- L2 -> L3 (Transports to Router) -->
+            <path d="M 170 250 L 170 340 L 450 340" stroke="#b388ff" stroke-width="2" class="svg-wire"/>
+            <path d="M 410 250 L 410 340 L 450 340" stroke="#b388ff" stroke-width="2" class="svg-wire"/>
+            <path d="M 690 250 L 690 340 L 650 340" stroke="#b388ff" stroke-width="2" class="svg-wire"/>
+            <path d="M 930 250 L 930 340 L 650 340" stroke="#b388ff" stroke-width="2" class="svg-wire"/>
+
+            <!-- L3 Internal: Router to Flows -->
+            <!-- FIDO2 Standard Flow (Exempt / Fail-open) -->
+            <path d="M 480 430 L 480 470 L 250 470 L 250 540" stroke="#00e5ff" stroke-width="2" stroke-dasharray="4 2"/>
+            <text x="330" y="464" fill="#00e5ff" font-size="10" font-weight="600">Standard FIDO2 (0x01..0x0B) [Exempt / Fail-Open]</text>
+
+            <!-- Vendor Flow (Protected Barrier) -->
+            <path d="M 620 430 L 620 470 L 780 470 L 780 540" stroke="#ff1744" stroke-width="2.5" class="svg-wire"/>
+            <text x="640" y="464" fill="#ff1744" font-size="10" font-weight="700">Vendor (0x20..0x39) [Secure Guard Barrier 0x3A..0x3E]</text>
+
+            <!-- NODES LAYER 1 -->
+            <!-- Node: Android App -->
+            <g class="svg-node" onclick="openDrawer('card-android-app')">
+              <rect x="70" y="45" width="400" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
+              <text x="85" y="70" fill="#f1f5f9" font-size="13" font-weight="700">📱 Android Companion App (dev.aegiskey.app)</text>
+              <text x="85" y="86" fill="#94a3b8" font-size="11">Clean Architecture • Atomic Design • 4 Unique Tabs • ASD-STE100</text>
+            </g>
+
+            <!-- Node: Web Dashboard -->
+            <g class="svg-node" onclick="openDrawer('card-web-dashboard')">
+              <rect x="630" y="45" width="400" height="50" rx="8" fill="#131b2c" stroke="#00e5ff" stroke-width="1.5"/>
+              <text x="645" y="70" fill="#f1f5f9" font-size="13" font-weight="700">💻 Web Management Dashboard (Port 5678)</text>
+              <text x="645" y="86" fill="#94a3b8" font-size="11">Single Page UI • 42 Validated REST Endpoints • Hardware Cockpit</text>
+            </g>
+
+            <!-- NODES LAYER 2 -->
+            <!-- Node: USB OTG -->
+            <g class="svg-node" onclick="openDrawer('card-usb-otg')">
+              <rect x="60" y="175" width="220" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="75" y="200" fill="#f1f5f9" font-size="13" font-weight="700">🔌 USB OTG CTAPHID</text>
+              <text x="75" y="217" fill="#94a3b8" font-size="10">GPIO 19/20 • TinyUSB Native</text>
+              <text x="75" y="231" fill="#b388ff" font-size="10">VID 0x303A : PID 0xAE61 (64B)</text>
+            </g>
+
+            <!-- Node: BLE GATT & Proximity -->
+            <g class="svg-node" onclick="openDrawer('card-ble-gatt')">
+              <rect x="300" y="175" width="230" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="315" y="200" fill="#f1f5f9" font-size="13" font-weight="700">📡 BLE GATT FIDO2</text>
+              <text x="315" y="217" fill="#94a3b8" font-size="10">Service 0xFFFD • MAC 3C:84:27:C7:17:7A</text>
+              <text x="315" y="231" fill="#b388ff" font-size="10">Dynamic RSSI Proximity Lock</text>
+            </g>
+
+            <!-- Node: Wi-Fi SoftAP -->
+            <g class="svg-node" onclick="openDrawer('card-wifi-softap')">
+              <rect x="550" y="175" width="230" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="565" y="200" fill="#f1f5f9" font-size="13" font-weight="700">📶 Wi-Fi SoftAP</text>
+              <text x="565" y="217" fill="#94a3b8" font-size="10">192.168.4.1 (AegisKey-S3)</text>
+              <text x="565" y="231" fill="#b388ff" font-size="10">/ctap • /oath/code • /config</text>
+            </g>
+
+            <!-- Node: UART Bridge -->
+            <g class="svg-node" onclick="openDrawer('card-uart-bridge')">
+              <rect x="800" y="175" width="240" height="65" rx="8" fill="#131b2c" stroke="#b388ff" stroke-width="1.5"/>
+              <text x="815" y="200" fill="#f1f5f9" font-size="13" font-weight="700">⚡ Host Bridge / UART</text>
+              <text x="815" y="217" fill="#94a3b8" font-size="10">COM7 @ 115200 bps &lt;-&gt; 5678</text>
+              <text x="815" y="231" fill="#b388ff" font-size="10">GPIO 43 TX / GPIO 44 RX</text>
+            </g>
+
+            <!-- NODES LAYER 3 -->
+            <!-- Node: Router & Barrier -->
+            <g class="svg-node" onclick="openDrawer('card-router-barrier')">
+              <rect x="380" y="345" width="340" height="75" rx="8" fill="#1a253c" stroke="#ffb300" stroke-width="2"/>
+              <text x="400" y="372" fill="#f1f5f9" font-size="14" font-weight="700">🛡️ freertos_route.rs (Event Router)</text>
+              <text x="400" y="390" fill="#ffb300" font-size="11" font-weight="600">Zero-Trust Authorization Barrier (0x3A..0x3E)</text>
+              <text x="400" y="407" fill="#94a3b8" font-size="11">Standard WebAuthn: Pass • Vendor Ops: Protected</text>
+            </g>
+
+            <!-- Node: FreeRTOS Tasks -->
+            <g class="svg-node" onclick="openDrawer('card-freertos-tasks')">
+              <rect x="60" y="345" width="280" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
+              <text x="75" y="370" fill="#f1f5f9" font-size="13" font-weight="700">⚙️ FreeRTOS Scheduler Tasks</text>
+              <text x="75" y="388" fill="#94a3b8" font-size="10">UsbCtaphid (Prio 5) • BleGatt (Prio 4)</text>
+              <text x="75" y="403" fill="#94a3b8" font-size="10">SecureGuard (Prio 3, 32KB) • Proximity</text>
+            </g>
+
+            <!-- Node: UI Button & WS2812 LED -->
+            <g class="svg-node" onclick="openDrawer('card-hardware-ui')">
+              <rect x="760" y="345" width="280" height="75" rx="8" fill="#131b2c" stroke="#ffb300" stroke-width="1.5"/>
+              <text x="775" y="370" fill="#f1f5f9" font-size="13" font-weight="700">🔘 Hardware UI & Presence</text>
+              <text x="775" y="388" fill="#94a3b8" font-size="10">GPIO 0 (BOOT Active-Low 50ms Debounce)</text>
+              <text x="775" y="403" fill="#94a3b8" font-size="10">GPIO 48 (WS2812 RGB Addressable LED)</text>
+            </g>
+
+            <!-- NODES LAYER 4 -->
+            <!-- Node: CTAP & WebAuthn Engine -->
+            <g class="svg-node" onclick="openDrawer('card-ctap-engine')">
+              <rect x="60" y="545" width="300" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="1.5"/>
+              <text x="75" y="572" fill="#f1f5f9" font-size="13" font-weight="700">🔑 CTAP 2.3 & WebAuthn Engine</text>
+              <text x="75" y="591" fill="#94a3b8" font-size="10">Ed25519, P-256, secp256k1, P-384, P-521</text>
+              <text x="75" y="607" fill="#94a3b8" font-size="10">Resident Passkeys • credProtect • largeBlobs</text>
+              <text x="75" y="623" fill="#00e676" font-size="10">Status: Standard Fail-Open Compliant</text>
+            </g>
+
+            <!-- Node: Secure Guard Engine -->
+            <g class="svg-node" onclick="openDrawer('card-secure-guard-engine')">
+              <rect x="390" y="545" width="320" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="2"/>
+              <text x="405" y="572" fill="#f1f5f9" font-size="13" font-weight="700">🛡️ SecureGuardEngine (Zero-Trust)</text>
+              <text x="405" y="591" fill="#00e676" font-size="10" font-weight="600">10 Discrete States (0x00..0x09) • PBKDF2-SHA256</text>
+              <text x="405" y="607" fill="#94a3b8" font-size="10">constant_time_eq_32 • 5 Attempts + Backoff</text>
+              <text x="405" y="623" fill="#ffb300" font-size="10">Scoped Wipe • Wire Protocol 0x3A..0x3E</text>
+            </g>
+
+            <!-- Node: Storage & eFuse OTP -->
+            <g class="svg-node" onclick="openDrawer('card-storage-silicon')">
+              <rect x="740" y="545" width="300" height="90" rx="8" fill="#131b2c" stroke="#00e676" stroke-width="1.5"/>
+              <text x="755" y="572" fill="#f1f5f9" font-size="13" font-weight="700">💾 Silicon Storage & Flash NVS</text>
+              <text x="755" y="591" fill="#94a3b8" font-size="10">nvs @ 0x9000 (24KB) • storage @ 0x310000 (896KB)</text>
+              <text x="755" y="607" fill="#94a3b8" font-size="10">sg_record_v1 (256B CRC32 + AES-256-GCM)</text>
+              <text x="755" y="623" fill="#00e676" font-size="10">eFuse OTP: BLOCK7 (Key) • BLOCK8 (Salt)</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- Component Registry Cards Section -->
+    <section>
+      <div class="section-header">
+        <div>
+          <div class="section-title">
+            <div class="indicator" style="background: var(--accent-purple); box-shadow: 0 0 8px var(--accent-purple);"></div>
+            Architectural Component Registry
+          </div>
+          <div class="section-desc">Detailed cards documenting verified source files, hardware paths, consumed opcodes, and test commands.</div>
+        </div>
+      </div>
+
+      <!-- LAYER 1 CARDS -->
+      <div class="layer-group" data-layer="layer-1">
+        <div class="layer-header-banner" style="border-left-color: var(--layer-1-color);">
+          <div class="layer-banner-title">
+            <span style="color: var(--layer-1-color);">●</span> Layer 1 — Clients & Interfaces
+          </div>
+          <span class="layer-badge" style="background: var(--accent-cyan-glow); color: var(--accent-cyan);">User Boundary</span>
+        </div>
+
+        <div class="cards-grid">
+          <!-- Card: Android Companion App -->
+          <div class="arch-card" id="card-android-app" onclick="openDrawer('card-android-app')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">📱 Android Companion App</div>
+                <div class="card-subtitle">dev.aegiskey.app</div>
+              </div>
+              <span class="card-status-badge status-verified">Verified</span>
+            </div>
+            <div class="card-description">
+              Native Android application built with Jetpack Compose. Follows Clean Architecture and Atomic Design. Enforces Simplified Technical English (ASD-STE100) across all UI strings.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Status Source</span>
+                <span class="meta-value">ConnectedKeyHeaderOrganism</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Navigation Tabs</span>
+                <span class="meta-value">4 (Vault, TOTP, Link, Settings)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Downstream Link</span>
+                <span class="meta-value">uniffi-bridge (libaegis_bridge.so)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">Kotlin</span>
+              <span class="tag-chip">Jetpack Compose</span>
+              <span class="tag-chip">Atomic Design</span>
+              <span class="tag-chip">Clean Arch</span>
+            </div>
+          </div>
+
+          <!-- Card: Web Dashboard -->
+          <div class="arch-card" id="card-web-dashboard" onclick="openDrawer('card-web-dashboard')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">💻 Web Management Dashboard</div>
+                <div class="card-subtitle">tools/web_dashboard/index.html</div>
+              </div>
+              <span class="card-status-badge status-verified">Verified (42/42)</span>
+            </div>
+            <div class="card-description">
+              Single-page web cockpit served on <code>http://127.0.0.1:5678/dashboard</code>. Provides management for Passkeys, TOTP seeds, Wi-Fi SoftAP, hardware diagnostics, and Secure Guard zero-trust admin.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Endpoints</span>
+                <span class="meta-value">42 Validated REST Endpoints</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Host Link</span>
+                <span class="meta-value">host_hardware_android_bridge.py</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Wire Protocol</span>
+                <span class="meta-value">HTTP 1.1 + WebSocket + JSON</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">HTML5 / Vanilla JS</span>
+              <span class="tag-chip">CSS Variables</span>
+              <span class="tag-chip">Cyberpunk UI</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LAYER 2 CARDS -->
+      <div class="layer-group" data-layer="layer-2" style="margin-top: 16px;">
+        <div class="layer-header-banner" style="border-left-color: var(--layer-2-color);">
+          <div class="layer-banner-title">
+            <span style="color: var(--layer-2-color);">●</span> Layer 2 — SDK, Bridge JNI & Transports
+          </div>
+          <span class="layer-badge" style="background: var(--accent-purple-glow); color: var(--accent-purple);">Inter-Process / Hardware Wires</span>
+        </div>
+
+        <div class="cards-grid">
+          <!-- Card: UniFFI Bridge -->
+          <div class="arch-card" id="card-uniffi-bridge" onclick="openDrawer('card-uniffi-bridge')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🌉 UniFFI Rust/Kotlin Bridge</div>
+                <div class="card-subtitle">crates/uniffi-bridge</div>
+              </div>
+              <span class="card-status-badge status-verified">C-ABI / JNI</span>
+            </div>
+            <div class="card-description">
+              Compiles to <code>libaegis_bridge.so</code> for Android <code>arm64-v8a</code>. Exposes memory-safe Rust data types and state machines to Kotlin via Mozilla UniFFI bindings.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Target Binary</span>
+                <span class="meta-value">jniLibs/arm64-v8a/libaegis_bridge.so</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Downstream Link</span>
+                <span class="meta-value">universal-device-sdk &amp; core</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">Rust</span>
+              <span class="tag-chip">UniFFI</span>
+              <span class="tag-chip">JNI</span>
+            </div>
+          </div>
+
+          <!-- Card: Universal Device SDK -->
+          <div class="arch-card" id="card-universal-sdk" onclick="openDrawer('card-universal-sdk')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">📦 Universal Device SDK</div>
+                <div class="card-subtitle">crates/universal-device-sdk</div>
+              </div>
+              <span class="card-status-badge status-verified">Verified</span>
+            </div>
+            <div class="card-description">
+              Encapsulates cross-platform protocol codecs, CBOR serialization/deserialization routines, and provider capability gates (<code>require_vault</code>, <code>require_proximity</code>).
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Payload Format</span>
+                <span class="meta-value">CBOR (RFC 8949) DTOs</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Transports Supported</span>
+                <span class="meta-value">USB, BLE, Wi-Fi, UART</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">CBOR</span>
+              <span class="tag-chip">Capability Gate</span>
+              <span class="tag-chip">no_std ready</span>
+            </div>
+          </div>
+
+          <!-- Card: Host Hardware Android Bridge -->
+          <div class="arch-card" id="card-uart-bridge" onclick="openDrawer('card-uart-bridge')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">⚡ Host Hardware Bridge (UART)</div>
+                <div class="card-subtitle">tools/host_hardware_android_bridge.py</div>
+              </div>
+              <span class="card-status-badge status-verified">Port 5678</span>
+            </div>
+            <div class="card-description">
+              Multi-threaded Python server bridging physical serial COM ports (<code>COM7</code> @ 115200 bps) to local HTTP endpoints and the Android emulator / web dashboard.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Serial Link</span>
+                <span class="meta-value">COM7 115200 8N1 (GPIO 43/44)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Framing Format</span>
+                <span class="meta-value">64-Byte CTAPHID Frames</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">Python 3</span>
+              <span class="tag-chip">pySerial</span>
+              <span class="tag-chip">Threading</span>
+            </div>
+          </div>
+
+          <!-- Card: Native USB OTG -->
+          <div class="arch-card" id="card-usb-otg" onclick="openDrawer('card-usb-otg')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🔌 Native USB OTG CTAPHID</div>
+                <div class="card-subtitle">crates/aegis-fido-usb</div>
+              </div>
+              <span class="card-status-badge status-verified">Hardware USB</span>
+            </div>
+            <div class="card-description">
+              Native Full-Speed USB 2.10 PHY controller. Operates on <code>GPIO 19 (D-)</code> and <code>GPIO 20 (D+)</code>. Emits composite USB descriptors with VID <code>0x303A</code> and PID <code>0xAE61</code>.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">USB Identifiers</span>
+                <span class="meta-value">VID 0x303A : PID 0xAE61</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Report Size</span>
+                <span class="meta-value">64 Bytes (INIT + CONT frames)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">TinyUSB</span>
+              <span class="tag-chip">USB-OTG</span>
+              <span class="tag-chip">CTAPHID</span>
+            </div>
+          </div>
+
+          <!-- Card: BLE GATT & Dynamic Proximity Lock -->
+          <div class="arch-card" id="card-ble-gatt" onclick="openDrawer('card-ble-gatt')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">📡 BLE GATT FIDO2 &amp; Proximity</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/ble_gatt.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">NimBLE Stack</span>
+            </div>
+            <div class="card-description">
+              FIDO Alliance BLE GATT Service (UUID <code>0xFFFD</code>). Characteristics <code>FFF1..FFF4</code> handle fragmentation. Includes <strong>BLE RSSI Dynamic Proximity Lock</strong> for automatic walk-away workstation locking.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Hardware MAC</span>
+                <span class="meta-value">3C:84:27:C7:17:7A</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Proximity Features</span>
+                <span class="meta-value">RSSI Kalman + Hysteresis Window</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">NimBLE</span>
+              <span class="tag-chip">GATT 0xFFFD</span>
+              <span class="tag-chip">Proximity Lock</span>
+            </div>
+          </div>
+
+          <!-- Card: Wi-Fi SoftAP -->
+          <div class="arch-card" id="card-wifi-softap" onclick="openDrawer('card-wifi-softap')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">📶 Wi-Fi SoftAP Management</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/wifi_ap.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">192.168.4.1</span>
+            </div>
+            <div class="card-description">
+              Dedicated SoftAP mode on ESP32-S3. Hosts micro HTTP server exposing <code>/ctap</code>, <code>/oath/code</code>, and <code>/config/wifi</code>. Used for cable-free mobile pairing and emergency credential management.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Default SSID</span>
+                <span class="meta-value">AegisKey-S3-XXXX</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Security Scheme</span>
+                <span class="meta-value">WPA2-PSK with Device Key</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">Wi-Fi SoftAP</span>
+              <span class="tag-chip">Micro HTTP</span>
+              <span class="tag-chip">Out-of-Band</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LAYER 3 CARDS -->
+      <div class="layer-group" data-layer="layer-3" style="margin-top: 16px;">
+        <div class="layer-header-banner" style="border-left-color: var(--layer-3-color);">
+          <div class="layer-banner-title">
+            <span style="color: var(--layer-3-color);">●</span> Layer 3 — ESP32-S3 Firmware & FreeRTOS
+          </div>
+          <span class="layer-badge" style="background: var(--accent-amber-glow); color: var(--accent-amber);">Kernel & Barrier</span>
+        </div>
+
+        <div class="cards-grid">
+          <!-- Card: Router & Barrier -->
+          <div class="arch-card" id="card-router-barrier" onclick="openDrawer('card-router-barrier')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🛡️ freertos_route.rs &amp; Authorization Barrier</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/freertos_route.rs</div>
+              </div>
+              <span class="card-status-badge status-barrier">Zero-Trust Barrier</span>
+            </div>
+            <div class="card-description">
+              Central CTAPHID and vendor opcode dispatcher. Implements the <strong>Zero-Trust Authorization Barrier</strong>.
+              <br><br>
+              <strong>• Standard FIDO2 (0x01..0x0B):</strong> <code>MakeCredential</code>, <code>GetAssertion</code>, <code>GetInfo</code> are <em>Exempt from Secure Guard</em> (Fail-Open for WebAuthn standard compliance).
+              <br>
+              <strong>• Vendor Flow (0x20..0x39):</strong> Keys, OATH, Wallets, PIV, Logs are <em>Intercepted by authorize_vendor_opcode</em>. Blocked unless Secure Guard is <code>Unlocked</code>.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Standard Flow</span>
+                <span class="meta-value">0x01..0x0B (Fail-Open WebAuthn)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Protected Flow</span>
+                <span class="meta-value">0x20..0x39 (Intercepted by Barrier)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">SG Protocol</span>
+                <span class="meta-value">0x3A..0x3E (Wire Administration)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">freertos_route.rs</span>
+              <span class="tag-chip">Zero-Trust</span>
+              <span class="tag-chip">Fail-Open WebAuthn</span>
+              <span class="tag-chip">Vendor Gate</span>
+            </div>
+          </div>
+
+          <!-- Card: FreeRTOS Scheduler Tasks -->
+          <div class="arch-card" id="card-freertos-tasks" onclick="openDrawer('card-freertos-tasks')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">⚙️ FreeRTOS Multitasking Scheduler</div>
+                <div class="card-subtitle">freertos_sched.rs &amp; run_loop_freertos.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">Preemptive OS</span>
+            </div>
+            <div class="card-description">
+              Native ESP-IDF FreeRTOS scheduler allocating isolated priority-driven tasks:
+              <code>UsbCtaphid</code> (prio 5, Core 1), <code>UiButton</code> (prio 4), <code>BleGatt</code> (prio 4), <code>SecureGuard</code> (32 KiB stack, prio 3, Task Watchdog Timer TWDT monitored), and <code>Proximity</code> (1s tick).
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Queue Architecture</span>
+                <span class="meta-value">DEFAULT_QUEUE_DEPTH = 32 (Fails Closed)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Watchdog</span>
+                <span class="meta-value">TWDT Monitored on SecureGuard Task</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">FreeRTOS</span>
+              <span class="tag-chip">TWDT</span>
+              <span class="tag-chip">SMP Core 1</span>
+              <span class="tag-chip">Static Stacks</span>
+            </div>
+          </div>
+
+          <!-- Card: Hardware UI & Presence -->
+          <div class="arch-card" id="card-hardware-ui" onclick="openDrawer('card-hardware-ui')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🔘 Hardware User Presence (UP) &amp; LED</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/button.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">Physical Pin</span>
+            </div>
+            <div class="card-description">
+              Enforces physical User Presence (UP) via <code>GPIO 0 (BOOT)</code> active-low input with 50ms software debouncer. Drives <code>GPIO 48</code> WS2812 RGB LED with visual feedback: breathing blue/green for presence, green pulse for success, red flash for error.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Button Input</span>
+                <span class="meta-value">GPIO 0 (BOOT Active-Low, 50ms Debounce)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">RGB LED Driver</span>
+                <span class="meta-value">GPIO 48 (WS2812 24-bit GRB)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">GPIO 0</span>
+              <span class="tag-chip">GPIO 48</span>
+              <span class="tag-chip">WS2812</span>
+              <span class="tag-chip">User Presence</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LAYER 4 CARDS -->
+      <div class="layer-group" data-layer="layer-4" style="margin-top: 16px;">
+        <div class="layer-header-banner" style="border-left-color: var(--layer-4-color);">
+          <div class="layer-banner-title">
+            <span style="color: var(--layer-4-color);">●</span> Layer 4 — Cryptographic Core &amp; Hardware Peripherals
+          </div>
+          <span class="layer-badge" style="background: var(--accent-green-glow); color: var(--accent-green);">Pure Rust &amp; Silicon</span>
+        </div>
+
+        <div class="cards-grid">
+          <!-- Card: Secure Guard Zero-Trust Engine -->
+          <div class="arch-card" id="card-secure-guard-engine" onclick="openDrawer('card-secure-guard-engine')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🛡️ SecureGuardEngine (Zero-Trust)</div>
+                <div class="card-subtitle">crates/aegis-fido-core/src/secure_guard</div>
+              </div>
+              <span class="card-status-badge status-protected">10 States (0x00..0x09)</span>
+            </div>
+            <div class="card-description">
+              Pure <code>#![no_std]</code> zero-trust engine with 10 discrete states. Uses PBKDF2-HMAC-SHA256 (10,000 iterations) with constant-time equality check (<code>constant_time_eq_32</code>). Caps consecutive PIN failures at 5 attempts, enforcing progressive backoff penalties and selective factory wipes.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">States Managed</span>
+                <span class="meta-value">Unprovisioned, Provisioning, Locked, Authenticating, Unlocked, RecoveryRequired, RateLimited, WipePending, WipeInProgress, ErrorLocked</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Crypto Invariant</span>
+                <span class="meta-value">PBKDF2-SHA256 + constant_time_eq_32</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Brute-Force Guard</span>
+                <span class="meta-value">5 Attempts -&gt; Progressive Backoff -&gt; Wipe</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">no_std</span>
+              <span class="tag-chip">10 States</span>
+              <span class="tag-chip">PBKDF2</span>
+              <span class="tag-chip">Timing Attack Safe</span>
+            </div>
+          </div>
+
+          <!-- Card: CTAP 2.3 & Domain Engines -->
+          <div class="arch-card" id="card-ctap-engine" onclick="openDrawer('card-ctap-engine')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">🔑 CTAP 2.3 &amp; Domain Engines</div>
+                <div class="card-subtitle">crates/aegis-fido-core/src/ctap &amp; domain</div>
+              </div>
+              <span class="card-status-badge status-verified">FIDO 2.1 Ready</span>
+            </div>
+            <div class="card-description">
+              Complete cryptographic domain suite: WebAuthn CTAP 2.3 engine (Ed25519, P-256, secp256k1, P-384, P-521 COSE algorithms), BIP-32/BIP-39 HD Wallets (BTC, ETH, SOL, DOT), YKOATH TOTP/HOTP engine (RFC 6238), PIV smartcard applet (Slots 9A, 9C, 9D, 9E), and RSA Digital Signature (DS) hardware driver.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">Curves Supported</span>
+                <span class="meta-value">P-256 (-7), Ed25519 (-8), secp256k1 (-47), P-384, P-521</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Domain Applets</span>
+                <span class="meta-value">FIDO2, Web3 Wallet, YKOATH, PIV Smartcard</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">CTAP 2.3</span>
+              <span class="tag-chip">BIP-39</span>
+              <span class="tag-chip">YKOATH</span>
+              <span class="tag-chip">PIV</span>
+              <span class="tag-chip">RSA DS</span>
+            </div>
+          </div>
+
+          <!-- Card: Silicon Storage & Flash NVS -->
+          <div class="arch-card" id="card-storage-silicon" onclick="openDrawer('card-storage-silicon')">
+            <div class="card-top">
+              <div class="card-title-group">
+                <div class="card-title">💾 Silicon Storage, NVS &amp; eFuse OTP</div>
+                <div class="card-subtitle">crates/aegis-fido-firmware/src/persistence.rs</div>
+              </div>
+              <span class="card-status-badge status-verified">Encrypted Flash</span>
+            </div>
+            <div class="card-description">
+              Dual-partition flash layout: <code>nvs</code> partition @ <code>0x9000</code> (24 KiB) for configuration, and <code>storage</code> partition @ <code>0x310000</code> (896 KiB) for encrypted resident credentials. Sealed with <code>sg_record_v1</code> 256-byte records protected by CRC32 and AES-256-GCM authenticated envelopes.
+            </div>
+            <div class="card-meta-list">
+              <div class="card-meta-row">
+                <span class="meta-label">eFuse Master Key</span>
+                <span class="meta-value">BLOCK7 (256-bit OTP)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">eFuse Device Salt</span>
+                <span class="meta-value">BLOCK8 (256-bit OTP)</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="meta-label">Envelope Encryption</span>
+                <span class="meta-value">AEGN v1 (AES-256-GCM + CRC32)</span>
+              </div>
+            </div>
+            <div class="card-tags">
+              <span class="tag-chip">NVS (24KB)</span>
+              <span class="tag-chip">Storage (896KB)</span>
+              <span class="tag-chip">eFuse BLOCK7/8</span>
+              <span class="tag-chip">AES-256-GCM</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Consolidated Repository Directory Layout Section -->
+    <section>
+      <div class="section-header">
+        <div>
+          <div class="section-title">
+            <div class="indicator" style="background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green);"></div>
+            Consolidated Repository Directory Architecture
+          </div>
+          <div class="section-desc">Canonical folder taxonomy structured per project standards.</div>
+        </div>
+      </div>
+
+      <div class="repo-table-container">
+        <table class="repo-table">
+          <thead>
+            <tr>
+              <th style="width: 250px;">Directory Path</th>
+              <th style="width: 200px;">Primary Role</th>
+              <th>Contained Deliverables &amp; Architectural Invariants</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="folder-name">📁 docs/project/</span></td>
+              <td><strong>System Architecture</strong></td>
+              <td>Consolidates system vision, hardware mappings, security invariants, and this interactive visual map (<code>ARCHITECTURE-MAP.html</code> &amp; <code>PROJECT.md</code>).</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 docs/plans/</span></td>
+              <td><strong>Execution Roadmaps</strong></td>
+              <td>Wave roadmaps, feature milestones, migration plans, and task breakdowns (<code>PLANS.md</code>).</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 docs/tasks/</span></td>
+              <td><strong>Microtasks &amp; Checklists</strong></td>
+              <td>Step-by-step implementation tasks, HIL testing checklists, and release gating criteria (<code>TASKS.md</code>).</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 docs/evaluation/</span></td>
+              <td><strong>Verification &amp; Quarantine</strong></td>
+              <td>Comprehensive test reports, benchmarks, static analysis records (<code>EVALUATION.md</code>), and historical quarantine artifacts.</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 crates/</span></td>
+              <td><strong>Rust Workspace</strong></td>
+              <td>Modular Rust crates: <code>aegis-fido-core</code> (pure no_std crypto), <code>aegis-fido-usb</code> (64B framer), <code>aegis-fido-firmware</code> (FreeRTOS drivers), <code>universal-device-sdk</code> (codecs), and <code>uniffi-bridge</code> (Kotlin JNI).</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 app-android/</span></td>
+              <td><strong>Android Companion</strong></td>
+              <td>Native Android application (<code>dev.aegiskey.app</code>) using Clean Architecture and Atomic Design in Kotlin with Jetpack Compose.</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 tools/</span></td>
+              <td><strong>Host Bridge &amp; Cockpit</strong></td>
+              <td>Host hardware bridge (<code>host_hardware_android_bridge.py</code>), Web Dashboard (<code>web_dashboard/index.html</code>), HIL tests, and simulators.</td>
+            </tr>
+            <tr>
+              <td><span class="folder-name">📁 scripts/</span></td>
+              <td><strong>CI/CD &amp; Release</strong></td>
+              <td>Automated release cleanliness scripts (<code>check-release-clean.py</code>), formatting validators, and firmware flashing utilities.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Slide-over Drawer / Modal -->
+  <div class="modal-overlay" id="detailModal">
+    <div class="detail-drawer">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <h2 id="modalTitle">Component Name</h2>
+          <p id="modalPath">crates/path/to/file.rs</p>
+        </div>
+        <button class="drawer-close" id="modalCloseBtn">&times;</button>
+      </div>
+
+      <div class="drawer-tabs">
+        <button class="drawer-tab active" data-tab="tab-spec">Specification</button>
+        <button class="drawer-tab" data-tab="tab-conns">Connections</button>
+        <button class="drawer-tab" data-tab="tab-opcodes">Opcodes / APIs</button>
+        <button class="drawer-tab" data-tab="tab-build">Build &amp; Test</button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- TAB 1: SPECIFICATION -->
+        <div class="tab-content active" id="tab-spec">
+          <div>
+            <div class="detail-section-title">ASD-STE100 Technical Description</div>
+            <p class="detail-text" id="modalDescription">Detailed technical description will appear here.</p>
+          </div>
+
+          <div>
+            <div class="detail-section-title">Architectural Invariants</div>
+            <div class="code-box" id="modalInvariants">Invariants go here.</div>
+          </div>
+        </div>
+
+        <!-- TAB 2: CONNECTIONS -->
+        <div class="tab-content" id="tab-conns">
+          <div>
+            <div class="detail-section-title">Upstream Consumers (Sources)</div>
+            <div class="wire-list" id="modalUpstream">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div class="detail-section-title">Downstream Providers (Targets)</div>
+            <div class="wire-list" id="modalDownstream">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: OPCODES / ENDPOINTS -->
+        <div class="tab-content" id="tab-opcodes">
+          <div>
+            <div class="detail-section-title">Consumed / Exposed Wire Opcodes &amp; Endpoints</div>
+            <div class="code-box" id="modalOpcodes">Opcodes go here.</div>
+          </div>
+        </div>
+
+        <!-- TAB 4: BUILD & TEST -->
+        <div class="tab-content" id="tab-build">
+          <div>
+            <div class="detail-section-title">Source File Paths</div>
+            <div class="code-box" id="modalFiles">
+              <button class="copy-btn" onclick="copyCode('modalFiles')">Copy</button>
+              <span id="modalFilesText">path/to/file</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div class="detail-section-title">Build &amp; Lint Commands</div>
+            <div class="code-box" id="modalBuildCmd">
+              <button class="copy-btn" onclick="copyCode('modalBuildCmd')">Copy</button>
+              <span id="modalBuildCmdText">cargo build</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div class="detail-section-title">Validation Test Commands</div>
+            <div class="code-box" id="modalTestCmd">
+              <button class="copy-btn" onclick="copyCode('modalTestCmd')">Copy</button>
+              <span id="modalTestCmdText">cargo test</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div>
+      <strong>AegisKey Authenticator Project</strong> — 100% Rust FIDO2 / WebAuthn Hardware Security Key
+    </div>
+    <div>
+      Document Standard: <a href="file:///e:/projetos/fido/docs/project/PROJECT.md">ASD-STE100</a> • License: GPLv3
+    </div>
+  </footer>
+
+  <!-- Interactive Logic -->
+  <script>
+    // Detailed Component Database
+    const COMPONENT_DB = {
+      "card-android-app": {
+        title: "Android Companion App",
+        path: "app-android/app/src/main/java/dev/aegiskey/app/",
+        layer: "Layer 1 — Clients & Interfaces",
+        description: "The Android companion application provides graphical credential management. It follows Clean Architecture with separate domain, data, and UI packages. It implements Atomic Design principles using atoms, molecules, organisms, and templates. UI text follows the Simplified Technical English standard (ASD-STE100). The ConnectedKeyHeaderOrganism serves as the single source of truth for key connection status.",
+        invariants: "• Must use ConnectedKeyHeaderOrganism for connection state.\n• Must provide 4 unique navigation tabs without duplication: Key Vault, TOTP Codes, Key Link, Settings.\n• Must never store raw master keys or plain PIN hashes.\n• All crypto operations must execute on physical hardware or via UniFFI bridge.",
+        upstream: [
+          { text: "User touch events on Android display", type: "in" }
+        ],
+        downstream: [
+          { text: "uniffi-bridge (libaegis_bridge.so C-ABI/JNI)", type: "out" },
+          { text: "Android UsbManager (USB OTG CTAPHID Host)", type: "out" },
+          { text: "Android BluetoothGatt (BLE GATT Central 0xFFFD)", type: "out" },
+          { text: "Android OkHttpClient (Wi-Fi SoftAP 192.168.4.1)", type: "out" }
+        ],
+        opcodes: "• Consumes: UniFFI Kotlin bindings in dev.aegiskey.app.bridge\n• HTTP calls: GET/POST to http://192.168.4.1/ctap and /oath/code\n• BLE: Reads/writes characteristics 0xFFF1 (Data In), 0xFFF2 (Data Out)",
+        files: "app-android/app/src/main/java/dev/aegiskey/app/ui/atomic/organisms/ConnectedKeyHeaderOrganism.kt\napp-android/app/src/main/java/dev/aegiskey/app/ui/screens/KeyVaultScreen.kt\napp-android/app/src/main/java/dev/aegiskey/app/ui/screens/TotpScreen.kt\napp-android/app/src/main/java/dev/aegiskey/app/ui/screens/KeyLinkScreen.kt\napp-android/app/src/main/java/dev/aegiskey/app/ui/screens/SettingsScreen.kt",
+        buildCmd: "./gradlew :app:assembleDebug",
+        testCmd: "./gradlew :app:testDebugUnitTest"
+      },
+      "card-web-dashboard": {
+        title: "Web Management Dashboard",
+        path: "tools/web_dashboard/index.html",
+        layer: "Layer 1 — Clients & Interfaces",
+        description: "Standalone web dashboard served on http://127.0.0.1:5678/dashboard. It communicates with host_hardware_android_bridge.py across 42 validated REST endpoints. It supports real-time Passkey vault browsing, TOTP generator with expiring countdown rings, Wi-Fi SoftAP configuration, hardware telemetry cockpit, and Secure Guard zero-trust admin operations.",
+        invariants: "• Single self-contained HTML file without runtime dependencies.\n• Must support dark and light cybersecurity visual themes.\n• Must validate all 42 REST endpoints with test_web_dashboard_endpoints.py.",
+        upstream: [
+          { text: "Web browser client (desktop Chrome, Firefox, Edge)", type: "in" }
+        ],
+        downstream: [
+          { text: "tools/host_hardware_android_bridge.py (Port 5678)", type: "out" }
+        ],
+        opcodes: "• 42 Validated Endpoints:\n  - GET /api/status, GET /api/ping\n  - GET /api/vault, GET /api/keys, POST /api/keys/import\n  - GET /api/totp/list, POST /api/totp/add, POST /api/totp/code\n  - GET /api/wifi/status, POST /api/wifi/config\n  - GET /api/secure_guard/status, POST /api/secure_guard/unlock, POST /api/secure_guard/provision",
+        files: "tools/web_dashboard/index.html\ntools/test_web_dashboard_endpoints.py",
+        buildCmd: "python -m http.server 5678 (or host_hardware_android_bridge.py)",
+        testCmd: "python tools/test_web_dashboard_endpoints.py"
+      },
+      "card-uniffi-bridge": {
+        title: "UniFFI Rust/Kotlin Bridge",
+        path: "crates/uniffi-bridge",
+        layer: "Layer 2 — Transport & Bridge SDK",
+        description: "Provides C-ABI and JNI shared libraries for Android. Compiles libaegis_bridge.so targeting aarch64-linux-android. Translates Rust types and errors into memory-safe Kotlin data classes and exceptions using Mozilla UniFFI.",
+        invariants: "• Zero memory leaks across FFI boundaries.\n• All Rust panics must convert into structured Result errors.\n• Never expose raw hardware pointers to JVM.",
+        upstream: [
+          { text: "Android App (dev.aegiskey.app.bridge)", type: "in" }
+        ],
+        downstream: [
+          { text: "crates/universal-device-sdk", type: "out" },
+          { text: "crates/aegis-fido-core", type: "out" }
+        ],
+        opcodes: "• UniFFI Interfaces: AegisBridge, KeyVaultSession, TotpSession, SecureGuardAdminSession",
+        files: "crates/uniffi-bridge/src/lib.rs\ncrates/uniffi-bridge/Cargo.toml",
+        buildCmd: "cargo build -p uniffi-bridge --target aarch64-linux-android --release",
+        testCmd: "cargo test -p uniffi-bridge"
+      },
+      "card-universal-sdk": {
+        title: "Universal Device SDK",
+        path: "crates/universal-device-sdk",
+        layer: "Layer 2 — Transport & Bridge SDK",
+        description: "Cross-platform Rust SDK containing protocol codecs and capability enforcement gates. Parses CBOR data structures for Passkey management, TOTP seeds, and Secure Guard zero-trust admin wire commands.",
+        invariants: "• Fails closed if device lacks requested capability.\n• Strict CBOR canonical encoding conformance.",
+        upstream: [
+          { text: "crates/uniffi-bridge", type: "in" },
+          { text: "tools/host_hardware_android_bridge.py", type: "in" }
+        ],
+        downstream: [
+          { text: "crates/aegis-fido-usb", type: "out" },
+          { text: "crates/aegis-fido-core", type: "out" }
+        ],
+        opcodes: "• Decodes/Encodes CBOR wire DTOs: CredentialRecord, TotpSeedRecord, SecureGuardPolicyDto",
+        files: "crates/universal-device-sdk/src/lib.rs\ncrates/universal-device-sdk/src/capabilities.rs\ncrates/universal-device-sdk/src/error.rs",
+        buildCmd: "cargo build -p universal-device-sdk",
+        testCmd: "cargo test -p universal-device-sdk"
+      },
+      "card-uart-bridge": {
+        title: "Host Hardware Bridge (UART)",
+        path: "tools/host_hardware_android_bridge.py",
+        layer: "Layer 2 — Transport & Bridge SDK",
+        description: "Python hardware bridge operating on 127.0.0.1:5678. Connects to the ESP32-S3 via UART (COM7 @ 115200 bps). Relays 64-byte CTAPHID frames identically to physical USB. Serves the Web Dashboard and exposes 42 REST endpoints.",
+        invariants: "• Must maintain baud rate 115200 8N1.\n• Must frame packets in 64-byte chunks identical to USB CTAPHID.\n• Exposes /dashboard and /architecture routes for direct developer access.",
+        upstream: [
+          { text: "Web Dashboard (tools/web_dashboard/index.html)", type: "in" },
+          { text: "Python HIL Test Suites", type: "in" }
+        ],
+        downstream: [
+          { text: "ESP32-S3 Serial UART0 (GPIO 43 TX / GPIO 44 RX)", type: "out" }
+        ],
+        opcodes: "• Routes /api/* REST endpoints\n• Transmits 64-byte CTAPHID binary packets over COM7 serial",
+        files: "tools/host_hardware_android_bridge.py",
+        buildCmd: "python -m py_compile tools/host_hardware_android_bridge.py",
+        testCmd: "python tools/test_web_dashboard_endpoints.py"
+      },
+      "card-usb-otg": {
+        title: "Native USB OTG CTAPHID Transport",
+        path: "crates/aegis-fido-usb",
+        layer: "Layer 2 — Transport & Bridge SDK",
+        description: "Full-Speed USB 2.10 PHY controller integrated into ESP32-S3 silicon. Connected to GPIO 19 (D-) and GPIO 20 (D+). Implements 64-byte packet framing with channel arbitration and timeout locks. Uses VID 0x303A and PID 0xAE61.",
+        invariants: "• Packet size is fixed at exactly 64 bytes.\n• First packet uses CMD framing (INIT); subsequent packets use SEQ framing (CONT).\n• Channel allocation uses CID 0xFFFFFFFF broadcast arbitration.",
+        upstream: [
+          { text: "Host Operating System USB Bus (Windows/Linux/Android)", type: "in" }
+        ],
+        downstream: [
+          { text: "freertos_route.rs via TinyUSB Driver", type: "out" }
+        ],
+        opcodes: "• CTAPHID Commands:\n  - CTAPHID_MSG (0x03)\n  - CTAPHID_CBOR (0x10)\n  - CTAPHID_INIT (0x06)\n  - CTAPHID_WINK (0x08)\n  - CTAPHID_PING (0x01)",
+        files: "crates/aegis-fido-usb/src/ctaphid.rs\ncrates/aegis-fido-firmware/src/usb_descriptors.rs",
+        buildCmd: "cargo build -p aegis-fido-usb",
+        testCmd: "cargo test -p aegis-fido-usb"
+      },
+      "card-ble-gatt": {
+        title: "BLE GATT FIDO2 & Dynamic Proximity Lock",
+        path: "crates/aegis-fido-firmware/src/ble_gatt.rs",
+        layer: "Layer 2 — Transport & Bridge SDK",
+        description: "FIDO Alliance BLE GATT profile implemented on Apache NimBLE. Service UUID 0xFFFD with characteristics FFF1..FFF4. Hardware MAC is 3C:84:27:C7:17:7A. Integrates BLE RSSI Dynamic Proximity Lock for automatic workstation lock upon operator departure.",
+        invariants: "• Privileged operations require bonded BLE connection.\n• Proximity beacon ticks at 1 second interval with AES-CCM-128 tag.\n• Anti-replay counter strictly increments per beacon.",
+        upstream: [
+          { text: "Client BLE Central (Android App / Windows Dynamic Lock)", type: "in" }
+        ],
+        downstream: [
+          { text: "freertos_route.rs (via NimBLE stack)", type: "out" }
+        ],
+        opcodes: "• Service 0xFFFD Characteristics:\n  - FFF1 (u2fControlPoint / Data In)\n  - FFF2 (u2fStatus / Data Out)\n  - FFF3 (u2fControlPointLength)\n  - FFF4 (serviceRevisionBitfield)",
+        files: "crates/aegis-fido-firmware/src/ble_gatt.rs\ncrates/aegis-fido-firmware/src/proximity.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware --features ble",
+        testCmd: "python tools/hil_test_ds_and_proximity_lock.py"
+      },
+      "card-wifi-softap": {
+        title: "Wi-Fi SoftAP Management",
+        path: "crates/aegis-fido-firmware/src/wifi_ap.rs",
+        layer: "Layer 2 — Transport & Bridge SDK",
+        description: "Wireless SoftAP interface running at 192.168.4.1 with SSID AegisKey-S3-XXXX. Hosts lightweight HTTP endpoints (/ctap, /oath/code, /config/wifi). Enables cable-free mobile phone setup and out-of-band management.",
+        invariants: "• AP mode active only during pairing window or when explicitly enabled.\n• All admin requests require physical button press confirmation (GPIO 0).",
+        upstream: [
+          { text: "Mobile browser or Android App Wi-Fi client", type: "in" }
+        ],
+        downstream: [
+          { text: "freertos_route.rs via ESP-IDF HTTP server", type: "out" }
+        ],
+        opcodes: "• HTTP Endpoints: /ctap (Binary CTAP2), /oath/code (JSON), /config/wifi (POST JSON)",
+        files: "crates/aegis-fido-firmware/src/wifi_ap.rs\ncrates/aegis-fido-firmware/src/wifi_station.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware --features wifi",
+        testCmd: "python tools/hil_test_wifi_and_ble_battery.py"
+      },
+      "card-router-barrier": {
+        title: "freertos_route.rs & Zero-Trust Barrier",
+        path: "crates/aegis-fido-firmware/src/freertos_route.rs",
+        layer: "Layer 3 — ESP32-S3 Firmware & FreeRTOS",
+        description: "Central CTAPHID event router and Zero-Trust Authorization Barrier. Routes incoming messages based on opcode classification. Standard WebAuthn requests (0x01..0x0B) are exempt from Secure Guard and fail-open. Vendor requests (0x20..0x39) are intercepted by authorize_vendor_opcode and require Unlocked state. Secure Guard wire commands (0x3A..0x3E) manage authentication state.",
+        invariants: "• Standard FIDO2 operations must remain accessible for WebAuthn standard compliance.\n• All vendor opcodes (0x20..0x39) must fail closed if Secure Guard state is not Unlocked.\n• Unauthorized requests log a security warning and return SG_ERR_LOCKED (0x02).",
+        upstream: [
+          { text: "UsbCtaphid task (USB 64B packet queue)", type: "in" },
+          { text: "BleGatt task (BLE fragment queue)", type: "in" },
+          { text: "Serial UART0 (Diagnostics / Test bridge)", type: "in" }
+        ],
+        downstream: [
+          { text: "ctap state machine (MakeCredential, GetAssertion)", type: "out" },
+          { text: "SecureGuardEngine::authorize_vendor_opcode()", type: "out" },
+          { text: "Vendor applets (KeyManager, OATH, Wallet, PIV, OTA)", type: "out" }
+        ],
+        opcodes: "• FIDO2 Flow (0x01..0x0B): MakeCredential (0x01), GetAssertion (0x02), GetInfo (0x04), ClientPin (0x06)\n• Protected Vendor (0x20..0x39): Keys (0x20..0x23), OATH (0x24..0x27), Pairing (0x28..0x2F), OTA (0x30..0x34), Wallets (0x35..0x37), Logs (0x38), PIV (0x39)\n• Secure Guard Wire (0x3A..0x3E): Status (0x3A), Provision (0x3B), Unlock (0x3C), Lock (0x3D), Wipe (0x3E)",
+        files: "crates/aegis-fido-firmware/src/freertos_route.rs\ncrates/aegis-fido-firmware/src/secure_guard_exec.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware",
+        testCmd: "cargo test -p aegis-fido-firmware"
+      },
+      "card-freertos-tasks": {
+        title: "FreeRTOS Multitasking Scheduler",
+        path: "crates/aegis-fido-firmware/src/freertos_sched.rs",
+        layer: "Layer 3 — ESP32-S3 Firmware & FreeRTOS",
+        description: "ESP-IDF FreeRTOS scheduler coordinating tasks with static stacks. UsbCtaphid runs on Core 1 with priority 5. BleGatt and UiButton run with priority 4. SecureGuard runs with priority 3 (32 KiB stack, Task Watchdog Timer TWDT monitored). Proximity runs with priority 2 on a 1-second interval.",
+        invariants: "• Queue size bounded by DEFAULT_QUEUE_DEPTH = 32.\n• Full queue drops packet and returns busy status (fails closed).\n• SecureGuard stack size fixed at 32 KiB to safely process PBKDF2 without stack overflow.",
+        upstream: [
+          { text: "Hardware ISRs (USB, UART, GPIO)", type: "in" }
+        ],
+        downstream: [
+          { text: "freertos_route.rs via bounded FreeRTOS queue", type: "out" }
+        ],
+        opcodes: "• Task Event Enums: UsbPacket, SerialPacket, ButtonPress, BleFragment, Tick10ms, Shutdown",
+        files: "crates/aegis-fido-firmware/src/freertos_sched.rs\ncrates/aegis-fido-firmware/src/run/run_loop_freertos.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware --features freertos",
+        testCmd: "cargo test -p aegis-fido-firmware"
+      },
+      "card-hardware-ui": {
+        title: "Hardware User Presence & LED",
+        path: "crates/aegis-fido-firmware/src/button.rs",
+        layer: "Layer 3 — ESP32-S3 Firmware & FreeRTOS",
+        description: "Manages physical operator input and optical status indications. GPIO 0 (BOOT button) configured as active-low input with internal pull-up and 50ms software debouncer. GPIO 48 drives a WS2812 RGB LED with 24-bit GRB data. Emits breathing blue/green for presence, solid green pulse for success, and flashing red for errors.",
+        invariants: "• Physical touch on GPIO 0 mandatory for FIDO2 User Presence (UP).\n• Factory reset requires continuous 5-second hold on GPIO 0.\n• LED sequences never reveal secret key bits.",
+        upstream: [
+          { text: "Physical operator finger press on BOOT button", type: "in" }
+        ],
+        downstream: [
+          { text: "freertos_route.rs (UP event flag)", type: "out" },
+          { text: "GPIO 48 WS2812 RGB LED hardware", type: "out" }
+        ],
+        opcodes: "• Button Events: Pressed, Released, LongHold5s\n• LED Patterns: BreatheBlue, BreatheGreen, PulseSuccess, FlashError",
+        files: "crates/aegis-fido-firmware/src/button.rs\ncrates/aegis-fido-firmware/src/led.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware",
+        testCmd: "python tools/e2e_zero_press.py"
+      },
+      "card-secure-guard-engine": {
+        title: "SecureGuardEngine (Zero-Trust)",
+        path: "crates/aegis-fido-core/src/secure_guard",
+        layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
+        description: "Zero-trust state machine in pure #![no_std] Rust. Implements 10 discrete states: Unprovisioned (0x00), Provisioning (0x01), Locked (0x02), Authenticating (0x03), Unlocked (0x04), RecoveryRequired (0x05), RateLimited (0x06), WipePending (0x07), WipeInProgress (0x08), and ErrorLocked (0x09). Derives PIN keys with PBKDF2-HMAC-SHA256 (10,000 iterations). Mitigates timing attacks using constant_time_eq_32. Imposes progressive backoff penalties after failed PIN attempts and enforces selective factory wipe upon 5 consecutive failures.",
+        invariants: "• PIN comparisons must always execute in constant time.\n• Failed PIN attempt counter persists across reboots.\n• Wiping selectively purges protected keys while keeping standard WebAuthn keys intact.",
+        upstream: [
+          { text: "freertos_route.rs (via authorize_vendor_opcode barrier)", type: "in" }
+        ],
+        downstream: [
+          { text: "crates/aegis-fido-firmware/src/persistence.rs (NVS / Storage)", type: "out" }
+        ],
+        opcodes: "• Secure Guard Wire Codes:\n  - 0x3A: GET_STATUS\n  - 0x3B: PROVISION_PIN\n  - 0x3C: UNLOCK\n  - 0x3D: LOCK\n  - 0x3E: WIPE_FACTORY",
+        files: "crates/aegis-fido-core/src/secure_guard/mod.rs\ncrates/aegis-fido-core/src/secure_guard/engine.rs\ncrates/aegis-fido-core/src/secure_guard/state.rs\ncrates/aegis-fido-core/src/secure_guard/policy.rs",
+        buildCmd: "cargo build -p aegis-fido-core",
+        testCmd: "cargo test -p aegis-fido-core --test secure_guard_tests"
+      },
+      "card-ctap-engine": {
+        title: "CTAP 2.3 & Domain Cryptographic Engines",
+        path: "crates/aegis-fido-core",
+        layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
+        description: "Pure #![no_std] cryptographic engine implementing CTAP 2.3 specifications. Supports 5 COSE algorithms (Ed25519, P-256, secp256k1, P-384, P-521). Houses domain engines for BIP-32/39 HD cryptocurrency wallets (BTC, ETH, SOL, DOT), YKOATH TOTP/HOTP code generator (RFC 6238), PIV smartcard applet (Slots 9A, 9C, 9D, 9E), and RSA Digital Signature (DS) hardware accelerator.",
+        invariants: "• Private keys are never exported in plaintext.\n• Server-side credentials wrapped in authenticated AES-256-GCM envelopes.\n• Resident passkeys strictly indexed by RP ID hash.",
+        upstream: [
+          { text: "freertos_route.rs dispatcher", type: "in" }
+        ],
+        downstream: [
+          { text: "Hardware ESP32-S3 crypto accelerators (AES, SHA, RSA, ECC, RNG)", type: "out" },
+          { text: "crates/aegis-fido-firmware/src/persistence.rs", type: "out" }
+        ],
+        opcodes: "• CTAP2 Operations: authenticatorMakeCredential (0x01), authenticatorGetAssertion (0x02), authenticatorGetInfo (0x04), authenticatorClientPIN (0x06)\n• YKOATH Commands: PUT (0x01), DELETE (0x02), LIST (0x03), CALCULATE (0x04)",
+        files: "crates/aegis-fido-core/src/ctap/mod.rs\ncrates/aegis-fido-core/src/crypto/mod.rs\ncrates/aegis-fido-core/src/oath/mod.rs\ncrates/aegis-fido-core/src/piv/mod.rs\ncrates/aegis-fido-core/src/wallet/mod.rs",
+        buildCmd: "cargo build -p aegis-fido-core",
+        testCmd: "cargo test -p aegis-fido-core"
+      },
+      "card-storage-silicon": {
+        title: "Silicon Storage, Flash NVS & eFuse OTP",
+        path: "crates/aegis-fido-firmware/src/persistence.rs",
+        layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
+        description: "Dual-partition flash layout. The nvs partition at 0x9000 (24 KiB) holds device settings and PIN state. The storage partition at 0x310000 (896 KiB) holds encrypted resident credentials. Data is sealed into sg_record_v1 format (256 bytes fixed payload, CRC32 integrity check, AES-256-GCM AEGN authenticated envelope). Key derivation uses silicon eFuse OTP BLOCK7 (256-bit Master Key) and BLOCK8 (256-bit Device Salt).",
+        invariants: "• Cleartext keys must never hit SPI flash memory.\n• Power failure recovery verified via CRC32 integrity checks.\n• eFuse blocks are programmed once during manufacturing provisioning.",
+        upstream: [
+          { text: "crates/aegis-fido-core (SecureGuard, CTAP, OATH, Wallets)", type: "in" }
+        ],
+        downstream: [
+          { text: "ESP32-S3 SPI Flash & eFuse Controller Silicon", type: "out" }
+        ],
+        opcodes: "• Partitions: nvs (0x9000, 24KB), storage (0x310000, 896KB)\n• Record Format: sg_record_v1 (256B CRC32 + AES-256-GCM envelope)",
+        files: "crates/aegis-fido-firmware/src/persistence.rs\ncrates/aegis-fido-firmware/src/efuse.rs",
+        buildCmd: "cargo build -p aegis-fido-firmware",
+        testCmd: "cargo test -p aegis-fido-firmware --test persistence_tests"
+      }
+    };
+
+    // Filter Chips Logic
+    document.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        
+        const filter = chip.getAttribute('data-filter');
+        document.querySelectorAll('.layer-group').forEach(group => {
+          if (filter === 'all' || group.getAttribute('data-layer') === filter) {
+            group.style.display = 'flex';
+          } else {
+            group.style.display = 'none';
+          }
+        });
+      });
+    });
+
+    // Fast Search Input Logic
+    const searchInput = document.getElementById('searchInput');
+    searchInput.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      document.querySelectorAll('.arch-card').forEach(card => {
+        const text = card.textContent.toLowerCase();
+        if (!q || text.includes(q)) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    });
+
+    // Drawer / Modal Functions
+    const modalOverlay = document.getElementById('detailModal');
+    const modalCloseBtn = document.getElementById('modalCloseBtn');
+
+    function openDrawer(cardId) {
+      const data = COMPONENT_DB[cardId];
+      if (!data) return;
+
+      document.getElementById('modalTitle').textContent = data.title;
+      document.getElementById('modalPath').textContent = data.path;
+      document.getElementById('modalDescription').textContent = data.description;
+      document.getElementById('modalInvariants').textContent = data.invariants;
+      document.getElementById('modalOpcodes').textContent = data.opcodes;
+      document.getElementById('modalFilesText').textContent = data.files;
+      document.getElementById('modalBuildCmdText').textContent = data.buildCmd;
+      document.getElementById('modalTestCmdText').textContent = data.testCmd;
+
+      // Render Upstream
+      const upContainer = document.getElementById('modalUpstream');
+      upContainer.innerHTML = '';
+      data.upstream.forEach(u => {
+        const div = document.createElement('div');
+        div.className = 'wire-item';
+        div.innerHTML = `<span class="wire-arrow">↓ [IN]</span> <span>${u.text}</span>`;
+        upContainer.appendChild(div);
+      });
+
+      // Render Downstream
+      const downContainer = document.getElementById('modalDownstream');
+      downContainer.innerHTML = '';
+      data.downstream.forEach(d => {
+        const div = document.createElement('div');
+        div.className = 'wire-item';
+        div.innerHTML = `<span class="wire-arrow">→ [OUT]</span> <span>${d.text}</span>`;
+        downContainer.appendChild(div);
+      });
+
+      // Reset to first tab
+      switchModalTab('tab-spec');
+
+      modalOverlay.classList.add('open');
+    }
+
+    function closeDrawer() {
+      modalOverlay.classList.remove('open');
+    }
+
+    modalCloseBtn.addEventListener('click', closeDrawer);
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) closeDrawer();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modalOverlay.classList.contains('open')) {
+        closeDrawer();
+      }
+    });
+
+    // Drawer Tabs Logic
+    function switchModalTab(tabId) {
+      document.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+      const activeBtn = Array.from(document.querySelectorAll('.drawer-tab')).find(b => b.getAttribute('data-tab') === tabId);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const activePane = document.getElementById(tabId);
+      if (activePane) activePane.classList.add('active');
+    }
+
+    document.querySelectorAll('.drawer-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        switchModalTab(tab.getAttribute('data-tab'));
+      });
+    });
+
+    // Copy to Clipboard Utility
+    function copyCode(elementId) {
+      const el = document.getElementById(elementId);
+      const text = el.innerText.replace('Copy', '').trim();
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = el.querySelector('.copy-btn');
+        if (btn) {
+          const original = btn.textContent;
+          btn.textContent = 'Copied!';
+          setTimeout(() => btn.textContent = original, 1500);
+        }
+      });
+    }
+
+    // Theme Toggle (Dark / Light)
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
+    const themeIcon = document.getElementById('themeIcon');
+    let currentTheme = localStorage.getItem('aegis_theme') || 'dark';
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
+      localStorage.setItem('aegis_theme', theme);
+      currentTheme = theme;
+    }
+
+    applyTheme(currentTheme);
+
+    themeToggleBtn.addEventListener('click', () => {
+      applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    });
+  </script>
+</body>
+</html>

@@ -69,6 +69,14 @@ def run_battery():
     except Exception as e:
         log_test("1.2 GET /dashboard (Rota alternativa)", False, str(e))
 
+    try:
+        st, headers, body = http_get("/architecture", headers={"Accept": "text/html"})
+        html = body.decode("utf-8")
+        ok = (st == 200) and ("AegisKey Architecture Map" in html) and ("freertos_route.rs" in html)
+        log_test("1.3 GET /architecture (Mapa Interativo da Arquitetura)", ok, f"status={st}, len={len(body)}B")
+    except Exception as e:
+        log_test("1.3 GET /architecture (Mapa Interativo da Arquitetura)", False, str(e))
+
     # 2. Hardware Telemetry & Status
     try:
         st, _, data = http_get("/bridge/info")

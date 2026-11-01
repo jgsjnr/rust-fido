@@ -1547,6 +1547,22 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)
             return
 
+        # Architecture Map Static Serving
+        if path in ("/architecture", "/architecture-map", "/docs/architecture"):
+            repo_dir = os.path.dirname(SCRIPT_DIR)
+            arch_file = os.path.join(repo_dir, "docs", "project", "ARCHITECTURE-MAP.html")
+            if os.path.exists(arch_file):
+                with open(arch_file, "rb") as f:
+                    html_bytes = f.read()
+                self.close_connection = True
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(html_bytes)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(html_bytes)
+                return
+
         # Web Dashboard Static Serving
         if path in ("", "/", "/dashboard", "/index.html"):
             accept = self.headers.get("Accept", "")
