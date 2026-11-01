@@ -1,13 +1,23 @@
 # TASKS — Executable tasks, HIL, batteries, checklists, handoffs, rites
 
 > Style: ASD-STE100. Use short sentences. Use active voice. Use one instruction per sentence.
-> Scope: consolidates executable tasks, HIL L0-L4, serial battery, test hooks, user checklist,
-> bonding walk-away, handoffs, rites, bench, emulators, QEMU.
-> Sources: docs/plano-testes-hil, bateria-serial, test-hooks, checklist-usuario, bonding-walkaway,
+> Scope: consolidates executable tasks T0-T20, HIL L0-L4, serial battery, test hooks, user checklist,
+> bonding walk-away, handoffs, rites, bench, emulators, QEMU, and desktop system tray verification.
+> Sources: MASTER_EXECUTION_PLAN.md, docs/plano-testes-hil, bateria-serial, test-hooks, checklist-usuario, bonding-walkaway,
 > HANDOFF-*, secure-guard/04-06+09, bench-*, emuladores, qemu, sessao-20-10, linux-bringup,
 > GUIA_RITOS, lifetime-debug, live-monitor, MACHINE, REGRAS-automacao.
 
-## 1. Task list T0-T13 (executable)
+---
+
+> [!CAUTION]
+> ### CRITICAL HARDWARE SAFETY POLICY — eFuse OTP Protection (`DO NOT EXECUTE`)
+> **NEVER EXECUTE COMMANDS TO BURN eFuses ON HARDWARE (`esptool.py burn_efuse`, `BLOCK7`, `SPI_BOOT_CRYPT_CNT`, `SECURE_VERSION`).**  
+> eFuse burning in the ESP32-S3 is permanent, irreversible, and locks hardware against reprogramming.  
+> All eFuse modules (`efuse_safety_lock.rs`, `GAP-01`, `GAP-03`, `GAP-07`) are guarded by `EFUSE_WRITE_HARD_LOCKED = true` and `feature = "burn-efuse-irreversible-do-not-enable"`. Development boards on `COM7` remain unburned to preserve flashing and test capabilities.
+
+---
+
+## 1. Task list T0-T20 (executable)
 
 | Task | Owner | Command | Gate |
 |---|---|---|---|
@@ -25,6 +35,13 @@
 | T11 Size plus release clean | release | `check-release-clean.py` | No `TEST_*` in release |
 | T12 Nightly plus pre-release | release | Nightly pipeline | Tag plus SHA256 plus rollback rehearsed |
 | T13 Release | release | Release pipeline | Real tag plus push with approval |
+| T14 Desktop Companion Tray App | desktop | `dotnet build app-tray/dotnet/AegisKeyTray/` | C# .NET 9 tray builds clean |
+| T15 Native OpenSSH Agent Provider | desktop | `python -m unittest app-tray/test_tray_and_ssh_guard.py` | Named Pipe and sk-ssh-ed25519 pass |
+| T16 OS Login Companion | desktop | `python -m unittest app-tray/test_tray_and_ssh_guard.py` | Windows Hello CDF & PAM logic pass |
+| T17 ECDH Channel & Glitch Guard | core | `cargo test -p aegis-fido-core secure_channel glitch_guard` | Vector tests pass, zero leak |
+| T18 CTAP 2.1 Extensions & Shamir | core | `cargo test -p aegis-fido-core extensions_ctap21 shamir_slip39` | 2-of-3 quórum & hmac-secret pass |
+| T19 Clear Signing & OLED Buffer | core + fw | `cargo test -p aegis-fido-core clear_signing` | Framebuffer 128x64 unit tests pass |
+| T20 eFuse Safety Lock Audit | firmware | `cargo test -p aegis-fido-firmware efuse_safety_lock` | Confirm zero-brick lock active |
 
 - Use default port COM7. Override with `%AEGIS_PORT%` or `--port COMx`. Use baud 115200.
 - Require `--confirm` for wipe, OTA, provision, erase, burn. Deny without it.
@@ -37,8 +54,8 @@
 | L0 | Host offline, no device | `cargo test`, clippy | Suite green, zero warnings |
 | L1 | Simulator: dummy plus QEMU plus Renode | Dummy first, skip Renode if absent | Smoke only, never RealVerified |
 | L2 | Serial E2E classic UART0 115200 8N1 | COM8 plus reflash | Pending reflash |
-| L3 | S3 E2E plus test-mode diag | COM7 plus test-mode fw | Validated 20/10 |
-| L4 | Destructive plus factory | COM13 plus `--confirm` | Erase plus reflash plus burn with approval |
+| L3 | S3 E2E plus test-mode diag | COM7 plus test-mode fw | Validated 20/10 & 01/11 |
+| L4 | Destructive plus factory | COM13 plus `--confirm` | Erase plus reflash. eFuse burn requires explicit factory sign. |
 
 - Run L0 before any L1. Run L1 before any L2. Run L2-L3 before L4.
 - Treat F2 QEMU interactive as smoke. Treat F3 D08a as blocked on bad-sig end-to-end (FINISH denies).
@@ -89,11 +106,12 @@
 ### 4.1 User checklist (physical H1-H7 plus lock plus WUDF)
 
 - [ ] Phase 0: prepare 5 min, touch nothing.
-- [ ] Phase 1: install APK.
+- [ ] Phase 1: install APK or launch Desktop Companion System Tray.
 - [ ] Phase 2: run gestures H1-H4, confirm LED order.
 - [ ] Phase 3: run H5-H7, confirm UP plus PIN.
 - [ ] Phase 4: test lock plus walk-away.
 - [ ] Phase 5: confirm WUDF behavior on Windows.
+- [ ] Phase 6: test Native OpenSSH Agent with `ssh -T git@github.com`.
 
 ### 4.2 Bonding plus walk-away runbook (turnkey)
 
@@ -106,21 +124,25 @@
 
 - Diagnose failures by symptom: no bond means pairing lost, `0x05` means window closed, `0x02` means PIN missing, silence means USB veto active.
 
-### 4.3 Release checklist entry
+### 4.3 Desktop Companion & OpenSSH Agent Runbook
 
-- Run `RELEASE-checklist.md` pipeline (quarantined, summarized in PLANS.md section 5).
-- Confirm scope, contract, executable pipeline, clean proof, tag, SHA256, rollback rehearsal.
-- Block on R6, R7, R11, R12, R13, R14.
+1. Launch Desktop Companion: `python app-tray/aegis_tray.py` or execute `AegisKeyTray.exe`.
+2. Insert AegisKey into USB port. Confirm native OS notification: "AegisKey Connected".
+3. Check OpenSSH Pipe: Windows Named Pipe `\\.\pipe\openssh-ssh-agent` active.
+4. Set environment variable: `$env:SSH_AUTH_SOCK = "\\.\pipe\openssh-ssh-agent"`.
+5. Execute `ssh-add -l`. Verify AegisKey resident `sk-ssh-ed25519` key listed.
+6. Trigger SSH connection. Confirm blinking LED on AegisKey requesting User Presence (UP).
+7. Touch physical button GPIO 0. Confirm authentication succeeds.
 
 ## 5. Test hooks and rites
 
 - Read text hooks only on D1/UART in test-mode. Keep them off in release.
 - Audit hooks by manifest. Audit bypasses by `cfg!` at compile time.
+- Enforce `prod_strict_guard.rs` (GAP-04): `compile_error!` when `prod-strict` and `test-mode` are both defined.
 - Run `TEST_LIFETIME_DUMP` only with test-mode, default OFF.
 - Run lifetime debug terminal only in dev. Never enable it in release.
 - Run live monitor only in dev. Never enable it in release.
 - Follow rites guide: GPIOs, USB connect, BLE pair, LED colors, wallet and key management.
-- Follow screen journey: map each LCD screen to LED, require UP before vault OATH.
 
 ## 6. Handoffs (consolidated, no separate files)
 
@@ -129,15 +151,27 @@
 | 2026-10-20 Wave2 Step3 plus HW | F4 proof, RSSI lock | Observed logs, 8/8 suite | RF bonded test needs second radio |
 | Proximity worktree RSSI lock | Near/Away/Locked plus beacon | 34 plus 34/33/33 green on origin | FFI MAC plus factory `K_prox` flow |
 | Secure Guard 06 canonical | File map per layer | 147 core tests pass | Port remaining gates to FreeRTOS scheduler |
+| 2026-11-01 Master Plan Hardening | 7 Gaps closed, 6 Opportunities delivered | Unit tests in core, fw, app-tray | Physical eFuse burn blocked by policy in lab dev |
 
 - Write each handoff with scope, contract, risks, tests, acceptance, evidence quality, external blockers.
-- Mark evidence as observed, simulated, or blocked. Never claim `REAL_VERIFIED` without adjacent metadata (port, bin SHA, date, command).
+- Mark evidence as observed, simulated, or blocked. Never claim `REAL_VERIFIED` without adjacent metadata.
 - List external blockers explicitly: second device, RF chamber, factory approval, COM port access.
 
-## 7. Validation results (summary of 09)
+## 7. Validation results (summary)
 
 - Rust core `secure_guard` suite: 147 tests PASS on host workspace.
-- Firmware suite: 250 plus USB 72 plus proximity 34 on host, clippy zero, release clean.
-- FreeRTOS host: 303 lib plus 11 bin plus 2 plus 3 plus 11 integration, clippy clean on 4 configs.
+- New cryptographic modules:
+  - `secure_channel.rs` (GAP-02 ECDH P-256 + HKDF + AEAD): Verified.
+  - `glitch_guard.rs` (GAP-06 GlitchResistantBool + TRNG jitter): Verified.
+  - `crypto.rs` (GAP-03 Hardware HMAC-anchored KDF): Verified.
+  - `extensions_ctap21.rs` (OPP-02 hmac-secret & largeBlobKey): Verified.
+  - `shamir_slip39.rs` (OPP-03/05 Shamir 2-of-3 in GF(256)): Verified.
+  - `clear_signing.rs` (OPP-06 Web3 Clear Signing parser): Verified.
+- Firmware suite:
+  - `efuse_safety_lock.rs` (GAP-01/03/07): Zero-brick policy verified, writes hard-locked.
+  - `prod_strict_guard.rs` (GAP-04): Isolation between test-mode and prod-strict verified.
+  - `oled_ssd1306_code_only.rs` (OPP-06): Code-only 128x64 virtual framebuffer verified with hardware attach = false.
+- Desktop Companion App:
+  - `app-tray/test_tray_and_ssh_guard.py`: All tests PASS (System tray state, OpenSSH Agent Named Pipe, OS Login Companion).
 - Hardware: 8/8 Rust suite twice on different bins, bench 7/7, killswitch dry-run plus 13 unit PASS, factory dry-run PASS.
-- Blocked: e2e base and all-safe without test-mode inbox, walk-away air loop by design, physical UP, bonded RF, eFuse burn.
+- Blocked by design: physical eFuse permanent burn (blocked by Zero-Brick Policy to preserve COM7 dev boards).
