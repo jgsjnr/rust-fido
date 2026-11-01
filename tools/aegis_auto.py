@@ -3,7 +3,7 @@
 
 Reuse-only: this file holds no CTAPHID framing of its own. Every hardware
 step delegates to the existing tools (tools/device_ops.py, tools/app_simulator.py,
-tools/e2e_user_test.py, tools/*_probe.py, tools/validate_aegiskey.py) and to the
+tools/e2e_harness.py (subcomando user), tools/*_probe.py, tools/validate_aegiskey.py) and to the
 existing scripts (scripts/env-check.ps1, scripts/build-freertos-s3.ps1).
 
 Port/MAC policy:
@@ -19,7 +19,7 @@ Serial discipline (firmware rule: reopen == reset):
   the board and drops any pairing window. Pairing window = 60s, UP latch = 1.5s.
 - No 5s BOOT hold is ever required in auto: pairing uses TEST_PAIRING_OPEN
   (software, test-mode firmware) and UP uses TEST_UP (software, single-shot),
-  both reused from tools/app_simulator.py via tools/e2e_user_test.py.
+  both reused from tools/app_simulator.py via tools/e2e_harness.py (user).
 
 Serial OTA-COMMIT deny by design (fail-closed):
 - Opcode 0x30 (OTA_BEGIN) does not exist on the serial transport; the device
@@ -351,7 +351,7 @@ def step_rust_suite():
 
 
 def step_e2e(port, phase, extra=()):
-    cmd = [sys.executable, "tools/e2e_user_test.py",
+    cmd = [sys.executable, "tools/e2e_harness.py", "user",
            "--port", port, "--phase", phase] + list(extra)
     rc, tail = run_cmd(cmd, 900)
     if rc != 0:

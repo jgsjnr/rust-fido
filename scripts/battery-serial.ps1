@@ -62,17 +62,17 @@ if ($Phase -in @("all", "offline")) {
     [void]$summary.Add("host-win-tests: $(if ($r.Code -eq 0) { 'PASS' } else { 'VER LOG' })")
 }
 if ($Phase -in @("all", "base")) {
-    $r = Invoke-Step "e2e-base ($Port)" "python" @("tools/e2e_user_test.py", "--port", $Port, "--phase", "base")
+    $r = Invoke-Step "e2e-base ($Port)" "python" @("tools/e2e_harness.py", "user", "--port", $Port, "--phase", "base")
     $line = ($r.Out -split "`r?`n" | Select-String -Pattern '^RESUMO' | Select-Object -Last 1)
     [void]$summary.Add("base: $($line -replace 'RESUMO ', '')")
 }
 if ($Phase -in @("all", "all-safe")) {
-    $r = Invoke-Step "e2e-all-safe ($Port)" "python" @("tools/e2e_user_test.py", "--port", $Port, "--phase", "all-safe")
+    $r = Invoke-Step "e2e-all-safe ($Port)" "python" @("tools/e2e_harness.py", "user", "--port", $Port, "--phase", "all-safe")
     $line = ($r.Out -split "`r?`n" | Select-String -Pattern '^RESUMO' | Select-Object -Last 1)
     [void]$summary.Add("all-safe: $($line -replace 'RESUMO ', '')")
 }
 if ($Phase -in @("all", "bench")) {
-    $r = Invoke-Step "e2e-bench ($Port)" "python" @("tools/e2e_user_test.py", "--port", $Port, "--phase", "bench")
+    $r = Invoke-Step "e2e-bench ($Port)" "python" @("tools/e2e_harness.py", "user", "--port", $Port, "--phase", "bench")
     $line = ($r.Out -split "`r?`n" | Select-String -Pattern '^RESUMO' | Select-Object -Last 1)
     [void]$summary.Add("bench: $($line -replace 'RESUMO ', '')")
 }
@@ -84,11 +84,11 @@ if ($Phase -in @("destructive", "wipe")) {
     }
     Write-Host "!!! FASE DESTRUTIVA '$Phase' AUTORIZADA (-Force). PIN 1234 + backup NVS assumidos. !!!" -ForegroundColor Red
     if ($Phase -eq "destructive") {
-        $r = Invoke-Step "e2e-destructive ($Port)" "python" @("tools/e2e_user_test.py", "--port", $Port, "--phase", "destructive", "--confirm")
+        $r = Invoke-Step "e2e-destructive ($Port)" "python" @("tools/e2e_harness.py", "user", "--port", $Port, "--phase", "destructive", "--confirm")
         $line = ($r.Out -split "`r?`n" | Select-String -Pattern '^RESUMO' | Select-Object -Last 1)
         [void]$summary.Add("destructive: $($line -replace 'RESUMO ', '')")
     } else {
-        $r = Invoke-Step "e2e-wipe ($Port)" "python" @("tools/e2e_user_test.py", "--port", $Port, "--phase", "wipe", "--confirm", "--confirm-release")
+        $r = Invoke-Step "e2e-wipe ($Port)" "python" @("tools/e2e_harness.py", "user", "--port", $Port, "--phase", "wipe", "--confirm", "--confirm-release")
         $line = ($r.Out -split "`r?`n" | Select-String -Pattern '^RESUMO' | Select-Object -Last 1)
         [void]$summary.Add("wipe: $($line -replace 'RESUMO ', '')")
     }

@@ -47,3 +47,45 @@ KEPT IN tools/ (NAO consolidados — deliberado):
 CACHES: __pycache__/ e .pytest_cache/ ausentes na arvore — nada a deletar.
 
 VERIFICACAO: git status --short + git diff -w --numstat (esperado: zero linhas logicas) + py_compile nos movidos.
+
+FUSAO E2E (branch fd/finalizacao-linux | 2026-10-26, sem alteracao logica):
+  4 harnesses sobrepostos -> tools/e2e_harness.py (5186 lin, NOVO, unico codigo novo: dispatcher manual argv[1]).
+  Regra: secao = origem integral entre marcadores BEGIN/END ORIGIN; 3 adaptacoes
+  mecanicas de dispatch: def main() -> bridge_main/user_main/session_main/onboard_main,
+  blocos `if __name__ == "__main__":` removidos, SCRIPT_DIR do onboard -> HIL_SCRIPT_DIR.
+
+  MOVED (git mv, historico preservado -> docs/evaluation/quarantine/):
+    tools/e2e_user_test.py (1161 lin) -> quarantine/e2e_user_test.py        [cenario: user]
+    tools/emulate_app_session.py (610 lin) -> quarantine/emulate_app_session.py  [cenario: session]
+    tools/hil_emulate_full_app_on_board.py (483 lin) -> quarantine/hil_emulate_full_app_on_board.py [cenario: onboard]
+
+  KEPT (Nao movido - evidencia):
+    tools/host_hardware_android_bridge.py (2875 lin) MANTIDO no lugar.
+    Motivo: import vivo em tools/hil_test_ds_and_proximity_lock.py:30
+    (`from host_hardware_android_bridge import HW_MANAGER, CMD_PING`); mover quebraria
+    import em tempo de coleta. Cenario `bridge` do fundido contem seu codigo integral
+    (entry bridge_main) - o arquivo original segue canonico; o fundido e o ponto unico p/ E2E.
+    (Quebras runtime-only conhecidas, p/ o orquestrador religar: tools/aegis_auto.py:354 e
+    scripts/battery-serial.ps1 invocam `tools/e2e_user_test.py` via subprocess -> usar
+    `tools/e2e_harness.py user ...`; docs/*.md citam os 4 caminhos - sincronizacao do
+    EVALUATION.md fora deste escopo.)
+
+  DUPLICATAS REMOVIDAS: 0 (zero).
+    Prova: intersecao de nomes top-level (def/class) entre os 4 arquivos = {main} x4
+    (renomeados, nao removidos) + const SCRIPT_DIR em bridge/hil (mesmo valor = dir tools/;
+    a copia do onboard renomeada p/ HIL_SCRIPT_DIR, 5 refs). Todo o resto e disjunto:
+    bridge=20 defs (HardwareBridgeManager, ProximityEngine, SecureGuardEngine, cbor_encode/
+    cbor_decode, ble_split_fragments/ble_reassemble, parse_tlv_records, BridgeHttpRequestHandler,
+    DualProtocolServer/Handler, run_server, run_self_test...), e2e=67 defs (tlv/cbor_*/PinClient/
+    Ctx/_t01.._t22/_d01.._d08/_bench/_setup_clean/append_md...), session=20 defs (SimPresence/
+    SimDevice/ble_frame/ble_parse/IntegrityEmulatedHandler/step_s1..s5...), onboard=6 defs
+    (BridgeSession/build_oath_put/build_oath_code/authenticate_pin/send_arm...).
+    Total 113 defs top-level verificadas via AST presentes no fundido (116 = 113 + dispatcher
+    main/_run_scenario/print_help). Nenhum corpo identico descartado.
+
+  ESTRUTURA DO FUNDIDO: e2e_harness.py {bridge|user|session|onboard} + args repassados intactos.
+    `bridge --help`/`user --help` exibem o argparse ORIGINAL de cada cenario (prova de preservacao).
+
+  VERIFICACAO (SEM hardware/flash/COM): py -m py_compile tools/e2e_harness.py OK;
+    `python tools/e2e_harness.py --help` OK (exit 0, sem HW); `bridge --help` e `user --help` OK.
+    NAO commitado - working tree p/ revisao do orquestrador.
