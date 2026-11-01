@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
+import dev.aegiskey.app.ui.atomic.molecules.ClearSigningPreviewMolecule
 import dev.aegiskey.app.ui.theme.AegisAddressMonospaceStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -623,6 +624,13 @@ private fun CryptoWalletSection(
                 }
             }
         }
+
+        // Pré-visualização Desacoplada OLED 128x64 Clear Signing (OPP-06)
+        ClearSigningPreviewMolecule(
+            network = networkName,
+            txPayload = txInput,
+            modifier = Modifier.fillMaxWidth()
+        )
 
         // Card Interativo: Assinar Transação ou Mensagem no Hardware (0x38)
         InteractiveSignCard(

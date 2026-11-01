@@ -79,14 +79,18 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BindingOps
 import dev.aegiskey.app.ble.VendorOps
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.security.RecoveryBackup
+import dev.aegiskey.app.ui.atomic.molecules.EfuseSafetyNoticeMolecule
 import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
 import dev.aegiskey.app.ui.atomic.organisms.ThemeSelectorOrganism
+import androidx.compose.ui.res.stringResource
 import dev.aegiskey.app.ui.theme.ThemeMode
 import dev.aegiskey.app.ui.viewmodel.AppThemeViewModel
 import dev.aegiskey.app.ui.viewmodel.ConnectedKeysViewModel
@@ -162,6 +166,28 @@ fun FriendlySettingsAndThemeScreen(
         AppThemeMode.SYSTEM -> ThemeMode.SYSTEM
         AppThemeMode.LIGHT -> ThemeMode.LIGHT
         AppThemeMode.DARK -> ThemeMode.DARK
+    }
+
+    val clipboardManager = LocalClipboardManager.current
+    val bridgeClient = remember { HostUsbUartBridgeClient() }
+
+    // Shamir & eFuse Safety Notice States
+    var showShamirGenerateDialog by remember { mutableStateOf(false) }
+    var showShamirRecoverDialog by remember { mutableStateOf(false) }
+    var shamirGeneratedShares by remember { mutableStateOf<List<String>?>(null) }
+    var shamirInputShare1 by remember { mutableStateOf("") }
+    var shamirInputShare2 by remember { mutableStateOf("") }
+    var shamirRecoverMessage by remember { mutableStateOf<String?>(null) }
+    var shamirRecoverLoading by remember { mutableStateOf(false) }
+    var efuseStatusState by remember { mutableStateOf(HostUsbUartBridgeClient.EfuseGuardStatus()) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val status = bridgeClient.fetchEfuseGuardStatus()
+            withContext(Dispatchers.Main) {
+                efuseStatusState = status
+            }
+        }
     }
 
     LazyColumn(
@@ -645,6 +671,28 @@ fun FriendlySettingsAndThemeScreen(
                     }
                 }
             }
+        }
+
+        // --- 4.1 eFuse OTP Safety Notice, Shamir 2-of-3 & CTAP 2.1 hmac-secret ---
+        item {
+            EfuseSafetyNoticeMolecule(
+                efuseStatus = efuseStatusState,
+                onGenerateShamir = {
+                    scope.launch {
+                        val res = bridgeClient.shamirSplit(totalShares = 3, threshold = 2)
+                        shamirGeneratedShares = res.shares
+                        showShamirGenerateDialog = true
+                    }
+                },
+                onRecoverShamir = {
+                    shamirRecoverMessage = null
+                    showShamirRecoverDialog = true
+                },
+                activeShares = shamirGeneratedShares,
+                onCopyShare = { share ->
+                    clipboardManager.setText(AnnotatedString(share))
+                }
+            )
         }
 
         // --- 5. OTA Firmware Update ---
@@ -1195,6 +1243,234 @@ fun FriendlySettingsAndThemeScreen(
             }
         )
     }
+
+    // Dialog 6: Shamir 2-of-3 Hardware Shares (OPP-05)
+    if (showShamirGenerateDialog && !shamirGeneratedShares.isNullOrEmpty()) {
+        ShamirGenerateModalDialog(
+            shares = shamirGeneratedShares ?: emptyList(),
+            onDismiss = { showShamirGenerateDialog = false },
+            onCopy = { share ->
+                clipboardManager.setText(AnnotatedString(share))
+            }
+        )
+    }
+
+    // Dialog 7: Recover Vault with 2 Shamir Shares (OPP-05)
+    if (showShamirRecoverDialog) {
+        ShamirRecoverModalDialog(
+            share1 = shamirInputShare1,
+            onShare1Change = { shamirInputShare1 = it },
+            share2 = shamirInputShare2,
+            onShare2Change = { shamirInputShare2 = it },
+            isLoading = shamirRecoverLoading,
+            resultMessage = shamirRecoverMessage,
+            onDismiss = { showShamirRecoverDialog = false },
+            onRecover = {
+                scope.launch {
+                    shamirRecoverLoading = true
+                    val res = bridgeClient.shamirRecover(listOf(shamirInputShare1, shamirInputShare2))
+                    shamirRecoverLoading = false
+                    shamirRecoverMessage = res.message
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ShamirGenerateModalDialog(
+    shares: List<String>,
+    onDismiss: () -> Unit,
+    onCopy: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(18.dp),
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Key,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.shamir_dialog_generate_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.shamir_backup_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                shares.forEachIndexed { idx, share ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = when (idx) {
+                                        0 -> stringResource(R.string.shamir_share_1_label)
+                                        1 -> stringResource(R.string.shamir_share_2_label)
+                                        else -> stringResource(R.string.shamir_share_3_label)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = share,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(
+                                onClick = { onCopy(share) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.ContentCopy,
+                                    contentDescription = stringResource(R.string.shamir_copy_share),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(text = stringResource(R.string.guard_btn_close))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ShamirRecoverModalDialog(
+    share1: String,
+    onShare1Change: (String) -> Unit,
+    share2: String,
+    onShare2Change: (String) -> Unit,
+    isLoading: Boolean,
+    resultMessage: String?,
+    onDismiss: () -> Unit,
+    onRecover: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        shape = RoundedCornerShape(18.dp),
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.LockReset,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.shamir_dialog_recover_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.shamir_backup_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = share1,
+                    onValueChange = onShare1Change,
+                    label = { Text(stringResource(R.string.shamir_enter_share_1)) },
+                    placeholder = { Text("share-1-of-3: cricket dynamic acid...") },
+                    singleLine = false,
+                    maxLines = 3,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = share2,
+                    onValueChange = onShare2Change,
+                    label = { Text(stringResource(R.string.shamir_enter_share_2)) },
+                    placeholder = { Text("share-2-of-3: cricket dynamic blast...") },
+                    singleLine = false,
+                    maxLines = 3,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (!resultMessage.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF16A34A).copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF16A34A)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = resultMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF16A34A),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onRecover,
+                enabled = !isLoading && share1.isNotBlank() && share2.isNotBlank(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(stringResource(R.string.shamir_execute_recover_btn))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isLoading
+            ) {
+                Text(stringResource(R.string.guard_btn_cancel))
+            }
+        }
+    )
 }
 
 @Composable

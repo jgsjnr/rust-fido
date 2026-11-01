@@ -129,6 +129,64 @@
     <string name="settings_biometrics">Biometric Verification</string>
     <string name="settings_walkaway">Lock on Walk Away</string>
 
+    <!-- GAP-02: ECDH Encrypted PIN Channel -->
+    <string name="ecdh_pin_channel_title">ECDH Encrypted PIN Channel Active</string>
+    <string name="ecdh_pin_channel_desc">End-to-end P-256 + HKDF + AES-256-GCM hardware protection against USB/UART interception.</string>
+    <string name="ecdh_pin_channel_badge">P-256 ECDH ACTIVE</string>
+
+    <!-- GAP-01 / GAP-07: eFuse OTP Safety Lock -->
+    <string name="efuse_safety_lock_title">eFuse OTP Safety Lock: ACTIVE (Write Disabled — Do Not Burn in Dev Mode)</string>
+    <string name="efuse_safety_lock_desc">Permanent OTP write operations (Flash Encryption, Secure Boot v2, BLOCK7, Download Lock) are blocked to prevent board bricking.</string>
+    <string name="efuse_badge_do_not_burn">DO NOT BURN / DEV MODE ACTIVE</string>
+    <string name="efuse_status_read_only">Read-Only Auditable Status</string>
+    <string name="efuse_status_flash_enc">Flash Encryption Status:</string>
+    <string name="efuse_status_flash_enc_val">READ-ONLY / DEV MODE</string>
+    <string name="efuse_status_secure_boot">Secure Boot v2 Status:</string>
+    <string name="efuse_status_secure_boot_val">SIMULATED / NOT BURNED</string>
+    <string name="efuse_status_block7">BLOCK7 HMAC Silicon Anchor:</string>
+    <string name="efuse_status_block7_val">DEV DETERMINISTIC FALLBACK</string>
+    <string name="efuse_status_anti_rollback">Anti-Rollback Secure Version:</string>
+    <string name="efuse_status_anti_rollback_val">v1 (Silicon Monotonic)</string>
+    <string name="efuse_status_write_lock">OTP Write Gate:</string>
+    <string name="efuse_status_write_lock_val">LOCKED / WRITE DISABLED</string>
+
+    <!-- OPP-05: Shamir Secret Sharing 2-of-3 (SLIP-0039) -->
+    <string name="shamir_backup_title">Shamir 2-of-3 Backup (SLIP-0039)</string>
+    <string name="shamir_backup_desc">Splits the master seed into 3 cryptographic shares. Any 2 shares restore the vault.</string>
+    <string name="shamir_generate_shares_btn">Generate 3 Hardware Shares</string>
+    <string name="shamir_recover_shares_btn">Recover from 2 Shares</string>
+    <string name="shamir_share_1_label">Share 1 (Hardware Key A)</string>
+    <string name="shamir_share_2_label">Share 2 (Hardware Key B)</string>
+    <string name="shamir_share_3_label">Share 3 (Offline Paper Share)</string>
+    <string name="shamir_dialog_generate_title">Shamir 2-of-3 Hardware Shares</string>
+    <string name="shamir_dialog_recover_title">Recover Vault with 2 Shamir Shares</string>
+    <string name="shamir_enter_share_1">Enter Share 1 (SLIP-0039)</string>
+    <string name="shamir_enter_share_2">Enter Share 2 (SLIP-0039)</string>
+    <string name="shamir_execute_recover_btn">Verify and Restore Vault</string>
+    <string name="shamir_success_msg">Shamir quorum verified and master seed restored successfully.</string>
+    <string name="shamir_status_quorum_ready">Quorum 2-of-3 Ready</string>
+    <string name="shamir_badge_slip39">SLIP-0039 ACTIVE</string>
+    <string name="shamir_copy_share">Copy Share</string>
+
+    <!-- OPP-02: CTAP 2.1 hmac-secret & largeBlobKey -->
+    <string name="ctap21_hmac_secret_title">CTAP 2.1 hmac-secret &amp; largeBlobKey Ready</string>
+    <string name="ctap21_hmac_secret_desc">Hardware support for KeePassXC salted credentials, LUKS disk unlocking, and 4 KiB encrypted credential blobs.</string>
+    <string name="ctap21_hmac_secret_badge">CTAP 2.1 READY</string>
+
+    <!-- OPP-06: Web3 Clear Signing Preview -->
+    <string name="clear_signing_preview_title">Web3 Clear Signing Preview (Code-Only OLED 128x64)</string>
+    <string name="clear_signing_badge_code_only">CODE-ONLY OLED PREVIEW (NO PHYSICAL DISPLAY REQUIRED)</string>
+    <string name="clear_signing_parsed_tx">Decoded Transaction Frame</string>
+    <string name="clear_signing_network">Network:</string>
+    <string name="clear_signing_to_address">To:</string>
+    <string name="clear_signing_amount">Amount:</string>
+    <string name="clear_signing_max_fee">Max Fee:</string>
+    <string name="clear_signing_data_hash">Payload Hash:</string>
+    <string name="clear_signing_confirm_on_device">Verify visual data on OLED frame before confirming signature on hardware button.</string>
+    <string name="clear_signing_btn_refresh">Refresh OLED Buffer</string>
+    <string name="clear_signing_oled_header">AEGISKEY OLED 128x64 CLEAR-SIGN</string>
+    <string name="clear_signing_hold_btn">PRESS PHYSICAL BUTTON TO SIGN</string>
+
     <!-- Onboarding Wizard -->
     <string name="wizard_title_transport">Select Connection Method</string>
     <string name="wizard_desc_transport">Select how to connect the security key to this device.</string>

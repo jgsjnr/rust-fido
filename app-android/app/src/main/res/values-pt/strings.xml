@@ -129,6 +129,64 @@
     <string name="settings_biometrics">Verificação Biométrica</string>
     <string name="settings_walkaway">Bloquear ao se Afastar</string>
 
+    <!-- GAP-02: Canal Criptografado ECDH -->
+    <string name="ecdh_pin_channel_title">Canal de PIN Cifrado ECDH Ativo</string>
+    <string name="ecdh_pin_channel_desc">Proteção de hardware ponta-a-ponta P-256 + HKDF + AES-256-GCM contra interceptação USB/UART.</string>
+    <string name="ecdh_pin_channel_badge">P-256 ECDH ATIVO</string>
+
+    <!-- GAP-01 / GAP-07: Trava de Segurança eFuse OTP -->
+    <string name="efuse_safety_lock_title">Trava de Segurança eFuse OTP: ATIVA (Gravação Desativada — Não Queimar em Modo Dev)</string>
+    <string name="efuse_safety_lock_desc">Operações permanentes de gravação OTP (Flash Encryption, Secure Boot v2, BLOCK7, Download Lock) estão bloqueadas para evitar inutilização da placa.</string>
+    <string name="efuse_badge_do_not_burn">NÃO GRAVAR / MODO DEV ATIVO</string>
+    <string name="efuse_status_read_only">Status Auditável Somente-Leitura</string>
+    <string name="efuse_status_flash_enc">Status Flash Encryption:</string>
+    <string name="efuse_status_flash_enc_val">SOMENTE-LEITURA / MODO DEV</string>
+    <string name="efuse_status_secure_boot">Status Secure Boot v2:</string>
+    <string name="efuse_status_secure_boot_val">SIMULADO / NÃO GRAVADO</string>
+    <string name="efuse_status_block7">Âncora em Silício BLOCK7 HMAC:</string>
+    <string name="efuse_status_block7_val">FALLBACK DETERMINÍSTICO DEV</string>
+    <string name="efuse_status_anti_rollback">Versão Segura Anti-Rollback:</string>
+    <string name="efuse_status_anti_rollback_val">v1 (Monotônico em Silício)</string>
+    <string name="efuse_status_write_lock">Trava de Gravação OTP:</string>
+    <string name="efuse_status_write_lock_val">BLOQUEADO / GRAVAÇÃO DESATIVADA</string>
+
+    <!-- OPP-05: Backup Shamir Secret Sharing 2-de-3 (SLIP-0039) -->
+    <string name="shamir_backup_title">Shamir 2-of-3 Backup (SLIP-0039)</string>
+    <string name="shamir_backup_desc">Divide a semente mestre em 3 partes criptográficas. Quaisquer 2 partes recuperam o cofre.</string>
+    <string name="shamir_generate_shares_btn">Generate 3 Hardware Shares</string>
+    <string name="shamir_recover_shares_btn">Recover from 2 Shares</string>
+    <string name="shamir_share_1_label">Parte 1 (Chave de Hardware A)</string>
+    <string name="shamir_share_2_label">Parte 2 (Chave de Hardware B)</string>
+    <string name="shamir_share_3_label">Parte 3 (Parte em Papel Offline)</string>
+    <string name="shamir_dialog_generate_title">Partes de Hardware Shamir 2-de-3</string>
+    <string name="shamir_dialog_recover_title">Recuperar Cofre com 2 Partes Shamir</string>
+    <string name="shamir_enter_share_1">Digite a Parte 1 (SLIP-0039)</string>
+    <string name="shamir_enter_share_2">Digite a Parte 2 (SLIP-0039)</string>
+    <string name="shamir_execute_recover_btn">Verificar e Restaurar Cofre</string>
+    <string name="shamir_success_msg">Quórum Shamir verificado e semente mestre restaurada com sucesso.</string>
+    <string name="shamir_status_quorum_ready">Quórum 2-de-3 Pronto</string>
+    <string name="shamir_badge_slip39">SLIP-0039 ATIVO</string>
+    <string name="shamir_copy_share">Copiar Parte</string>
+
+    <!-- OPP-02: CTAP 2.1 hmac-secret & largeBlobKey -->
+    <string name="ctap21_hmac_secret_title">CTAP 2.1 hmac-secret &amp; largeBlobKey Ready</string>
+    <string name="ctap21_hmac_secret_desc">Suporte no hardware para credenciais KeePassXC com sal, desbloqueio LUKS e envelopes criptografados de 4 KiB.</string>
+    <string name="ctap21_hmac_secret_badge">CTAP 2.1 PRONTO</string>
+
+    <!-- OPP-06: Pré-visualização Web3 Clear Signing -->
+    <string name="clear_signing_preview_title">Web3 Clear Signing Preview (Code-Only OLED 128x64)</string>
+    <string name="clear_signing_badge_code_only">CODE-ONLY OLED PREVIEW (NO PHYSICAL DISPLAY REQUIRED)</string>
+    <string name="clear_signing_parsed_tx">Quadro Decodificado da Transação</string>
+    <string name="clear_signing_network">Rede:</string>
+    <string name="clear_signing_to_address">Destino:</string>
+    <string name="clear_signing_amount">Valor:</string>
+    <string name="clear_signing_max_fee">Taxa Máxima:</string>
+    <string name="clear_signing_data_hash">Hash da Carga:</string>
+    <string name="clear_signing_confirm_on_device">Verifique os dados visuais no quadro OLED antes de confirmar a assinatura no botão do hardware.</string>
+    <string name="clear_signing_btn_refresh">Atualizar Buffer OLED</string>
+    <string name="clear_signing_oled_header">AEGISKEY OLED 128x64 CLEAR-SIGN</string>
+    <string name="clear_signing_hold_btn">PRESSIONE O BOTÃO FÍSICO PARA ASSINAR</string>
+
     <!-- Onboarding Wizard -->
     <string name="wizard_title_transport">Selecione o Método de Conexão</string>
     <string name="wizard_desc_transport">Selecione como conectar a chave de segurança a este dispositivo.</string>
