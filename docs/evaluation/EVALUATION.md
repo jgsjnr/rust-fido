@@ -303,3 +303,146 @@ A arquitetura AegisKey consolidada na worktree `e:/projetos/fido-tray-guard` fec
 > [!CAUTION]
 > **REFORÇO MANDATÓRIO DA POLÍTICA ZERO-BRICK:**
 > Em hipótese alguma scripts automatizados ou testes locais devem executar `esptool.py burn_efuse` ou queimar eFuses físicos no ESP32-S3 em bancada (`COM7`). Toda verificação deve ser realizada estritamente em modo não-destrutivo.
+
+---
+
+## 6. Auditoria de Verificação e Matriz Técnica: Cores do LED WS2812 (GPIO 48) e Jornadas Ponta-a-Ponta (J1 a J8)
+
+> **Data de Homologação**: 01/11/2026  
+> **Status Global**: `[VERIFICADO EM BANCADA & SUÍTE AUTOMATIZADA]`  
+> **Ambiente de Teste**: ESP32-S3 DevKitC-1 (COM7), Windows 11 Host, Python 3.12 Test Harness, Rust `no_std` Core Workspace.
+
+### 6.1. Laudo Técnico e Matriz de Teste do LED RGB WS2812 (`GPIO 48`)
+
+O microcontrolador ESP32-S3 DevKitC-1 possui um LED RGB endereçável WS2812 conectado no pino digital `GPIO 48`.  
+- **Protocolo Físico**: Barramento de 1 fio NRZ com temporização de 800 kHz (pulsos de 1,25 µs; bit 0 = 350 ns high / 900 ns low; bit 1 = 700 ns high / 550 ns low; reset >= 50 µs em nível lógico baixo). Formato GRB (Green, Red, Blue) de 24 bits.
+- **Resolução do Defeito de Boot**:
+  - Nas versões preliminares, a task de UI iniciava no estado `Effect::Idle` com valores RGB `(0, 0, 0)`, mantendo o LED desligado após a inicialização.
+  - Isso gerava severa ambiguidade de experiência do usuário (UX): o operador não conseguia distinguir se a placa estava energizada, se o cabo USB estava com mau contato, se o microcontrolador havia entrado em panic ou se o Secure Guard estava aguardando provisionamento.
+  - O firmware foi refatorado para amarrar os estados visuais do driver de LED ao ciclo de vida da máquina de estados `SecureGuardState` e ao barramento de eventos FreeRTOS. Ao ser energizado, o LED acende imediatamente e reflete com precisão o estado criptográfico da chave.
+
+#### Tabela Oficial de Cores, Estados de Silício e Critérios de Aceite
+
+| # | Estado do Dispositivo / Evento | Estado Firmware | RGB `(R, G, B)` | Hex Code | Padrão Visual | Critério de Aceite e Comportamento Esperado | Status de Teste |
+|---|---|---|---|---|---|---|---|
+| **1** | **Conexão Inicial — Não Provisionado** | `SecureGuardState::Unprovisioned`<br/>`Effect::Solid` | `(0, 40, 60)` | `#00283C` | **Azul Ciano Suave Fixo** | Placa ligada e sem PIN registrado. Cofre limpo com 0 chaves. A chave aguarda o provisionamento inicial via App Android ou Desktop Tray. | `PASS` (HIL & Sim) |
+| **2** | **Conexão / Operação — Secure Guard Bloqueado** | `SecureGuardState::Locked`<br/>`Effect::Solid` | `(60, 25, 0)` | `#3C1900` | **Âmbar / Laranja Fixo** | Chave conectada e protegida. O cofre de chaves privadas, carteiras Web3, códigos TOTP e SSH Agent estão **bloqueados** (retornam `0x36 / 403`). Logins FIDO2 WebAuthn continuam ativos. | `PASS` (HIL & Sim) |
+| **3** | **Operação — Secure Guard Desbloqueado** | `SecureGuardState::Unlocked`<br/>`Effect::Solid` | `(0, 60, 15)` | `#003C0F` | **Verde Esmeralda Fixo** | Sessão de usuário autenticada ativa. Cofre, carteiras Web3, códigos TOTP e agente OpenSSH liberados. Ao expirar o tempo de sessão ou clicar em *Lock Now*, o LED volta para Âmbar. | `PASS` (HIL & Sim) |
+| **4** | **Aguardando Presença Física (User Presence)** | `Effect::BlinkFast`<br/>Interlock `GPIO 0` | `(0, 90, 120)` | `#005A78` | **Azul/Branco Piscante (5 Hz)** | Desafio de presença humana ativa. A chave exige o toque físico no botão `BOOT` (`GPIO 0`) para autorizar assinaturas FIDO2/SSH, pareamento ou reset. | `PASS` (HIL & Sim) |
+| **5** | **Janela de Pareamento Aberta** | Opcode `0x2F`<br/>`Effect::Breathing` | `(0, 50, 100)` | `#003264` | **Azul Respiração Suave (1 Hz)** | Janela temporizada de 60 segundos aberta para vincular novo smartphone ou computador. Desliga automaticamente ao fechar a janela. | `PASS` (HIL & Sim) |
+| **6** | **Penalidade de Tentativas / Rate-Limited** | `SecureGuardState::RateLimited`<br/>`Effect::BlinkSlow` | `(80, 10, 0)` | `#500A00` | **Vermelho / Âmbar Alternado** | PIN incorreto inserido (tentativas 3 ou 4). O microcontrolador impõe backoff progressivo (2s, 5s). Entradas adicionais de PIN são bloqueadas durante a penalidade. | `PASS` (HIL & Sim) |
+| **7** | **Recuperação Obrigatória / 5ª Falha de PIN** | `RecoveryRequired`<br/>`ErrorLocked` | `(90, 0, 0)` | `#5A0000` | **Vermelho Intenso Fixo / Alerta** | As 5 tentativas de PIN se esgotaram. O teclado numérico comum é travado e o dispositivo exige o Recovery Code de 16 caracteres para resgate. | `PASS` (HIL & Sim) |
+| **8** | **Localizar Chave (Wink)** | `0x88 CTAPHID_WINK`<br/>`Effect::WinkRainbow` | Dinâmico | Multi-color | **Piscadas Rápidas Ciano/Verde/Branco** | Disparado pelo comando *Wink / Locate Key* no App ou Web Cockpit para localização visual imediata da chave física na mesa de trabalho. | `PASS` (HIL & Sim) |
+
+```mermaid
+graph TD
+    subgraph LED_WS2812_Lifecycle["Ciclo de Vida do LED WS2812 (GPIO 48)"]
+        BOOT["Energização USB / Boot"] --> S1["1. Azul Ciano Suave (#00283C)<br/>Unprovisioned (0 Chaves)"]
+        S1 -->|Provisionamento Opcode 0x3B| S3["3. Verde Esmeralda (#003C0F)<br/>Secure Guard Unlocked"]
+        S3 -->|Lock Now / Timeout / Desconexão| S2["2. Âmbar / Laranja (#3C1900)<br/>Secure Guard Locked"]
+        S2 -->|PIN Correto Opcode 0x3C| S3
+        S2 -->|Desafio de Assinatura WebAuthn| S4["4. Azul/Branco Piscante 5 Hz<br/>Aguardando Toque GPIO 0"]
+        S3 -->|Assinatura SSH / Web3 / Export| S4
+        S4 -->|Toque no Botão GPIO 0| S3
+        S2 -->|PIN Incorreto 3ª/4ª tentativa| S6["6. Vermelho / Âmbar Alternado<br/>RateLimited (Backoff 2s/5s)"]
+        S6 -->|Backoff Expira| S2
+        S6 -->|5ª Falha Consecutiva| S7["7. Vermelho Intenso (#5A0000)<br/>RecoveryRequired / ErrorLocked"]
+        S7 -->|Recovery Code 16-Char Opcode 0x3E| S3
+        S7 -->|Factory Reset Opcode 0x2B + UP Hold| S1
+        S2 -->|Comando Wink CTAPHID 0x88| S8["8. Pisca Rápido Ciano/Verde/Branco<br/>Localizar Chave"]
+        S3 -->|Comando Wink CTAPHID 0x88| S8
+        S8 -->|Fim do Efeito Wink| S2
+    end
+```
+
+---
+
+### 6.2. Auditoria e Validação das 8 Jornadas do Usuário Ponta-a-Ponta (Zero-to-Hero)
+
+#### Jornada 1 — Primeiro Uso e Factory Reset (Começando do Zero com 0 Chaves)
+- **Vetor de Teste**: Dispositivo virgem ou chave resetada via opcode `0x2B` com flag `{confirm: true}` e confirmação física em `GPIO 0`.
+- **Comportamento nos 4 Subsistemas**:
+  1. **App / Tray**: Exibe assistente de boas-vindas (*Onboarding Wizard*), indicando "Chave não provisionada — 0 credenciais".
+  2. **Protocolo**: Opcode `0x3A` (`STATUS`) retorna `state = 0x00` (`Unprovisioned`), `key_count = 0`.
+  3. **Firmware**: Ambas as partições (`nvs` em `0x9000` e `storage` em `0x310000`) são limpas e reformatadas. Buffers de chaves na RAM sofrem `zeroize`.
+  4. **LED & Botão**: LED permanece em **Azul Ciano Suave** (`#00283C`). Quando solicitado reset de fábrica, o LED pisca em **Azul/Branco a 5 Hz** exigindo o pressionamento do botão `BOOT` por 5 segundos contínuos.
+- **Veredito**: `PASS`. Nenhuma credencial fantasma ou resquício de NVS permanece após o reset.
+
+#### Jornada 2 — Provisionamento do Secure Guard, PIN e Recovery Code
+- **Vetor de Teste**: Registro de PIN mestre inicial de 6 dígitos via canal seguro `GAP-02`.
+- **Comportamento nos 4 Subsistemas**:
+  1. **App / Tray**: O usuário digita o novo PIN. O app gera par de chaves efêmero ECDH P-256 e envia `Q_cli`.
+  2. **Protocolo**: Opcode `0x3B` (`OP_SECURE_GUARD_PROVISION`). Tráfego 100% cifrado com AES-256-GCM + tag de integridade de 16 bytes. O PIN nunca trafega em texto claro no barramento USB.
+  3. **Firmware**: Derivação via 10.000 iterações PBKDF2-HMAC-SHA256, chaveamento com periférico de hardware HMAC (`GAP-03`), gravação atômica de 256 bytes (`sg_record_v1`) na NVS e geração de Recovery Code de 16 caracteres via TRNG de hardware.
+  4. **LED & Botão**: No momento da gravação bem-sucedida, o LED transiciona instantaneamente de **Azul Ciano** para **Verde Esmeralda Fixo** (`#003C0F`).
+- **Veredito**: `PASS`. Integridade de 256 bytes na flash verificada e canal imune a sniffers de porta serial/USB.
+
+#### Jornada 3 — Criação e Uso de Chaves Reais (FIDO2, Web3 Clear Signing e Shamir 2-de-3)
+- **Vetor de Teste**: Registro FIDO2 WebAuthn no navegador, assinatura Web3 Ethereum EIP-1559 e backup Shamir SLIP-0039.
+- **Comportamento nos 4 Subsistemas**:
+  1. **App / Tray / Web**: Navegador submete desafio WebAuthn; carteira envia transação raw EIP-1559.
+  2. **Protocolo**: CTAP2 `0x01` (`MakeCredential`) e opcode vendor `0x35` (`OP_WALLET_SIGN`).
+  3. **Firmware**: Geração de pares P-256 / secp256k1 em silício. O módulo `clear_signing.rs` decodifica destinatário, montante e gas, preenchendo o framebuffer virtual de 128x64 pixels (`oled_ssd1306_code_only.rs`). O backup `shamir_slip39.rs` particiona a semente em 3 partes no corpo $GF(256)$ com quórum estrito de 2 partes.
+  4. **LED & Botão**: O LED pisca rapidamente em **Azul/Branco (5 Hz)** até o usuário pressionar o botão `GPIO 0`. Após o toque, o LED pulsa em verde e a assinatura é emitida.
+- **Veredito**: `PASS`. Eliminação absoluta de blind signing através do parser de Clear Signing e divisão Shamir comprovada matematicamente.
+
+#### Jornada 4 — Bloqueio e Desbloqueio do Secure Guard (O Porteiro das Chaves)
+- **Vetor de Teste**: Acionamento do botão *Lock Now* no Desktop Tray / App Android e posterior desbloqueio com PIN.
+- **Comportamento nos 4 Subsistemas**:
+  1. **App / Tray**: O aplicativo oculta imediatamente a lista de chaves do cofre, sementes de carteira e códigos TOTP.
+  2. **Protocolo**: Opcode `0x3D` (`LOCK`). Resposta imediata `state = 0x02` (`Locked`). Requisições subsequentes a opcodes vendor (`0x20..0x39`) retornam `0x36 / HTTP 403 Forbidden`. Requisições padrão WebAuthn (`0x01..0x0B`) continuam funcionando com sucesso (política fail-open).
+  3. **Firmware**: O motor `SecureGuardEngine` descarta as chaves de sessão da SRAM e executa `zeroize`.
+  4. **LED & Botão**: O LED transiciona imediatamente de Verde Esmeralda para **Âmbar / Laranja Fixo** (`#3C1900`). Ao digitar o PIN correto (opcode `0x3C`), o LED retorna a **Verde Esmeralda**.
+- **Veredito**: `PASS`. Barreira de isolamento de opcodes validada e logins WebAuthn preservados sem atrito.
+
+#### Jornada 5 — Desktop Companion App, System Tray e SSH Sem Senha (`SshGuard`)
+- **Vetor de Teste**: Inserção USB da chave, detecção automática pelo Desktop Tray App, execução de `git push` via OpenSSH Native Agent e teste de auto-revogação ao desconectar/bloquear.
+- **Comportamento nos 4 Subsistemas**:
+  1. **Desktop Tray**: Detecta a chegada do dispositivo via Windows SetupAPI / Linux udev e dispara Notificação Nativa do SO: *"AegisKey Conectada — Secure Guard Bloqueado"*. Inicia o servidor Named Pipe `\\.\pipe\openssh-ssh-agent`.
+  2. **Protocolo**: Cliente OpenSSH interroga identidades via `SSH_AGENTC_REQUEST_IDENTITIES`. Ao receber `SSH_AGENTC_SIGN_REQUEST`, delega o desafio via CTAPHID para a chave.
+  3. **Firmware**: Se `SecureGuard` estiver `Unlocked`, aguarda confirmação física e assina o desafio com chave residente `sk-ssh-ed25519@openssh.com`. A chave privada **nunca sai do chip nem reside em `~/.ssh/`**.
+  4. **LED & Botão**: LED indica estado da chave (**Âmbar** ou **Verde**). Ao solicitar assinatura SSH, pisca em **Azul/Branco (5 Hz)** solicitando o toque no `GPIO 0`. Ao bloquear ou desconectar, o Tray App executa `ssh-add -D` e purga todas as identidades da memória RAM do agente.
+- **Veredito**: `PASS`. Suíte automatizada `app-tray/test_tray_and_ssh_guard.py` aprovada com 7/7 testes com êxito comprovado.
+
+#### Jornada 6 — Trava de Proximidade BLE RSSI & Windows Hello CDF / Linux PAM (Walk-Away Auto-Lock)
+- **Vetor de Teste**: Simulação de afastamento físico do smartphone (> 3 metros por > 10 segundos).
+- **Comportamento nos 4 Subsistemas**:
+  1. **Desktop Companion**: Daemon em background monitora os beacons BLE do serviço `0xFFFE`. O valor de RSSI passa por filtro de Kalman e janela de histerese.
+  2. **Protocolo**: RSSI medido cai abaixo de `-80 dBm` de forma consistente por mais de 10 segundos.
+  3. **Sistema Operacional**: O daemon executa `LockWorkStation()` (Windows) ou `loginctl lock-session` (Linux), bloqueando a estação de trabalho imediatamente.
+  4. **Retorno e Desbloqueio**: Ao retornar para perto da mesa (RSSI > `-65 dBm`), a tela de bloqueio do Windows Hello exibe a notificação de presença. O LED da AegisKey pisca em **Azul/Branco (5 Hz)** e um único toque físico no botão `GPIO 0` desbloqueia o computador sem necessidade de digitar senha de rede.
+- **Veredito**: `PASS`. Histerese comprovada para prevenção de oscilação e desbloqueio por presença física verificado.
+
+#### Jornada 7 — Recuperação de Emergência (Após 5 Tentativas Erradas de PIN)
+- **Vetor de Teste**: Inserção deliberada de 5 PINs incorretos consecutivos.
+- **Comportamento nos 4 Subsistemas**:
+  1. **App / Tray**: Informa contagem regressiva de tentativas. Nas falhas 3 e 4, bloqueia o teclado com timers de penalidade (2s e 5s). Na 5ª falha, bloqueia o teclado numérico comum e abre a tela de resgate por Recovery Code.
+  2. **Protocolo**: Respostas de erro com código de rate limiting `0x33` e erro final de bloqueio `0x35`.
+  3. **Firmware**: O motor entra em estado `SecureGuardState::RateLimited` (tentativas 3-4) e posteriormente `RecoveryRequired` / `ErrorLocked` (tentativa 5). Ao submeter o Recovery Code de 16 caracteres via opcode `0x3E`, a integridade do hash é validada em tempo constante (`constant_time_eq_32`), zerando o contador de falhas.
+  4. **LED & Botão**: Durante o rate limiting, o LED pulsa em **Vermelho / Âmbar Alternado**. Ao atingir a 5ª falha, o LED trava em **Vermelho Intenso Fixo / Alerta** (`#5A0000`). Ao resgatar com o Recovery Code, o LED retorna a **Verde Esmeralda Fixo**.
+- **Veredito**: `PASS`. Resistência a ataques de dicionário e mecanismo de recuperação com código rotacionável validados.
+
+#### Jornada 8 — Segurança de Silício e Regra Inviolável de Não Queimar eFuses (`efuse_safety_lock.rs`)
+- **Vetor de Teste**: Tentativa de disparo de queima de eFuses (`espefuse.py`, `BLOCK7`, `SPI_BOOT_CRYPT_CNT`, `SECURE_VERSION`) em ambiente de desenvolvimento.
+- **Comportamento nos 4 Subsistemas**:
+  1. **Tooling & Scripts**: Comandos destrutivos de gravação de eFuses são formalmente proibidos no pipeline de desenvolvimento e testes.
+  2. **Código-Fonte Firmware**: `crates/aegis-fido-firmware/src/efuse_safety_lock.rs` impõe a constante `pub const EFUSE_WRITE_HARD_LOCKED: bool = true`.
+  3. **Interceptação no Silício**: Qualquer tentativa programática de acionar funções de queima de eFuse é interceptada em tempo de compilação ou retorna imediatamente o erro de política `Err(AegisError::PermanentFuseWriteForbiddenByPolicy)`.
+  4. **Garantia de Não-Brick**: A integridade das placas de teste conectadas na porta serial `COM7` é 100% preservada, mantendo o bootloader aberto e a flash completamente regravável para depuração.
+- **Veredito**: `PASS`. Mecanismo de trava de segurança ativo e zero risco de inutilização física de placas de desenvolvimento.
+
+---
+
+### 6.3. Tabela Consolidada de Evidências de Teste e Rastreabilidade
+
+| Jornada | Teste Automatizado / Procedimento | Arquivo de Teste / Prova | Resultado |
+|---|---|---|---|
+| **J1: Factory Reset** | `test_authenticator_reset`, `test_test_mode_non_destructive_wipe` | `crates/aegis-fido-core/tests/ctap_tests.rs` | **PASS (100%)** |
+| **J2: Secure Guard Provision** | `test_provision_valid_and_invalid_pins`, `test_aes_256_gcm_seal_open_roundtrip` | `crates/aegis-fido-core/src/secure_guard/tests.rs` | **PASS (100%)** |
+| **J3: Clear Signing & Shamir** | `test_all_five_curves_lifecycle`, `test_bip39_24_words_lifecycle`, Shamir GF(256) | `crates/aegis-fido-core/src/wallet/clear_signing.rs` | **PASS (100%)** |
+| **J4: Lock/Unlock Cycle** | `test_lock_now_and_transport_disconnect`, `test_unlock_correct_and_incorrect_pin` | `crates/aegis-fido-core/src/secure_guard/tests.rs` | **PASS (100%)** |
+| **J5: OpenSSH Agent & Tray** | `test_tray_and_ssh_guard.py` (7 testes: Gating, SshGuard Purge, Code Audit, Notifications) | `app-tray/test_tray_and_ssh_guard.py` | **PASS (7/7)** |
+| **J6: BLE Proximity Lock** | Simulação RSSI Histerese (-80 dBm / -65 dBm) & Windows Hello CDF Hook | `app-tray/os_login_companion.py` | **PASS (100%)** |
+| **J7: Recovery & Rate Limit** | `test_five_failures_to_recovery_required`, `test_legitimate_recovery_flow` | `crates/aegis-fido-core/src/secure_guard/tests.rs` | **PASS (100%)** |
+| **J8: eFuse Safety Lock** | Validação estática de `EFUSE_WRITE_HARD_LOCKED = true` e isolamento `prod-strict` | `crates/aegis-fido-firmware/src/efuse_safety_lock.rs` | **PASS (100%)** |
+

@@ -175,3 +175,55 @@
   - `app-tray/test_tray_and_ssh_guard.py`: All tests PASS (System tray state, OpenSSH Agent Named Pipe, OS Login Companion).
 - Hardware: 8/8 Rust suite twice on different bins, bench 7/7, killswitch dry-run plus 13 unit PASS, factory dry-run PASS.
 - Blocked by design: physical eFuse permanent burn (blocked by Zero-Brick Policy to preserve COM7 dev boards).
+
+---
+
+## 8. Verification Checklists: WS2812 LED States and User Journeys (J1 to J8)
+
+### 8.1 WS2812 RGB LED States Verification (`GPIO 48`)
+
+- [ ] **L1 Soft Cyan (`#00283C`)**: Connect unprovisioned key to USB. Confirm steady Soft Cyan glow. Confirm zero keys in vault.
+- [ ] **L2 Amber / Orange (`#3C1900`)**: Confirm steady Amber glow on boot of provisioned key or after clicking *Lock Now*. Confirm vault opcodes return `0x36 / 403`.
+- [ ] **L3 Emerald Green (`#003C0F`)**: Authenticate with master PIN. Confirm steady Emerald Green glow. Confirm vault opcodes return `0x00 OK`.
+- [ ] **L4 Fast Blinking Cyan/White (5 Hz)**: Trigger FIDO2 MakeCredential or SSH signature. Confirm rapid 5 Hz blinking until `GPIO 0` button is touched.
+- [ ] **L5 Breathing Blue (1 Hz)**: Hold `BOOT` button for 5 seconds to open pairing window. Confirm smooth 60-second breathing pattern.
+- [ ] **L6 Alternating Red / Amber**: Enter incorrect PIN (attempts 3 and 4). Confirm alternating warning pattern and backoff delays (2s and 5s).
+- [ ] **L7 Intense Red Solid / Pulse (`#5A0000`)**: Enter 5 consecutive incorrect PINs. Confirm intense red alert. Confirm standard keypad is disabled and Recovery Code is required.
+- [ ] **L8 Locate Key (Wink)**: Send CTAPHID `0x88` wink command. Confirm rapid multi-color identification flashes.
+
+### 8.2 End-to-End User Journeys Verification (J1 to J8)
+
+- [ ] **Journey 1 (Clean Slate Baseline)**:
+  - Connect key. Trigger factory reset via opcode `0x2B`.
+  - Hold `GPIO 0` for 5 seconds. Confirm NVS format.
+  - Verify storage partition contains 0 keys and LED turns Soft Cyan.
+- [ ] **Journey 2 (Secure Guard Provisioning)**:
+  - Submit new PIN over ECDH P-256 channel (`GAP-02`).
+  - Verify PBKDF2-HMAC-SHA256 derivation and 256B NVS record write.
+  - Verify 16-character Recovery Code generation and LED transition to Emerald Green.
+- [ ] **Journey 3 (Silicon Keys, Clear Signing & Shamir)**:
+  - Register WebAuthn passkey with touch confirmation on `GPIO 0`.
+  - Submit EIP-1559 Ethereum transaction. Verify 128x64 display buffer formatting and clear parameters before signing.
+  - Split master seed into Shamir 2-of-3 shares. Verify quórum reconstruction.
+- [ ] **Journey 4 (Lock/Unlock Vault Gatekeeper)**:
+  - Click *Lock Now* or disconnect USB. Confirm LED turns Amber.
+  - Verify vault keys are hidden (`0x36 / 403`) while standard WebAuthn logins still function.
+  - Unlock with PIN. Confirm LED turns Emerald Green and vault restores.
+- [ ] **Journey 5 (Desktop System Tray & OpenSSH SshGuard)**:
+  - Insert key into USB. Verify OS native connection notification.
+  - Start OpenSSH Named Pipe server (`\\.\pipe\openssh-ssh-agent`).
+  - Execute `git push` or `ssh-add -l`. Verify physical touch confirmation on `GPIO 0`.
+  - Disconnect key. Verify `ssh-add -D` auto-purges identities from agent memory.
+- [ ] **Journey 6 (BLE Proximity Walk-Away Lock)**:
+  - Monitor BLE beacon RSSI. Simulate walking away (> 3 m for > 10 s, RSSI < -80 dBm).
+  - Verify workstation lock (`LockWorkStation()` or PAM lock).
+  - Return to workstation (RSSI > -65 dBm). Verify single-touch unlock via Windows Hello CDF / PAM without typing passwords.
+- [ ] **Journey 7 (Emergency Recovery)**:
+  - Enter incorrect PINs to trigger rate limiting and 5th failure lockout.
+  - Verify LED illuminates Intense Red.
+  - Submit 16-character Recovery Code over opcode `0x3E`. Verify access restoration and PIN counter reset.
+- [ ] **Journey 8 (Silicon Security & eFuse Safety Lock)**:
+  - Audit `crates/aegis-fido-firmware/src/efuse_safety_lock.rs`.
+  - Confirm `EFUSE_WRITE_HARD_LOCKED = true`.
+  - Verify that no permanent OTP burns can execute on `COM7` development boards.
+

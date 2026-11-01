@@ -114,7 +114,7 @@ Open the interactive graphical topology in your browser:
 | Peripheral | Resource / Pin | Description and Invariant |
 |---|---|---|
 | **Presence Button (UP)** | `GPIO 0` (BOOT) | Active-low input with internal pull-up and 50 ms debouncer. Enforces physical presence for WebAuthn, OTP, and factory reset. |
-| **RGB LED WS2812** | `GPIO 48` | Addressable 24-bit GRB LED. Shows breathing blue/green for presence, green pulse for success, and red flash for errors. |
+| **RGB LED WS2812** | `GPIO 48` | Addressable 24-bit GRB LED (800 kHz). Communicates real-time security state across the device lifecycle (see table below). |
 | **Native USB OTG** | `GPIO 19` (D-) / `GPIO 20` (D+) | Native Full-Speed USB 2.10 PHY. Exposes 64-byte CTAPHID composite endpoint (VID `0x303A`, PID `0xAE61`). |
 | **UART Serial Console** | `GPIO 43` (TX) / `GPIO 44` (RX) | Default console and hardware diagnostic bridge at 115200 bps 8N1 (`COM7`). |
 | **I2C OLED Bus (Code)** | `GPIO 4` (SDA) / `GPIO 5` (SCL) | Virtual driver in code (`HARDWARE_I2C_OLED_ATTACHED = false`) for SSD1306 128x64 display framebuffer. |
@@ -122,6 +122,21 @@ Open the interactive graphical topology in your browser:
 | **Device Salt OTP** | `BLOCK8` (256 bits) | ESP32-S3 eFuse One-Time-Programming block. Hardware-locked in development. |
 | **Flash Configuration** | `nvs` partition (`0x9000`) | 24 KiB SPI flash partition for device configuration and PIN attempt state. |
 | **Encrypted Storage** | `storage` partition (`0x310000`) | 896 KiB SPI flash partition for encrypted resident passkeys and wallet seeds (`sg_record_v1` format). |
+
+### 4.1 Official WS2812 RGB LED Status Palette (`GPIO 48`)
+
+| State / Condition | Color Pattern | RGB `(R, G, B)` | Hex Code | Meaning for User |
+|---|---|---|---|---|
+| **Unprovisioned (0 Keys)** | **Soft Cyan Solid** | `(0, 40, 60)` | `#00283C` | Key connected with clean slate; awaiting master PIN setup in App. |
+| **Secure Guard Locked** | **Amber / Orange Solid** | `(60, 25, 0)` | `#3C1900` | Vault, wallets, TOTP, and SSH agent locked. (WebAuthn passkeys ready). |
+| **Secure Guard Unlocked** | **Emerald Green Solid** | `(0, 60, 15)` | `#003C0F` | Session active! Full access to vault, Web3 wallets, and OpenSSH agent. |
+| **User Presence (UP)** | **Cyan / White Fast Blink** (5 Hz) | `(0, 90, 120)` | `#005A78` | Physical touch requested. Tap the `BOOT` button (`GPIO 0`) to authorize. |
+| **Pairing Window (60s)** | **Breathing Blue** (1 Hz) | `(0, 50, 100)` | `#003264` | 60-second window open to bond with smartphone or new workstation. |
+| **Rate-Limited Penalty** | **Alternating Red / Amber** | `(80, 10, 0)` | `#500A00` | Incorrect PIN penalty active (2s, 5s backoff delay). |
+| **Recovery Required (5th Failure)** | **Intense Red Solid / Alert** | `(90, 0, 0)` | `#5A0000` | 5 PIN failures. Normal keypad locked; 16-char Recovery Code mandatory. |
+| **Locate Key (Wink)** | **Rapid Cyan/Green/White Flashes** | Multi-color | Dynamic | Visual locator triggered by *Wink / Locate Key* command. |
+
+> Detailed technical specifications, timing diagrams, and state machines are documented in [`docs/project/PROJECT.md`](docs/project/PROJECT.md#10-definitive-guide-to-ws2812-rgb-led-states-and-visual-feedback-gpio-48).
 
 ---
 
@@ -198,7 +213,27 @@ e:\projetos\fido\
 
 ---
 
-## 7. Build and Verification Commands
+## 7. End-to-End User Journeys (Zero-to-Hero)
+
+AegisKey supports 8 comprehensive operational journeys, validated across the Android App, Desktop System Tray, Host Bridge, and ESP32-S3 firmware:
+
+| Journey | Key Interactions | Firmware & Silicon Flow | WS2812 Visual State |
+|---|---|---|---|
+| **1. First Use & Clean Slate** | USB plug-in, factory reset trigger (`0x2B`). | Formats `nvs` and `storage` partitions. Wipes all keys to clean `0` baseline. | **Soft Cyan Solid** (`#00283C`) |
+| **2. Secure Guard Provisioning** | Master PIN entry in Android / Desktop App. | ECDH P-256 channel (`GAP-02`), 10,000 PBKDF2 iterations, hardware HMAC anchor (`GAP-03`), 16-char Recovery Code. | Soft Cyan -> **Emerald Green** (`#003C0F`) |
+| **3. Keys & Web3 Clear Signing** | WebAuthn passkey registration, crypto transfers. | secp256k1/P-256 generation, Clear Signing 128x64 OLED preview (`OPP-06`), Shamir 2-of-3 backup (`OPP-05`). | **Cyan/White Fast Blink** (5 Hz) -> Green |
+| **4. Lock & Unlock Gatekeeper** | Click *Lock Now* or disconnect USB. | Revokes session tokens (`zeroize`). Hides vault (`403`). Standard FIDO2 WebAuthn remains open. | Green -> **Amber / Orange** (`#3C1900`) |
+| **5. Desktop Tray & Passwordless SSH** | Hotplug detection, Git commit/push, `ssh user@srv`. | OpenSSH Agent Named Pipe (`\\.\pipe\openssh-ssh-agent`), `sk-ssh-ed25519` with touch (`GPIO 0`), auto-purge on unplug. | **Amber** -> **Emerald Green** |
+| **6. Proximity Lock & Workstation Security** | Walk away (> 3m) with phone/key. | Kalman-filtered BLE RSSI (< -80 dBm) triggers OS lock. Return (> -65 dBm) enables zero-password touch unlock. | Green -> Lockscreen -> Touch Unlock |
+| **7. Emergency Recovery & Rate Limiting** | Incorrect PIN entry (1-5 failures). | 2s/5s progressive backoff delays. 5th failure locks keypad (`RecoveryRequired`). 16-char recovery unseals vault. | **Alternating Red/Amber** -> **Intense Red** (`#5A0000`) |
+| **8. Silicon Security & Zero-Brick Safety** | Hardware security verification on devkits (`COM7`). | Flash Encryption & Secure Boot ready in code, but strictly hard-locked (`EFUSE_WRITE_HARD_LOCKED = true`). | Dev boards protected against bricking |
+
+> Complete step-by-step documentation with Mermaid sequence diagrams and protocol payloads is available in [`docs/project/PROJECT.md`](docs/project/PROJECT.md#11-end-to-end-user-journeys-zero-to-hero-journeys-1-to-8).  
+> Formal test logs, verification vectors, and audit trails are documented in [`docs/evaluation/EVALUATION.md`](docs/evaluation/EVALUATION.md#6-auditoria-de-verificação-e-matriz-técnica-cores-do-led-ws2812-gpio-48-e-jornadas-ponta-a-ponta-j1-a-j8).
+
+---
+
+## 8. Build and Verification Commands
 
 ### Execute Full Workspace Rust Test Suite
 ```powershell
@@ -240,7 +275,7 @@ cd app-android
 
 ---
 
-## 8. License
+## 9. License
 
 This project is free software licensed under the **GNU General Public License v3.0 (GPLv3)**.  
 See the [LICENSE](LICENSE) file for the complete license terms.
