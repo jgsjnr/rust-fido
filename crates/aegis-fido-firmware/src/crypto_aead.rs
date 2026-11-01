@@ -628,8 +628,14 @@ mod tests {
         )
         .expect("ChaCha20-Poly1305 seal succeeds");
 
-        let expected_tag = hex::decode("1ae10b594f0985a60a168fbe232c984d").unwrap();
-        let expected_ct = hex::decode("d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62db3dca3e51ecc962429f2d2c699f82ec458b4a5d803c63604538184b924a26bca7004456db805788de7438355ea4f97a472ec607d64f0670548e366d4c1aa7084d5597b08ff1a59e554fa89b579f465824").unwrap();
+        let expected_tag = hex::decode("1ae10b594f09e26a7e902ecbd0600691").unwrap();
+        let expected_ct = hex::decode(
+            "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6\
+             3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36\
+             92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc\
+             3ff4def08e4b7a9de576d26586cec64b6116",
+        )
+        .unwrap();
         assert_eq!(&ct[..ct.len() - 16], expected_ct.as_slice(), "Ciphertext matches RFC 8439 Section 2.8.2 KAT");
         let tag = &ct[ct.len() - 16..];
         assert_eq!(tag, expected_tag.as_slice(), "Tag matches RFC 8439 Section 2.8.2 KAT");
