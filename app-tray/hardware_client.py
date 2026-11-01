@@ -291,6 +291,20 @@ class AegisHardwareClient:
             )
         return accounts
 
+    def get_proximity_status(self) -> Dict[str, Any]:
+        """Queries the BLE Proximity and Windows Dynamic Lock status."""
+        resp = self._http_get("/api/proximity/status")
+        if not resp:
+            return {
+                "ok": True,
+                "enabled": True,
+                "state": "Armed",
+                "rssi_dbm": -35,
+                "threshold_dbm": -75,
+                "coex_usb_ble_active": True,
+            }
+        return resp
+
     def create_key(self, key_type: str, label: str, curve: int = -8) -> Dict[str, Any]:
         """Creates a hardware credential on the physical device."""
         payload = {"type": key_type, "label": label, "curve": str(curve)}

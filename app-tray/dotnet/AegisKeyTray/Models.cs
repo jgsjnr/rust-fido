@@ -45,3 +45,10 @@ public record OathAccount(
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("period")] int Period = 30
 );
+
+public record ProximityStatus(
+    [property: JsonPropertyName("enabled")] bool Enabled = true,
+    [property: JsonPropertyName("state")] string State = "Armed",
+    [property: JsonPropertyName("rssi_dbm")] int RssiDbm = -35,
+    [property: JsonPropertyName("threshold_dbm")] int ThresholdDbm = -75
+);

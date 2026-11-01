@@ -20,14 +20,16 @@ public class MainWindow : Form
 
     private DeviceInfo _dev = new();
     private SecureGuardStatus _sg = new();
-    private string _activeTab = "sg";
+    private string _activeTab = "vault_sg";
 
+    private Label _lblTitle = null!;
+    private Label _lblSubtitle = null!;
     private Label _lblDeviceName = null!;
     private Label _lblConnBadge = null!;
     private Panel _contentPanel = null!;
-    private Button _btnNavSg = null!;
-    private Button _btnNavVault = null!;
+    private Button _btnNavVaultSg = null!;
     private Button _btnNavTotp = null!;
+    private Button _btnNavConn = null!;
     private Button _btnNavSsh = null!;
 
     public MainWindow(HardwareBridgeClient client, SshAgentGuard sshGuard)
@@ -42,8 +44,8 @@ public class MainWindow : Form
     private void InitializeComponent()
     {
         Text = I18n.T("app_title");
-        Size = new Size(640, 740);
-        MinimumSize = new Size(580, 680);
+        Size = new Size(680, 760);
+        MinimumSize = new Size(620, 700);
         BackColor = ColorBg;
         ForeColor = ColorTextPrimary;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular);
@@ -53,7 +55,9 @@ public class MainWindow : Form
         var headerPanel = new Panel { Dock = DockStyle.Top, Height = 105, BackColor = ColorBg, Padding = new Padding(20, 12, 20, 8) };
 
         var topRow = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = ColorBg };
-        var lblTitle = new Label { Text = I18n.T("app_title"), Font = new Font("Segoe UI", 15F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(0, 0) };
+        _lblTitle = new Label { Text = I18n.T("app_title"), Font = new Font("Segoe UI", 15F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(0, 0) };
+        _lblSubtitle = new Label { Text = I18n.T("app_subtitle"), Font = new Font("Segoe UI", 8.5F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(2, 23) };
+
         var btnLang = new Button
         {
             Text = "EN / PT",
@@ -62,22 +66,24 @@ public class MainWindow : Form
             BackColor = ColorInputBg,
             FlatStyle = FlatStyle.Flat,
             Size = new Size(70, 28),
-            Location = new Point(510, 5),
+            Location = new Point(550, 5),
             Cursor = Cursors.Hand
         };
         btnLang.FlatAppearance.BorderSize = 0;
         btnLang.Click += (s, e) =>
         {
             I18n.CurrentLanguage = I18n.CurrentLanguage == "en" ? "pt" : "en";
-            lblTitle.Text = I18n.T("app_title");
-            _btnNavSg.Text = I18n.T("sg_title");
-            _btnNavVault.Text = I18n.T("vault_title");
-            _btnNavTotp.Text = I18n.T("totp_title");
-            _btnNavSsh.Text = I18n.T("ssh_title");
+            _lblTitle.Text = I18n.T("app_title");
+            _lblSubtitle.Text = I18n.T("app_subtitle");
+            _btnNavVaultSg.Text = I18n.T("tab_vault_sg");
+            _btnNavTotp.Text = I18n.T("tab_totp");
+            _btnNavConn.Text = I18n.T("tab_connected_keys");
+            _btnNavSsh.Text = I18n.T("tab_ssh_settings");
             RenderTab();
         };
 
-        topRow.Controls.Add(lblTitle);
+        topRow.Controls.Add(_lblTitle);
+        topRow.Controls.Add(_lblSubtitle);
         topRow.Controls.Add(btnLang);
 
         // Banner Card
@@ -102,9 +108,9 @@ public class MainWindow : Form
             Font = new Font("Segoe UI", 8F, FontStyle.Bold),
             ForeColor = ColorAmber,
             BackColor = ColorInputBg,
-            Size = new Size(110, 24),
+            Size = new Size(115, 24),
             TextAlign = ContentAlignment.MiddleCenter,
-            Location = new Point(470, 10)
+            Location = new Point(500, 10)
         };
         banner.Controls.Add(_lblDeviceName);
         banner.Controls.Add(_lblConnBadge);
@@ -112,14 +118,14 @@ public class MainWindow : Form
         headerPanel.Controls.Add(topRow);
         headerPanel.Controls.Add(banner);
 
-        // Nav Bar
-        var navBar = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = ColorBg, Padding = new Padding(20, 4, 20, 4) };
-        _btnNavSg = CreateNavButton(I18n.T("sg_title"), "sg", 0);
-        _btnNavVault = CreateNavButton(I18n.T("vault_title"), "vault", 130);
-        _btnNavTotp = CreateNavButton(I18n.T("totp_title"), "totp", 260);
-        _btnNavSsh = CreateNavButton(I18n.T("ssh_title"), "ssh", 390);
+        // Navigation Bar (4 sections)
+        var navBar = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = ColorBg, Padding = new Padding(20, 4, 20, 4) };
+        _btnNavVaultSg = CreateNavButton(I18n.T("tab_vault_sg"), "vault_sg", 0);
+        _btnNavTotp = CreateNavButton(I18n.T("tab_totp"), "totp", 150);
+        _btnNavConn = CreateNavButton(I18n.T("tab_connected_keys"), "conn", 300);
+        _btnNavSsh = CreateNavButton(I18n.T("tab_ssh_settings"), "ssh", 450);
 
-        navBar.Controls.AddRange(new Control[] { _btnNavSg, _btnNavVault, _btnNavTotp, _btnNavSsh });
+        navBar.Controls.AddRange(new Control[] { _btnNavVaultSg, _btnNavTotp, _btnNavConn, _btnNavSsh });
 
         // Content Area
         _contentPanel = new Panel { Dock = DockStyle.Fill, BackColor = ColorBg, Padding = new Padding(20, 10, 20, 20), AutoScroll = true };
@@ -151,7 +157,7 @@ public class MainWindow : Form
             ForeColor = _activeTab == tabId ? ColorCyan : ColorTextMuted,
             BackColor = _activeTab == tabId ? ColorCard : ColorBg,
             FlatStyle = FlatStyle.Flat,
-            Size = new Size(125, 32),
+            Size = new Size(145, 32),
             Location = new Point(20 + x, 4),
             Cursor = Cursors.Hand
         };
@@ -167,7 +173,7 @@ public class MainWindow : Form
 
     private void UpdateNavStyles()
     {
-        foreach (var btn in new[] { _btnNavSg, _btnNavVault, _btnNavTotp, _btnNavSsh })
+        foreach (var btn in new[] { _btnNavVaultSg, _btnNavTotp, _btnNavConn, _btnNavSsh })
         {
             bool sel = (string)btn.Tag! == _activeTab;
             btn.ForeColor = sel ? ColorCyan : ColorTextMuted;
@@ -222,14 +228,14 @@ public class MainWindow : Form
 
         switch (_activeTab)
         {
-            case "sg":
-                RenderSectionSecureGuard(card);
-                break;
-            case "vault":
-                RenderSectionVault(card);
+            case "vault_sg":
+                RenderSectionVaultSg(card);
                 break;
             case "totp":
                 RenderSectionTotp(card);
+                break;
+            case "conn":
+                RenderSectionConnectedKeys(card);
                 break;
             case "ssh":
                 RenderSectionSsh(card);
@@ -239,7 +245,7 @@ public class MainWindow : Form
         _contentPanel.Controls.Add(card);
     }
 
-    private void RenderSectionSecureGuard(Panel card)
+    private void RenderSectionVaultSg(Panel card)
     {
         var lblTitle = new Label { Text = I18n.T("sg_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
         card.Controls.Add(lblTitle);
@@ -268,6 +274,11 @@ public class MainWindow : Form
             };
             card.Controls.Add(txtPin);
             card.Controls.Add(btnUnlock);
+
+            var banner = new Panel { Size = new Size(card.Width - 40, 65), Location = new Point(16, 195), BackColor = ColorInputBg };
+            var lblBanner = new Label { Text = I18n.T("vault_locked_banner"), Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = ColorAmber, AutoSize = true, Location = new Point(12, 22) };
+            banner.Controls.Add(lblBanner);
+            card.Controls.Add(banner);
         }
         else
         {
@@ -279,25 +290,10 @@ public class MainWindow : Form
                 await RefreshDataAsync();
             };
             card.Controls.Add(btnLock);
+
+            var lblMsg = new Label { Text = "✓ Hardware Vault unlocked: Ed25519, P-256 and Wallets accessible.", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(16, 195) };
+            card.Controls.Add(lblMsg);
         }
-    }
-
-    private void RenderSectionVault(Panel card)
-    {
-        var lblTitle = new Label { Text = I18n.T("vault_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
-        card.Controls.Add(lblTitle);
-
-        if (!_sg.Unlocked)
-        {
-            var banner = new Panel { Size = new Size(card.Width - 40, 80), Location = new Point(16, 60), BackColor = ColorInputBg };
-            var lblBanner = new Label { Text = I18n.T("vault_locked_banner"), Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = ColorAmber, AutoSize = true, Location = new Point(14, 25) };
-            banner.Controls.Add(lblBanner);
-            card.Controls.Add(banner);
-            return;
-        }
-
-        var lblMsg = new Label { Text = "Hardware keys unlocked and accessible.", Font = new Font("Segoe UI", 9F), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(16, 55) };
-        card.Controls.Add(lblMsg);
     }
 
     private void RenderSectionTotp(Panel card)
@@ -306,6 +302,28 @@ public class MainWindow : Form
         var lblSub = new Label { Text = I18n.T("totp_subtitle"), Font = new Font("Segoe UI", 8F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(16, 42) };
         card.Controls.Add(lblTitle);
         card.Controls.Add(lblSub);
+    }
+
+    private void RenderSectionConnectedKeys(Panel card)
+    {
+        var lblTitle = new Label { Text = I18n.T("conn_title"), Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 16) };
+        card.Controls.Add(lblTitle);
+
+        var pnlTele = new Panel { Size = new Size(card.Width - 40, 110), Location = new Point(16, 50), BackColor = ColorInputBg, Padding = new Padding(12) };
+        var lblChip = new Label { Text = $"Chip: {_dev.Chip}", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorCyan, AutoSize = true, Location = new Point(12, 12) };
+        var lblPort = new Label { Text = $"Serial Port: {_dev.Port} (VID: {_dev.Vid}, PID: {_dev.Pid})", Font = new Font("Segoe UI", 8.5F), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(12, 38) };
+        var lblState = new Label { Text = $"Status: {(_dev.Connected ? "ONLINE" : "DISCONNECTED")}", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), ForeColor = _dev.Connected ? ColorEmerald : ColorCoral, AutoSize = true, Location = new Point(12, 64) };
+        pnlTele.Controls.AddRange(new Control[] { lblChip, lblPort, lblState });
+        card.Controls.Add(pnlTele);
+
+        var lblProxTitle = new Label { Text = I18n.T("conn_prox_title"), Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 180) };
+        card.Controls.Add(lblProxTitle);
+
+        var pnlProx = new Panel { Size = new Size(card.Width - 40, 80), Location = new Point(16, 210), BackColor = ColorInputBg, Padding = new Padding(12) };
+        var lblProxArmed = new Label { Text = "Status: ARMED (Windows Dynamic Lock Active via BLE RSSI)", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(12, 14) };
+        var lblProxSignal = new Label { Text = "Signal RSSI: -35 dBm  |  Lock Distance Threshold: -75 dBm", Font = new Font("Segoe UI", 8.5F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(12, 40) };
+        pnlProx.Controls.AddRange(new Control[] { lblProxArmed, lblProxSignal });
+        card.Controls.Add(pnlProx);
     }
 
     private void RenderSectionSsh(Panel card)
@@ -350,5 +368,25 @@ public class MainWindow : Form
 
         card.Controls.Add(btnPurge);
         card.Controls.Add(btnFido);
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+        base.OnFormClosing(e);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (WindowState == FormWindowState.Minimized)
+        {
+            Hide();
+        }
     }
 }

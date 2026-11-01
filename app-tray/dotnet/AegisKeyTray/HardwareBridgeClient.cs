@@ -10,7 +10,7 @@ public class HardwareBridgeClient
     private readonly HttpClient _http;
     private readonly string _baseUrl;
 
-    public HardwareBridgeClient(string baseUrl = "http://127.0.0.1:5678", double timeoutSeconds = 2.0)
+    public HardwareBridgeClient(string baseUrl = "http://127.0.0.1:5678", double timeoutSeconds = 3.0)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
@@ -19,6 +19,28 @@ public class HardwareBridgeClient
 
     public async Task<DeviceInfo> DetectDeviceAsync()
     {
+        // 1. Fast bridge check
+        try
+        {
+            var res = await _http.GetFromJsonAsync<JsonObject>($"{_baseUrl}/bridge/status");
+            if (res != null && res["connected"] != null)
+            {
+                bool isConnected = res["connected"]?.GetValue<bool>() ?? false;
+                string portName = res["port"]?.GetValue<string>() ?? DetectSerialPort();
+                return new DeviceInfo(
+                    Product: "AegisKey S3 Authenticator",
+                    Chip: "ESP32-S3 (Dual Core Xtensa LX7 @ 240MHz)",
+                    Vid: "0x303A",
+                    Pid: "0xAE61",
+                    Port: portName,
+                    Connected: isConnected,
+                    StatusText: isConnected ? "Connected" : "Disconnected"
+                );
+            }
+        }
+        catch { }
+
+        // 2. Fallback to /api/status
         try
         {
             var res = await _http.GetFromJsonAsync<JsonObject>($"{_baseUrl}/api/status");
@@ -28,7 +50,7 @@ public class HardwareBridgeClient
                 string port = res["port"]?.GetValue<string>() ?? DetectSerialPort();
                 return new DeviceInfo(
                     Product: res["product"]?.GetValue<string>() ?? "AegisKey S3 Authenticator",
-                    Chip: res["chip"]?.GetValue<string>() ?? "ESP32-S3 (Dual Core Xtensa LX7)",
+                    Chip: res["chip"]?.GetValue<string>() ?? "ESP32-S3",
                     Vid: res["vid"]?.GetValue<string>() ?? "0x303A",
                     Pid: res["pid"]?.GetValue<string>() ?? "0xAE61",
                     Port: port,
@@ -185,6 +207,25 @@ public class HardwareBridgeClient
         }
         catch { }
         return list;
+    }
+
+    public async Task<ProximityStatus> GetProximityStatusAsync()
+    {
+        try
+        {
+            var res = await _http.GetFromJsonAsync<JsonObject>($"{_baseUrl}/api/proximity/status");
+            if (res != null)
+            {
+                return new ProximityStatus(
+                    Enabled: res["enabled"]?.GetValue<bool>() ?? true,
+                    State: res["state"]?.GetValue<string>() ?? "Armed",
+                    RssiDbm: res["rssi_dbm"]?.GetValue<int>() ?? -35,
+                    ThresholdDbm: res["threshold_dbm"]?.GetValue<int>() ?? -75
+                );
+            }
+        }
+        catch { }
+        return new ProximityStatus();
     }
 
     public async Task<bool> CreateKeyAsync(string type, string label, int curve = -8)

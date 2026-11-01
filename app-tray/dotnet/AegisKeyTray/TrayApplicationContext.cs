@@ -13,7 +13,7 @@ public class TrayApplicationContext : ApplicationContext
     public TrayApplicationContext()
     {
         _client = new HardwareBridgeClient();
-        _sshGuard = new SshAgentGuard(_client, OnPurgeAlert);
+        _sshGuard = new SshAgentGuard(_client, OnSecurityNotification);
 
         _mainWindow = new MainWindow(_client, _sshGuard);
 
@@ -36,9 +36,14 @@ public class TrayApplicationContext : ApplicationContext
             Visible = true
         };
 
+        // Left-click / double-click opens main window
         _notifyIcon.DoubleClick += (s, e) => ShowMainWindow();
+        _notifyIcon.BalloonTipClicked += (s, e) => ShowMainWindow();
 
+        // Start background watchdog
         _sshGuard.StartWatchdog(2);
+
+        // REQUIREMENT: Open full Desktop Companion App window centered and visible on startup!
         ShowMainWindow();
     }
 
@@ -50,9 +55,18 @@ public class TrayApplicationContext : ApplicationContext
         _mainWindow.Activate();
     }
 
-    private void OnPurgeAlert(string message)
+    private void OnSecurityNotification(string title, string message, int iconType)
     {
-        _notifyIcon.ShowBalloonTip(3000, "AegisKey Security Guard", message, ToolTipIcon.Warning);
+        var icon = iconType switch
+        {
+            2 => ToolTipIcon.Warning,
+            3 => ToolTipIcon.Error,
+            _ => ToolTipIcon.Info
+        };
+        _notifyIcon.ShowBalloonTip(3500, title, message, icon);
+
+        // Also notify the active window to refresh data immediately
+        _ = _mainWindow.RefreshDataAsync();
     }
 
     protected override void ExitThreadCore()

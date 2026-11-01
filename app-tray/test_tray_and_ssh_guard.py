@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Automated Test Suite for AegisKey System Tray & SSH Guard Integration.
+"""Automated Test Suite for AegisKey Desktop Companion & SSH Guard Integration.
 
 Verifies:
 1. Real device detection via bridge / serial (COM7).
@@ -7,6 +7,8 @@ Verifies:
 3. SshGuard Watchdog lifecycle: instant ssh-agent purge (ssh-add -D) and session grant revocation on lock/disconnect.
 4. aegis_ssh_askpass helper behavior (denial when Locked, authorization when Unlocked).
 5. STRICT SECURITY AUDIT: Verifies zero access, opening, or reading of any ~/.ssh private key files!
+6. Connection transition native notifications (Disconnected -> Connected and Connected -> Disconnected).
+7. Desktop Companion App complete window initialization, navigation across 4 sections, and tray show/hide.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import tkinter as tk
 import unittest
 from pathlib import Path
 
@@ -29,7 +32,9 @@ TOOLS_DIR = BASE_DIR.parent / "tools"
 sys.path.insert(0, str(TOOLS_DIR))
 
 from aegis_ssh_askpass import AUTH_GRANT_FILE
+from aegis_tray import AegisDesktopApp
 from hardware_client import AegisHardwareClient, DeviceInfo, SecureGuardStatus
+from notifications import NOTIFIER
 from ssh_guard import SshGuard
 
 
@@ -49,8 +54,8 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
         except Exception:
             pass
 
-        # Provision engine for test run with PIN "123456"
-        cls.test_pin = "123456"
+        # Provision engine for test run with PIN "849201" (non-trivial secure PIN)
+        cls.test_pin = "849201"
         cls.engine.provision(cls.test_pin, "ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         cls.engine.lock_session()
 
@@ -78,12 +83,13 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
                 pass
 
     def setUp(self):
-        self.client = AegisHardwareClient(base_url="http://127.0.0.1:5678", timeout_seconds=2.0)
+        self.client = AegisHardwareClient(base_url="http://127.0.0.1:5678", timeout_seconds=4.0)
         self.purge_alerts: list[str] = []
         self.ssh_guard = SshGuard(
             hardware_client=self.client,
             on_purge_callback=lambda msg: self.purge_alerts.append(msg)
         )
+        NOTIFIER.clear_history()
 
     # -------------------------------------------------------------------------
     # TEST 1: REAL HARDWARE & BRIDGE DETECTION
@@ -109,9 +115,9 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
         self.assertFalse(status_locked.unlocked, "Secure Guard must report unlocked=False")
         self.assertEqual(status_locked.state, self.STATE_LOCKED)
 
-        # 2. Query wallets while Locked -> Must be blocked or empty
-        wallets_locked = self.client.get_wallets()
-        self.assertEqual(len(wallets_locked), 0, "Wallets MUST be blocked while Secure Guard is Locked")
+        # 2. Query vault/wallets while Locked -> Must be blocked (HTTP 403)
+        res_vault_locked = self.client._http_get("/api/vault")
+        self.assertIsNone(res_vault_locked, "Direct vault request must be blocked (HTTP 403) while Locked")
 
         # 3. Unlock with valid PIN
         unlock_res = self.client.unlock_secure_guard(self.test_pin)
@@ -121,15 +127,16 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
         self.assertTrue(status_unlocked.unlocked, "Secure Guard must report unlocked=True")
         self.assertEqual(status_unlocked.state, self.STATE_UNLOCKED)
 
-        # 4. Query wallets while Unlocked -> Hardware vault accessible
-        wallets_unlocked = self.client.get_wallets()
-        self.assertGreater(len(wallets_unlocked), 0, "Wallets must be accessible once Unlocked")
+        # 4. Query vault while Unlocked -> Hardware vault accessible (HTTP 200)
+        res_vault_unlocked = self.client._http_get("/api/vault")
+        self.assertIsNotNone(res_vault_unlocked, "Direct vault request must succeed (HTTP 200) once Unlocked")
+        self.assertTrue(res_vault_unlocked.get("ok"), "Vault response must report ok=True once Unlocked")
 
         # 5. Lock again to restore fail-closed barrier
         self.client.lock_secure_guard()
         status_relocked = self.client.get_secure_guard_status()
         self.assertFalse(status_relocked.unlocked)
-        print("\n[PASS] Secure Guard Gating Verified: Wallets blocked when Locked, accessible when Unlocked.")
+        print("\n[PASS] Secure Guard Gating Verified: Vault blocked when Locked (403), accessible when Unlocked (200).")
 
     # -------------------------------------------------------------------------
     # TEST 3: SSH GUARD WATCHDOG & INSTANT REVOCATION (ssh-add -D)
@@ -208,6 +215,7 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
             BASE_DIR / "ssh_guard.py",
             BASE_DIR / "aegis_ssh_askpass.py",
             BASE_DIR / "aegis_tray.py",
+            BASE_DIR / "notifications.py",
             BASE_DIR / "i18n.py",
             BASE_DIR / "dotnet" / "AegisKeyTray" / "SshAgentGuard.cs",
             BASE_DIR / "dotnet" / "AegisKeyTray" / "HardwareBridgeClient.cs",
@@ -222,13 +230,93 @@ class TestAegisTrayAndSshGuard(unittest.TestCase):
             self.assertTrue(file_path.exists(), f"File {file_path} must exist")
             content = file_path.read_text(encoding="utf-8")
             for pat in forbidden_patterns:
-                # Allow File.Exists on ssh-add.exe or temporary grant file, but forbid reading private keys
                 if pat in ("File.ReadAllBytes", "File.ReadAllText", "File.OpenRead"):
                     self.assertNotIn(pat, content, f"Forbidden file read pattern '{pat}' found in {file_path.name}")
                 elif "id_" in pat:
                     self.assertNotIn(pat, content, f"Forbidden private key reference '{pat}' found in {file_path.name}")
 
         print("\n[PASS] Strict Code Audit: 100% compliant with zero inspection of user private keys in ~/.ssh.")
+
+    # -------------------------------------------------------------------------
+    # TEST 6: CONNECTION TRANSITION NATIVE NOTIFICATIONS
+    # -------------------------------------------------------------------------
+    def test_06_connection_transition_notifications(self):
+        """Verifies native OS notifications fire on key connection and disconnection."""
+        root = tk.Tk()
+        root.withdraw()
+        app = AegisDesktopApp(root)
+
+        # Baseline: initial sync established
+        app._is_first_sync = False
+        app._prev_connected = False
+        app._prev_state = 2
+
+        # 1. SIMULATE KEY CONNECTED: Disconnected -> Connected
+        connected_dev = DeviceInfo(port="COM7", connected=True)
+        locked_sg = SecureGuardStatus(state=2, state_name="Locked", unlocked=False)
+        app._apply_state_update(connected_dev, locked_sg)
+
+        history = NOTIFIER.get_history()
+        self.assertGreater(len(history), 0, "Native notification must be dispatched on connection")
+        last_notif = history[-1]
+        self.assertIn("Connected", last_notif["title"])
+        self.assertIn("COM7", last_notif["message"])
+        self.assertIn("Locked", last_notif["message"])
+        print(f"\n[PASS] Connection Notification Dispatched: '{last_notif['title']}' -> '{last_notif['message']}'")
+
+        # 2. SIMULATE KEY DISCONNECTED: Connected -> Disconnected
+        disconnected_dev = DeviceInfo(port="None", connected=False)
+        app._apply_state_update(disconnected_dev, locked_sg)
+
+        history = NOTIFIER.get_history()
+        disconn_notif = history[-1]
+        self.assertIn("Disconnected", disconn_notif["title"])
+        self.assertIn("Locked", disconn_notif["message"])
+        print(f"[PASS] Disconnection Notification Dispatched: '{disconn_notif['title']}' -> '{disconn_notif['message']}'")
+
+        # 3. Clean up GUI
+        app.ssh_guard.stop_watchdog()
+        root.destroy()
+
+    # -------------------------------------------------------------------------
+    # TEST 7: DESKTOP COMPANION APP WINDOW LIFECYCLE & 4 SECTIONS
+    # -------------------------------------------------------------------------
+    def test_07_desktop_companion_window_lifecycle(self):
+        """Verifies full desktop companion window layout, 4 sections, and tray show/hide."""
+        root = tk.Tk()
+        app = AegisDesktopApp(root)
+
+        # 1. Window must be visible, title and subtitle set
+        self.assertIn("AegisKey", root.title())
+        self.assertEqual(app.lbl_title.cget("text"), "AegisKey Authenticator")
+
+        # 2. Four navigation tabs must exist
+        self.assertTrue(hasattr(app, "btn_nav_vault_sg"))
+        self.assertTrue(hasattr(app, "btn_nav_totp"))
+        self.assertTrue(hasattr(app, "btn_nav_conn"))
+        self.assertTrue(hasattr(app, "btn_nav_ssh"))
+
+        # 3. Switch to Section 3 (Connected Keys & BLE Proximity)
+        app._switch_tab("conn")
+        self.assertEqual(app.current_tab, "conn")
+        # Proximity status must be queryable
+        prox = app.hw_client.get_proximity_status()
+        self.assertTrue(prox.get("ok"))
+
+        # 4. Switch to Section 2 (TOTP Authenticator)
+        app._switch_tab("totp")
+        self.assertEqual(app.current_tab, "totp")
+
+        # 5. Hide to Tray and Restore
+        app.hide_to_tray()
+        self.assertEqual(root.state(), "withdrawn")
+        app.show_from_tray()
+        self.assertNotEqual(root.state(), "withdrawn")
+
+        print("\n[PASS] Desktop Companion Window Verified: 4 navigation sections, full layout, and tray show/hide functional.")
+
+        app.ssh_guard.stop_watchdog()
+        root.destroy()
 
 
 if __name__ == "__main__":

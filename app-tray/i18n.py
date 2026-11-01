@@ -6,18 +6,31 @@ Provides clean English and Portuguese translations without abbreviations or jarg
 STRINGS = {
     "en": {
         "app_title": "AegisKey Authenticator",
-        "app_subtitle": "Hardware Security Authority & Vault",
+        "app_subtitle": "Desktop Companion & Hardware Authority",
         "connected": "Connected",
         "disconnected": "Disconnected",
         "device_offline": "Device Offline",
         "badge_hardware": "Hardware",
         "badge_firmware": "Firmware",
-        "tab_secure_guard": "Secure Guard",
-        "tab_vault": "Hardware Vault",
-        "tab_totp": "TOTP Codes",
-        "tab_ssh_guard": "SSH Key Guard",
-        # Section 1: Secure Guard Authority
-        "sg_title": "Secure Guard Authority",
+
+        # Navigation Tabs
+        "tab_vault_sg": "1. Vault & Secure Guard",
+        "tab_totp": "2. TOTP Authenticator",
+        "tab_connected_keys": "3. Connected Keys & BLE",
+        "tab_ssh_settings": "4. SSH Guard & Settings",
+
+        # Native Notifications
+        "notif_conn_title": "AegisKey Security Key Connected",
+        "notif_conn_body": "Detected on {port}. Secure Guard is {state}. Click to unlock and access keys.",
+        "notif_disconn_title": "AegisKey Disconnected",
+        "notif_disconn_body": "AegisKey Disconnected — Secure Guard & SSH Agent Locked.",
+        "notif_unlocked_title": "Secure Guard Unlocked",
+        "notif_unlocked_body": "Secure Guard Unlocked — Hardware Vault & SSH Key Ready.",
+        "notif_locked_title": "Secure Guard Locked",
+        "notif_locked_body": "Secure Guard Locked — Keys Protected.",
+
+        # Section 1: Vault & Secure Guard Authority
+        "sg_title": "Secure Guard Authority & Hardware Vault",
         "sg_status_label": "Device Status:",
         "sg_attempts_label": "Remaining Attempts:",
         "sg_session_label": "Active Session Timer:",
@@ -32,8 +45,9 @@ STRINGS = {
         "sg_lock_success": "Secure Guard locked successfully. Credentials protected.",
         "sg_unlock_success": "Secure Guard unlocked successfully. Hardware barrier opened.",
         "sg_unlock_failed": "Authentication failed. Check PIN.",
-        # Section 2: Hardware Vault
-        "vault_title": "Hardware Vault & Crypto Wallets",
+
+        # Hardware Vault area in Section 1
+        "vault_subtitle": "Hardware Credentials & Crypto Wallets",
         "vault_locked_banner": "🔒 Secure Guard is locked. Unlock Secure Guard to access hardware keys.",
         "vault_no_keys": "No keys registered on device.",
         "vault_btn_create": "+ New Hardware Key",
@@ -42,13 +56,28 @@ STRINGS = {
         "vault_col_label": "Name / Label",
         "vault_col_type": "Algorithm",
         "vault_col_action": "Action",
-        # Section 3: TOTP Codes
+
+        # Section 2: TOTP Codes
         "totp_title": "Hardware TOTP Codes",
         "totp_subtitle": "Calculated by physical ESP32-S3 silicon (OP_OATH_CODE 0x26)",
         "totp_btn_copy": "Copy",
         "totp_copied": "Copied to clipboard!",
         "totp_no_accounts": "No 2FA accounts registered.",
-        # Section 4: SSH Guard
+
+        # Section 3: Connected Keys & BLE Proximity Lock
+        "conn_title": "Connected Keys & Physical Telemetry",
+        "conn_chip_label": "Chip Architecture:",
+        "conn_port_label": "Serial / USB Interface:",
+        "conn_vidpid_label": "Hardware Identifier (VID:PID):",
+        "conn_status_label": "Physical Link State:",
+        "conn_prox_title": "BLE Proximity & Windows Dynamic Lock",
+        "conn_prox_status": "Dynamic Lock Engine:",
+        "conn_prox_rssi": "Bluetooth Signal (RSSI):",
+        "conn_prox_threshold": "Lock Threshold Distance:",
+        "conn_prox_active": "ARMED (Locks Windows automatically when key moves away)",
+        "conn_prox_inactive": "INACTIVE",
+
+        # Section 4: SSH Guard & Settings
         "ssh_title": "SSH Key Guard (Zero-Password SSH)",
         "ssh_subtitle": "Keep SSH unlocked while Secure Guard is active. Auto-purge on lock or disconnect.",
         "ssh_status_active": "SSH Guard Active: Zero-password enabled while Secure Guard is Unlocked.",
@@ -61,8 +90,9 @@ STRINGS = {
         "ssh_btn_set_ephemeral": "Authorize Session",
         "ssh_btn_clear_ephemeral": "Clear Passphrase",
         "ssh_env_copied": "PowerShell command copied to clipboard!",
+
         # Tray Menu
-        "tray_open": "Open Dashboard",
+        "tray_open": "Open Companion App",
         "tray_lock": "Lock Secure Guard",
         "tray_unlock": "Unlock Secure Guard...",
         "tray_purge_ssh": "Purge SSH Agent (ssh-add -D)",
@@ -70,18 +100,31 @@ STRINGS = {
     },
     "pt": {
         "app_title": "AegisKey Autenticador",
-        "app_subtitle": "Autoridade de Segurança e Cofre em Hardware",
+        "app_subtitle": "Aplicativo Desktop e Autoridade de Hardware",
         "connected": "Conectado",
         "disconnected": "Desconectado",
         "device_offline": "Dispositivo Offline",
         "badge_hardware": "Hardware",
         "badge_firmware": "Firmware",
-        "tab_secure_guard": "Secure Guard",
-        "tab_vault": "Cofre de Hardware",
-        "tab_totp": "Códigos TOTP",
-        "tab_ssh_guard": "Guarda SSH",
-        # Section 1: Secure Guard Authority
-        "sg_title": "Autoridade Secure Guard",
+
+        # Navigation Tabs
+        "tab_vault_sg": "1. Cofre & Secure Guard",
+        "tab_totp": "2. Autenticador TOTP",
+        "tab_connected_keys": "3. Chaves & Bloqueio BLE",
+        "tab_ssh_settings": "4. Guarda SSH & Configs",
+
+        # Native Notifications
+        "notif_conn_title": "Chave AegisKey Conectada",
+        "notif_conn_body": "Detectada em {port}. Secure Guard está {state}. Clique para desbloquear e acessar as chaves.",
+        "notif_disconn_title": "AegisKey Desconectada",
+        "notif_disconn_body": "AegisKey Desconectada — Secure Guard e Agente SSH Bloqueados.",
+        "notif_unlocked_title": "Secure Guard Desbloqueado",
+        "notif_unlocked_body": "Secure Guard Desbloqueado — Cofre de Hardware e Chave SSH Prontos.",
+        "notif_locked_title": "Secure Guard Bloqueado",
+        "notif_locked_body": "Secure Guard Bloqueado — Chaves Protegidas.",
+
+        # Section 1: Vault & Secure Guard Authority
+        "sg_title": "Autoridade Secure Guard e Cofre de Hardware",
         "sg_status_label": "Estado do Dispositivo:",
         "sg_attempts_label": "Tentativas Restantes:",
         "sg_session_label": "Timer da Sessão Ativa:",
@@ -96,8 +139,9 @@ STRINGS = {
         "sg_lock_success": "Secure Guard bloqueado. Credenciais protegidas com sucesso.",
         "sg_unlock_success": "Secure Guard desbloqueado. Barreira de hardware liberada.",
         "sg_unlock_failed": "Autenticação falhou. Verifique o PIN.",
-        # Section 2: Hardware Vault
-        "vault_title": "Cofre de Hardware e Carteiras Cripto",
+
+        # Hardware Vault area in Section 1
+        "vault_subtitle": "Credenciais em Hardware e Carteiras Cripto",
         "vault_locked_banner": "🔒 Secure Guard está bloqueado. Desbloqueie o Secure Guard para acessar as chaves.",
         "vault_no_keys": "Nenhuma chave registrada no dispositivo.",
         "vault_btn_create": "+ Nova Chave de Hardware",
@@ -106,13 +150,28 @@ STRINGS = {
         "vault_col_label": "Nome / Identificador",
         "vault_col_type": "Algoritmo",
         "vault_col_action": "Ação",
-        # Section 3: TOTP Codes
+
+        # Section 2: TOTP Codes
         "totp_title": "Códigos TOTP de Hardware",
         "totp_subtitle": "Calculados pelo chip físico ESP32-S3 (OP_OATH_CODE 0x26)",
         "totp_btn_copy": "Copiar",
         "totp_copied": "Copiado para a área de transferência!",
         "totp_no_accounts": "Nenhuma conta 2FA cadastrada.",
-        # Section 4: SSH Guard
+
+        # Section 3: Connected Keys & BLE Proximity Lock
+        "conn_title": "Chaves Conectadas e Telemetria Física",
+        "conn_chip_label": "Arquitetura do Chip:",
+        "conn_port_label": "Interface Serial / USB:",
+        "conn_vidpid_label": "Identificador de Hardware (VID:PID):",
+        "conn_status_label": "Estado do Link Físico:",
+        "conn_prox_title": "Proximidade BLE e Bloqueio Dinâmico do Windows",
+        "conn_prox_status": "Motor de Bloqueio Dinâmico:",
+        "conn_prox_rssi": "Sinal Bluetooth (RSSI):",
+        "conn_prox_threshold": "Limite de Distância de Bloqueio:",
+        "conn_prox_active": "ARMADO (Bloqueia o Windows automaticamente ao afastar a chave)",
+        "conn_prox_inactive": "INATIVO",
+
+        # Section 4: SSH Guard & Settings
         "ssh_title": "Guarda de Chaves SSH (SSH Sem Senha)",
         "ssh_subtitle": "Uso livre de SSH enquanto o Secure Guard estiver ativo. Limpeza imediata ao bloquear.",
         "ssh_status_active": "Guarda SSH Ativo: SSH sem senha liberado enquanto o Secure Guard estiver Desbloqueado.",
@@ -125,8 +184,9 @@ STRINGS = {
         "ssh_btn_set_ephemeral": "Autorizar Sessão",
         "ssh_btn_clear_ephemeral": "Limpar Frase-senha",
         "ssh_env_copied": "Comando do PowerShell copiado para a área de transferência!",
+
         # Tray Menu
-        "tray_open": "Abrir Painel",
+        "tray_open": "Abrir Aplicativo Desktop",
         "tray_lock": "Bloquear Secure Guard",
         "tray_unlock": "Desbloquear Secure Guard...",
         "tray_purge_ssh": "Limpar ssh-agent (ssh-add -D)",
@@ -135,6 +195,12 @@ STRINGS = {
 }
 
 
-def t(key: str, lang: str = "en") -> str:
+def t(key: str, lang: str = "en", **kwargs) -> str:
     lang_map = STRINGS.get(lang, STRINGS["en"])
-    return lang_map.get(key, STRINGS["en"].get(key, key))
+    template = lang_map.get(key, STRINGS["en"].get(key, key))
+    if kwargs:
+        try:
+            return template.format(**kwargs)
+        except Exception:
+            return template
+    return template

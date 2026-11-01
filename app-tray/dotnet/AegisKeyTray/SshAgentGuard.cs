@@ -1,22 +1,21 @@
 using System.Diagnostics;
 using System.IO;
-using System.Text.Json;
 
 namespace AegisKeyTray;
 
 public class SshAgentGuard
 {
     private readonly HardwareBridgeClient _client;
-    private readonly Action<string>? _onPurgeAlert;
+    private readonly Action<string, string, int>? _onNotification; // title, message, iconType (1 info, 2 warn)
     private System.Threading.Timer? _timer;
     private int _lastState = -1;
-    private bool _lastConnected = false;
+    private bool? _lastConnected = null;
     private static readonly string AuthGrantFile = Path.Combine(Path.GetTempPath(), "aegis_ssh_session_grant.json");
 
-    public SshAgentGuard(HardwareBridgeClient client, Action<string>? onPurgeAlert = null)
+    public SshAgentGuard(HardwareBridgeClient client, Action<string, string, int>? onNotification = null)
     {
         _client = client;
-        _onPurgeAlert = onPurgeAlert;
+        _onNotification = onNotification;
     }
 
     public void StartWatchdog(int intervalSeconds = 2)
@@ -37,20 +36,48 @@ public class SshAgentGuard
             var dev = await _client.DetectDeviceAsync();
             var sg = await _client.GetSecureGuardStatusAsync();
 
-            bool isUnlocked = dev.Connected && sg.Unlocked && (sg.State == 4);
-            bool wasUnlocked = (_lastState == 4) && _lastConnected;
+            bool isConnected = dev.Connected;
+            int currentState = sg.State;
 
-            // IMMEDIATE REVOCATION BARRIER: Transition from UNLOCKED to LOCKED or Disconnect
-            if (wasUnlocked && !isUnlocked)
+            if (_lastConnected != null)
             {
-                string reason = !dev.Connected ? "Hardware Key Unplugged" : $"Secure Guard Locked ({sg.StateName})";
-                string res = PurgeSshAgent();
-                RevokeSessionGrant();
-                _onPurgeAlert?.Invoke($"{reason}: ssh-agent identities purged ({res})");
+                // 1. TRANSITION: Disconnected -> Connected
+                if (_lastConnected == false && isConnected)
+                {
+                    string title = I18n.T("notif_conn_title");
+                    string msg = I18n.T("notif_conn_body", dev.Port, sg.StateName);
+                    _onNotification?.Invoke(title, msg, 1);
+                }
+                // 2. TRANSITION: Connected -> Disconnected
+                else if (_lastConnected == true && !isConnected)
+                {
+                    string title = I18n.T("notif_disconn_title");
+                    string msg = I18n.T("notif_disconn_body");
+                    PurgeSshAgent();
+                    RevokeSessionGrant();
+                    _onNotification?.Invoke(title, msg, 2);
+                }
+
+                // 3. TRANSITION: Locked -> Unlocked
+                if (_lastState != 4 && currentState == 4 && isConnected)
+                {
+                    string title = I18n.T("notif_unlocked_title");
+                    string msg = I18n.T("notif_unlocked_body");
+                    _onNotification?.Invoke(title, msg, 1);
+                }
+                // 4. TRANSITION: Unlocked -> Locked
+                else if (_lastState == 4 && currentState != 4)
+                {
+                    string title = I18n.T("notif_locked_title");
+                    string msg = I18n.T("notif_locked_body");
+                    PurgeSshAgent();
+                    RevokeSessionGrant();
+                    _onNotification?.Invoke(title, msg, 2);
+                }
             }
 
-            _lastState = sg.State;
-            _lastConnected = dev.Connected;
+            _lastState = currentState;
+            _lastConnected = isConnected;
         }
         catch { }
     }

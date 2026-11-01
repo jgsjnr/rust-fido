@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""AegisKey System Tray Application — Cross-Platform Cyber-Security Authority.
+"""AegisKey Desktop Companion & System Tray App — Cross-Platform Cyber-Security Authority.
 
-Runs in the System Tray with Material 3 Dark/Cyan styling matching the mobile app.
-Zero mocks — connects directly to physical AegisKey ESP32-S3 silicon on COM7 / USB.
-Provides 4 core sections:
-1. Secure Guard Authority (Real Zero-Trust Device State, PIN Unlock/Lock, Provisioning)
-2. Hardware Vault & Crypto Wallets (Gated by Secure Guard state)
-3. Hardware TOTP Codes (ESP32-S3 0x26 OP_OATH_CODE live calculations)
-4. SSH Guard Integration (Zero-Password SSH while Unlocked, Instant Purge on Lock/Unplug)
+Runs as a complete Desktop Application with native System Tray integration.
+Features:
+1. Vault & Secure Guard Authority (Real Zero-Trust Device State, PIN Unlock/Lock, Provisioning & Hardware Vault)
+2. TOTP Authenticator (ESP32-S3 0x26 OP_OATH_CODE live calculations with 1-click copy)
+3. Connected Keys & BLE Proximity Lock (Telemetry, Port/VID/PID, and Windows Dynamic Lock engine)
+4. SSH Guard & Settings (Zero-Password SSH lifespan, Instant Purge on Lock/Unplug, SSH_ASKPASS config, i18n)
+
+Provides native operating system alerts (Windows Balloon/Toast, Linux notify-send, macOS osascript)
+when hardware keys are connected, disconnected, or when Secure Guard state changes.
 """
 
 from __future__ import annotations
@@ -21,11 +23,12 @@ import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
-from typing import Optional
+from typing import Any, Dict, Optional
 
 # Local imports
 from hardware_client import AegisHardwareClient, DeviceInfo, SecureGuardStatus
 from i18n import t
+from notifications import NOTIFIER, NativeNotifier
 from ssh_guard import SshGuard
 
 # Material 3 Cyber-Security Dark Palette (Exact Mobile Match)
@@ -41,14 +44,17 @@ COLOR_TEXT_MUTED = "#9CA3AF"
 COLOR_INPUT_BG = "#1A2234"
 
 
-class AegisTrayApp:
+class AegisDesktopApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.lang = "en"  # "en" or "pt"
         self.root.title(t("app_title", self.lang))
-        self.root.geometry("640x740")
-        self.root.minsize(580, 680)
+        self.root.geometry("680x760")
+        self.root.minsize(620, 700)
         self.root.configure(bg=COLOR_BG)
+
+        # Center window on screen at startup
+        self._center_window(680, 760)
 
         # High-DPI support on Windows
         if platform.system() == "Windows":
@@ -58,6 +64,7 @@ class AegisTrayApp:
                 pass
 
         # Hardware & Security engines (Zero Mocks)
+        self.notifier = NOTIFIER
         self.hw_client = AegisHardwareClient()
         self.ssh_guard = SshGuard(
             hardware_client=self.hw_client,
@@ -65,10 +72,13 @@ class AegisTrayApp:
             on_state_change_callback=self._on_guard_state_change,
         )
 
-        # State cache
+        # Telemetry & State Tracking for Connection Notifications
         self.current_device = DeviceInfo()
         self.current_guard = SecureGuardStatus()
-        self.current_tab = "sg"
+        self.current_tab = "vault_sg"
+        self._prev_connected: Optional[bool] = None
+        self._prev_state: Optional[int] = None
+        self._is_first_sync = True
 
         # Intercept window close to minimize to system tray
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
@@ -78,12 +88,23 @@ class AegisTrayApp:
         self._build_navigation_bar()
         self._build_content_panels()
 
+        # Initialize native system tray icon
+        self._setup_system_tray()
+
         # Start background polling and SSH watchdog
         self.ssh_guard.start_watchdog(interval_seconds=1.5)
         self._start_background_sync()
 
-        # Initialize native system tray icon
-        self._setup_system_tray()
+        # Ensure window is visible, centered, and active on launch
+        self.show_from_tray()
+
+    def _center_window(self, width: int, height: int):
+        self.root.update_idletasks()
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
 
     def _setup_styles(self):
         style = ttk.Style()
@@ -95,10 +116,10 @@ class AegisTrayApp:
     # SINGLE HEADER (ASD-STE100, No Duplication, i18n EN/PT)
     # =========================================================================
     def _build_header(self):
-        header_frame = tk.Frame(self.root, bg=COLOR_BG, padx=20, pady=16)
+        header_frame = tk.Frame(self.root, bg=COLOR_BG, padx=20, pady=14)
         header_frame.pack(fill="x")
 
-        # Top row: Brand + Language Toggle
+        # Top row: Brand Title & Language Toggle
         top_row = tk.Frame(header_frame, bg=COLOR_BG)
         top_row.pack(fill="x")
 
@@ -124,7 +145,7 @@ class AegisTrayApp:
         self.lbl_subtitle.pack(anchor="w")
 
         # Language toggle button
-        lang_btn = tk.Button(
+        self.btn_lang = tk.Button(
             top_row,
             text="EN / PT",
             font=("Segoe UI", 8, "bold"),
@@ -139,11 +160,11 @@ class AegisTrayApp:
             cursor="hand2",
             command=self._toggle_language,
         )
-        lang_btn.pack(side="right")
+        self.btn_lang.pack(side="right")
 
         # Single Hardware Detection & Connection Badge Banner
         self.banner_frame = tk.Frame(
-            header_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_CARD_BORDER, padx=12, pady=10
+            header_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_CARD_BORDER, padx=14, pady=10
         )
         self.banner_frame.pack(fill="x", pady=(12, 0))
 
@@ -162,7 +183,7 @@ class AegisTrayApp:
             font=("Segoe UI", 8, "bold"),
             fg=COLOR_AMBER,
             bg=COLOR_INPUT_BG,
-            padx=8,
+            padx=10,
             pady=3,
         )
         self.lbl_conn_badge.pack(side="right")
@@ -174,14 +195,14 @@ class AegisTrayApp:
     def _refresh_i18n_labels(self):
         self.lbl_title.config(text=t("app_title", self.lang))
         self.lbl_subtitle.config(text=t("app_subtitle", self.lang))
-        self.btn_nav_sg.config(text=t("tab_secure_guard", self.lang))
-        self.btn_nav_vault.config(text=t("tab_vault", self.lang))
+        self.btn_nav_vault_sg.config(text=t("tab_vault_sg", self.lang))
         self.btn_nav_totp.config(text=t("tab_totp", self.lang))
-        self.btn_nav_ssh.config(text=t("tab_ssh_guard", self.lang))
+        self.btn_nav_conn.config(text=t("tab_connected_keys", self.lang))
+        self.btn_nav_ssh.config(text=t("tab_ssh_settings", self.lang))
         self._render_current_tab()
 
     # =========================================================================
-    # NAVIGATION TABS
+    # NAVIGATION TABS (4 SECTIONS)
     # =========================================================================
     def _build_navigation_bar(self):
         nav_frame = tk.Frame(self.root, bg=COLOR_BG, padx=20, pady=4)
@@ -198,25 +219,25 @@ class AegisTrayApp:
                 activeforeground=COLOR_CYAN,
                 relief="flat",
                 bd=0,
-                padx=12,
-                pady=6,
+                padx=10,
+                pady=7,
                 cursor="hand2",
                 command=lambda: self._switch_tab(tab_id),
             )
             btn.pack(side="left", padx=(0, 6))
             return btn
 
-        self.btn_nav_sg = make_tab("tab_secure_guard", "sg")
-        self.btn_nav_vault = make_tab("tab_vault", "vault")
+        self.btn_nav_vault_sg = make_tab("tab_vault_sg", "vault_sg")
         self.btn_nav_totp = make_tab("tab_totp", "totp")
-        self.btn_nav_ssh = make_tab("tab_ssh_guard", "ssh")
+        self.btn_nav_conn = make_tab("tab_connected_keys", "conn")
+        self.btn_nav_ssh = make_tab("tab_ssh_settings", "ssh")
 
     def _switch_tab(self, tab_id: str):
         self.current_tab = tab_id
         for bid, btn in [
-            ("sg", self.btn_nav_sg),
-            ("vault", self.btn_nav_vault),
+            ("vault_sg", self.btn_nav_vault_sg),
             ("totp", self.btn_nav_totp),
+            ("conn", self.btn_nav_conn),
             ("ssh", self.btn_nav_ssh),
         ]:
             if bid == tab_id:
@@ -234,19 +255,20 @@ class AegisTrayApp:
         for widget in self.content_container.winfo_children():
             widget.destroy()
 
-        if self.current_tab == "sg":
-            self._render_section_secure_guard()
-        elif self.current_tab == "vault":
-            self._render_section_vault()
+        if self.current_tab == "vault_sg":
+            self._render_section_vault_sg()
         elif self.current_tab == "totp":
             self._render_section_totp()
+        elif self.current_tab == "conn":
+            self._render_section_connected_keys()
         elif self.current_tab == "ssh":
-            self._render_section_ssh_guard()
+            self._render_section_ssh_settings()
 
     # =========================================================================
-    # SECTION 1: SECURE GUARD AUTHORITY
+    # SECTION 1: VAULT & SECURE GUARD AUTHORITY
     # =========================================================================
-    def _render_section_secure_guard(self):
+    def _render_section_vault_sg(self):
+        # Outer scrollable or direct frame
         card = tk.Frame(
             self.content_container,
             bg=COLOR_CARD,
@@ -266,13 +288,13 @@ class AegisTrayApp:
         ).pack(anchor="w")
 
         # Telemetry grid
-        grid_frame = tk.Frame(card, bg=COLOR_CARD, pady=12)
+        grid_frame = tk.Frame(card, bg=COLOR_CARD, pady=8)
         grid_frame.pack(fill="x")
 
         # Status badge
         tk.Label(
             grid_frame, text=t("sg_status_label", self.lang), font=("Segoe UI", 9), fg=COLOR_TEXT_MUTED, bg=COLOR_CARD
-        ).grid(row=0, column=0, sticky="w", pady=4)
+        ).grid(row=0, column=0, sticky="w", pady=3)
 
         state_color = COLOR_EMERALD if self.current_guard.unlocked else COLOR_AMBER
         if self.current_guard.state in (0, 5, 6, 9):
@@ -287,7 +309,7 @@ class AegisTrayApp:
             padx=8,
             pady=2,
         )
-        state_badge.grid(row=0, column=1, sticky="w", padx=10, pady=4)
+        state_badge.grid(row=0, column=1, sticky="w", padx=10, pady=3)
 
         # Attempts badge
         tk.Label(
@@ -296,7 +318,7 @@ class AegisTrayApp:
             font=("Segoe UI", 9),
             fg=COLOR_TEXT_MUTED,
             bg=COLOR_CARD,
-        ).grid(row=1, column=0, sticky="w", pady=4)
+        ).grid(row=1, column=0, sticky="w", pady=3)
 
         attempts_text = f"[{self.current_guard.remaining_attempts}/{self.current_guard.max_attempts}]"
         attempts_color = COLOR_EMERALD if self.current_guard.remaining_attempts >= 3 else COLOR_CORAL
@@ -306,7 +328,7 @@ class AegisTrayApp:
             font=("Segoe UI", 9, "bold"),
             fg=attempts_color,
             bg=COLOR_CARD,
-        ).grid(row=1, column=1, sticky="w", padx=10, pady=4)
+        ).grid(row=1, column=1, sticky="w", padx=10, pady=3)
 
         # Session countdown
         tk.Label(
@@ -315,7 +337,7 @@ class AegisTrayApp:
             font=("Segoe UI", 9),
             fg=COLOR_TEXT_MUTED,
             bg=COLOR_CARD,
-        ).grid(row=2, column=0, sticky="w", pady=4)
+        ).grid(row=2, column=0, sticky="w", pady=3)
 
         rem_sec = max(0, self.current_guard.session_remaining_ms // 1000)
         sess_str = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}" if self.current_guard.unlocked else "--:--"
@@ -325,25 +347,13 @@ class AegisTrayApp:
             font=("Segoe UI", 9, "bold"),
             fg=COLOR_CYAN if self.current_guard.unlocked else COLOR_TEXT_MUTED,
             bg=COLOR_CARD,
-        ).grid(row=2, column=1, sticky="w", padx=10, pady=4)
+        ).grid(row=2, column=1, sticky="w", padx=10, pady=3)
 
-        # Separator line
-        sep = tk.Frame(card, height=1, bg=COLOR_CARD_BORDER)
-        sep.pack(fill="x", pady=10)
-
-        # Actions area
+        # Actions area (PIN Unlock or Lock Now)
         actions_box = tk.Frame(card, bg=COLOR_CARD)
-        actions_box.pack(fill="x", pady=8)
+        actions_box.pack(fill="x", pady=6)
 
         if not self.current_guard.unlocked:
-            tk.Label(
-                actions_box,
-                text="PIN:",
-                font=("Segoe UI", 9, "bold"),
-                fg=COLOR_TEXT_PRIMARY,
-                bg=COLOR_CARD,
-            ).pack(anchor="w", pady=(0, 4))
-
             pin_row = tk.Frame(actions_box, bg=COLOR_CARD)
             pin_row.pack(fill="x")
 
@@ -378,7 +388,6 @@ class AegisTrayApp:
             )
             btn_unlock.pack(side="left")
 
-            # Fast provision if unprovisioned
             if not self.current_guard.provisioned:
                 btn_prov = tk.Button(
                     actions_box,
@@ -393,9 +402,8 @@ class AegisTrayApp:
                     cursor="hand2",
                     command=self._action_provision,
                 )
-                btn_prov.pack(anchor="w", pady=(10, 0))
+                btn_prov.pack(anchor="w", pady=(8, 0))
         else:
-            # Unlocked state: Show Lock Now button
             btn_lock = tk.Button(
                 actions_box,
                 text=t("sg_btn_lock", self.lang),
@@ -418,107 +426,45 @@ class AegisTrayApp:
             font=("Segoe UI", 8),
             fg=COLOR_CYAN,
             bg=COLOR_CARD,
-            wraplength=520,
+            wraplength=560,
             justify="left",
         )
-        self.lbl_sg_feedback.pack(anchor="w", pady=(12, 0))
+        self.lbl_sg_feedback.pack(anchor="w", pady=(6, 4))
 
-    def _action_unlock_pin(self):
-        pin = getattr(self, "ent_pin", None)
-        if not pin:
-            return
-        pin_val = pin.get().strip()
-        if not pin_val:
-            self.lbl_sg_feedback.config(text="Enter a PIN.", fg=COLOR_AMBER)
-            return
+        # Separator line
+        tk.Frame(card, height=1, bg=COLOR_CARD_BORDER).pack(fill="x", pady=8)
 
-        res = self.hw_client.unlock_secure_guard(pin_val)
-        if res.get("ok"):
-            self.lbl_sg_feedback.config(text=t("sg_unlock_success", self.lang), fg=COLOR_EMERALD)
-            self._sync_immediate()
-        else:
-            err = res.get("error") or res.get("message") or t("sg_unlock_failed", self.lang)
-            self.lbl_sg_feedback.config(text=f"Error: {err}", fg=COLOR_CORAL)
-            self._sync_immediate()
-
-    def _action_lock_now(self):
-        res = self.hw_client.lock_secure_guard()
-        self.lbl_sg_feedback.config(text=t("sg_lock_success", self.lang), fg=COLOR_AMBER)
-        self._sync_immediate()
-
-    def _action_provision(self):
-        pin = getattr(self, "ent_pin", None)
-        pin_val = pin.get().strip() if pin else ""
-        if len(pin_val) < 4:
-            self.lbl_sg_feedback.config(text="PIN must be at least 4 digits.", fg=COLOR_AMBER)
-            return
-        res = self.hw_client.provision_secure_guard(pin_val)
-        if res.get("ok"):
-            self.lbl_sg_feedback.config(text="Provisioned successfully! You may now unlock.", fg=COLOR_EMERALD)
-            self._sync_immediate()
-        else:
-            self.lbl_sg_feedback.config(text=f"Provisioning failed: {res.get('error')}", fg=COLOR_CORAL)
-
-    # =========================================================================
-    # SECTION 2: HARDWARE VAULT & WALLETS (Gated by Secure Guard state)
-    # =========================================================================
-    def _render_section_vault(self):
-        card = tk.Frame(
-            self.content_container,
-            bg=COLOR_CARD,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD_BORDER,
-            padx=18,
-            pady=16,
-        )
-        card.pack(fill="both", expand=True)
-
-        header_row = tk.Frame(card, bg=COLOR_CARD)
-        header_row.pack(fill="x", pady=(0, 10))
-
+        # Hardware Vault Area
         tk.Label(
-            header_row,
-            text=t("vault_title", self.lang),
-            font=("Segoe UI", 12, "bold"),
+            card,
+            text=t("vault_subtitle", self.lang),
+            font=("Segoe UI", 11, "bold"),
             fg=COLOR_TEXT_PRIMARY,
             bg=COLOR_CARD,
-        ).pack(side="left")
+        ).pack(anchor="w")
 
-        # Zero-Trust Barrier: If Secure Guard is LOCKED, hide credentials
         if not self.current_guard.unlocked:
             lock_box = tk.Frame(
-                card, bg=COLOR_INPUT_BG, highlightthickness=1, highlightbackground=COLOR_AMBER, padx=16, pady=20
+                card, bg=COLOR_INPUT_BG, highlightthickness=1, highlightbackground=COLOR_AMBER, padx=14, pady=12
             )
-            lock_box.pack(fill="x", pady=20)
+            lock_box.pack(fill="x", pady=8)
 
             tk.Label(
                 lock_box,
                 text=t("vault_locked_banner", self.lang),
-                font=("Segoe UI", 10, "bold"),
+                font=("Segoe UI", 9, "bold"),
                 fg=COLOR_AMBER,
                 bg=COLOR_INPUT_BG,
-                wraplength=480,
+                wraplength=520,
             ).pack()
-
-            btn_go_unlock = tk.Button(
-                lock_box,
-                text=t("sg_btn_unlock", self.lang),
-                font=("Segoe UI", 9, "bold"),
-                bg=COLOR_CYAN,
-                fg="#000000",
-                relief="flat",
-                bd=0,
-                padx=12,
-                pady=4,
-                cursor="hand2",
-                command=lambda: self._switch_tab("sg"),
-            )
-            btn_go_unlock.pack(pady=(12, 0))
             return
 
-        # UNLOCKED: List real hardware keys
+        # UNLOCKED: Show registered hardware keys & wallets
+        keys_header = tk.Frame(card, bg=COLOR_CARD)
+        keys_header.pack(fill="x", pady=(4, 6))
+
         btn_create = tk.Button(
-            header_row,
+            keys_header,
             text=t("vault_btn_create", self.lang),
             font=("Segoe UI", 8, "bold"),
             bg=COLOR_CYAN,
@@ -542,30 +488,22 @@ class AegisTrayApp:
                 font=("Segoe UI", 9),
                 fg=COLOR_TEXT_MUTED,
                 bg=COLOR_CARD,
-            ).pack(anchor="w", pady=10)
+            ).pack(anchor="w", pady=6)
             return
 
-        scroll_canvas = tk.Canvas(card, bg=COLOR_CARD, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(card, orient="vertical", command=scroll_canvas.yview)
-        list_frame = tk.Frame(scroll_canvas, bg=COLOR_CARD)
+        vault_list = tk.Frame(card, bg=COLOR_CARD)
+        vault_list.pack(fill="both", expand=True)
 
-        list_frame.bind("<Configure>", lambda e: scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all")))
-        scroll_canvas.create_window((0, 0), window=list_frame, anchor="nw")
-        scroll_canvas.configure(yscrollcommand=scrollbar.set)
-
-        scroll_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        for k in keys:
+        for k in keys[:4]:
             row = tk.Frame(
-                list_frame,
+                vault_list,
                 bg=COLOR_INPUT_BG,
                 highlightthickness=1,
                 highlightbackground=COLOR_CARD_BORDER,
                 padx=10,
-                pady=8,
+                pady=6,
             )
-            row.pack(fill="x", pady=4, expand=True)
+            row.pack(fill="x", pady=3)
 
             tk.Label(
                 row,
@@ -599,16 +537,16 @@ class AegisTrayApp:
             )
             btn_del.pack(side="right")
 
-        for w in wallets:
+        for w in wallets[:2]:
             row = tk.Frame(
-                list_frame,
+                vault_list,
                 bg=COLOR_INPUT_BG,
                 highlightthickness=1,
                 highlightbackground=COLOR_CARD_BORDER,
                 padx=10,
-                pady=8,
+                pady=6,
             )
-            row.pack(fill="x", pady=4, expand=True)
+            row.pack(fill="x", pady=3)
 
             tk.Label(
                 row,
@@ -626,6 +564,42 @@ class AegisTrayApp:
                 bg=COLOR_INPUT_BG,
             ).pack(anchor="w")
 
+    def _action_unlock_pin(self):
+        pin = getattr(self, "ent_pin", None)
+        if not pin:
+            return
+        pin_val = pin.get().strip()
+        if not pin_val:
+            self.lbl_sg_feedback.config(text="Enter a PIN.", fg=COLOR_AMBER)
+            return
+
+        res = self.hw_client.unlock_secure_guard(pin_val)
+        if res.get("ok"):
+            self.lbl_sg_feedback.config(text=t("sg_unlock_success", self.lang), fg=COLOR_EMERALD)
+            self._sync_immediate()
+        else:
+            err = res.get("error") or res.get("message") or t("sg_unlock_failed", self.lang)
+            self.lbl_sg_feedback.config(text=f"Error: {err}", fg=COLOR_CORAL)
+            self._sync_immediate()
+
+    def _action_lock_now(self):
+        self.hw_client.lock_secure_guard()
+        self.lbl_sg_feedback.config(text=t("sg_lock_success", self.lang), fg=COLOR_AMBER)
+        self._sync_immediate()
+
+    def _action_provision(self):
+        pin = getattr(self, "ent_pin", None)
+        pin_val = pin.get().strip() if pin else ""
+        if len(pin_val) < 4:
+            self.lbl_sg_feedback.config(text="PIN must be at least 4 digits.", fg=COLOR_AMBER)
+            return
+        res = self.hw_client.provision_secure_guard(pin_val)
+        if res.get("ok"):
+            self.lbl_sg_feedback.config(text="Provisioned successfully! You may now unlock.", fg=COLOR_EMERALD)
+            self._sync_immediate()
+        else:
+            self.lbl_sg_feedback.config(text=f"Provisioning failed: {res.get('error')}", fg=COLOR_CORAL)
+
     def _action_create_key(self):
         res = self.hw_client.create_key("PASSKEY_FIDO", "ed25519", curve=-8)
         if res.get("ok"):
@@ -638,7 +612,7 @@ class AegisTrayApp:
         self._render_current_tab()
 
     # =========================================================================
-    # SECTION 3: HARDWARE TOTP CODES
+    # SECTION 2: HARDWARE TOTP CODES
     # =========================================================================
     def _render_section_totp(self):
         card = tk.Frame(
@@ -684,10 +658,10 @@ class AegisTrayApp:
                 bg=COLOR_INPUT_BG,
                 highlightthickness=1,
                 highlightbackground=COLOR_CARD_BORDER,
-                padx=12,
-                pady=10,
+                padx=14,
+                pady=12,
             )
-            row.pack(fill="x", pady=4)
+            row.pack(fill="x", pady=5)
 
             name_box = tk.Frame(row, bg=COLOR_INPUT_BG)
             name_box.pack(side="left")
@@ -695,7 +669,7 @@ class AegisTrayApp:
             tk.Label(
                 name_box,
                 text=acc.name,
-                font=("Segoe UI", 9, "bold"),
+                font=("Segoe UI", 10, "bold"),
                 fg=COLOR_TEXT_PRIMARY,
                 bg=COLOR_INPUT_BG,
             ).pack(anchor="w")
@@ -704,7 +678,7 @@ class AegisTrayApp:
             tk.Label(
                 name_box,
                 text=code_str,
-                font=("Consolas", 14, "bold"),
+                font=("Consolas", 15, "bold"),
                 fg=COLOR_CYAN,
                 bg=COLOR_INPUT_BG,
             ).pack(anchor="w")
@@ -717,17 +691,88 @@ class AegisTrayApp:
                 fg="#000000",
                 relief="flat",
                 bd=0,
-                padx=10,
-                pady=4,
+                padx=12,
+                pady=5,
                 cursor="hand2",
                 command=lambda c=acc.code: self._copy_to_clipboard(c, t("totp_copied", self.lang)),
             )
             btn_copy.pack(side="right")
 
     # =========================================================================
-    # SECTION 4: SSH GUARD INTEGRATION (Zero-Password SSH while Unlocked)
+    # SECTION 3: CONNECTED KEYS & BLE PROXIMITY LOCK
     # =========================================================================
-    def _render_section_ssh_guard(self):
+    def _render_section_connected_keys(self):
+        card = tk.Frame(
+            self.content_container,
+            bg=COLOR_CARD,
+            highlightthickness=1,
+            highlightbackground=COLOR_CARD_BORDER,
+            padx=18,
+            pady=16,
+        )
+        card.pack(fill="both", expand=True)
+
+        tk.Label(
+            card,
+            text=t("conn_title", self.lang),
+            font=("Segoe UI", 12, "bold"),
+            fg=COLOR_TEXT_PRIMARY,
+            bg=COLOR_CARD,
+        ).pack(anchor="w")
+
+        # Physical Hardware Telemetry Box
+        tele_box = tk.Frame(
+            card, bg=COLOR_INPUT_BG, highlightthickness=1, highlightbackground=COLOR_CARD_BORDER, padx=14, pady=12
+        )
+        tele_box.pack(fill="x", pady=12)
+
+        def add_info_row(parent, label_key, val_text, val_color=COLOR_TEXT_PRIMARY):
+            r = tk.Frame(parent, bg=COLOR_INPUT_BG)
+            r.pack(fill="x", pady=3)
+            tk.Label(r, text=t(label_key, self.lang), font=("Segoe UI", 9), fg=COLOR_TEXT_MUTED, bg=COLOR_INPUT_BG).pack(
+                side="left"
+            )
+            tk.Label(r, text=f" {val_text}", font=("Segoe UI", 9, "bold"), fg=val_color, bg=COLOR_INPUT_BG).pack(
+                side="left"
+            )
+
+        add_info_row(tele_box, "badge_hardware", self.current_device.product, COLOR_CYAN)
+        add_info_row(tele_box, "conn_chip_label", self.current_device.chip, COLOR_TEXT_PRIMARY)
+        add_info_row(tele_box, "conn_port_label", self.current_device.port, COLOR_TEXT_PRIMARY)
+        add_info_row(tele_box, "conn_vidpid_label", f"{self.current_device.vid}:{self.current_device.pid}", COLOR_TEXT_MUTED)
+        conn_col = COLOR_EMERALD if self.current_device.connected else COLOR_CORAL
+        conn_txt = t("connected", self.lang) if self.current_device.connected else t("disconnected", self.lang)
+        add_info_row(tele_box, "conn_status_label", conn_txt.upper(), conn_col)
+
+        # BLE Proximity & Dynamic Lock Telemetry
+        prox_info = self.hw_client.get_proximity_status()
+        prox_box = tk.Frame(
+            card, bg=COLOR_INPUT_BG, highlightthickness=1, highlightbackground=COLOR_CARD_BORDER, padx=14, pady=12
+        )
+        prox_box.pack(fill="x", pady=(8, 0))
+
+        tk.Label(
+            prox_box,
+            text=t("conn_prox_title", self.lang),
+            font=("Segoe UI", 10, "bold"),
+            fg=COLOR_TEXT_PRIMARY,
+            bg=COLOR_INPUT_BG,
+        ).pack(anchor="w", pady=(0, 6))
+
+        is_prox_armed = prox_info.get("enabled", True)
+        add_info_row(
+            prox_box,
+            "conn_prox_status",
+            t("conn_prox_active", self.lang) if is_prox_armed else t("conn_prox_inactive", self.lang),
+            COLOR_EMERALD if is_prox_armed else COLOR_AMBER,
+        )
+        add_info_row(prox_box, "conn_prox_rssi", f"{prox_info.get('rssi_dbm', -35)} dBm", COLOR_CYAN)
+        add_info_row(prox_box, "conn_prox_threshold", f"{prox_info.get('threshold_dbm', -75)} dBm", COLOR_TEXT_MUTED)
+
+    # =========================================================================
+    # SECTION 4: SSH GUARD & SETTINGS
+    # =========================================================================
+    def _render_section_ssh_settings(self):
         card = tk.Frame(
             self.content_container,
             bg=COLOR_CARD,
@@ -754,7 +799,6 @@ class AegisTrayApp:
             bg=COLOR_CARD,
         ).pack(anchor="w", pady=(0, 10))
 
-        # Status Banner
         is_active = self.current_guard.unlocked and self.current_device.connected
         banner_bg = COLOR_INPUT_BG
         banner_border = COLOR_EMERALD if is_active else COLOR_AMBER
@@ -771,13 +815,12 @@ class AegisTrayApp:
             font=("Segoe UI", 9, "bold"),
             fg=COLOR_EMERALD if is_active else COLOR_AMBER,
             bg=banner_bg,
-            wraplength=480,
+            wraplength=520,
             justify="left",
         ).pack(anchor="w")
 
-        # Live ssh-agent RAM inspection
         id_count, id_msg = self.ssh_guard.get_agent_identities_count()
-        agent_box = tk.Frame(card, bg=COLOR_CARD, pady=8)
+        agent_box = tk.Frame(card, bg=COLOR_CARD, pady=6)
         agent_box.pack(fill="x")
 
         tk.Label(
@@ -797,10 +840,9 @@ class AegisTrayApp:
         ).pack(side="left")
 
         # Fast Actions Frame
-        actions_frame = tk.Frame(card, bg=COLOR_CARD, pady=10)
+        actions_frame = tk.Frame(card, bg=COLOR_CARD, pady=8)
         actions_frame.pack(fill="x")
 
-        # Button: Purge Now (ssh-add -D)
         btn_purge = tk.Button(
             actions_frame,
             text=t("ssh_btn_purge", self.lang),
@@ -816,7 +858,6 @@ class AegisTrayApp:
         )
         btn_purge.pack(side="left", padx=(0, 8))
 
-        # Button: Load Resident FIDO2 Keys (ssh-add -K)
         btn_fido2 = tk.Button(
             actions_frame,
             text=t("ssh_btn_load_fido2", self.lang),
@@ -832,7 +873,6 @@ class AegisTrayApp:
         )
         btn_fido2.pack(side="left", padx=(0, 8))
 
-        # Button: Copy SSH_ASKPASS Environment Script
         btn_env = tk.Button(
             actions_frame,
             text=t("ssh_btn_env", self.lang),
@@ -848,7 +888,7 @@ class AegisTrayApp:
         )
         btn_env.pack(side="left")
 
-        # Ephemeral Session Passphrase Section (Optional Mode A session token)
+        # Ephemeral Session Passphrase Section
         pass_box = tk.LabelFrame(
             card,
             text=t("ssh_ephemeral_label", self.lang),
@@ -858,7 +898,7 @@ class AegisTrayApp:
             padx=10,
             pady=8,
         )
-        pass_box.pack(fill="x", pady=12)
+        pass_box.pack(fill="x", pady=10)
 
         pass_row = tk.Frame(pass_box, bg=COLOR_CARD)
         pass_row.pack(fill="x")
@@ -912,10 +952,10 @@ class AegisTrayApp:
             font=("Segoe UI", 8),
             fg=COLOR_CYAN,
             bg=COLOR_CARD,
-            wraplength=480,
+            wraplength=520,
             justify="left",
         )
-        self.lbl_ssh_feedback.pack(anchor="w", pady=(8, 0))
+        self.lbl_ssh_feedback.pack(anchor="w", pady=(6, 0))
 
     def _action_purge_ssh(self):
         res = self.ssh_guard.purge_ssh_agent()
@@ -957,12 +997,9 @@ class AegisTrayApp:
     def _copy_to_clipboard(self, text: str, feedback_msg: str = ""):
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
-        if feedback_msg:
-            # Short notification in window title or tray
-            pass
 
     # =========================================================================
-    # BACKGROUND SYNC & REAL HARDWARE TELEMETRY LOOP
+    # BACKGROUND TELEMETRY & CONNECTION TRANSITION NOTIFICATIONS
     # =========================================================================
     def _start_background_sync(self):
         def sync_worker():
@@ -982,11 +1019,16 @@ class AegisTrayApp:
         self.root.after(0, self._apply_state_update, dev, sg)
 
     def _apply_state_update(self, dev: DeviceInfo, sg: SecureGuardStatus):
+        prev_conn = self._prev_connected
+        prev_st = self._prev_state
+
         self.current_device = dev
         self.current_guard = sg
+        self._prev_connected = dev.connected
+        self._prev_state = sg.state
 
         # Update Header Banner
-        dev_label = f"{dev.product} ({dev.port})" if dev.connected else f"{dev.product} ({dev.port})"
+        dev_label = f"{dev.product} ({dev.port})"
         self.lbl_device_name.config(text=dev_label)
 
         if dev.connected:
@@ -998,12 +1040,52 @@ class AegisTrayApp:
                 text=t("disconnected", self.lang).upper(), fg=COLOR_CORAL, bg=COLOR_INPUT_BG
             )
 
-        # Re-render active tab if telemetry changed
-        if self.current_tab in ("sg", "vault", "ssh"):
-            self._render_current_tab()
+        # STATE TRANSITION DETECTION & NATIVE NOTIFICATIONS
+        if not self._is_first_sync:
+            # 1. DISCONNECTED -> CONNECTED
+            if prev_conn is False and dev.connected is True:
+                self.notifier.notify(
+                    title=t("notif_conn_title", self.lang),
+                    message=t("notif_conn_body", self.lang, port=dev.port, state=sg.state_name),
+                    level="info",
+                )
+                # Auto-switch to Vault & Secure Guard if locked
+                if not sg.unlocked:
+                    self._switch_tab("vault_sg")
+
+            # 2. CONNECTED -> DISCONNECTED
+            elif prev_conn is True and dev.connected is False:
+                self.notifier.notify(
+                    title=t("notif_disconn_title", self.lang),
+                    message=t("notif_disconn_body", self.lang),
+                    level="warning",
+                )
+                self.ssh_guard.purge_ssh_agent()
+
+            # 3. LOCKED -> UNLOCKED
+            if prev_st is not None and prev_st != 4 and sg.state == 4:
+                self.notifier.notify(
+                    title=t("notif_unlocked_title", self.lang),
+                    message=t("notif_unlocked_body", self.lang),
+                    level="info",
+                )
+
+            # 4. UNLOCKED -> LOCKED
+            elif prev_st == 4 and sg.state != 4:
+                self.notifier.notify(
+                    title=t("notif_locked_title", self.lang),
+                    message=t("notif_locked_body", self.lang),
+                    level="warning",
+                )
+                self.ssh_guard.purge_ssh_agent()
+        else:
+            self._is_first_sync = False
+
+        # Re-render active tab
+        self._render_current_tab()
 
     def _on_ssh_purge(self, msg: str):
-        self.root.after(0, self._show_tray_notification, "AegisKey Security Alert", msg)
+        self.notifier.notify("AegisKey Security Alert", msg, level="warning")
 
     def _on_guard_state_change(self, is_unlocked: bool):
         self.root.after(0, self._sync_immediate)
@@ -1016,7 +1098,6 @@ class AegisTrayApp:
         if platform.system() == "Windows":
             self._setup_win32_tray()
         else:
-            # Linux / macOS fallback using pystray if available or dock icon
             try:
                 import pystray
                 from PIL import Image, ImageDraw
@@ -1036,17 +1117,13 @@ class AegisTrayApp:
                 pass
 
     def _setup_win32_tray(self):
-        """Native Windows Shell_NotifyIcon implementation with zero third-party dependencies."""
-        # Standard Win32 constants
+        """Native Windows Shell_NotifyIcon implementation with zero external dependencies."""
         WM_USER = 0x0400
         self.WM_TRAY_CALLBACK = WM_USER + 20
         NIM_ADD = 0x00000000
-        NIM_MODIFY = 0x00000001
-        NIM_DELETE = 0x00000002
         NIF_MESSAGE = 0x00000001
         NIF_ICON = 0x00000002
         NIF_TIP = 0x00000004
-        NIF_INFO = 0x00000010
 
         class NOTIFYICONDATAW(ctypes.Structure):
             _fields_ = [
@@ -1080,23 +1157,14 @@ class AegisTrayApp:
 
         # Register tray icon
         ctypes.windll.shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(self.nid))
-
-    def _show_tray_notification(self, title: str, message: str):
-        if platform.system() == "Windows" and hasattr(self, "nid"):
-            NIM_MODIFY = 0x00000001
-            NIF_INFO = 0x00000010
-            self.nid.uFlags |= NIF_INFO
-            self.nid.szInfoTitle = title[:63]
-            self.nid.szInfo = message[:255]
-            self.nid.dwInfoFlags = 0x00000002  # NIIF_WARNING
-            ctypes.windll.shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(self.nid))
+        self.notifier.attach_win32_nid(self.nid)
 
     def hide_to_tray(self):
-        """Hides the main window while keeping tray daemon and SSH watchdog alive."""
+        """Hides the main window while keeping the background daemon and SSH watchdog alive."""
         self.root.withdraw()
 
     def show_from_tray(self, *args):
-        """Restores window to foreground."""
+        """Restores and focuses the main desktop window."""
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
@@ -1113,7 +1181,7 @@ class AegisTrayApp:
 
 def main():
     root = tk.Tk()
-    app = AegisTrayApp(root)
+    app = AegisDesktopApp(root)
     root.mainloop()
 
 
