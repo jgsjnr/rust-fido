@@ -158,6 +158,19 @@ pub fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
+/// HKDF-SHA256 key derivation adhering to RFC 5869.
+pub fn hkdf_sha256(
+    salt: &[u8],
+    ikm: &[u8],
+    info: &[u8],
+    length: usize,
+) -> Result<alloc::vec::Vec<u8>, crate::error::SecureGuardError> {
+    let hk = hkdf::Hkdf::<Sha256>::new(if salt.is_empty() { None } else { Some(salt) }, ikm);
+    let mut okm = alloc::vec![0u8; length];
+    hk.expand(info, &mut okm).map_err(|_| crate::error::SecureGuardError::SecureChannelAuthFailed)?;
+    Ok(okm)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -213,10 +213,10 @@ flowchart TD
    - **Code-Only OLED SSD1306 Driver** (`crates/aegis-fido-firmware/src/oled_ssd1306_code_only.rs`, `OPP-06`). 128x64 virtual framebuffer in RAM. Preserves `HARDWARE_I2C_OLED_ATTACHED = false` so firmware runs decoupled without physical I2C screen blocking.
 
 4. **Layer 4 — Cryptographic Core no_std & Hardware Peripherals**:
-   - `SecureGuardEngine` in `crates/aegis-fido-core/src/secure_guard/`. Pure `no_std` state machine with 10 discrete states: `Unprovisioned (0x00)`, `Provisioning (0x01)`, `Locked (0x02)`, `Authenticating (0x03)`, `Unlocked (0x04)`, `RecoveryRequired (0x05)`, `RateLimited (0x06)`, `WipePending (0x07)`, `WipeInProgress (0x08)`, `ErrorLocked (0x09)`. Uses PBKDF2-HMAC-SHA256 (10,000 iterations) with `constant_time_eq_32`. Enforces 5 consecutive attempts limit, progressive backoff delay, and selective factory wipe.
-   - **Encrypted Channel** (`crates/aegis-fido-core/src/secure_guard/secure_channel.rs`, `GAP-02`). Protects PIN transmission on opcode `0x3B` using ephemeral ECDH P-256 key exchange, HKDF derivation, and AES-256-GCM AEAD encryption.
-   - **Glitch Guard & Anti-EMFI** (`crates/aegis-fido-core/src/secure_guard/glitch_guard.rs`, `GAP-06`). Mitigates clock/voltage glitching and fault injection via `GlitchResistantBool`, double-check evaluation with inverted logic (`cond && !inv_cond`), and hardware TRNG jitter delay loops.
-   - **Silicon HMAC-Anchored KDF** (`crates/aegis-fido-core/src/secure_guard/crypto.rs`, `GAP-03`). Derives keys anchored in hardware eFuse `BLOCK7` (`HMAC_UP`), with safe deterministic fallback for development boards.
+   - `SecureGuardEngine` in `crates/aegis-secure-guard/src/`. Pure `no_std` state machine with 10 discrete states: `Unprovisioned (0x00)`, `Provisioning (0x01)`, `Locked (0x02)`, `Authenticating (0x03)`, `Unlocked (0x04)`, `RecoveryRequired (0x05)`, `RateLimited (0x06)`, `WipePending (0x07)`, `WipeInProgress (0x08)`, `ErrorLocked (0x09)`. Uses PBKDF2-HMAC-SHA256 (10,000 iterations) with `constant_time_eq_32`. Enforces 5 consecutive attempts limit, progressive backoff delay, and selective factory wipe.
+   - **Encrypted Channel** (`crates/aegis-secure-guard/src/secure_channel.rs`, `GAP-02`). Protects PIN transmission on opcode `0x3B` using ephemeral ECDH P-256 key exchange, HKDF derivation, and AES-256-GCM AEAD encryption.
+   - **Glitch Guard & Anti-EMFI** (`crates/aegis-secure-guard/src/glitch_guard.rs`, `GAP-06`). Mitigates clock/voltage glitching and fault injection via `GlitchResistantBool`, double-check evaluation with inverted logic (`cond && !inv_cond`), and hardware TRNG jitter delay loops.
+   - **Silicon HMAC-Anchored KDF** (`crates/aegis-secure-guard/src/crypto.rs`, `GAP-03`). Derives keys anchored in hardware eFuse `BLOCK7` (`HMAC_UP`), with safe deterministic fallback for development boards.
    - **CTAP 2.1 Extensions** (`crates/aegis-fido-core/src/ctap/extensions_ctap21.rs`, `OPP-02`). Supports `hmac-secret` for disk encryption/vaults (KeePassXC/LUKS) and `largeBlobKey` for storing encrypted payloads up to 4 KiB.
    - **Shamir Secret Sharing SLIP-0039 2-of-3** (`crates/aegis-fido-core/src/wallet/shamir_slip39.rs`, `OPP-03/05`). Splits master seeds into 3 shares in Galois Field `GF(256)`. Requires quórum of 2 shares (Key 1 + Key 2 or Key + Paper) to reconstruct. Immediate `zeroize` in memory.
    - **Web3 Clear Signing Parser** (`crates/aegis-fido-core/src/wallet/clear_signing.rs`, `OPP-06`). Parses Ethereum EIP-1559, Bitcoin PSBT, and Solana transactions into cleartext human-readable format, preventing blind signing attacks.
@@ -292,7 +292,7 @@ flowchart TD
 | `docs/plans/` | Execution Roadmaps | `PLANS.md`, sprint tracking, integrated master execution plans |
 | `docs/tasks/` | Microtasks & Checklists | `TASKS.md`, HIL test checklists, verification tasks (T0-T20) |
 | `docs/evaluation/` | Verification & Benchmarks | `EVALUATION.md`, automated test reports, security gap & product opportunity specs |
-| `crates/` | Rust Workspace | `aegis-fido-core`, `aegis-fido-usb`, `aegis-fido-firmware`, `universal-device-sdk`, `uniffi-bridge` |
+| `crates/` | Rust Workspace | `aegis-secure-guard`, `aegis-fido-core`, `aegis-fido-usb`, `aegis-fido-firmware`, `universal-device-sdk`, `uniffi-bridge` |
 | `app-tray/` | Desktop Companion | Desktop System Tray App (.NET 9 C# + Python), OpenSSH Agent (`OPP-01`), OS Login (`OPP-04`) |
 | `app-android/` | Android Companion | Native companion app (`dev.aegiskey.app`) in Kotlin with Jetpack Compose |
 | `tools/` | Bridge & Web Cockpit | `host_hardware_android_bridge.py`, `web_dashboard/index.html`, test scripts, simulators |

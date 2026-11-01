@@ -1,0 +1,19 @@
+[package]
+name = "aegis-secure-guard"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sha2 = { workspace = true }
+hmac = { workspace = true }
+p256 = { workspace = true, features = ["ecdh"] }
+hkdf = "0.12"
+subtle = { version = "2.6", default-features = false }
+zeroize = { workspace = true }
+rand_core = { workspace = true }
+
+[dev-dependencies]
+rand = "0.8"

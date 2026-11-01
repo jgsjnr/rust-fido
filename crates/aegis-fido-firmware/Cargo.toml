@@ -26,6 +26,7 @@ prod-strict = []
 freertos = []
 
 [dependencies]
+aegis-secure-guard = { path = "../aegis-secure-guard" }
 aegis-fido-core = { path = "../aegis-fido-core" }
 aegis-fido-usb = { path = "../aegis-fido-usb" }
 embedded-graphics = { version = "0.8", optional = true }

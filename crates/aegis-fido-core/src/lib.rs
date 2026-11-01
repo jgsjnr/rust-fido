@@ -11,7 +11,8 @@ pub mod lifetime;
 pub mod oath;
 pub mod otp;
 pub mod policy;
-pub mod secure_guard;
+pub use aegis_secure_guard as secure_guard;
+pub use aegis_secure_guard::*;
 pub mod vault;
 pub mod wallet;
 
@@ -30,14 +31,6 @@ pub use oath::tlv::{
     VENDOR_OP_MIN,
 };
 pub use policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
-pub use secure_guard::{
-    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored,
-    double_check_authorization, GlitchResistantBool, HardwareHmacPeripheral,
-    ProtectedResourceClass, SealedPinPayload, SecureGuardAdminOp, SecureGuardAuditEvent,
-    SecureGuardAuditEventType, SecureGuardEngine, SecureGuardEcdhChannel, SecureGuardError,
-    SecureGuardPersistentRecord, SecureGuardPolicy, SecureGuardState, SecureGuardWipeScope,
-    SimulatedDevHardwareHmac, DO_NOT_BURN_EFUSE_BLOCK7_WARNING, MAX_ATTEMPTS,
-};
 pub use vault::AegisVault;
 pub use wallet::{
     parse_bitcoin_tx, parse_ethereum_tx, parse_solana_tx, recover_secret_from_2_shares,

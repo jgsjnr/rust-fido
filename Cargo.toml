@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/aegis-secure-guard",
     "crates/aegis-fido-core",
     "crates/aegis-fido-usb",
     "crates/aegis-fido-firmware",

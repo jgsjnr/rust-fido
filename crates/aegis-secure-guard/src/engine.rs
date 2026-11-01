@@ -405,6 +405,146 @@ impl SecureGuardEngine {
         }
     }
 
+
+    /// Verifies PIN for a critical action in constant time, applying failure policies and renewing active session on success.
+    pub fn verify_pin_for_critical_action(
+        &mut self,
+        pin: &[u8],
+        now_ms: u64,
+    ) -> Result<(), SecureGuardError> {
+        if self.state == SecureGuardState::ErrorLocked {
+            return Err(SecureGuardError::InvalidStateForOperation {
+                current: self.state,
+                expected: "Locked",
+            });
+        }
+
+        if !self.is_provisioned {
+            return Err(SecureGuardError::NotProvisioned);
+        }
+
+        if self.state == SecureGuardState::RecoveryRequired {
+            return Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired);
+        }
+
+        if matches!(
+            self.state,
+            SecureGuardState::WipePending | SecureGuardState::WipeInProgress
+        ) {
+            return Err(SecureGuardError::MaxAttemptsWipeTriggered {
+                simulated: self.last_wipe_simulated,
+            });
+        }
+
+        // Check if rate limited
+        if self.state == SecureGuardState::RateLimited {
+            if now_ms < self.rate_limit_until_ms {
+                return Err(SecureGuardError::RateLimited {
+                    remaining_ms: self.rate_limit_until_ms - now_ms,
+                });
+            }
+            // Rate limit expired
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
+            self.audit_log
+                .push(now_ms, SecureGuardAuditEventType::RateLimitExpired);
+        }
+
+        if self.state == SecureGuardState::Locked || self.state == SecureGuardState::Unlocked {
+            self.transition_to(SecureGuardState::Authenticating, now_ms)?;
+        }
+
+        let mut candidate_verifier =
+            derive_verifier(pin, &self.pin_salt, self.policy.pbkdf2_iterations);
+        let valid = constant_time_eq_32(&candidate_verifier, &self.pin_verifier);
+        candidate_verifier.zeroize();
+
+        if valid {
+            self.failed_attempts = 0;
+            self.rate_limit_until_ms = 0;
+            self.transition_to(SecureGuardState::Unlocked, now_ms)?;
+
+            self.session_expires_at_ms = now_ms.saturating_add(self.policy.session_duration_ms);
+            self.last_activity_ms = now_ms;
+
+            self.audit_log
+                .push(now_ms, SecureGuardAuditEventType::PinVerificationSuccess);
+            self.audit_log.push(
+                now_ms,
+                SecureGuardAuditEventType::SessionUnlocked {
+                    expires_at_ms: self.session_expires_at_ms,
+                },
+            );
+
+            Ok(())
+        } else {
+            self.failed_attempts = self.failed_attempts.saturating_add(1);
+            let failed = self.failed_attempts;
+            let remaining = MAX_ATTEMPTS.saturating_sub(failed);
+
+            self.audit_log.push(
+                now_ms,
+                SecureGuardAuditEventType::PinVerificationFailed {
+                    failed_attempts: failed,
+                    remaining_attempts: remaining,
+                },
+            );
+
+            if failed >= MAX_ATTEMPTS {
+                if self.policy.wipe_on_5_failures {
+                    self.transition_to(SecureGuardState::WipePending, now_ms)?;
+                    let _ = self.execute_wipe(now_ms);
+                    Err(SecureGuardError::MaxAttemptsWipeTriggered {
+                        simulated: self.last_wipe_simulated,
+                    })
+                } else {
+                    self.transition_to(SecureGuardState::RecoveryRequired, now_ms)?;
+                    Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+                }
+            } else {
+                let delay_ms = self.policy.compute_backoff_ms(failed);
+                if delay_ms > 0 {
+                    self.rate_limit_until_ms = now_ms.saturating_add(delay_ms);
+                    self.transition_to(SecureGuardState::RateLimited, now_ms)?;
+                    self.audit_log.push(
+                        now_ms,
+                        SecureGuardAuditEventType::RateLimitStarted {
+                            delay_ms,
+                            until_ms: self.rate_limit_until_ms,
+                        },
+                    );
+                    Err(SecureGuardError::RateLimited {
+                        remaining_ms: delay_ms,
+                    })
+                } else {
+                    self.transition_to(SecureGuardState::Locked, now_ms)?;
+                    Err(SecureGuardError::InvalidPin {
+                        remaining_attempts: remaining,
+                    })
+                }
+            }
+        }
+    }
+
+    /// Verifies PIN if provided, or validates active unexpired Unlocked session.
+    pub fn verify_pin_or_active_session(
+        &mut self,
+        pin: Option<&[u8]>,
+        now_ms: u64,
+    ) -> Result<(), SecureGuardError> {
+        if !self.is_provisioned {
+            return Ok(());
+        }
+        if let Some(p) = pin {
+            self.verify_pin_for_critical_action(p, now_ms)
+        } else {
+            let _ = self.check_and_touch_session(now_ms);
+            if self.is_unlocked() {
+                Ok(())
+            } else {
+                Err(SecureGuardError::NoActiveSession)
+            }
+        }
+    }
     /// Validates session deadlines (absolute and inactivity), locking automatically if expired.
     pub fn check_and_touch_session(&mut self, now_ms: u64) -> Result<bool, SecureGuardError> {
         if self.state != SecureGuardState::Unlocked {

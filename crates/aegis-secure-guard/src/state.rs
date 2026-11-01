@@ -86,7 +86,7 @@ impl SecureGuardState {
                     | Self::RecoveryRequired
                     | Self::WipePending
             ),
-            Self::Unlocked => matches!(target, Self::Locked | Self::Authenticating),
+            Self::Unlocked => matches!(target, Self::Locked | Self::Authenticating | Self::WipePending | Self::WipeInProgress),
             Self::RecoveryRequired => {
                 matches!(target, Self::Authenticating | Self::Locked | Self::Unlocked)
             }

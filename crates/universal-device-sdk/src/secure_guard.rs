@@ -547,6 +547,62 @@ pub fn encode_secure_guard_wipe_request(
     to_cbor(&Value::Map(map))
 }
 
+/// Codifica a requisição de configuração de políticas com PIN opcional (0x3D)
+pub fn encode_secure_guard_config_request_with_pin(
+    policy: &SecureGuardPolicyDto,
+    pin: Option<&[u8]>,
+) -> Result<Vec<u8>, SdkError> {
+    let mut map = vec![
+        (
+            Value::Text("wipe_on_5_failures".into()),
+            Value::Bool(policy.wipe_on_5_failures),
+        ),
+        (
+            Value::Text("protect_keys_and_aegn".into()),
+            Value::Bool(policy.protect_keys_and_aegn),
+        ),
+        (
+            Value::Text("protect_oath".into()),
+            Value::Bool(policy.protect_oath),
+        ),
+        (
+            Value::Text("test_mode_non_destructive_wipe".into()),
+            Value::Bool(policy.test_mode_non_destructive_wipe),
+        ),
+        (
+            Value::Text("session_duration_ms".into()),
+            Value::from(policy.session_duration_ms),
+        ),
+        (
+            Value::Text("inactivity_timeout_ms".into()),
+            Value::from(policy.inactivity_timeout_ms),
+        ),
+    ];
+    if let Some(p) = pin {
+        map.push((Value::Text("pin".into()), Value::Bytes(p.to_vec())));
+    }
+    to_cbor(&Value::Map(map))
+}
+
+/// Codifica a requisição de wipe seletivo com PIN opcional (0x3E)
+pub fn encode_secure_guard_wipe_request_with_pin(
+    scope: u8,
+    confirm_token: &str,
+    pin: Option<&[u8]>,
+) -> Result<Vec<u8>, SdkError> {
+    let mut map = vec![
+        (Value::Text("scope".into()), Value::from(scope)),
+        (
+            Value::Text("confirmation".into()),
+            Value::Text(confirm_token.into()),
+        ),
+        (Value::Text("confirm".into()), Value::Bool(true)),
+    ];
+    if let Some(p) = pin {
+        map.push((Value::Text("pin".into()), Value::Bytes(p.to_vec())));
+    }
+    to_cbor(&Value::Map(map))
+}
 /// Decodifica a resposta de wipe seletivo (0x3E)
 pub fn decode_secure_guard_wipe_response(
     payload: &[u8],
@@ -735,5 +791,10 @@ mod tests {
 
         let wipe_enc = encode_secure_guard_wipe_request(1, "CONFIRM_WIPE").expect("wipe");
         assert!(!wipe_enc.is_empty());
+        let cfg_pin = encode_secure_guard_config_request_with_pin(&SecureGuardPolicyDto::default(), Some(b"4927")).expect("config with pin");
+        assert!(!cfg_pin.is_empty());
+
+        let wipe_pin = encode_secure_guard_wipe_request_with_pin(1, "CONFIRM_WIPE", Some(b"4927")).expect("wipe with pin");
+        assert!(!wipe_pin.is_empty());
     }
 }

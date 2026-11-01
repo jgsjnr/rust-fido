@@ -21,9 +21,8 @@ use p256::{ecdh::diffie_hellman, PublicKey, SecretKey};
 use rand_core::{CryptoRng, RngCore};
 use zeroize::Zeroize;
 
-use crate::crypto::kdf::hkdf_sha256;
-use crate::secure_guard::crypto::{constant_time_eq_32, hmac_sha256};
-use crate::secure_guard::error::SecureGuardError;
+use crate::crypto::{constant_time_eq_32, hkdf_sha256, hmac_sha256};
+use crate::error::SecureGuardError;
 
 /// Domain separation salt for Secure Guard ECDH session key derivation.
 pub const SECURE_CHANNEL_HKDF_SALT: &[u8] = b"AegisKey-SecureGuard-EcdhChannel-v1";

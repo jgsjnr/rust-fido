@@ -756,40 +756,56 @@ fn handle_config<B: FlashStorageBackend>(
     payload: &[u8],
     now_ms: u64,
 ) -> (u8, Vec<u8>) {
-    let _ = engine.check_and_touch_session(now_ms);
+    let entries = match ciborium::from_reader(payload) {
+        Ok(Value::Map(entries)) => entries,
+        _ => Vec::new(),
+    };
 
-    if engine.is_provisioned() && !engine.is_unlocked() {
-        return (
-            CTAP2_ERR_PIN_REQUIRED,
-            to_cbor_bytes(&cbor_err("SECURE_GUARD_LOCKED")),
-        );
-    }
+    let pin_opt = get_field(&entries, "pin").and_then(extract_bytes);
 
-    if let Ok(Value::Map(entries)) = ciborium::from_reader(payload) {
-        if let Some(Value::Bool(b)) = get_field(&entries, "wipe_on_5_failures") {
-            engine.policy_mut().wipe_on_5_failures = *b;
-        }
-        if let Some(Value::Bool(b)) = get_field(&entries, "protect_keys_and_aegn") {
-            engine.policy_mut().protect_keys_and_aegn = *b;
-        }
-        if let Some(Value::Bool(b)) = get_field(&entries, "protect_oath") {
-            engine.policy_mut().protect_oath = *b;
-        }
-        if let Some(Value::Bool(b)) = get_field(&entries, "test_mode_non_destructive_wipe") {
-            engine.policy_mut().test_mode_non_destructive_wipe = *b;
-        }
-        if let Some(Value::Integer(i)) = get_field(&entries, "session_duration_ms") {
-            if let Ok(v) = u64::try_from(*i) {
-                engine.policy_mut().session_duration_ms = v;
+    if engine.is_provisioned() {
+        if let Some(pin) = pin_opt {
+            if let Err(e) = engine.verify_pin_for_critical_action(&pin, now_ms) {
+                let _ = save_secure_guard_record(storage, engine);
+                return (
+                    CTAP2_ERR_PIN_AUTH_INVALID,
+                    to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+                );
+            }
+        } else {
+            let _ = engine.check_and_touch_session(now_ms);
+            if !engine.is_unlocked() {
+                return (
+                    CTAP2_ERR_PIN_REQUIRED,
+                    to_cbor_bytes(&cbor_err("SECURE_GUARD_LOCKED")),
+                );
             }
         }
-        if let Some(Value::Integer(i)) = get_field(&entries, "inactivity_timeout_ms") {
-            if let Ok(v) = u64::try_from(*i) {
-                engine.policy_mut().inactivity_timeout_ms = v;
-            }
-        }
-        let _ = save_secure_guard_record(storage, engine);
     }
+
+    if let Some(Value::Bool(b)) = get_field(&entries, "wipe_on_5_failures") {
+        engine.policy_mut().wipe_on_5_failures = *b;
+    }
+    if let Some(Value::Bool(b)) = get_field(&entries, "protect_keys_and_aegn") {
+        engine.policy_mut().protect_keys_and_aegn = *b;
+    }
+    if let Some(Value::Bool(b)) = get_field(&entries, "protect_oath") {
+        engine.policy_mut().protect_oath = *b;
+    }
+    if let Some(Value::Bool(b)) = get_field(&entries, "test_mode_non_destructive_wipe") {
+        engine.policy_mut().test_mode_non_destructive_wipe = *b;
+    }
+    if let Some(Value::Integer(i)) = get_field(&entries, "session_duration_ms") {
+        if let Ok(v) = u64::try_from(*i) {
+            engine.policy_mut().session_duration_ms = v;
+        }
+    }
+    if let Some(Value::Integer(i)) = get_field(&entries, "inactivity_timeout_ms") {
+        if let Ok(v) = u64::try_from(*i) {
+            engine.policy_mut().inactivity_timeout_ms = v;
+        }
+    }
+    let _ = save_secure_guard_record(storage, engine);
 
     let out_map = vec![
         (
@@ -827,29 +843,47 @@ fn handle_wipe_selective<B: FlashStorageBackend>(
     payload: &[u8],
     now_ms: u64,
 ) -> (u8, Vec<u8>) {
-    let _ = engine.check_and_touch_session(now_ms);
+    let entries = match ciborium::from_reader(payload) {
+        Ok(Value::Map(entries)) => entries,
+        _ => Vec::new(),
+    };
 
-    let is_authorized = !engine.is_provisioned()
-        || engine.is_unlocked()
-        || engine.policy().test_mode_non_destructive_wipe;
+    let pin_opt = get_field(&entries, "pin").and_then(extract_bytes);
 
-    if !is_authorized {
-        return (
-            CTAP2_ERR_PIN_REQUIRED,
-            to_cbor_bytes(&cbor_err("SECURE_GUARD_LOCKED")),
-        );
+    if engine.is_provisioned() {
+        if let Some(pin) = pin_opt {
+            if let Err(e) = engine.verify_pin_for_critical_action(&pin, now_ms) {
+                let _ = save_secure_guard_record(storage, engine);
+                return (
+                    CTAP2_ERR_PIN_AUTH_INVALID,
+                    to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+                );
+            }
+        } else {
+            let _ = engine.check_and_touch_session(now_ms);
+            let is_authorized = engine.is_unlocked() || engine.policy().test_mode_non_destructive_wipe;
+            if !is_authorized {
+                return (
+                    CTAP2_ERR_PIN_REQUIRED,
+                    to_cbor_bytes(&cbor_err("SECURE_GUARD_LOCKED")),
+                );
+            }
+        }
     }
 
     // Valida confirmação explícita
     let mut confirmed = false;
-    if let Ok(Value::Map(entries)) = ciborium::from_reader(payload) {
-        if let Some(Value::Bool(b)) = get_field(&entries, "confirm") {
-            confirmed = *b;
+    if let Some(Value::Bool(b)) = get_field(&entries, "confirm") {
+        confirmed = *b;
+    }
+    if let Some(Value::Text(s)) = get_field(&entries, "scope") {
+        if s == "protected_resources" {
+            confirmed = true;
         }
-        if let Some(Value::Text(s)) = get_field(&entries, "scope") {
-            if s == "protected_resources" {
-                confirmed = true;
-            }
+    }
+    if let Some(Value::Text(s)) = get_field(&entries, "confirmation") {
+        if !s.is_empty() {
+            confirmed = true;
         }
     }
 
@@ -1278,5 +1312,178 @@ mod tests {
         } else {
             panic!("not map");
         }
+    }
+
+    #[test]
+    fn test_config_pin_validation() {
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut engine = SecureGuardEngine::new(SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            ..Default::default()
+        });
+        let mut rng = rand_core::OsRng;
+
+        // Provision PIN "4927"
+        let prov_map = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Bytes(b"4927".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(prov_map)),
+            1000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // 1. Config without PIN while Locked -> Rejects with CTAP2_ERR_PIN_REQUIRED (0x36)
+        let config_map = vec![
+            (Value::Text("wipe_on_5_failures".into()), Value::Bool(true)),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_CONFIG,
+            &to_cbor_bytes(&Value::Map(config_map)),
+            1100,
+            &mut rng,
+        );
+        assert_eq!(st, CTAP2_ERR_PIN_REQUIRED);
+
+        // 2. Config with WRONG PIN -> Rejects with CTAP2_ERR_PIN_AUTH_INVALID (0x33)
+        let config_bad_pin = vec![
+            (Value::Text("wipe_on_5_failures".into()), Value::Bool(true)),
+            (Value::Text("pin".into()), Value::Bytes(b"9999".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_CONFIG,
+            &to_cbor_bytes(&Value::Map(config_bad_pin)),
+            1200,
+            &mut rng,
+        );
+        assert_eq!(st, CTAP2_ERR_PIN_AUTH_INVALID);
+
+        // 3. Config with CORRECT PIN -> Succeeds (0x00) and updates policy
+        let config_good_pin = vec![
+            (Value::Text("wipe_on_5_failures".into()), Value::Bool(true)),
+            (Value::Text("pin".into()), Value::Bytes(b"4927".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_CONFIG,
+            &to_cbor_bytes(&Value::Map(config_good_pin)),
+            1300,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert!(engine.policy().wipe_on_5_failures);
+    }
+
+    #[test]
+    fn test_wipe_selective_pin_validation() {
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut engine = SecureGuardEngine::new(SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            test_mode_non_destructive_wipe: false,
+            ..Default::default()
+        });
+        let mut rng = rand_core::OsRng;
+
+        // Provision PIN "4927"
+        let prov_map = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Bytes(b"4927".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(prov_map)),
+            1000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // 1. Wipe without PIN while Locked -> Rejects with CTAP2_ERR_PIN_REQUIRED (0x36)
+        let wipe_no_pin = vec![
+            (Value::Text("confirm".into()), Value::Bool(true)),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_WIPE_SELECTIVE,
+            &to_cbor_bytes(&Value::Map(wipe_no_pin)),
+            1100,
+            &mut rng,
+        );
+        assert_eq!(st, CTAP2_ERR_PIN_REQUIRED);
+
+        // 2. Wipe with WRONG PIN -> Rejects with CTAP2_ERR_PIN_AUTH_INVALID (0x33)
+        let wipe_bad_pin = vec![
+            (Value::Text("confirm".into()), Value::Bool(true)),
+            (Value::Text("pin".into()), Value::Bytes(b"9999".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_WIPE_SELECTIVE,
+            &to_cbor_bytes(&Value::Map(wipe_bad_pin)),
+            1200,
+            &mut rng,
+        );
+        assert_eq!(st, CTAP2_ERR_PIN_AUTH_INVALID);
+
+        // 3. Wipe with CORRECT PIN + confirm -> Succeeds (0x00) and executes wipe
+        let wipe_good_pin = vec![
+            (Value::Text("confirm".into()), Value::Bool(true)),
+            (Value::Text("pin".into()), Value::Bytes(b"4927".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_WIPE_SELECTIVE,
+            &to_cbor_bytes(&Value::Map(wipe_good_pin)),
+            1300,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert_eq!(engine.state(), SecureGuardState::Unprovisioned);
     }
 }

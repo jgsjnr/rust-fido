@@ -16,6 +16,7 @@ dependencies = [
 name = "aegis-fido-core"
 version = "1.0.0"
 dependencies = [
+ "aegis-secure-guard",
  "aes",
  "aes-gcm",
  "bech32",
@@ -49,6 +50,7 @@ version = "1.0.0"
 dependencies = [
  "aegis-fido-core",
  "aegis-fido-usb",
+ "aegis-secure-guard",
  "aes",
  "aes-gcm",
  "ciborium",
@@ -78,6 +80,20 @@ dependencies = [
  "log",
  "rand_core",
  "sha2",
+ "zeroize",
+]
+
+[[package]]
+name = "aegis-secure-guard"
+version = "1.0.0"
+dependencies = [
+ "hkdf",
+ "hmac",
+ "p256",
+ "rand",
+ "rand_core",
+ "sha2",
+ "subtle",
  "zeroize",
 ]
 

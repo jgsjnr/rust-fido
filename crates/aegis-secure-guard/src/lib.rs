@@ -5,6 +5,9 @@
 //! strict 5-attempt lockout/wipe enforcement, autonomous firmware session authority, and
 //! non-blocking passkey FIDO2 coexistence.
 
+#![no_std]
+extern crate alloc;
+
 pub mod audit;
 pub mod crypto;
 pub mod engine;
@@ -21,7 +24,7 @@ pub use audit::{
     AUDIT_LOG_CAPACITY,
 };
 pub use crypto::{
-    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored, hmac_sha256,
+    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored, hkdf_sha256, hmac_sha256,
     pbkdf2_hmac_sha256, HardwareHmacPeripheral, SimulatedDevHardwareHmac,
     DO_NOT_BURN_EFUSE_BLOCK7_WARNING, PBKDF2_DEFAULT_ITERATIONS,
 };
@@ -544,5 +547,37 @@ mod tests {
             locked_engine.unlock_with_pin(TEST_PIN, 6000),
             Err(SecureGuardError::InvalidStateForOperation { .. })
         ));
+    }
+
+    #[test]
+    fn test_verify_pin_for_critical_action() {
+        let (mut engine, _) = create_test_engine();
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // 1. Wrong PIN fails and increments failed_attempts
+        let err = engine.verify_pin_for_critical_action(TEST_WRONG_PIN, 1500);
+        assert!(matches!(err, Err(SecureGuardError::InvalidPin { .. })));
+        assert_eq!(engine.failed_attempts(), 1);
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // 2. Correct PIN succeeds, resets failed_attempts, unlocks session
+        let ok = engine.verify_pin_for_critical_action(TEST_PIN, 1600);
+        assert!(ok.is_ok());
+        assert_eq!(engine.failed_attempts(), 0);
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // 3. While Unlocked, verifying correct PIN renews session and succeeds
+        let ok2 = engine.verify_pin_for_critical_action(TEST_PIN, 2000);
+        assert!(ok2.is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // 4. While Unlocked, entering wrong PIN fails and increments failed_attempts
+        let err2 = engine.verify_pin_for_critical_action(TEST_WRONG_PIN, 2100);
+        assert!(matches!(err2, Err(SecureGuardError::InvalidPin { .. })));
+        assert_eq!(engine.failed_attempts(), 1);
+
+        // 5. Helper verify_pin_or_active_session
+        assert!(engine.verify_pin_or_active_session(Some(TEST_PIN), 2200).is_ok());
+        assert!(engine.verify_pin_or_active_session(None, 2300).is_ok());
     }
 }
