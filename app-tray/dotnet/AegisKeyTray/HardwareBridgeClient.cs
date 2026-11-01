@@ -260,4 +260,45 @@ public class HardwareBridgeClient
             return false;
         }
     }
+
+    public async Task<List<ShamirShare>> ShamirSplitAsync(string? secretHex = null)
+    {
+        var shares = new List<ShamirShare>();
+        try
+        {
+            var payload = secretHex != null ? new { secret_hex = secretHex } : new object();
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/backup/shamir-split", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            if (json != null && json["shares"] is JsonArray arr)
+            {
+                foreach (var sh in arr)
+                {
+                    if (sh == null) continue;
+                    shares.Add(new ShamirShare(
+                        Index: sh["index"]?.GetValue<int>() ?? 0,
+                        Description: sh["description"]?.GetValue<string>() ?? "",
+                        ShareHex: sh["share_hex"]?.GetValue<string>() ?? ""
+                    ));
+                }
+            }
+        }
+        catch { }
+        return shares;
+    }
+
+    public async Task<string?> ClearSignPreviewAsync(string txType, string to, string amount, string fee)
+    {
+        try
+        {
+            var payload = new { tx_type = txType, to, amount, fee };
+            var res = await _http.PostAsJsonAsync($"{_baseUrl}/api/wallet/clear-sign-preview", payload);
+            var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+            if (json != null && json["screen"]?["ascii_frame"] is JsonArray arr)
+            {
+                return string.Join(Environment.NewLine, arr.Select(x => x?.ToString() ?? ""));
+            }
+        }
+        catch { }
+        return null;
+    }
 }

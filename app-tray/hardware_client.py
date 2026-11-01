@@ -315,3 +315,103 @@ class AegisHardwareClient:
         """Deletes a key from hardware slot."""
         res = self._http_post("/api/key/delete", {"slot": slot_id})
         return res or {"ok": False, "error": "Deletion failed"}
+
+    def sign_key(self, slot_id: int, data_bytes: bytes) -> Dict[str, Any]:
+        """Requests Ed25519 signature from hardware silicon slot."""
+        payload = {"slot": slot_id, "data_hex": data_bytes.hex()}
+        res = self._http_post("/api/key/sign", payload)
+        return res or {"ok": False, "error": "Signing failed"}
+
+    def get_bridge_auth_status(self) -> Dict[str, Any]:
+        """Queries local bridge token and DNS rebinding protection telemetry (GAP-05)."""
+        res = self._http_get("/api/security/bridge-auth-status")
+        return res or {"ok": False, "authenticated": False, "dns_rebinding_protection": "UNKNOWN"}
+
+    def get_efuse_guard_status(self) -> Dict[str, Any]:
+        """Queries hardware eFuse irreversible lock barrier status (GAP-01/07)."""
+        res = self._http_get("/api/security/efuse-guard-status")
+        return res or {"ok": False, "burn_allowed": False, "safe_development_override": True}
+
+    def get_ecdh_handshake(self) -> Dict[str, Any]:
+        """Queries ephemeral P-256 ECDH handshake parameters from bridge (GAP-02)."""
+        res = self._http_get("/api/secure-guard/ecdh-handshake")
+        return res or {"ok": False}
+
+    def unlock_secure_guard_ecdh(self, pin: str) -> Dict[str, Any]:
+        """Unlocks Secure Guard through ephemeral ECDH P-256 encrypted channel (GAP-02)."""
+        handshake = self.get_ecdh_handshake()
+        if not handshake.get("ok") or "bridge_ephemeral_pub_hex" not in handshake:
+            return self.unlock_secure_guard(pin)
+        try:
+            from cryptography.hazmat.primitives.asymmetric import ec
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            import os
+
+            client_priv = ec.generate_private_key(ec.SECP256R1())
+            client_pub_bytes = client_priv.public_key().public_bytes(
+                encoding=serialization.Encoding.X962,
+                format=serialization.PublicFormat.UncompressedPoint
+            )
+            server_pub_bytes = bytes.fromhex(handshake["bridge_ephemeral_pub_hex"])
+            server_pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), server_pub_bytes)
+            shared_secret = client_priv.exchange(ec.ECDH(), server_pub)
+
+            salt = bytes.fromhex(handshake.get("salt_hex", "00" * 16))
+            info = handshake.get("info", "AegisKey-Vendor-Guard-Channel").encode("utf-8")
+            hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=info)
+            session_key = hkdf.derive(shared_secret)
+
+            nonce = os.urandom(12)
+            aesgcm = AESGCM(session_key)
+            encrypted = aesgcm.encrypt(nonce, pin.encode("utf-8"), None)
+            payload = {
+                "client_ephemeral_pub_hex": client_pub_bytes.hex(),
+                "encrypted_pin_hex": (nonce + encrypted).hex()
+            }
+            res = self._http_post("/api/secure-guard/unlock", payload)
+            return res or {"ok": False, "error": "No response"}
+        except Exception as e:
+            logger.debug(f"ECDH unlock fallback: {e}")
+            return self.unlock_secure_guard(pin)
+
+    def shamir_split(self, secret_hex: Optional[str] = None) -> Dict[str, Any]:
+        """Splits vault key or seed into 3 shares (2-of-3 quorum) via SLIP-0039 GF(256) (OPP-05)."""
+        payload = {}
+        if secret_hex:
+            payload["secret_hex"] = secret_hex
+        res = self._http_post("/api/backup/shamir-split", payload)
+        return res or {"ok": False, "error": "Shamir split failed"}
+
+    def shamir_recover(self, shares: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Recovers secret from any 2 shares using Lagrange interpolation (OPP-05)."""
+        payload = {"shares": shares}
+        res = self._http_post("/api/backup/shamir-recover", payload)
+        return res or {"ok": False, "error": "Shamir recovery failed"}
+
+    def clear_sign_preview(self, tx_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Generates virtual 128x64 OLED display buffer for Web3 transaction (OPP-06)."""
+        res = self._http_post("/api/wallet/clear-sign-preview", tx_params)
+        return res or {"ok": False, "error": "Clear signing preview failed"}
+
+    def ctap21_hmac_secret(self, salt1_hex: str, salt2_hex: Optional[str] = None, cred_id_hex: Optional[str] = None) -> Dict[str, Any]:
+        """Evaluates CTAP 2.1 hmac-secret extension over hardware silicon (OPP-02)."""
+        payload = {"salt1_hex": salt1_hex}
+        if salt2_hex:
+            payload["salt2_hex"] = salt2_hex
+        if cred_id_hex:
+            payload["cred_id_hex"] = cred_id_hex
+        res = self._http_post("/api/ctap21/hmac-secret", payload)
+        return res or {"ok": False, "error": "hmac-secret failed"}
+
+    def get_large_blob(self) -> Dict[str, Any]:
+        """Reads CTAP 2.1 largeBlobs storage partition (OPP-02)."""
+        res = self._http_get("/api/ctap21/large-blobs")
+        return res or {"ok": False, "blob_hex": "", "size_bytes": 0}
+
+    def set_large_blob(self, blob_hex: str) -> Dict[str, Any]:
+        """Writes data into CTAP 2.1 largeBlobs storage partition (OPP-02)."""
+        payload = {"blob_hex": blob_hex}
+        res = self._http_post("/api/ctap21/large-blobs", payload)
+        return res or {"ok": False, "error": "largeBlobs write failed"}

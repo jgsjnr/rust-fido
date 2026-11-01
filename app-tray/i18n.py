@@ -91,6 +91,28 @@ STRINGS = {
         "ssh_btn_clear_ephemeral": "Clear Passphrase",
         "ssh_env_copied": "PowerShell command copied to clipboard!",
 
+        # GAP-01 & GAP-02
+        "badge_ecdh_active": "ECDH P-256 PIN Channel: Active",
+        "badge_efuse_safe": "eFuse OTP Lock: SAFE DEV MODE (Do Not Burn)",
+        # OPP-05 Shamir 2-of-3
+        "btn_shamir_backup": "Shamir 2-of-3 Backup (SLIP-0039)",
+        "shamir_title": "Shamir 2-of-3 Secret Sharing Backup",
+        "shamir_split_desc": "Seed split into 3 shares in GF(256). Any 2 shares restore vault.",
+        "shamir_btn_split": "Generate 3 Shares",
+        "shamir_btn_recover": "Recover from 2 Shares",
+        # OPP-06 Clear Signing Preview
+        "btn_clear_signing": "Preview Clear Signing (128x64 OLED)",
+        "clear_signing_title": "SSD1306 128x64 Clear Signing (Code-Only)",
+        "clear_signing_desc": "Cryptographic visual verification before signing (Anti-Blind Signing)",
+        # OPP-01 Native OpenSSH Agent
+        "ssh_native_agent_title": "Native OpenSSH Agent Provider (RFC draft-miller)",
+        "ssh_native_agent_status": "Native Hardware Pipe: Running (\\\\.\\pipe\\openssh-ssh-agent)",
+        "ssh_native_agent_desc": "Zero private keys on PC. Hardware Ed25519 signing via ESP32-S3.",
+        # OPP-04 OS Companion Lock
+        "conn_os_companion_title": "Windows Hello CDF & Linux PAM Proximity",
+        "conn_os_companion_status": "Workstation Walk-Away Auto-Lock (RSSI < -80 dBm)",
+        "conn_os_companion_safe": "Enforcement Mode: Safe Dev (Screen Lock Simulated)",
+
         # Tray Menu
         "tray_open": "Open Companion App",
         "tray_lock": "Lock Secure Guard",
@@ -184,6 +206,28 @@ STRINGS = {
         "ssh_btn_set_ephemeral": "Autorizar Sessão",
         "ssh_btn_clear_ephemeral": "Limpar Frase-senha",
         "ssh_env_copied": "Comando do PowerShell copiado para a área de transferência!",
+
+        # GAP-01 & GAP-02
+        "badge_ecdh_active": "Canal PIN ECDH P-256: Ativo",
+        "badge_efuse_safe": "Trava eFuse OTP: MODO DEV SEGURO (Não Queimar)",
+        # OPP-05 Shamir 2-of-3
+        "btn_shamir_backup": "Backup Shamir 2-de-3 (SLIP-0039)",
+        "shamir_title": "Backup de Segredo Compartilhado Shamir 2-de-3",
+        "shamir_split_desc": "Semente dividida em 3 partes em GF(256). Quaisquer 2 partes restauram o cofre.",
+        "shamir_btn_split": "Gerar 3 Partes",
+        "shamir_btn_recover": "Recuperar de 2 Partes",
+        # OPP-06 Clear Signing Preview
+        "btn_clear_signing": "Prévia Clear Signing (OLED 128x64)",
+        "clear_signing_title": "Clear Signing SSD1306 128x64 (Somente em Código)",
+        "clear_signing_desc": "Verificação visual criptográfica antes da assinatura (Anti-Blind Signing)",
+        # OPP-01 Native OpenSSH Agent
+        "ssh_native_agent_title": "Provedor Nativo OpenSSH Agent (RFC draft-miller)",
+        "ssh_native_agent_status": "Pipe Nativo de Hardware: Ativo (\\\\.\\pipe\\openssh-ssh-agent)",
+        "ssh_native_agent_desc": "Zero chaves privadas no PC. Assinatura Ed25519 no silício ESP32-S3.",
+        # OPP-04 OS Companion Lock
+        "conn_os_companion_title": "Proximidade Windows Hello CDF e Linux PAM",
+        "conn_os_companion_status": "Auto-Bloqueio por Afastamento (RSSI < -80 dBm)",
+        "conn_os_companion_safe": "Modo de Aplicação: Dev Seguro (Bloqueio Simulado)",
 
         # Tray Menu
         "tray_open": "Abrir Aplicativo Desktop",

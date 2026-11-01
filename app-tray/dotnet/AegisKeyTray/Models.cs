@@ -52,3 +52,16 @@ public record ProximityStatus(
     [property: JsonPropertyName("rssi_dbm")] int RssiDbm = -35,
     [property: JsonPropertyName("threshold_dbm")] int ThresholdDbm = -75
 );
+
+public record ShamirShare(
+    [property: JsonPropertyName("index")] int Index,
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("share_hex")] string ShareHex
+);
+
+public record EfuseGuardStatus(
+    [property: JsonPropertyName("ok")] bool Ok = true,
+    [property: JsonPropertyName("burn_allowed")] bool BurnAllowed = false,
+    [property: JsonPropertyName("warning")] string Warning = "",
+    [property: JsonPropertyName("safe_development_override")] bool SafeDevelopmentOverride = true
+);

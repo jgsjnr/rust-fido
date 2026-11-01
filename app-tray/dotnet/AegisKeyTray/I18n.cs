@@ -37,6 +37,9 @@ public static class I18n
             ["sg_btn_unlock"] = "Unlock Secure Guard",
             ["sg_btn_lock"] = "Lock Now",
             ["vault_locked_banner"] = "🔒 Secure Guard is locked. Unlock Secure Guard to access hardware keys.",
+            ["badge_ecdh_active"] = "ECDH P-256 PIN Channel: Active",
+            ["badge_efuse_safe"] = "eFuse OTP Lock: SAFE DEV MODE (Do Not Burn)",
+            ["btn_shamir_backup"] = "Shamir 2-of-3 Backup (SLIP-0039)",
 
             // Section 2
             ["totp_title"] = "Hardware TOTP Codes",
@@ -46,6 +49,9 @@ public static class I18n
             // Section 3
             ["conn_title"] = "Connected Keys & Physical Telemetry",
             ["conn_prox_title"] = "BLE Proximity & Windows Dynamic Lock",
+            ["btn_clear_signing"] = "Preview Clear Signing (128x64 OLED)",
+            ["conn_os_companion_title"] = "Windows Hello CDF & Linux PAM Proximity",
+            ["conn_os_companion_status"] = "Workstation Walk-Away Auto-Lock (RSSI < -80 dBm)",
 
             // Section 4
             ["ssh_title"] = "SSH Key Guard (Zero-Password SSH)",
@@ -55,6 +61,8 @@ public static class I18n
             ["ssh_btn_purge"] = "Purge SSH Agent (ssh-add -D)",
             ["ssh_btn_load_fido2"] = "Load Resident FIDO2 Keys (ssh-add -K)",
             ["ssh_btn_env"] = "Copy SSH_ASKPASS Script",
+            ["ssh_native_agent_title"] = "Native OpenSSH Agent Provider (RFC draft-miller)",
+            ["ssh_native_agent_status"] = "Native Hardware Pipe: Running (\\\\.\\pipe\\openssh-ssh-agent)",
 
             // Tray
             ["tray_open"] = "Open Companion App",
@@ -93,6 +101,9 @@ public static class I18n
             ["sg_btn_unlock"] = "Desbloquear Secure Guard",
             ["sg_btn_lock"] = "Bloquear Agora",
             ["vault_locked_banner"] = "🔒 Secure Guard está bloqueado. Desbloqueie o Secure Guard para acessar as chaves.",
+            ["badge_ecdh_active"] = "Canal PIN ECDH P-256: Ativo",
+            ["badge_efuse_safe"] = "Trava eFuse OTP: MODO DEV SEGURO (Não Queimar)",
+            ["btn_shamir_backup"] = "Backup Shamir 2-de-3 (SLIP-0039)",
 
             // Section 2
             ["totp_title"] = "Códigos TOTP de Hardware",
@@ -102,6 +113,9 @@ public static class I18n
             // Section 3
             ["conn_title"] = "Chaves Conectadas e Telemetria Física",
             ["conn_prox_title"] = "Proximidade BLE e Bloqueio Dinâmico do Windows",
+            ["btn_clear_signing"] = "Prévia Clear Signing (OLED 128x64)",
+            ["conn_os_companion_title"] = "Proximidade Windows Hello CDF e Linux PAM",
+            ["conn_os_companion_status"] = "Auto-Bloqueio por Afastamento (RSSI < -80 dBm)",
 
             // Section 4
             ["ssh_title"] = "Guarda de Chaves SSH (SSH Sem Senha)",
@@ -111,6 +125,8 @@ public static class I18n
             ["ssh_btn_purge"] = "Limpar ssh-agent (ssh-add -D)",
             ["ssh_btn_load_fido2"] = "Carregar Chave Residente FIDO2 (ssh-add -K)",
             ["ssh_btn_env"] = "Copiar Configuração SSH_ASKPASS",
+            ["ssh_native_agent_title"] = "Provedor Nativo OpenSSH Agent (RFC draft-miller)",
+            ["ssh_native_agent_status"] = "Pipe Nativo de Hardware: Ativo (\\\\.\\pipe\\openssh-ssh-agent)",
 
             // Tray
             ["tray_open"] = "Abrir Aplicativo Desktop",

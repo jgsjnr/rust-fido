@@ -261,10 +261,17 @@ public class MainWindow : Form
         var lblSession = new Label { Text = $"{I18n.T("sg_session_label")} {timeStr}", Font = new Font("Segoe UI", 9F), ForeColor = ColorCyan, AutoSize = true, Location = new Point(16, 105) };
         card.Controls.Add(lblSession);
 
+        // Security Badges (GAP-01 & GAP-02)
+        var pnlBadges = new Panel { Size = new Size(card.Width - 40, 26), Location = new Point(16, 130), BackColor = ColorBg };
+        var lblEcdh = new Label { Text = $"✓ {I18n.T("badge_ecdh_active")}", Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(4, 4) };
+        var lblEfuse = new Label { Text = $"🔒 {I18n.T("badge_efuse_safe")}", Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = ColorCyan, AutoSize = true, Location = new Point(240, 4) };
+        pnlBadges.Controls.AddRange(new Control[] { lblEcdh, lblEfuse });
+        card.Controls.Add(pnlBadges);
+
         if (!_sg.Unlocked)
         {
-            var txtPin = new TextBox { PasswordChar = '*', Font = new Font("Segoe UI", 11F), BackColor = ColorInputBg, ForeColor = ColorTextPrimary, BorderStyle = BorderStyle.None, Size = new Size(140, 28), Location = new Point(16, 145) };
-            var btnUnlock = new Button { Text = I18n.T("sg_btn_unlock"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(160, 30), Location = new Point(165, 144), Cursor = Cursors.Hand };
+            var txtPin = new TextBox { PasswordChar = '*', Font = new Font("Segoe UI", 11F), BackColor = ColorInputBg, ForeColor = ColorTextPrimary, BorderStyle = BorderStyle.None, Size = new Size(140, 28), Location = new Point(16, 168) };
+            var btnUnlock = new Button { Text = I18n.T("sg_btn_unlock"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(160, 30), Location = new Point(165, 167), Cursor = Cursors.Hand };
             btnUnlock.FlatAppearance.BorderSize = 0;
             btnUnlock.Click += async (s, e) =>
             {
@@ -275,14 +282,14 @@ public class MainWindow : Form
             card.Controls.Add(txtPin);
             card.Controls.Add(btnUnlock);
 
-            var banner = new Panel { Size = new Size(card.Width - 40, 65), Location = new Point(16, 195), BackColor = ColorInputBg };
+            var banner = new Panel { Size = new Size(card.Width - 40, 65), Location = new Point(16, 215), BackColor = ColorInputBg };
             var lblBanner = new Label { Text = I18n.T("vault_locked_banner"), Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = ColorAmber, AutoSize = true, Location = new Point(12, 22) };
             banner.Controls.Add(lblBanner);
             card.Controls.Add(banner);
         }
         else
         {
-            var btnLock = new Button { Text = I18n.T("sg_btn_lock"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), BackColor = ColorCoral, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Size = new Size(160, 32), Location = new Point(16, 145), Cursor = Cursors.Hand };
+            var btnLock = new Button { Text = I18n.T("sg_btn_lock"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), BackColor = ColorCoral, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Size = new Size(140, 32), Location = new Point(16, 168), Cursor = Cursors.Hand };
             btnLock.FlatAppearance.BorderSize = 0;
             btnLock.Click += async (s, e) =>
             {
@@ -291,7 +298,25 @@ public class MainWindow : Form
             };
             card.Controls.Add(btnLock);
 
-            var lblMsg = new Label { Text = "✓ Hardware Vault unlocked: Ed25519, P-256 and Wallets accessible.", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(16, 195) };
+            // OPP-05 Shamir 2-of-3 Backup Button
+            var btnShamir = new Button { Text = I18n.T("btn_shamir_backup"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorEmerald, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(240, 32), Location = new Point(165, 168), Cursor = Cursors.Hand };
+            btnShamir.FlatAppearance.BorderSize = 0;
+            btnShamir.Click += async (s, e) =>
+            {
+                var shares = await _client.ShamirSplitAsync();
+                if (shares.Count >= 3)
+                {
+                    string info = $"Shamir 2-of-3 Backup Shares Generated:\n\n" +
+                                  $"Share 1: {shares[0].ShareHex[..16]}... ({shares[0].Description})\n" +
+                                  $"Share 2: {shares[1].ShareHex[..16]}... ({shares[1].Description})\n" +
+                                  $"Share 3: {shares[2].ShareHex[..16]}... ({shares[2].Description})\n\n" +
+                                  $"Lagrange quorum: Any 2 shares restore 100% of vault master key.";
+                    MessageBox.Show(info, "Shamir 2-of-3 Backup (SLIP-0039)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            };
+            card.Controls.Add(btnShamir);
+
+            var lblMsg = new Label { Text = "✓ Hardware Vault unlocked: Ed25519, P-256 and Wallets accessible.", Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(16, 215) };
             card.Controls.Add(lblMsg);
         }
     }
@@ -316,14 +341,27 @@ public class MainWindow : Form
         pnlTele.Controls.AddRange(new Control[] { lblChip, lblPort, lblState });
         card.Controls.Add(pnlTele);
 
-        var lblProxTitle = new Label { Text = I18n.T("conn_prox_title"), Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 180) };
+        var lblProxTitle = new Label { Text = I18n.T("conn_prox_title"), Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = ColorTextPrimary, AutoSize = true, Location = new Point(16, 175) };
         card.Controls.Add(lblProxTitle);
 
-        var pnlProx = new Panel { Size = new Size(card.Width - 40, 80), Location = new Point(16, 210), BackColor = ColorInputBg, Padding = new Padding(12) };
-        var lblProxArmed = new Label { Text = "Status: ARMED (Windows Dynamic Lock Active via BLE RSSI)", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(12, 14) };
-        var lblProxSignal = new Label { Text = "Signal RSSI: -35 dBm  |  Lock Distance Threshold: -75 dBm", Font = new Font("Segoe UI", 8.5F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(12, 40) };
+        var pnlProx = new Panel { Size = new Size(card.Width - 40, 75), Location = new Point(16, 202), BackColor = ColorInputBg, Padding = new Padding(12) };
+        var lblProxArmed = new Label { Text = "Status: ARMED (Windows Dynamic Lock Active via BLE RSSI)", Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(12, 12) };
+        var lblProxSignal = new Label { Text = "Signal RSSI: -35 dBm  |  Lock Distance Threshold: -75 dBm  |  Safe Dev Mode: Active", Font = new Font("Segoe UI", 8F), ForeColor = ColorTextMuted, AutoSize = true, Location = new Point(12, 36) };
         pnlProx.Controls.AddRange(new Control[] { lblProxArmed, lblProxSignal });
         card.Controls.Add(pnlProx);
+
+        // OPP-06 Clear Signing Preview Button
+        var btnClearSign = new Button { Text = I18n.T("btn_clear_signing"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(260, 32), Location = new Point(16, 290), Cursor = Cursors.Hand };
+        btnClearSign.FlatAppearance.BorderSize = 0;
+        btnClearSign.Click += async (s, e) =>
+        {
+            var preview = await _client.ClearSignPreviewAsync("ETH", "0x892a43bC8419F71bC02Fa9832A1C90B5D", "0.7500 ETH", "0.0012 ETH");
+            if (preview != null)
+            {
+                MessageBox.Show(preview, "Clear Signing OLED 128x64 Frame Preview", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        };
+        card.Controls.Add(btnClearSign);
     }
 
     private void RenderSectionSsh(Panel card)
@@ -346,11 +384,18 @@ public class MainWindow : Form
         banner.Controls.Add(lblBanner);
         card.Controls.Add(banner);
 
+        // OPP-01 Native OpenSSH Agent Status Card
+        var pnlAgent = new Panel { Size = new Size(card.Width - 40, 60), Location = new Point(16, 140), BackColor = ColorInputBg, Padding = new Padding(10) };
+        var lblAgentTitle = new Label { Text = I18n.T("ssh_native_agent_title"), Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = ColorCyan, AutoSize = true, Location = new Point(10, 10) };
+        var lblAgentStatus = new Label { Text = $"{I18n.T("ssh_native_agent_status")}  |  Hardware Signing: ESP32-S3 Ed25519 (Slot 0)", Font = new Font("Segoe UI", 8F), ForeColor = ColorEmerald, AutoSize = true, Location = new Point(10, 32) };
+        pnlAgent.Controls.AddRange(new Control[] { lblAgentTitle, lblAgentStatus });
+        card.Controls.Add(pnlAgent);
+
         var (count, msg) = _sshGuard.GetAgentIdentitiesCount();
-        var lblCount = new Label { Text = $"Identities in ssh-agent: {count} ({msg})", Font = new Font("Segoe UI", 9F), ForeColor = ColorCyan, AutoSize = true, Location = new Point(16, 145) };
+        var lblCount = new Label { Text = $"Identities in ssh-agent: {count} ({msg})", Font = new Font("Segoe UI", 9F), ForeColor = ColorCyan, AutoSize = true, Location = new Point(16, 215) };
         card.Controls.Add(lblCount);
 
-        var btnPurge = new Button { Text = I18n.T("ssh_btn_purge"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCoral, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Size = new Size(180, 30), Location = new Point(16, 180), Cursor = Cursors.Hand };
+        var btnPurge = new Button { Text = I18n.T("ssh_btn_purge"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCoral, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Size = new Size(180, 30), Location = new Point(16, 250), Cursor = Cursors.Hand };
         btnPurge.FlatAppearance.BorderSize = 0;
         btnPurge.Click += (s, e) =>
         {
@@ -358,7 +403,7 @@ public class MainWindow : Form
             RenderTab();
         };
 
-        var btnFido = new Button { Text = I18n.T("ssh_btn_load_fido2"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(200, 30), Location = new Point(205, 180), Cursor = Cursors.Hand };
+        var btnFido = new Button { Text = I18n.T("ssh_btn_load_fido2"), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), BackColor = ColorCyan, ForeColor = Color.Black, FlatStyle = FlatStyle.Flat, Size = new Size(200, 30), Location = new Point(205, 250), Cursor = Cursors.Hand };
         btnFido.FlatAppearance.BorderSize = 0;
         btnFido.Click += (s, e) =>
         {

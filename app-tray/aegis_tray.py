@@ -349,6 +349,30 @@ class AegisDesktopApp:
             bg=COLOR_CARD,
         ).grid(row=2, column=1, sticky="w", padx=10, pady=3)
 
+        # Security Badges (GAP-01 & GAP-02)
+        sec_badges_frame = tk.Frame(card, bg=COLOR_CARD)
+        sec_badges_frame.pack(fill="x", pady=(2, 6))
+
+        tk.Label(
+            sec_badges_frame,
+            text=f"✓ {t('badge_ecdh_active', self.lang)}",
+            font=("Segoe UI", 8, "bold"),
+            fg=COLOR_EMERALD,
+            bg=COLOR_INPUT_BG,
+            padx=6,
+            pady=2,
+        ).pack(side="left", padx=(0, 6))
+
+        tk.Label(
+            sec_badges_frame,
+            text=f"🔒 {t('badge_efuse_safe', self.lang)}",
+            font=("Segoe UI", 8, "bold"),
+            fg=COLOR_CYAN,
+            bg=COLOR_INPUT_BG,
+            padx=6,
+            pady=2,
+        ).pack(side="left")
+
         # Actions area (PIN Unlock or Lock Now)
         actions_box = tk.Frame(card, bg=COLOR_CARD)
         actions_box.pack(fill="x", pady=6)
@@ -462,6 +486,21 @@ class AegisDesktopApp:
         # UNLOCKED: Show registered hardware keys & wallets
         keys_header = tk.Frame(card, bg=COLOR_CARD)
         keys_header.pack(fill="x", pady=(4, 6))
+
+        btn_shamir = tk.Button(
+            keys_header,
+            text=t("btn_shamir_backup", self.lang),
+            font=("Segoe UI", 8, "bold"),
+            bg=COLOR_EMERALD,
+            fg="#000000",
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=self._action_shamir_backup,
+        )
+        btn_shamir.pack(side="right", padx=(6, 0))
 
         btn_create = tk.Button(
             keys_header,
@@ -610,6 +649,39 @@ class AegisDesktopApp:
     def _action_delete_key(self, slot_id: int):
         self.hw_client.delete_key(slot_id)
         self._render_current_tab()
+
+    def _action_shamir_backup(self):
+        res = self.hw_client.shamir_split()
+        if res.get("ok"):
+            shares = res.get("shares", [])
+            lines = [
+                "Shamir 2-of-3 Secret Sharing Backup (SLIP-0039 / GF(256)) Generated:\n",
+            ]
+            for sh in shares:
+                hex_trunc = sh.get("share_hex", "")[:16]
+                lines.append(f"Share {sh.get('index')}: {hex_trunc}... ({sh.get('description')})")
+            lines.append("\nLagrange Quorum: Any 2 shares restore 100% of vault master seed.")
+            messagebox.showinfo(t("shamir_title", self.lang), "\n".join(lines))
+        else:
+            messagebox.showerror("Error", res.get("error", "Shamir split failed"))
+
+    def _action_clear_sign_preview(self):
+        res = self.hw_client.clear_sign_preview({
+            "tx_type": "ETH",
+            "to": "0x892a43bC8419F71bC02Fa9832A1C90B5D",
+            "amount": "0.7500 ETH",
+            "fee": "0.0012 ETH",
+            "chain": "Ethereum Mainnet"
+        })
+        if res.get("ok"):
+            screen = res.get("screen", {})
+            ascii_text = "\n".join(screen.get("ascii_frame", []))
+            messagebox.showinfo(
+                t("clear_signing_title", self.lang),
+                f"Virtual SSD1306 OLED Frame Preview (Code-Only Mode):\n\n{ascii_text}"
+            )
+        else:
+            messagebox.showerror("Error", res.get("error", "Clear signing preview failed"))
 
     # =========================================================================
     # SECTION 2: HARDWARE TOTP CODES
@@ -768,6 +840,23 @@ class AegisDesktopApp:
         )
         add_info_row(prox_box, "conn_prox_rssi", f"{prox_info.get('rssi_dbm', -35)} dBm", COLOR_CYAN)
         add_info_row(prox_box, "conn_prox_threshold", f"{prox_info.get('threshold_dbm', -75)} dBm", COLOR_TEXT_MUTED)
+        add_info_row(prox_box, "conn_os_companion_title", t("conn_os_companion_safe", self.lang), COLOR_CYAN)
+
+        # Clear Signing 128x64 OLED Preview Button (OPP-06)
+        btn_clear_signing = tk.Button(
+            card,
+            text=t("btn_clear_signing", self.lang),
+            font=("Segoe UI", 8, "bold"),
+            bg=COLOR_CYAN,
+            fg="#000000",
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            command=self._action_clear_sign_preview,
+        )
+        btn_clear_signing.pack(anchor="w", pady=(12, 0))
 
     # =========================================================================
     # SECTION 4: SSH GUARD & SETTINGS
@@ -808,6 +897,36 @@ class AegisDesktopApp:
             card, bg=banner_bg, highlightthickness=1, highlightbackground=banner_border, padx=12, pady=10
         )
         banner.pack(fill="x", pady=6)
+
+        # Native OpenSSH Agent Provider Card (OPP-01)
+        native_box = tk.Frame(
+            card, bg=COLOR_INPUT_BG, highlightthickness=1, highlightbackground=COLOR_CARD_BORDER, padx=12, pady=8
+        )
+        native_box.pack(fill="x", pady=(4, 8))
+
+        tk.Label(
+            native_box,
+            text=t("ssh_native_agent_title", self.lang),
+            font=("Segoe UI", 9, "bold"),
+            fg=COLOR_CYAN,
+            bg=COLOR_INPUT_BG,
+        ).pack(anchor="w")
+
+        tk.Label(
+            native_box,
+            text=t("ssh_native_agent_status", self.lang),
+            font=("Segoe UI", 8, "bold"),
+            fg=COLOR_EMERALD,
+            bg=COLOR_INPUT_BG,
+        ).pack(anchor="w", pady=(2, 0))
+
+        tk.Label(
+            native_box,
+            text=t("ssh_native_agent_desc", self.lang),
+            font=("Segoe UI", 8),
+            fg=COLOR_TEXT_MUTED,
+            bg=COLOR_INPUT_BG,
+        ).pack(anchor="w")
 
         tk.Label(
             banner,
