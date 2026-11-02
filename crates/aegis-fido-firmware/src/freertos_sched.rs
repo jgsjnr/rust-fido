@@ -754,7 +754,17 @@ pub fn app_main_freertos_demo() -> (usize, usize, u64) {
     {
         std::thread::sleep(Duration::from_millis(5));
     }
-    std::thread::sleep(Duration::from_millis(20));
+    // Sincroniza com o primeiro tick do housekeeping antes do stop:
+    // sem isso, `request_stop` podia vencer a corrida com a primeira
+    // iteração da tarefa e `ticks` voltava 0 (tick só incrementa
+    // após o corpo do loop). Aguarda o bit EVT_TICK_10MS (não
+    // destrutivo; não consome a fila nem altera gates de segurança).
+    let tick_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while sched.events.get() & EVT_TICK_10MS == 0
+        && std::time::Instant::now() < tick_deadline
+    {
+        std::thread::sleep(Duration::from_millis(5));
+    }
     sched.request_stop();
     let drained = usb.join().unwrap_or(0);
     let presses = button.join().unwrap_or(0);
