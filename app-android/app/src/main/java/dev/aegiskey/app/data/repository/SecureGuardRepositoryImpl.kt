@@ -304,6 +304,7 @@ class SecureGuardRepositoryImpl(
             }
 
             var hardwareUnlocked = false
+            var hardwareError: String? = null
             val pinBytes = pin.toByteArray(Charsets.UTF_8)
             val encReq = SecureGuardCbor.encodeUnlockRequest(pinBytes)
 
@@ -317,6 +318,12 @@ class SecureGuardRepositoryImpl(
                     if (unlockRes.success) {
                         hardwareUnlocked = true
                         usb.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
+                    } else {
+                        val err = unlockRes.errorMessage ?: (
+                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
+                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
+                        )
+                        throw SecurityException(err)
                     }
                 }
             }
@@ -331,6 +338,12 @@ class SecureGuardRepositoryImpl(
                     if (unlockRes.success) {
                         hardwareUnlocked = true
                         ble.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
+                    } else {
+                        val err = unlockRes.errorMessage ?: (
+                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
+                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
+                        )
+                        throw SecurityException(err)
                     }
                 }
             }
@@ -338,44 +351,34 @@ class SecureGuardRepositoryImpl(
             // Sincroniza com HTTP hostBridgeClient se disponível
             val json = hostBridgeClient.unlockSecureGuard(pin)
             val bridgeSuccess = json != null && (json.optBoolean("success", false) || json.optBoolean("ok", false))
+            if (json != null && !bridgeSuccess && !hardwareUnlocked) {
+                hardwareError = json.optString("error", "PIN incorreto")
+            }
+
+            // Fallback para outros transportes via sendHardwareVendor se nem USB nem BLE responderam
+            if (!hardwareUnlocked && !bridgeSuccess && (usb == null || !usb.isUsbPhysicallyPresent()) && (ble == null || ble.client.state.value.connection != AegisBleClient.Connection.READY)) {
+                val resp = sendHardwareVendor(0x3B, encReq)
+                if (resp != null && resp.isNotEmpty()) {
+                    val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
+                    val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
+                    if (unlockRes.success) {
+                        hardwareUnlocked = true
+                        sendHardwareVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
+                    } else {
+                        val err = unlockRes.errorMessage ?: (
+                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
+                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
+                        )
+                        throw SecurityException(err)
+                    }
+                }
+            }
 
             if (!hardwareUnlocked && !bridgeSuccess) {
-                // Tenta auto-provisionar caso esteja Unprovisioned ou retorne erro de PIN/SG
-                val provRes = runCatching {
-                    provision(pin = pin, recoveryCode = null, policy = null).getOrNull()
+                if (hardwareError != null) {
+                    throw SecurityException(hardwareError)
                 }
-                if (provRes.isSuccess && provRes.getOrNull() != null) {
-                    val retryResp = sendHardwareVendor(0x3B, encReq)
-                    if (retryResp != null && retryResp.isNotEmpty()) {
-                        val frame = SecureGuardCbor.parseTransportFrame(0x3B, retryResp)
-                        val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
-                        if (unlockRes.success) {
-                            hardwareUnlocked = true
-                        }
-                    }
-                }
-
-                if (!hardwareUnlocked) {
-                    val resp = sendHardwareVendor(0x3B, encReq)
-                    if (resp != null && resp.isNotEmpty()) {
-                        val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
-                        val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
-                        if (unlockRes.success) {
-                            sendHardwareVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
-                        } else {
-                            val err = unlockRes.errorMessage ?: (
-                                if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido"
-                                else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
-                            )
-                            throw SecurityException(err)
-                        }
-                    } else if (json != null) {
-                        val err = json.optString("error", "PIN incorreto")
-                        throw SecurityException(err)
-                    } else {
-                        // Se o hardware não respondeu no momento, prossegue com o desbloqueio local da sessão
-                    }
-                }
+                throw SecurityException("Chave não respondeu ou PIN incorreto. Verifique a conexão.")
             }
 
             lastVerifiedSessionPin = pin
