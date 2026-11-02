@@ -62,7 +62,7 @@
 ## 4. Architecture
 
 Open the interactive visual architecture map in your browser:
-[ARCHITECTURE-MAP.html](docs/project/ARCHITECTURE-MAP.html)
+[ARCHITECTURE-MAP.html](ARCHITECTURE-MAP.html)
 
 The bridge serves this map at `http://127.0.0.1:5678/architecture`.
 
