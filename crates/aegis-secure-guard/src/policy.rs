@@ -30,7 +30,7 @@ pub struct SecureGuardPolicy {
     pub reject_trivial_pins: bool,
     /// Absolute session duration timeout in milliseconds (default: 300,000 ms / 5 min).
     pub session_duration_ms: u64,
-    /// Inactivity timeout in milliseconds (default: 120,000 ms / 2 min).
+    /// Inactivity timeout in milliseconds (default: 300,000 ms / 5 min).
     pub inactivity_timeout_ms: u64,
     /// Iterations for PBKDF2-HMAC-SHA256 derivation.
     pub pbkdf2_iterations: u32,
@@ -45,9 +45,9 @@ impl Default for SecureGuardPolicy {
             test_mode_non_destructive_wipe: false,
             min_pin_len: 4,
             max_pin_len: 16,
-            reject_trivial_pins: true,
+            reject_trivial_pins: false,
             session_duration_ms: 300_000,
-            inactivity_timeout_ms: 120_000,
+            inactivity_timeout_ms: 300_000,
             pbkdf2_iterations: PBKDF2_DEFAULT_ITERATIONS,
         }
     }
@@ -143,7 +143,10 @@ mod tests {
 
     #[test]
     fn test_trivial_pin_rejection() {
-        let policy = SecureGuardPolicy::default();
+        let policy = SecureGuardPolicy {
+            reject_trivial_pins: true,
+            ..Default::default()
+        };
 
         // Repeating
         assert_eq!(
@@ -179,6 +182,17 @@ mod tests {
         assert!(policy.validate_pin(b"4927").is_ok());
         assert!(policy.validate_pin(b"8193").is_ok());
         assert!(policy.validate_pin(b"a1b2c3").is_ok());
+    }
+
+    #[test]
+    fn test_default_policy_accepts_any_pin_length_4_to_16() {
+        let policy = SecureGuardPolicy::default();
+        assert!(!policy.reject_trivial_pins);
+        assert!(policy.validate_pin(b"000000").is_ok());
+        assert!(policy.validate_pin(b"123456").is_ok());
+        assert!(policy.validate_pin(b"849201").is_ok());
+        assert!(policy.validate_pin(b"1111").is_ok());
+        assert!(policy.validate_pin(b"1234").is_ok());
     }
 
     #[test]

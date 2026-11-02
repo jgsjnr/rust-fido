@@ -373,6 +373,8 @@ pub fn run_authenticator_freertos() {
         }
     }
     #[cfg(target_os = "espidf")]
+    let mut was_usb_mounted = unsafe { aegis_usb_is_mounted() };
+    #[cfg(target_os = "espidf")]
     stack_mark("binding+managers");
     #[cfg(target_os = "espidf")]
     let mut wifi_ap_mgr = crate::wifi_ap::WifiApManager::new();
@@ -803,6 +805,7 @@ pub fn run_authenticator_freertos() {
                             &mut fw_log,
                             &mut key_mgr,
                             &mut oath_applet,
+                            &mut secure_guard,
                         );
                         // Wave2: release/recovery apagou a NVS no dispatch;
                         // espelha no cache RAM (fail-closed até o rekey).
@@ -999,6 +1002,16 @@ pub fn run_authenticator_freertos() {
                 }
                 // Relógio do roteamento + expiração do latch UP (1,5 s).
                 freertos_now_ms = t.saturating_mul(10);
+                let usb_active = unsafe { aegis_usb_is_mounted() };
+                if was_usb_mounted && !usb_active {
+                    let _ = secure_guard.on_transport_disconnect(freertos_now_ms);
+                    crate::hmac_cr_compat_layer::set_secure_guard_unlocked(false);
+                    kprintln!("[SECURE_GUARD] Sessão trancada por desconexão USB.");
+                    if let Some(ref mut led) = display_mgr.led_controller {
+                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                    }
+                }
+                was_usb_mounted = usb_active;
                 if touch_latched && freertos_now_ms >= touch_expire_ms {
                     touch_latched = false;
                     rescue_engine.set_user_presence(false);
@@ -1318,14 +1331,18 @@ pub fn run_authenticator_freertos() {
                     let wifi_active = wifi_ap_mgr.is_active(freertos_now_ms) || sta_mgr.is_up();
                     prox.tick(prox_now_ms, usb_active, wifi_active, pairing_mgr.state());
                     // Proximidade acoplada diretamente ao Secure Guard:
-                    let prox_is_away = matches!(prox.state(), crate::proximity::ProximityState::Away | crate::proximity::ProximityState::Locked);
-                    let paired_mac = *secure_guard.paired_ble_mac();
-                    let _ = secure_guard.on_ble_proximity_update(
-                        &paired_mac,
-                        if prox_is_away { -90 } else { -40 },
-                        prox_is_away,
-                        freertos_now_ms,
-                    );
+                    // Só atualiza / avalia bloqueio por proximidade se houver dispositivo BLE de proximidade registrado
+                    // e se o USB não estiver ativamente montado (conexão física USB tem precedência contra falso Walk-Away).
+                    if secure_guard.ble_proximity_registered() && !usb_active {
+                        let prox_is_away = matches!(prox.state(), crate::proximity::ProximityState::Away | crate::proximity::ProximityState::Locked);
+                        let paired_mac = *secure_guard.paired_ble_mac();
+                        let _ = secure_guard.on_ble_proximity_update(
+                            &paired_mac,
+                            if prox_is_away { -90 } else { -40 },
+                            prox_is_away,
+                            freertos_now_ms,
+                        );
+                    }
                 }
                 // Display + LED (seção B legada): tick + efeito por estado.
                 // TEST_LED_* (hold) vence o pipeline quando armado.

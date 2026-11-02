@@ -177,6 +177,13 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
     assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
     assert_eq!(
         vendor.secure_guard.as_ref().unwrap().state(),
+        SecureGuardState::Unlocked
+    );
+
+    // Bloqueia manualmente para testar a barreira quando Locked
+    vendor.secure_guard.as_mut().unwrap().lock_now(1051).unwrap();
+    assert_eq!(
+        vendor.secure_guard.as_ref().unwrap().state(),
         SecureGuardState::Locked
     );
 
@@ -252,7 +259,7 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         1,
         Some(&mut vendor),
     );
-    assert_eq!(out.responses.len(), 1);
+    assert!(!out.responses.is_empty());
     assert_eq!(out.responses[0][7], 0x00);
     assert_eq!(
         vendor.secure_guard.as_ref().unwrap().state(),

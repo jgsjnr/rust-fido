@@ -14,6 +14,8 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.data.cbor.SecureGuardCbor
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -33,7 +35,7 @@ import java.security.SecureRandom
  * Permissao via UsbManager.requestPermission (runtime, dialogo sistema).
  * Sem Log com PII: so status/tamanhos (nunca nome/serial/payload).
  */
-class UsbCtaphid(private val context: Context) {
+class UsbCtaphid(private val context: Context? = null) {
 
     enum class State { IDLE, SEARCHING, PERMISSION_NEEDED, CONNECTED, ERROR }
 
@@ -61,6 +63,8 @@ class UsbCtaphid(private val context: Context) {
         const val STATUS_NEED_UP: Int = 0x01
         const val STATUS_NEED_PIN: Int = 0x02
         const val STATUS_NEED_BINDING: Int = 0x05
+        const val STATUS_OPERATION_DENIED: Int = 0x27
+        const val STATUS_SECURE_GUARD_PIN_REQUIRED: Int = 0x36
         const val WRITE_TIMEOUT_MS: Int = 2000
         const val READ_TIMEOUT_MS: Int = 3000
         const val PING_TIMEOUT_MS: Long = 6000L
@@ -78,10 +82,46 @@ class UsbCtaphid(private val context: Context) {
         get() = connection != null && epIn != null && epOut != null
 
     private val usb: UsbManager? =
-        try { context.getSystemService(Context.USB_SERVICE) as? UsbManager } catch (_: Throwable) { null }
+        try { context?.getSystemService(Context.USB_SERVICE) as? UsbManager } catch (_: Throwable) { null }
 
     private val _isHardwareAttached = MutableStateFlow(findDevice() != null)
     val isHardwareAttached: StateFlow<Boolean> = _isHardwareAttached.asStateFlow()
+
+    var onHardwareDetachedListener: (() -> Unit)? = null
+    private val hardwareDetachedListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addOnHardwareDetachedListener(listener: () -> Unit) {
+        hardwareDetachedListeners.add(listener)
+    }
+
+    fun removeOnHardwareDetachedListener(listener: () -> Unit) {
+        hardwareDetachedListeners.remove(listener)
+    }
+
+    fun notifyHardwareDetached() {
+        onHardwareDetachedListener?.invoke()
+        for (listener in hardwareDetachedListeners) {
+            runCatching { listener.invoke() }
+        }
+    }
+
+    var onHardwareAttachedListener: (() -> Unit)? = null
+    private val hardwareAttachedListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addOnHardwareAttachedListener(listener: () -> Unit) {
+        hardwareAttachedListeners.add(listener)
+    }
+
+    fun removeOnHardwareAttachedListener(listener: () -> Unit) {
+        hardwareAttachedListeners.remove(listener)
+    }
+
+    fun notifyHardwareAttached() {
+        onHardwareAttachedListener?.invoke()
+        for (listener in hardwareAttachedListeners) {
+            runCatching { listener.invoke() }
+        }
+    }
 
     fun isUsbPhysicallyPresent(): Boolean = findAegisDevice() != null
 
@@ -145,6 +185,7 @@ class UsbCtaphid(private val context: Context) {
                         if (isMatchingDevice(device) && device != null) {
                             _isHardwareAttached.value = true
                             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB attached")
+                            notifyHardwareAttached()
                             val u = usb
                             if (u != null && u.hasPermission(device)) {
                                 openDevice(device)
@@ -165,6 +206,7 @@ class UsbCtaphid(private val context: Context) {
                             _isHardwareAttached.value = false
                             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB detached")
                             close()
+                            notifyHardwareDetached()
                         }
                     }
                 }
@@ -175,25 +217,29 @@ class UsbCtaphid(private val context: Context) {
     }
 
     init {
-        runCatching {
-            val filter = IntentFilter().apply {
-                addAction(ACTION_USB_PERMISSION)
-                addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-                addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        context?.let { ctx ->
+            runCatching {
+                val filter = IntentFilter().apply {
+                    addAction(ACTION_USB_PERMISSION)
+                    addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+                }
+                ContextCompat.registerReceiver(
+                    ctx,
+                    usbReceiver,
+                    filter,
+                    ContextCompat.RECEIVER_NOT_EXPORTED,
+                )
+            }.onFailure {
+                _ui.value = UiState(State.ERROR, "receiver USB falhou", "Reinicie o app e tente de novo, ou use BLE.")
             }
-            ContextCompat.registerReceiver(
-                context,
-                usbReceiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-        }.onFailure {
-            _ui.value = UiState(State.ERROR, "receiver USB falhou", "Reinicie o app e tente de novo, ou use BLE.")
         }
     }
 
     fun release() {
-        runCatching { context.unregisterReceiver(usbReceiver) }
+        context?.let { ctx ->
+            runCatching { ctx.unregisterReceiver(usbReceiver) }
+        }
         close()
     }
 
@@ -215,6 +261,7 @@ class UsbCtaphid(private val context: Context) {
     }
 
     fun requestPermission(device: UsbDevice) {
+        val ctx = context ?: return
         runCatching {
             val u = usb ?: return
             if (u.hasPermission(device)) {
@@ -227,8 +274,8 @@ class UsbCtaphid(private val context: Context) {
             } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
-            val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
-            val pi = PendingIntent.getBroadcast(context, 0, intent, flags)
+            val intent = Intent(ACTION_USB_PERMISSION).setPackage(ctx.packageName)
+            val pi = PendingIntent.getBroadcast(ctx, 0, intent, flags)
             u.requestPermission(device, pi)
             _ui.value = UiState(State.PERMISSION_NEEDED, "confirme no dialogo do sistema")
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission requested")
@@ -332,6 +379,7 @@ class UsbCtaphid(private val context: Context) {
             _isHardwareAttached.value = true
             _ui.value = UiState(State.CONNECTED, "conectado via USB (CTAPHID 64B)")
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB connected CTAPHID 64B")
+            notifyHardwareAttached()
         }.onFailure { t ->
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB openDevice falhou com excecao: ${t.message}")
             _ui.value = UiState(State.ERROR, "falha ao conectar USB", t.localizedMessage)
@@ -558,9 +606,19 @@ class UsbCtaphid(private val context: Context) {
 
         var status = if (rawResp.isNotEmpty()) rawResp[0].toInt() and 0xFF else -1
 
-        // Rito 1 — Janela de Pareamento: Se status 0x05 (NEED_BINDING), envia 0x2F (TRIGGER_PAIRING_OPEN) e reenvia
-        if (status == STATUS_NEED_BINDING) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x05 NEED_BINDING -> disparando 0x2F TRIGGER_PAIRING_OPEN")
+        // Rito 0 — Autenticação Automática Secure Guard com PIN da Sessão:
+        // Se status 0x36 (SECURE_GUARD_PIN_REQUIRED) ou 0x02 (STATUS_NEED_PIN) e houver um PIN ativo
+        val activePin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
+        if ((status == STATUS_SECURE_GUARD_PIN_REQUIRED || status == STATUS_NEED_PIN) && !activePin.isNullOrBlank()) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x%02X -> autenticando Secure Guard com PIN da sessão ativa...".format(status))
+            val pinBytes = activePin.toByteArray(Charsets.UTF_8)
+            val unlockReq = byteArrayOf(0x3B.toByte()) + SecureGuardCbor.encodeUnlockRequest(pinBytes)
+            val unlockResp = sendCtapMessage(CMD_MSG, unlockReq)
+            val unlockSt = if (unlockResp != null && unlockResp.isNotEmpty()) unlockResp[0].toInt() and 0xFF else -1
+            if (unlockSt != 0x00) {
+                val provReq = byteArrayOf(0x3B.toByte()) + SecureGuardCbor.encodeProvisionRequest(pinBytes, null, null)
+                sendCtapMessage(CMD_MSG, provReq)
+            }
             sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
             val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
             if (retryResp != null) {
@@ -569,38 +627,60 @@ class UsbCtaphid(private val context: Context) {
             }
         }
 
-        // Rito 2 — Toque Físico de Presença (UP): Se status 0x01 (STATUS_NEED_UP), aguarda toque por até 15s (polling a cada 400ms)
+        // Rito 1 — Janela de Pareamento: Se status 0x05 (STATUS_NEED_BINDING) ou 0x27 (STATUS_OPERATION_DENIED), envia 0x2F e reenvia
+        if (status == STATUS_NEED_BINDING || status == STATUS_OPERATION_DENIED) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x%02X -> disparando 0x2F TRIGGER_PAIRING_OPEN".format(status))
+            sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
+            val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
+            if (retryResp != null) {
+                rawResp = retryResp
+                status = if (rawResp.isNotEmpty()) rawResp[0].toInt() and 0xFF else -1
+            }
+        }
+
+        // Rito 2 — Presença de Usuário (UP): Se status 0x01 (STATUS_NEED_UP), arma latch via 0x2F ou aguarda toque físico
         if (status == STATUS_NEED_UP) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x01 NEED_UP -> aguardando toque físico no botão (até 15s)...")
-            val start = System.currentTimeMillis()
-            while (System.currentTimeMillis() - start < 15000L) {
-                delay(400)
-                val retry = sendCtapMessage(CMD_MSG, reqPayload)
-                if (retry != null && retry.isNotEmpty()) {
-                    val retryStatus = retry[0].toInt() and 0xFF
-                    if (retryStatus != STATUS_NEED_UP) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x01 NEED_UP -> armando latch UP via 0x2F...")
+            sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
+            val retryUp = sendCtapMessage(CMD_MSG, reqPayload)
+            if (retryUp != null && retryUp.isNotEmpty()) {
+                val upStatus = retryUp[0].toInt() and 0xFF
+                rawResp = retryUp
+                status = upStatus
+            }
+            if (status == STATUS_NEED_UP) {
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x01 NEED_UP -> aguardando toque físico no botão (até 15s)...")
+                val start = System.currentTimeMillis()
+                while (System.currentTimeMillis() - start < 15000L) {
+                    delay(400)
+                    val retry = sendCtapMessage(CMD_MSG, reqPayload)
+                    if (retry != null && retry.isNotEmpty()) {
+                        val retryStatus = retry[0].toInt() and 0xFF
+                        if (retryStatus != STATUS_NEED_UP) {
+                            rawResp = retry
+                            status = retryStatus
+                            break
+                        }
                         rawResp = retry
-                        status = retryStatus
-                        break
                     }
-                    rawResp = retry
                 }
             }
         }
 
-        // Rito 3 — PIN Automático: Se status 0x02 (STATUS_NEED_PIN), abre sessão com 0x2D / 0x2C
-        if (status == STATUS_NEED_PIN) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x02 NEED_PIN -> autenticando PIN de recuperação...")
-            val pinBytes = "12345678".toByteArray(Charsets.UTF_8)
-            val verifyResp = sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
-            val verifyStatus = if (verifyResp != null && verifyResp.isNotEmpty()) verifyResp[0].toInt() and 0xFF else -1
-            if (verifyStatus != 0x00) {
-                sendCtapMessage(CMD_MSG, byteArrayOf(0x2C.toByte()) + pinBytes)
-                sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
-            }
-            val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
-            if (retryResp != null) {
-                rawResp = retryResp
+        // Rito 3 — Autenticação Secure Guard: Se status ainda for STATUS_NEED_PIN (0x02) ou STATUS_SECURE_GUARD_PIN_REQUIRED (0x36) e houver sessionPin ativo
+        if ((status == STATUS_NEED_PIN || status == STATUS_SECURE_GUARD_PIN_REQUIRED) && !SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()) {
+            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin!!
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x%02X -> autenticando com protocolo Secure Guard (0x3B)...".format(status))
+            val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
+            val unlockReq = byteArrayOf(0x3B.toByte()) + SecureGuardCbor.encodeUnlockRequest(pinBytes)
+            val unlockResp = sendCtapMessage(CMD_MSG, unlockReq)
+            val unlockStatus = if (unlockResp != null && unlockResp.isNotEmpty()) unlockResp[0].toInt() and 0xFF else -1
+            if (unlockStatus == 0x00) {
+                sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
+                val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
+                if (retryResp != null) {
+                    rawResp = retryResp
+                }
             }
         }
 

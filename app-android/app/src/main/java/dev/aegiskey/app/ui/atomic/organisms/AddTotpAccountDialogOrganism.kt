@@ -1,5 +1,6 @@
 package dev.aegiskey.app.ui.atomic.organisms
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,7 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 
@@ -51,14 +58,37 @@ fun AddTotpAccountDialogOrganism(
         isHotp: Boolean
     ) -> Unit,
     isLoading: Boolean = false,
+    initialIssuer: String = "",
+    initialAccountName: String = "",
+    initialSecretOrUri: String = "",
+    initialDigits: Int = 6,
+    initialPeriodSeconds: Int = 30,
+    initialIsHotp: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    var issuer by remember { mutableStateOf("") }
-    var accountName by remember { mutableStateOf("") }
-    var secretOrUri by remember { mutableStateOf("") }
-    var isHotp by remember { mutableStateOf(false) }
-    var digits by remember { mutableIntStateOf(6) }
-    var periodSeconds by remember { mutableIntStateOf(30) }
+    var issuer by remember(initialIssuer) { mutableStateOf(initialIssuer) }
+    var accountName by remember(initialAccountName) { mutableStateOf(initialAccountName) }
+    var secretOrUri by remember(initialSecretOrUri) { mutableStateOf(initialSecretOrUri) }
+    var isHotp by remember(initialIsHotp) { mutableStateOf(initialIsHotp) }
+    var digits by remember(initialDigits) { mutableIntStateOf(initialDigits) }
+    var periodSeconds by remember(initialPeriodSeconds) { mutableIntStateOf(initialPeriodSeconds) }
+
+    val qrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val content = result.contents
+        if (!content.isNullOrBlank()) {
+            val parsed = AegisBridge.parseOtpInput(content)
+            if (parsed != null) {
+                if (parsed.issuer.isNotBlank()) issuer = parsed.issuer
+                if (parsed.accountName.isNotBlank()) accountName = parsed.accountName
+                secretOrUri = parsed.secretBase32
+                digits = parsed.digits
+                periodSeconds = parsed.periodSeconds
+                isHotp = parsed.isHotp
+            } else {
+                secretOrUri = content.trim()
+            }
+        }
+    }
 
     val isFormValid = issuer.trim().isNotBlank() && secretOrUri.trim().isNotBlank()
 
@@ -88,6 +118,44 @@ fun AddTotpAccountDialogOrganism(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+
+                // Scan QR Code Button
+                Button(
+                    onClick = {
+                        val options = ScanOptions().apply {
+                            setPrompt("Posicione o QR Code do TOTP")
+                            setBeepEnabled(false)
+                            setOrientationLocked(false)
+                        }
+                        qrLauncher.launch(options)
+                    },
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.QrCodeScanner,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Scan QR Code",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
 
                 if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
                     OutlinedButton(

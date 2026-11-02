@@ -36,6 +36,7 @@ pub(crate) fn ble_dispatch_complete(
     fwlog: &mut crate::fw_log::FwLog,
     key_mgr: &mut aegis_fido_core::credential::key_manager::KeyManager,
     oath_applet: &mut OathApplet,
+    secure_guard: &mut aegis_fido_core::secure_guard::SecureGuardEngine,
 ) {
     use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use crate::ble_gatt as g;
@@ -183,7 +184,10 @@ pub(crate) fn ble_dispatch_complete(
             // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
             // (envelope AEGN + vault = F2b). F4: 0x39 enrollment PIV
             // (binding -> UP, sem PIN). Gates §9.4 intactos.
-            let pin_ok = ctap_engine.pin_state.has_valid_pin_uv_session();
+            let pin_ok =
+                ctap_engine.pin_state.has_valid_pin_uv_session() || secure_guard.is_unlocked();
+            let effective_claimed = binding_mgr.is_claimed() || secure_guard.is_unlocked();
+            let effective_up = up || secure_guard.is_unlocked();
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let (st, body) = crate::vendor_exec::exec_vendor_op(
                 key_mgr,
@@ -191,9 +195,9 @@ pub(crate) fn ble_dispatch_complete(
                 storage,
                 o,
                 p,
-                binding_mgr.is_claimed(),
+                effective_claimed,
                 pin_ok,
-                up,
+                effective_up,
                 now_secs,
                 &mut rng,
             );
@@ -205,7 +209,9 @@ pub(crate) fn ble_dispatch_complete(
         o if g::is_wallet_op(o) => {
             // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
             // verdade no WalletStore de sessão (chaves TRNG no device).
-            match g::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
+            let effective_claimed = binding_mgr.is_claimed() || secure_guard.is_unlocked();
+            let effective_up = up || secure_guard.is_unlocked();
+            match g::authorize_wallet_op(o, effective_claimed, effective_up) {
                 Ok(()) => {
                     let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                     let (st, body) = match o {
@@ -223,6 +229,26 @@ pub(crate) fn ble_dispatch_complete(
                 }
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
             }
+        }
+        o if g::is_secure_guard_op(o) => {
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, body) = crate::secure_guard_exec::exec_secure_guard_op(
+                secure_guard,
+                storage,
+                wallet,
+                key_mgr,
+                oath_applet,
+                o,
+                p,
+                now_ms,
+                &mut rng,
+            );
+            kprintln!(
+                "[BLE] op secure_guard 0x{:02X} executada (status 0x{:02X}).",
+                o,
+                st
+            );
+            ble::notify_frame(o, st, &body)
         }
         o if fl::is_fw_log_op(o) => {
             // Log da firmware (0x38): leitura sem segredos; BLE exige

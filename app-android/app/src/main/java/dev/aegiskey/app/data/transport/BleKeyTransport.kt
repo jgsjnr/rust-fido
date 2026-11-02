@@ -1,6 +1,7 @@
 package dev.aegiskey.app.data.transport
 
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,8 +79,23 @@ class BleKeyTransport(
             client.sendVendor(opcode, payload)
         }
 
-        // Rito 1: Se retornar 0x05 (NEED_BINDING), abre janela de pareamento com 0x2F e reenvia
-        if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x05) {
+        // Rito 0: Se retornar 0x36 ou 0x02 com PIN ativo, desbloqueia e arma 0x2F
+        val activePin = dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl.lastVerifiedSessionPin
+        if (resp != null && resp.size >= 2 && ((resp[1].toInt() and 0xFF == 0x36) || (resp[1].toInt() and 0xFF == 0x02)) && !activePin.isNullOrBlank()) {
+            val pinBytes = activePin.toByteArray(Charsets.UTF_8)
+            val unlockCbor = dev.aegiskey.app.data.cbor.SecureGuardCbor.encodeUnlockRequest(pinBytes)
+            val unlockResp = if (bleReady) client.sendVendor(0x3B, unlockCbor) else hostBridgeClient.sendVendor(0x3B, unlockCbor)
+            val unlockSt = if (unlockResp != null && unlockResp.size >= 2) unlockResp[1].toInt() and 0xFF else -1
+            if (unlockSt != 0x00) {
+                val provCbor = dev.aegiskey.app.data.cbor.SecureGuardCbor.encodeProvisionRequest(pinBytes, null, null)
+                if (bleReady) client.sendVendor(0x3B, provCbor) else hostBridgeClient.sendVendor(0x3B, provCbor)
+            }
+            if (bleReady) client.sendVendor(0x2F, ByteArray(0)) else hostBridgeClient.sendVendor(0x2F, ByteArray(0))
+            resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
+        }
+
+        // Rito 1: Se retornar 0x05 (NEED_BINDING) ou 0x27 (OPERATION_DENIED), abre janela de pareamento com 0x2F e reenvia
+        if (resp != null && resp.size >= 2 && ((resp[1].toInt() and 0xFF == 0x05) || (resp[1].toInt() and 0xFF == 0x27))) {
             if (bleReady) {
                 client.sendVendor(0x2F, ByteArray(0))
                 resp = client.sendVendor(opcode, payload)
@@ -109,21 +125,17 @@ class BleKeyTransport(
             }
         }
 
-        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica PIN de recuperação "12345678"
+        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica se houver PIN da sessão ativo
         if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x02) {
-            val pinBytes = "12345678".toByteArray(Charsets.UTF_8)
-            val verifyResp = if (bleReady) client.sendVendor(0x2D, pinBytes) else hostBridgeClient.sendVendor(0x2D, pinBytes)
-            val verifyStatus = if (verifyResp != null && verifyResp.size >= 2) verifyResp[1].toInt() and 0xFF else -1
-            if (verifyStatus != 0x00) {
-                if (bleReady) {
-                    client.sendVendor(0x2C, pinBytes)
-                    client.sendVendor(0x2D, pinBytes)
-                } else {
-                    hostBridgeClient.sendVendor(0x2C, pinBytes)
-                    hostBridgeClient.sendVendor(0x2D, pinBytes)
+            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
+            if (!sessionPin.isNullOrBlank()) {
+                val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
+                val verifyResp = if (bleReady) client.sendVendor(0x2D, pinBytes) else hostBridgeClient.sendVendor(0x2D, pinBytes)
+                val verifyStatus = if (verifyResp != null && verifyResp.size >= 2) verifyResp[1].toInt() and 0xFF else -1
+                if (verifyStatus == 0x00) {
+                    resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
                 }
             }
-            resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
         }
 
         return resp
@@ -156,6 +168,12 @@ class BleKeyTransport(
         lockSeconds: Int = 10,
         enforceWindowsLock: Boolean = false
     ): Boolean = hostBridgeClient.configureProximityLock(enabled, thresholdDbm, lockSeconds, enforceWindowsLock)
+
+    suspend fun notifySecureGuardUnlocked() {
+        runCatching {
+            sendVendor(0x2F, byteArrayOf())
+        }
+    }
 
     suspend fun unlockProximitySession(pin: String): Boolean =
         hostBridgeClient.unlockProximitySession(pin)

@@ -875,7 +875,7 @@ class SecureGuardEngine:
         self.policy = {
             "wipe_on_5_failures": False,
             "session_duration_ms": 300000,
-            "inactivity_timeout_ms": 120000,
+            "inactivity_timeout_ms": 300000,
             "protect_keys_and_aegn": True,
             "protect_oath": False,
             "test_mode_non_destructive_wipe": False,
@@ -891,7 +891,7 @@ class SecureGuardEngine:
             if now >= self.rate_limit_until:
                 self.state = STATE_LOCKED
         elif self.state == STATE_UNLOCKED:
-            inactivity_sec = self.policy.get("inactivity_timeout_ms", 120000) / 1000.0
+            inactivity_sec = self.policy.get("inactivity_timeout_ms", 300000) / 1000.0
             if now >= self.session_expires_at or (now - self.last_activity_time) >= inactivity_sec:
                 self.state = STATE_LOCKED
 
@@ -913,7 +913,7 @@ class SecureGuardEngine:
                 "session_remaining_ms": rem_sess,
                 "wipe_on_5_failures": bool(self.policy.get("wipe_on_5_failures", False)),
                 "session_duration_ms": int(self.policy.get("session_duration_ms", 300000)),
-                "inactivity_timeout_ms": int(self.policy.get("inactivity_timeout_ms", 120000)),
+                "inactivity_timeout_ms": int(self.policy.get("inactivity_timeout_ms", 300000)),
                 "protect_keys_and_aegn": bool(self.policy.get("protect_keys_and_aegn", True)),
                 "protect_oath": bool(self.policy.get("protect_oath", False)),
                 "test_mode_non_destructive_wipe": bool(self.policy.get("test_mode_non_destructive_wipe", False)),
@@ -1795,7 +1795,22 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # GET /api/secure-guard/status -> Secure Guard zero-trust status & telemetry
         if path == "/api/secure-guard/status":
-            self.send_json({"ok": True, "status": 0x00, **SECURE_GUARD_ENGINE.get_status_dict()})
+            try:
+                st, resp = HW_MANAGER.send_vendor(0x3A, b"")
+                if st == 0x00 and resp:
+                    raw_dict, _ = cbor_decode(resp)
+                    if isinstance(raw_dict, dict):
+                        if not raw_dict.get("unlocked", False):
+                            SECURE_GUARD_ENGINE.lock_session()
+                        self.send_json({"ok": True, "status": 0x00, **raw_dict})
+                        return
+            except Exception:
+                pass
+            SECURE_GUARD_ENGINE.lock_session()
+            st_dict = SECURE_GUARD_ENGINE.get_status_dict()
+            st_dict["unlocked"] = False
+            st_dict["session_remaining_ms"] = 0
+            self.send_json({"ok": True, "status": 0x00, **st_dict})
             return
 
         # GET /api/wallet/list -> list of wallets
@@ -2591,6 +2606,22 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
                 pin = data.get("pin", "")
+                pin_bytes = pin.encode("utf-8") if isinstance(pin, str) else bytes(pin)
+                try:
+                    cbor_req = cbor_encode({"action": "unlock", "pin": pin_bytes})
+                    st, resp = HW_MANAGER.send_vendor(0x3B, cbor_req)
+                    if resp:
+                        hw_dict, _ = cbor_decode(resp)
+                        if isinstance(hw_dict, dict) and hw_dict.get("success"):
+                            SECURE_GUARD_ENGINE.unlock(pin)
+                            self.send_json({"ok": True, **hw_dict}, status_code=200)
+                            return
+                        elif isinstance(hw_dict, dict):
+                            SECURE_GUARD_ENGINE.lock_session()
+                            self.send_json({"ok": False, **hw_dict}, status_code=401)
+                            return
+                except Exception:
+                    pass
                 res = SECURE_GUARD_ENGINE.unlock(pin)
                 st_code = 200 if res.get("success") else 401
                 self.send_json({"ok": res.get("success", False), **res}, status_code=st_code)
@@ -2601,6 +2632,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
         # POST /api/secure-guard/lock
         if path == "/api/secure-guard/lock":
             try:
+                try:
+                    HW_MANAGER.send_vendor(0x3C, b"")
+                except Exception:
+                    pass
                 res = SECURE_GUARD_ENGINE.lock_session()
                 self.send_json({"ok": True, **res})
             except Exception as e:

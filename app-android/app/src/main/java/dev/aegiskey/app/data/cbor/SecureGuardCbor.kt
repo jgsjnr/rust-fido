@@ -270,11 +270,20 @@ object SecureGuardCbor {
         val policy = SecureGuardPolicy(
             wipeOn5Failures = decoded["wipe_on_5_failures"] as? Boolean ?: false,
             sessionDurationMs = (decoded["session_duration_ms"] as? Number)?.toLong() ?: 300_000L,
-            inactivityTimeoutMs = (decoded["inactivity_timeout_ms"] as? Number)?.toLong() ?: 120_000L,
+            inactivityTimeoutMs = (decoded["inactivity_timeout_ms"] as? Number)?.toLong() ?: 300_000L,
             protectKeysAndAegn = decoded["protect_keys_and_aegn"] as? Boolean ?: true,
             protectOath = decoded["protect_oath"] as? Boolean ?: false,
             testModeNonDestructiveWipe = decoded["test_mode_non_destructive_wipe"] as? Boolean ?: false
         )
+
+        val rawDeviceMac = decoded["device_ble_mac"]
+        val deviceMacBytes = when (rawDeviceMac) {
+            is ByteArray -> rawDeviceMac
+            is List<*> -> rawDeviceMac.mapNotNull { (it as? Number)?.toByte() }.toByteArray()
+            else -> null
+        }
+        val deviceBleMac = deviceMacBytes?.takeIf { it.size == 6 }?.joinToString(":") { "%02X".format(it) }
+        val deviceBleName = decoded["device_ble_name"] as? String
 
         return SecureGuardStatus(
             state = stateEnum,
@@ -288,7 +297,9 @@ object SecureGuardCbor {
             policy = policy,
             lastWipeSimulated = decoded["last_wipe_simulated"] as? Boolean ?: false,
             auditCount = (decoded["audit_count"] as? Number)?.toLong() ?: 0L,
-            lastGeneratedRecoveryCode = decoded["recovery_code"] as? String ?: decoded["new_recovery_code"] as? String
+            lastGeneratedRecoveryCode = decoded["recovery_code"] as? String ?: decoded["new_recovery_code"] as? String,
+            deviceBleMac = deviceBleMac,
+            deviceBleName = deviceBleName
         )
     }
 

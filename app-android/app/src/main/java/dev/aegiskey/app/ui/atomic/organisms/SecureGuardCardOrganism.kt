@@ -85,8 +85,8 @@ fun SecureGuardCardOrganism(
     var showPolicySettings by remember { mutableStateOf(false) }
 
     // Close modal if status becomes unlocked or operation finished successfully
-    LaunchedEffect(status.isUnlocked, uiState.successMessage) {
-        if (status.isUnlocked && activePopupOperation == HardwareSessionOperationType.UNLOCK_SESSION) {
+    LaunchedEffect(status.isUnlocked, status.state, uiState.successMessage) {
+        if (status.isUnlocked || status.state == SecureGuardStateEnum.UNLOCKED) {
             activePopupOperation = null
         }
     }
@@ -534,7 +534,9 @@ fun SecureGuardCardOrganism(
             errorMessage = uiState.errorMessage,
             onDismissRequest = { activePopupOperation = null },
             onConfirmPin = { pin, token ->
-                when (opType) {
+                val prevOp = opType
+                activePopupOperation = null
+                when (prevOp) {
                     HardwareSessionOperationType.PROVISION_SESSION -> {
                         onProvision(pin, null, null)
                     }
@@ -543,7 +545,6 @@ fun SecureGuardCardOrganism(
                     }
                     HardwareSessionOperationType.WIPE_SELECTIVE -> {
                         onWipeSelective(0, token ?: "CONFIRM_WIPE_AEGIS_GUARD")
-                        activePopupOperation = null
                     }
                     else -> {
                         onUnlock(pin)

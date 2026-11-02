@@ -96,8 +96,10 @@ impl SecureGuardEngine {
         } else if record.failed_attempts >= MAX_ATTEMPTS {
             if record.policy.wipe_on_5_failures {
                 engine.state = SecureGuardState::WipePending;
+            } else if record.rate_limit_until_ms > now_ms {
+                engine.state = SecureGuardState::RateLimited;
             } else {
-                engine.state = SecureGuardState::RecoveryRequired;
+                engine.state = SecureGuardState::Locked;
             }
         } else if record.rate_limit_until_ms > now_ms {
             engine.state = SecureGuardState::RateLimited;
@@ -256,8 +258,14 @@ impl SecureGuardEngine {
         is_away: bool,
         now_ms: u64,
     ) -> Result<bool, SecureGuardError> {
+        // Se a proximidade BLE não estiver registrada/ativada, ignora qualquer evento e nunca tranca
+        if !self.ble_proximity_registered {
+            self.ble_proximity_away = false;
+            return Ok(false);
+        }
+
         // If registered, match MAC or accept if wildcard [0; 6]
-        if self.ble_proximity_registered && self.paired_ble_mac != [0u8; 6] && self.paired_ble_mac != *mac {
+        if self.paired_ble_mac != [0u8; 6] && self.paired_ble_mac != *mac {
             return Ok(false);
         }
 
@@ -401,7 +409,13 @@ impl SecureGuardEngine {
         }
 
         if self.state == SecureGuardState::RecoveryRequired {
-            return Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired);
+            if now_ms < self.rate_limit_until_ms {
+                return Err(SecureGuardError::RateLimited {
+                    remaining_ms: self.rate_limit_until_ms - now_ms,
+                });
+            }
+            // Cooldown passed: transition to Locked and allow trying PIN again
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
         }
 
         if matches!(
@@ -415,6 +429,33 @@ impl SecureGuardEngine {
 
         // Check if rate limited
         if self.state == SecureGuardState::RateLimited {
+            let mut candidate_verifier =
+                derive_verifier(pin, &self.pin_salt, self.policy.pbkdf2_iterations);
+            let valid = constant_time_eq_32(&candidate_verifier, &self.pin_verifier);
+            candidate_verifier.zeroize();
+
+            if valid {
+                self.failed_attempts = 0;
+                self.rate_limit_until_ms = 0;
+                let _ = self.transition_to(SecureGuardState::Locked, now_ms);
+                self.transition_to(SecureGuardState::Authenticating, now_ms)?;
+                self.transition_to(SecureGuardState::Unlocked, now_ms)?;
+
+                self.session_expires_at_ms = now_ms.saturating_add(self.policy.session_duration_ms);
+                self.last_activity_ms = now_ms;
+
+                self.audit_log
+                    .push(now_ms, SecureGuardAuditEventType::PinVerificationSuccess);
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::SessionUnlocked {
+                        expires_at_ms: self.session_expires_at_ms,
+                    },
+                );
+
+                return Ok(());
+            }
+
             if now_ms < self.rate_limit_until_ms {
                 return Err(SecureGuardError::RateLimited {
                     remaining_ms: self.rate_limit_until_ms - now_ms,
@@ -483,8 +524,19 @@ impl SecureGuardEngine {
                         simulated: self.last_wipe_simulated,
                     })
                 } else {
-                    self.transition_to(SecureGuardState::RecoveryRequired, now_ms)?;
-                    Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+                    let delay_ms = 15_000;
+                    self.rate_limit_until_ms = now_ms.saturating_add(delay_ms);
+                    self.transition_to(SecureGuardState::RateLimited, now_ms)?;
+                    self.audit_log.push(
+                        now_ms,
+                        SecureGuardAuditEventType::RateLimitStarted {
+                            delay_ms,
+                            until_ms: self.rate_limit_until_ms,
+                        },
+                    );
+                    Err(SecureGuardError::RateLimited {
+                        remaining_ms: delay_ms,
+                    })
                 }
             } else {
                 let delay_ms = self.policy.compute_backoff_ms(failed);
@@ -530,7 +582,13 @@ impl SecureGuardEngine {
         }
 
         if self.state == SecureGuardState::RecoveryRequired {
-            return Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired);
+            if now_ms < self.rate_limit_until_ms {
+                return Err(SecureGuardError::RateLimited {
+                    remaining_ms: self.rate_limit_until_ms - now_ms,
+                });
+            }
+            // Cooldown passed: transition to Locked and allow trying PIN again
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
         }
 
         if matches!(
@@ -544,6 +602,33 @@ impl SecureGuardEngine {
 
         // Check if rate limited
         if self.state == SecureGuardState::RateLimited {
+            let mut candidate_verifier =
+                derive_verifier(pin, &self.pin_salt, self.policy.pbkdf2_iterations);
+            let valid = constant_time_eq_32(&candidate_verifier, &self.pin_verifier);
+            candidate_verifier.zeroize();
+
+            if valid {
+                self.failed_attempts = 0;
+                self.rate_limit_until_ms = 0;
+                let _ = self.transition_to(SecureGuardState::Locked, now_ms);
+                self.transition_to(SecureGuardState::Authenticating, now_ms)?;
+                self.transition_to(SecureGuardState::Unlocked, now_ms)?;
+
+                self.session_expires_at_ms = now_ms.saturating_add(self.policy.session_duration_ms);
+                self.last_activity_ms = now_ms;
+
+                self.audit_log
+                    .push(now_ms, SecureGuardAuditEventType::PinVerificationSuccess);
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::SessionUnlocked {
+                        expires_at_ms: self.session_expires_at_ms,
+                    },
+                );
+
+                return Ok(());
+            }
+
             if now_ms < self.rate_limit_until_ms {
                 return Err(SecureGuardError::RateLimited {
                     remaining_ms: self.rate_limit_until_ms - now_ms,
@@ -603,8 +688,19 @@ impl SecureGuardEngine {
                         simulated: self.last_wipe_simulated,
                     })
                 } else {
-                    self.transition_to(SecureGuardState::RecoveryRequired, now_ms)?;
-                    Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+                    let delay_ms = 15_000;
+                    self.rate_limit_until_ms = now_ms.saturating_add(delay_ms);
+                    self.transition_to(SecureGuardState::RateLimited, now_ms)?;
+                    self.audit_log.push(
+                        now_ms,
+                        SecureGuardAuditEventType::RateLimitStarted {
+                            delay_ms,
+                            until_ms: self.rate_limit_until_ms,
+                        },
+                    );
+                    Err(SecureGuardError::RateLimited {
+                        remaining_ms: delay_ms,
+                    })
                 }
             } else {
                 let delay_ms = self.policy.compute_backoff_ms(failed);
@@ -706,17 +802,30 @@ impl SecureGuardEngine {
         Ok(true)
     }
 
-    /// Immediately terminates the active session and transitions to Locked.
+    /// Immediately terminates any active session or penalty and transitions to Locked.
     pub fn lock_now(&mut self, now_ms: u64) -> Result<(), SecureGuardError> {
-        if self.state == SecureGuardState::Unlocked {
-            self.session_expires_at_ms = 0;
-            self.transition_to(SecureGuardState::Locked, now_ms)?;
-            self.audit_log.push(
-                now_ms,
-                SecureGuardAuditEventType::SessionExpired {
-                    reason: SessionExpiryReason::ManualLock,
-                },
-            );
+        self.session_expires_at_ms = 0;
+        self.rate_limit_until_ms = 0;
+        self.failed_attempts = 0;
+
+        match self.state {
+            SecureGuardState::Unlocked
+            | SecureGuardState::Authenticating
+            | SecureGuardState::RateLimited
+            | SecureGuardState::RecoveryRequired
+            | SecureGuardState::Locked => {
+                let from = self.state;
+                if from != SecureGuardState::Locked {
+                    let _ = self.transition_to(SecureGuardState::Locked, now_ms);
+                }
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::SessionExpired {
+                        reason: SessionExpiryReason::ManualLock,
+                    },
+                );
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -905,6 +1014,33 @@ impl SecureGuardEngine {
 
         self.transition_to(SecureGuardState::Unprovisioned, now_ms)?;
         Ok(SecureGuardWipeScope::ProtectedResourcesOnly)
+    }
+
+    /// Unconditionally resets the engine back to factory fresh Unprovisioned state.
+    ///
+    /// Clears all credentials, salts, verifiers, rate limits, session timers,
+    /// failed attempt counters, and paired BLE proximity devices.
+    pub fn reset_to_factory(&mut self) {
+        self.pin_salt.zeroize();
+        self.pin_verifier.zeroize();
+        self.recovery_salt.zeroize();
+        self.recovery_verifier.zeroize();
+        self.is_provisioned = false;
+        self.failed_attempts = 0;
+        self.rate_limit_until_ms = 0;
+        self.session_expires_at_ms = 0;
+        self.last_activity_ms = 0;
+        self.last_wipe_simulated = false;
+        self.last_rotated_recovery_code = None;
+        self.paired_ble_mac = [0u8; 6];
+        self.paired_ble_name = [0u8; 24];
+        self.ble_proximity_registered = false;
+        self.ble_proximity_away = false;
+        self.state = SecureGuardState::Unprovisioned;
+        self.audit_log.push(
+            0,
+            SecureGuardAuditEventType::WipeCompleted { simulated: false },
+        );
     }
 
     // --- Authorization Barriers ---

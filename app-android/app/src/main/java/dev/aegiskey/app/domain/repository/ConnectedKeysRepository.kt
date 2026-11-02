@@ -14,4 +14,5 @@ interface ConnectedKeysRepository {
     suspend fun updateKeyToggles(keyId: String, toggles: SecurityToggles)
     suspend fun renameKey(keyId: String, newName: String)
     suspend fun removeKey(keyId: String)
+    suspend fun autoPairBleDevice(bleMac: String, bleName: String = "AegisKey") {}
 }

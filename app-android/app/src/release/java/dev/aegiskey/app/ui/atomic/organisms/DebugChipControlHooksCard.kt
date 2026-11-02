@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
  * Release source set implementation of DebugChipControlHooksCard.
  * In release builds, this composable emits zero UI and performs no operation.
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun DebugChipControlHooksCard(
     modifier: Modifier = Modifier,

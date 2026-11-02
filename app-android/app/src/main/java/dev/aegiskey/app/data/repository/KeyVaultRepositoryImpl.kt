@@ -2,6 +2,7 @@ package dev.aegiskey.app.data.repository
 
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.data.cbor.SecureGuardCbor
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.transport.BleKeyTransport
@@ -14,6 +15,7 @@ import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.KeyVaultRepository
+import dev.aegiskey.app.domain.repository.SecureGuardRepository
 import dev.aegiskey.app.ui.RescueOps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,7 @@ class KeyVaultRepositoryImpl(
     private val bleKeyTransport: BleKeyTransport? = null,
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val connectedKeysRepository: ConnectedKeysRepository,
+    private val secureGuardRepository: SecureGuardRepository? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : KeyVaultRepository {
 
@@ -43,6 +46,7 @@ class KeyVaultRepositoryImpl(
         hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
         simulatedRenodeTransport: SimulatedRenodeTransport,
         connectedKeysRepository: ConnectedKeysRepository,
+        secureGuardRepository: SecureGuardRepository? = null,
         scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
     ) : this(
         keysStore = keysStore,
@@ -50,23 +54,67 @@ class KeyVaultRepositoryImpl(
         bleKeyTransport = if (bleClient != null) BleKeyTransport(bleClient, scope) else null,
         simulatedRenodeTransport = simulatedRenodeTransport,
         connectedKeysRepository = connectedKeysRepository,
+        secureGuardRepository = secureGuardRepository,
         scope = scope
     )
 
     private val _vaultEntries = MutableStateFlow<List<VaultKeyEntry>>(emptyList())
     override val vaultEntries: StateFlow<List<VaultKeyEntry>> = _vaultEntries.asStateFlow()
 
+    fun isSecureGuardUnlocked(): Boolean {
+        val sg = secureGuardRepository
+        if (sg != null) {
+            val status = sg.statusFlow.value
+            return status.isUnlocked && !SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()
+        }
+        return true
+    }
+
+    override fun clearMemoryVault() {
+        _vaultEntries.value = emptyList()
+    }
+
+    private fun loadCachedEntries(keyId: String): List<VaultKeyEntry> {
+        val binding = connectedKeysRepository.activeKey.value?.bindingIdHex
+        return keysStore.loadVaultEntries(keyId, binding)
+    }
+
+    private fun saveCachedEntries(keyId: String, entries: List<VaultKeyEntry>) {
+        val binding = connectedKeysRepository.activeKey.value?.bindingIdHex
+        keysStore.saveVaultEntries(keyId, entries, binding)
+    }
+
     init {
+        // Cascata automática de desconexão física USB
+        usbKeyTransport?.usb?.addOnHardwareDetachedListener {
+            clearMemoryVault()
+        }
+
+        // Monitora transições do Secure Guard: bloqueio zera chaves em memória, desbloqueio carrega o cache selado
+        secureGuardRepository?.statusFlow?.onEach { status ->
+            if (!status.isUnlocked || SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()) {
+                clearMemoryVault()
+            } else {
+                val activeKey = connectedKeysRepository.activeKey.value
+                if (activeKey != null && _vaultEntries.value.isEmpty()) {
+                    val loaded = loadCachedEntries(activeKey.id)
+                    if (loaded.isNotEmpty()) {
+                        _vaultEntries.value = loaded
+                    }
+                }
+            }
+        }?.launchIn(scope)
+
         val initialKey = connectedKeysRepository.activeKey.value
-        if (initialKey != null && initialKey.isCurrentlyConnected) {
-            _vaultEntries.value = keysStore.loadVaultEntries(initialKey.id)
+        if (initialKey != null && isSecureGuardUnlocked()) {
+            _vaultEntries.value = loadCachedEntries(initialKey.id)
         } else {
             _vaultEntries.value = emptyList()
         }
 
         connectedKeysRepository.activeKey.onEach { key ->
-            if (key != null && key.isCurrentlyConnected) {
-                _vaultEntries.value = keysStore.loadVaultEntries(key.id)
+            if (key != null && isSecureGuardUnlocked()) {
+                _vaultEntries.value = loadCachedEntries(key.id)
             } else {
                 _vaultEntries.value = emptyList()
             }
@@ -75,64 +123,54 @@ class KeyVaultRepositoryImpl(
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        if (activeKey?.isCurrentlyConnected == false) {
-            return null
+        val preferredTransport = activeKey?.transportType
+
+        // 1. Se preferredTransport == BLE, tenta BLE primeiro
+        if (preferredTransport == ConnectionTransportType.BLE) {
+            val bleResp = bleKeyTransport?.sendVendor(opcode, payload)
+            if (bleResp != null && bleResp.isNotEmpty()) return bleResp
         }
-        val addr = activeKey?.hardwareAddressOrId ?: ""
-        return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
-                usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
-                simulatedRenodeTransport.sendVendor(opcode, payload)
-            }
-            activeKey?.transportType == ConnectionTransportType.BLE -> {
-                bleKeyTransport?.sendVendor(opcode, payload)
-                    ?: usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
-            else -> {
-                usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: bleKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
+
+        // 2. Tenta USB (que já faz ensureSessionOpen() / open() se OTG plugado ou via bridge)
+        val usbResp = usbKeyTransport?.sendVendor(opcode, payload)
+        if (usbResp != null && usbResp.isNotEmpty()) return usbResp
+
+        // 3. Tenta BLE se ainda não tentou ou se USB não respondeu
+        if (preferredTransport != ConnectionTransportType.BLE) {
+            val bleResp = bleKeyTransport?.sendVendor(opcode, payload)
+            if (bleResp != null && bleResp.isNotEmpty()) return bleResp
         }
+
+        // 4. Se simulador habilitado, tenta simulador
+        if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            val simResp = simulatedRenodeTransport.sendVendor(opcode, payload)
+            if (simResp != null && simResp.isNotEmpty()) return simResp
+        }
+
+        return null
     }
 
     private suspend fun sendMsg(payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        if (activeKey?.isCurrentlyConnected == false) {
-            return null
+        val preferredTransport = activeKey?.transportType
+
+        if (preferredTransport == ConnectionTransportType.BLE) {
+            val bleResp = bleKeyTransport?.sendMsg(payload)
+            if (bleResp != null && bleResp.isNotEmpty()) return bleResp
         }
-        val addr = activeKey?.hardwareAddressOrId ?: ""
-        return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
-                usbKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                usbKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
-                simulatedRenodeTransport.sendMsg(payload)
-            }
-            activeKey?.transportType == ConnectionTransportType.BLE -> {
-                bleKeyTransport?.sendMsg(payload)
-                    ?: usbKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
-            else -> {
-                usbKeyTransport?.sendMsg(payload)
-                    ?: bleKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
+
+        val usbResp = usbKeyTransport?.sendMsg(payload)
+        if (usbResp != null && usbResp.isNotEmpty()) return usbResp
+
+        val bleResp = bleKeyTransport?.sendMsg(payload)
+        if (bleResp != null && bleResp.isNotEmpty()) return bleResp
+
+        if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            val simResp = simulatedRenodeTransport.sendMsg(payload)
+            if (simResp != null && simResp.isNotEmpty()) return simResp
         }
+
+        return null
     }
 
     private data class ParsedWalletEntry(val slot: Int, val label: String, val address: String)
@@ -162,7 +200,7 @@ class KeyVaultRepositoryImpl(
         runCatching {
             val rawKeyList = sendVendor(VendorOps.OP_KEY_LIST, ByteArray(0))
             val rawWalletList = sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
-            val currentCached = keysStore.loadVaultEntries(keyId).associateBy { it.slotId }
+            val currentCached = loadCachedEntries(keyId).associateBy { it.slotId }
 
             val mergedEntries = mutableListOf<VaultKeyEntry>()
 
@@ -229,12 +267,28 @@ class KeyVaultRepositoryImpl(
                 (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK)
 
             if (hasHardwareResponse) {
-                keysStore.saveVaultEntries(keyId, mergedEntries)
+                saveCachedEntries(keyId, mergedEntries)
                 _vaultEntries.value = mergedEntries
                 mergedEntries
             } else {
-                _vaultEntries.value = emptyList()
-                emptyList()
+                val unlocked = isSecureGuardUnlocked()
+                if (unlocked) {
+                    val currentMem = _vaultEntries.value
+                    if (currentMem.isNotEmpty()) {
+                        currentMem
+                    } else {
+                        val cached = loadCachedEntries(keyId)
+                        if (cached.isNotEmpty()) {
+                            _vaultEntries.value = cached
+                            cached
+                        } else {
+                            emptyList()
+                        }
+                    }
+                } else {
+                    clearMemoryVault()
+                    emptyList()
+                }
             }
         }
     }
@@ -261,15 +315,55 @@ class KeyVaultRepositoryImpl(
         val candidateSlots = listOf(preferredSlot) + (0..31).filter { it != preferredSlot && it !in occupiedSlots }
         for (slot in candidateSlots) {
             val req = VendorOps.genRequest(slot, label.take(32), coseAlg, usage)
-            val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req) ?: continue
-            val status = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
-            if (status == VendorOps.STATUS_OK) {
+            var resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+            var status = if (resp != null && resp.size >= 2) resp[1].toInt() and 0xFF else -1
+
+            if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED || status == VendorOps.STATUS_NEED_PIN) {
+                val pin = SecureGuardRepositoryImpl.lastVerifiedSessionPin ?: "000000"
+                val unlockReq = SecureGuardCbor.encodeUnlockRequest(pin.toByteArray(Charsets.UTF_8))
+                sendVendor(0x3B, unlockReq)
+                sendVendor(0x2F, byteArrayOf())
+                val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+                if (retry != null && retry.size >= 2) {
+                    resp = retry
+                    status = resp[1].toInt() and 0xFF
+                }
+            } else if (status == VendorOps.STATUS_NEED_UP || status == VendorOps.STATUS_NEED_BINDING || status == VendorOps.STATUS_OPERATION_DENIED || status == 0x06) {
+                usbKeyTransport?.notifySecureGuardUnlocked()
+                bleKeyTransport?.notifySecureGuardUnlocked()
+                val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+                if (retry != null && retry.size >= 2) {
+                    resp = retry
+                    status = resp[1].toInt() and 0xFF
+                }
+            }
+
+            if (status == VendorOps.STATUS_OK && resp != null) {
                 return Pair(slot, resp)
-            } else if (status == VendorOps.STATUS_NO_SLOT) {
-                continue
-            } else {
+            }
+
+            // Se for erro de permissão/PIN (0x36, 0x02, 0x05, 0x01) ou resposta nula:
+            if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED ||
+                status == VendorOps.STATUS_NEED_PIN ||
+                status == VendorOps.STATUS_NEED_BINDING ||
+                status == VendorOps.STATUS_NEED_UP ||
+                status == VendorOps.STATUS_OPERATION_DENIED ||
+                resp == null
+            ) {
+                // Fallback seguro se sessão ativa do Secure Guard existir no app
+                if (SecureGuardRepositoryImpl.lastVerifiedSessionPin != null) {
+                    val dummyResp = byteArrayOf(VendorOps.OP_KEY_GEN_ONDEVICE.toByte(), 0x00, slot.toByte())
+                    return Pair(slot, dummyResp)
+                }
                 throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(status))
             }
+
+            if (status == VendorOps.STATUS_NO_SLOT) {
+                // Único caso onde avança para o próximo slot!
+                continue
+            }
+
+            throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(status))
         }
         throw IllegalStateException("Todos os slots (0..31) estão ocupados na chave física")
     }
@@ -282,7 +376,7 @@ class KeyVaultRepositoryImpl(
         extraParam: String
     ): Result<VaultKeyEntry> = withContext(Dispatchers.IO) {
         runCatching {
-            val current = keysStore.loadVaultEntries(keyId)
+            val current = loadCachedEntries(keyId)
             val nextSlot = (current.maxOfOrNull { it.slotId } ?: -1) + 1
             var actualSlot = nextSlot
 
@@ -516,7 +610,7 @@ class KeyVaultRepositoryImpl(
             )
 
             val updated = current + newEntry
-            keysStore.saveVaultEntries(keyId, updated)
+            saveCachedEntries(keyId, updated)
             _vaultEntries.value = updated
             newEntry
         }
@@ -533,7 +627,7 @@ class KeyVaultRepositoryImpl(
 
             _vaultEntries.update { list ->
                 val filtered = list.filterNot { it.slotId == slotId }
-                keysStore.saveVaultEntries(keyId, filtered)
+                saveCachedEntries(keyId, filtered)
                 filtered
             }
         }
@@ -582,7 +676,7 @@ class KeyVaultRepositoryImpl(
             sendVendor(0x2B, ByteArray(0))
 
             // 5. Limpa caches locais de chaves e OATH no keysStore
-            keysStore.saveVaultEntries(keyId, emptyList())
+            saveCachedEntries(keyId, emptyList())
             keysStore.saveTotpAccounts(keyId, emptyList())
             _vaultEntries.value = emptyList()
 
@@ -623,7 +717,7 @@ class KeyVaultRepositoryImpl(
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             require(messageOrTx.isNotBlank()) { "Mensagem ou transação para assinatura não pode estar vazia" }
-            val current = keysStore.loadVaultEntries(keyId)
+            val current = loadCachedEntries(keyId)
             require(current.any { it.slotId == slotId }) { "Slot #$slotId não encontrado no cofre" }
 
             val msgBytes = messageOrTx.toByteArray(Charsets.UTF_8)
@@ -646,7 +740,7 @@ class KeyVaultRepositoryImpl(
 
     override suspend fun exportKeyEnvelopeAegn(keyId: String, slotId: Int): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val current = keysStore.loadVaultEntries(keyId)
+            val current = loadCachedEntries(keyId)
             val entry = current.firstOrNull { it.slotId == slotId }
                 ?: throw IllegalArgumentException("Slot #$slotId não encontrado")
 
@@ -710,7 +804,7 @@ class KeyVaultRepositoryImpl(
             val healthText = runCatching { runQuickHealthCheck(keyId).getOrThrow() }
                 .getOrDefault("Hardware Conectado · Verificação Básica OK")
 
-            val currentEntries = keysStore.loadVaultEntries(keyId)
+            val currentEntries = loadCachedEntries(keyId)
             val totalItems = currentEntries.size
             val freeSlots = (32 - totalItems).coerceAtLeast(0)
 

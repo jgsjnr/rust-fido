@@ -25,4 +25,5 @@ interface KeyVaultRepository {
     suspend fun exportKeyEnvelopeAegn(keyId: String, slotId: Int): Result<String>
     suspend fun enrollOrUpdatePivPin(keyId: String, slotCode: String, newPin: String, newPuk: String): Result<String>
     suspend fun fetchHardwareDiagnostics(keyId: String): Result<HardwareDeviceDiagnostics>
+    fun clearMemoryVault() {}
 }

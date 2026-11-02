@@ -98,6 +98,7 @@ object BindingKey {
         gen.generateKeyPair()
     }
 
+    @Suppress("DEPRECATION")
     private fun isStrongBoxBacked(): Boolean = runCatching {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val key = ks.getKey(ALIAS, null) as? java.security.PrivateKey ?: return false

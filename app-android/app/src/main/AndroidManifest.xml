@@ -29,6 +29,8 @@
     <!-- WiFi AP transport: POST /ctap, POST /config/wifi, GET /oath/code.
          Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- USB host (CTAPHID 64B, VID 0x303A / PID 0xAE61): unica adicao.
          Sem permissao nova: UsbManager.requestPermission e runtime via
          dialogo do sistema. neverForLocation mantido; sem LOCATION. -->
@@ -50,7 +52,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|smallestScreenSize|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

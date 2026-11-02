@@ -72,6 +72,7 @@ mod tests {
     fn test_provision_valid_and_invalid_pins() {
         let policy = SecureGuardPolicy {
             pbkdf2_iterations: 10,
+            reject_trivial_pins: true,
             ..Default::default()
         };
         let mut engine = SecureGuardEngine::new(policy);
@@ -161,8 +162,8 @@ mod tests {
         ));
         assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
-        // Attempt during rate limit is rejected immediately
-        let early_err = engine.unlock_with_pin(TEST_PIN, time + 500);
+        // Attempt with wrong PIN during rate limit is rejected immediately
+        let early_err = engine.unlock_with_pin(TEST_WRONG_PIN, time + 500);
         assert!(matches!(
             early_err,
             Err(SecureGuardError::RateLimited { .. })
@@ -195,21 +196,28 @@ mod tests {
         // Advance past delay 15000ms
         time += 15500;
 
-        // Failure 5: triggers RecoveryRequired
+        // Failure 5: triggers 15-second RateLimited (NEVER locks forever!)
         let err5 = engine.unlock_with_pin(TEST_WRONG_PIN, time);
         assert!(matches!(
             err5,
-            Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+            Err(SecureGuardError::RateLimited { remaining_ms: 15000 })
         ));
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
         assert_eq!(engine.failed_attempts(), 5);
 
-        // Any subsequent unlock_with_pin is rejected
-        let blocked = engine.unlock_with_pin(TEST_PIN, time + 100);
+        // Subsequent attempt with wrong PIN within 15s is rate-limited
+        let blocked = engine.unlock_with_pin(TEST_WRONG_PIN, time + 100);
         assert!(matches!(
             blocked,
-            Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+            Err(SecureGuardError::RateLimited { .. })
         ));
+
+        // After 15s cooldown, correct PIN unlocks!
+        time += 15500;
+        let unlocked = engine.unlock_with_pin(TEST_PIN, time);
+        assert!(unlocked.is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+        assert_eq!(engine.failed_attempts(), 0);
     }
 
     #[test]
@@ -367,6 +375,24 @@ mod tests {
         // Transport disconnect terminates session
         engine.on_transport_disconnect(4000).unwrap();
         assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // Rate-limit can be cleared by lock_now
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 5000);
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 5100);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
+        engine.lock_now(5200).unwrap();
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+        assert_eq!(engine.failed_attempts(), 0);
+        assert_eq!(engine.rate_limit_until_ms(), 0);
+
+        // While RateLimited, correct PIN unlocks immediately
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 6000);
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 6100);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
+        engine.unlock_with_pin(TEST_PIN, 6200).unwrap();
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+        assert_eq!(engine.failed_attempts(), 0);
+        assert_eq!(engine.rate_limit_until_ms(), 0);
     }
 
     #[test]
@@ -381,6 +407,7 @@ mod tests {
         assert!(engine.unlock_with_pin(TEST_PIN, 2100).is_ok());
 
         // 2. Trivial new PIN fails and preserves old PIN
+        engine.policy_mut().reject_trivial_pins = true;
         let err2 = engine.change_pin(TEST_PIN, b"1111", [0x30; 16], 3000);
         assert!(matches!(err2, Err(SecureGuardError::TrivialPinRejected)));
 
@@ -421,7 +448,7 @@ mod tests {
                 _ => 100,
             };
         }
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
         // 1. Wrong recovery code fails
         let bad_rec = engine.recover_with_code(b"wrong_code", b"7412", [0x40; 16], time);
@@ -429,7 +456,7 @@ mod tests {
             bad_rec,
             Err(SecureGuardError::InvalidRecoveryCode)
         ));
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
         // 2. Legitimate recovery with valid code
         let ok_rec = engine.recover_with_code(&recovery_code, b"7412", [0x40; 16], time + 500);
@@ -502,7 +529,7 @@ mod tests {
             Ok(())
         );
 
-        // 6. Force RecoveryRequired state: FIDO Standard STILL allowed!
+        // 6. Force RateLimited state with 5 failures: FIDO Standard STILL allowed!
         engine.lock_now(3000).unwrap();
         let mut time = 3000u64;
         for i in 1..=5 {
@@ -515,7 +542,7 @@ mod tests {
                 _ => 100,
             };
         }
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
         // FIDO Standard Flow STILL PERMITTED!
         assert_eq!(
@@ -621,5 +648,22 @@ mod tests {
         // 7. Now unlock succeeds
         assert!(engine.unlock_with_pin(TEST_PIN, 2600).is_ok());
         assert_eq!(engine.state(), SecureGuardState::Unlocked);
+    }
+
+    #[test]
+    fn test_unregistered_ble_proximity_never_locks_unlocked_session() {
+        let (mut engine, _) = create_test_engine();
+        assert!(!engine.ble_proximity_registered());
+
+        // Desbloqueia com PIN
+        assert!(engine.unlock_with_pin(TEST_PIN, 1000).is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // Dispara evento de proximidade "Away" sem estar registrado (ex.: chave conectada via USB)
+        let dummy_mac = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let locked = engine.on_ble_proximity_update(&dummy_mac, -90, true, 1100).unwrap();
+        assert!(!locked, "Não deve trancar se proximidade BLE não estiver registrada");
+        assert_eq!(engine.state(), SecureGuardState::Unlocked, "Sessão deve permanecer Unlocked");
+        assert!(!engine.ble_proximity_away());
     }
 }

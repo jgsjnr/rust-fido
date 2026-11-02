@@ -202,6 +202,7 @@ pub fn run_authenticator() {
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
     // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
     let mut wallet_store = WalletStore::new();
+    let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     // Log real do device p/ o app (op 0x38; RAM, sem PII/segredos).
     let mut fw_log = crate::fw_log::FwLog::new();
     fw_log.record(crate::fw_log::EV_BOOT, 0, 0);
@@ -901,6 +902,7 @@ pub fn run_authenticator() {
                             &mut fw_log,
                             &mut key_mgr,
                             &mut oath_applet,
+                            &mut secure_guard,
                         );
                         // Wave2 proximidade: release/recovery apagou a NVS
                         // no dispatch (so no Ok); espelha no cache RAM.

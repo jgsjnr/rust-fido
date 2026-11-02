@@ -32,7 +32,7 @@ enum class SecureGuardStateEnum(val wireCode: Int, val displayName: String) {
 data class SecureGuardPolicy(
     val wipeOn5Failures: Boolean = false,
     val sessionDurationMs: Long = 300_000L,
-    val inactivityTimeoutMs: Long = 120_000L,
+    val inactivityTimeoutMs: Long = 300_000L,
     val protectKeysAndAegn: Boolean = true,
     val protectOath: Boolean = false,
     val testModeNonDestructiveWipe: Boolean = false
@@ -53,5 +53,7 @@ data class SecureGuardStatus(
     val policy: SecureGuardPolicy = SecureGuardPolicy(),
     val lastWipeSimulated: Boolean = false,
     val auditCount: Long = 0L,
-    val lastGeneratedRecoveryCode: String? = null
+    val lastGeneratedRecoveryCode: String? = null,
+    val deviceBleMac: String? = null,
+    val deviceBleName: String? = null
 )

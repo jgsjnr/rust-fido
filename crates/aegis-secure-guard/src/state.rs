@@ -77,6 +77,8 @@ impl SecureGuardState {
                     | Self::RateLimited
                     | Self::RecoveryRequired
                     | Self::WipePending
+                    | Self::WipeInProgress
+                    | Self::Unprovisioned
             ),
             Self::Authenticating => matches!(
                 target,
@@ -85,13 +87,36 @@ impl SecureGuardState {
                     | Self::RateLimited
                     | Self::RecoveryRequired
                     | Self::WipePending
+                    | Self::WipeInProgress
+                    | Self::Unprovisioned
             ),
-            Self::Unlocked => matches!(target, Self::Locked | Self::Authenticating | Self::WipePending | Self::WipeInProgress),
+            Self::Unlocked => matches!(
+                target,
+                Self::Locked
+                    | Self::Authenticating
+                    | Self::WipePending
+                    | Self::WipeInProgress
+                    | Self::Unprovisioned
+            ),
             Self::RecoveryRequired => {
-                matches!(target, Self::Authenticating | Self::Locked | Self::Unlocked)
+                matches!(
+                    target,
+                    Self::Authenticating
+                        | Self::Locked
+                        | Self::Unlocked
+                        | Self::WipePending
+                        | Self::WipeInProgress
+                        | Self::Unprovisioned
+                )
             }
-            Self::RateLimited => matches!(target, Self::Locked),
-            Self::WipePending => matches!(target, Self::WipeInProgress),
+            Self::RateLimited => matches!(
+                target,
+                Self::Locked
+                    | Self::WipePending
+                    | Self::WipeInProgress
+                    | Self::Unprovisioned
+            ),
+            Self::WipePending => matches!(target, Self::WipeInProgress | Self::Unprovisioned),
             Self::WipeInProgress => matches!(target, Self::Unprovisioned | Self::Locked),
             Self::ErrorLocked => matches!(target, Self::Unprovisioned),
         }
@@ -167,7 +192,7 @@ mod tests {
 
         // Unlocked
         assert!(SecureGuardState::Unlocked.can_transition_to(SecureGuardState::Locked));
-        assert!(!SecureGuardState::Unlocked.can_transition_to(SecureGuardState::Unprovisioned));
+        assert!(SecureGuardState::Unlocked.can_transition_to(SecureGuardState::Unprovisioned));
 
         // RecoveryRequired
         assert!(
