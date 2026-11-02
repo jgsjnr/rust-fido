@@ -257,3 +257,177 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 exit=0 duration_s=91.6
 ```
 
+## Run 2026-11-02T16:09:32Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 22.8 |  |
+| test-firmware-features | no | PASS | 0 | 8.5 |  |
+| clippy | no | PASS | 0 | 4.1 |  |
+| fmt | yes | FAIL | 1 | 1.4 |  |
+| deny | no | PASS | 0 | 12.9 |  |
+| dep-track | no | PASS | 0 | 0.3 |  |
+| docs | no | PASS | 0 | 0.2 | reports-scan checked=0 broken=0 |
+| scripts | no | PASS | 0 | 9.8 |  |
+| test-release | no | PASS | 0 | 37.0 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 22.8s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=22.8
+```
+
+#### `test-firmware-features` - PASS (exit 0, 8.5s)
+
+```
+     Running tests\secure_guard_integration.rs (C:/t\debug\deps\secure_guard_integration-0f24304cdbfecac5.exe)
+
+running 2 tests
+test test_secure_guard_full_lifecycle_and_enforcement ... ok
+test test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=8.5
+```
+
+#### `clippy` - PASS (exit 0, 4.1s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\standalone-architecture-worktree\crates\aegis-fido-firmware)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.84s
+exit=0 duration_s=4.1
+```
+
+#### `fmt` - FAIL (exit 1, 1.4s)
+
+```
+     }
+ }
+Diff in \\?\E:\projetos\standalone-architecture-worktree\crates\universal-device-sdk\src\shamir.rs:82:
+             Value::Text("data".into()),
+             Value::Bytes(share.data.to_vec()),
+         ),
+[31m-        (
+[0m[31m-            Value::Text("crc32".into()),
+[0m[31m-            Value::from(share.crc32 as u64),
+[0m[31m-        ),
+[0m[32m+        (Value::Text("crc32".into()), Value::from(share.crc32 as u64)),
+[0m     ];
+     Value::Map(map)
+ }
+exit=1 duration_s=1.4
+```
+
+#### `deny` - PASS (exit 0, 12.9s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=12.9
+```
+
+#### `dep-track` - PASS (exit 0, 0.3s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (230 files, 22 gods)
+check ok: no new god-files beyond 24 allowlisted
+exit=0 duration_s=0.3
+```
+
+#### `docs` - PASS (exit 0, 0.2s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+STYLE-HINT: docs\plans\PLANS.md:48 (26 words)
+STYLE-HINT: docs\plans\PLANS.md:50 (35 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=0 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 9.8s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\standalone-architecture-worktree\scripts\menu.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\standalone-architecture-worktree\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\standalone-architecture-worktree\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\standalone-architecture-worktree\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\standalone-architecture-worktree\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+```
+
+#### `test-release` - PASS (exit 0, 37.0s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=37.0
+```
+
