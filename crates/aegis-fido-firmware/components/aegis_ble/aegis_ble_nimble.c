@@ -542,11 +542,24 @@ static int ensure_init(void)
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.gatts_register_cb = register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-    /* JustWorks + bonding + UP físico (UP exigido por operação no Rust).
-     * Sem MITM/passkey (sem display de PIN no device nesta etapa). */
+    /* F-01 HARDENING (2026-11-02): MITM exigido no link-layer.
+     * - `sm_mitm = 1` + `sm_sc = 1` + `sm_bonding = 1`: LE Secure Connections
+     *   com bonding; pareamento JustWorks (sem MITM) eh REJEITADO fail-closed
+     *   pelo NimBLE (`BLE_HS_SM_ERR_AUTH_REQUIREMENTS`), nunca cai para
+     *   chave nao autenticada.
+     * - SEMPRE com janela de pareamento 60 s + UP fisico por operacao (Rust
+     *   `ble_nimble::on_link_secured`) + vinculo ECDSA app-layer
+     *   (`ble_gatt` claim/challenge): defesa em profundidade inalterada.
+     * - UX ONE-WAY, owner-authorized: bonds JustWorks antigos NAO reencriptam
+     *   sob a nova politica (REPEAT_PAIRING apaga o peer e tenta de novo, que
+     *   falha fechado sem metodo MITM) - o dono precisa re-parear dentro da
+     *   janela com UP. Tentativas JustWorks sem metodo MITM (display/OOB)
+     *   falham fechado; numeric-comparison/OOB eh follow-up (ver Rust
+     *   `BLE_SM_MITM_REQUIRED` + `mitm_repair_notice()`).
+     * - Antes: `sm_mitm = 0` (Sem MITM/passkey nesta etapa); ver audit F-01. */
     ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
     ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_mitm = 1;
     ble_hs_cfg.sm_sc = 1;
     ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;

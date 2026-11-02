@@ -158,6 +158,39 @@ pub fn should_advertise_reconnect(state: PairingState, trusted: bool) -> bool {
     trusted && matches!(state, PairingState::Idle)
 }
 
+// ---------------------------------------------------------------------------
+// F-01 HARDENING (2026-11-02): MITM exigido no link-layer.
+//
+// Espelho host-testavel da config NimBLE em
+// `components/aegis_ble/aegis_ble_nimble.c` (`sm_mitm = 1`, `sm_sc = 1`,
+// `sm_bonding = 1`): LE Secure Connections + bonding, JustWorks rejeitado
+// fail-closed. Janela de pareamento + UP-por-operacao + vinculo ECDSA
+// seguem intactos (defesa em profundidade acima do link).
+//
+// UX ONE-WAY, owner-authorized: bonds JustWorks antigos nao reencriptam sob
+// a nova politica; o dono precisa re-parear dentro da janela com UP
+// (`mitm_repair_notice()` = texto p/ superficie de status).
+// ---------------------------------------------------------------------------
+
+/// SM NimBLE exige MITM (espelho de `sm_mitm = 1`; teste trava o contrato).
+pub const BLE_SM_MITM_REQUIRED: bool = true;
+/// SM NimBLE exige LE Secure Connections (espelho de `sm_sc = 1`).
+pub const BLE_SM_SC_REQUIRED: bool = true;
+/// SM NimBLE exige bonding com cifra (espelho de `sm_bonding = 1`).
+pub const BLE_SM_BONDING_REQUIRED: bool = true;
+
+/// Texto de status p/ re-pareamento pos F-01 (one-way, owner-authorized).
+///
+/// Bonds JustWorks antigos foram invalidados pela politica MITM: o dono
+/// re-pareia dentro da janela de 60 s com UP; JustWorks falha fechado.
+pub fn mitm_repair_notice() -> &'static str {
+    concat!(
+        "BLE agora exige pareamento com protecao MITM (LE Secure Connections + bonding): ",
+        "vinculos JustWorks antigos foram invalidados. Re-pareie dentro da janela de ",
+        "60 s com toque no BOOT (UP). Tentativas JustWorks falham fechado; ",
+        "numeric-comparison/OOB eh follow-up.",
+    )
+}
 /// Intervalos de advertising (min, max) em unidades de 0,625ms.
 ///
 /// `wifi_active`: AP fallback ligado ou station conectada -> intervalo lento

@@ -284,6 +284,25 @@ mod tests {
         esp_ble_set_pending_len(7);
         assert!(!esp_ble_conn_active());
     }
+
+    #[test]
+    fn sm_policy_requires_mitm_sc_bonding_no_justworks_fallback() {
+        // F-01: espelho host-testavel da config NimBLE (sm_mitm/sc/bonding).
+        // Intentional spec guard on frozen constants (clippy::assertions_on_constants).
+        #[allow(clippy::assertions_on_constants)]
+        {
+        assert!(BLE_SM_MITM_REQUIRED);
+        assert!(BLE_SM_SC_REQUIRED);
+        assert!(BLE_SM_BONDING_REQUIRED);
+        // Sem fallback JustWorks: as tres garantias andam juntas.
+        assert!(BLE_SM_MITM_REQUIRED && BLE_SM_SC_REQUIRED && BLE_SM_BONDING_REQUIRED);
+        // Texto de re-pareamento (one-way, owner-authorized) presente.
+        let notice = mitm_repair_notice();
+        assert!(notice.contains("MITM"));
+        assert!(notice.contains("Re-pareie"));
+        assert!(notice.contains("60 s"));
+        }
+    }
 }
 
 #[cfg(all(test, feature = "proximity"))]
