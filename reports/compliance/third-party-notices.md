@@ -13,14 +13,15 @@ Duty: comply with the license text as distributed with each crate, preserve its 
 and follow reports/compliance/license-compatibility.md. Machine evidence: cargo deny
 check licenses under the policy in deny.toml (see reports/compliance/cargo-deny-output.log).
 No secret values were read or echoed for this audit.
+Owner approval 2026-11-02: the 23 entries previously marked REVIEW-HUMANO-PENDENTE are now APPROVED-by-owner (MPL-2.0 x9 uniffi crates; CC0-1.0 x3; Unlicense x8; BSL-1.0 alternative x1 ryu; Unicode-3.0 x2) per owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir" (owner-accepted technical acceptance; not a legal certification).
 aead 0.5.2 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0 -- duty: preserve the crate license text and its notices
 aes 0.8.4 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0 -- duty: preserve the crate license text and its notices
 aes-gcm 0.10.3 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR MIT (VERIFIED-manifest)
   sha256 831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1 -- duty: preserve the crate license text and its notices
-aho-corasick 1.1.5 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+aho-corasick 1.1.5 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (APPROVED-by-owner 2026-11-02)
+  sha256 c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 aligned 0.4.3 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 ee4508988c62edf04abd8d92897fca0c2995d907ce1dfeaf369dac3716a40685 -- duty: preserve the crate license text and its notices
 android_system_properties 0.1.6 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -55,10 +56,10 @@ bincode 1.3.3 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-man
   sha256 b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad -- duty: preserve the crate license text and its notices
 bindgen 0.71.1 -- origin crates.io -- holder UNKNOWN -- license BSD-3-Clause (VERIFIED-manifest)
   sha256 5f58bf3d7db68cfbac37cfc485a8d711e87e064c3d0fe0435b92f7a407f9d6b3 -- duty: preserve the crate license text and its notices
-bip39 2.2.2 -- origin crates.io -- holder UNKNOWN -- license CC0-1.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 90dbd31c98227229239363921e60fcf5e558e43ec69094d46fc4996f08d1d5bc -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; technical evaluation only, pending legal review
-bitcoin_hashes 0.14.101 -- origin crates.io -- holder UNKNOWN -- license CC0-1.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 bca4c7abb40c8817d77403c880988cfd484f23ab2365726afb2f798363e2c4a2 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+bip39 2.2.2 -- origin crates.io -- holder UNKNOWN -- license CC0-1.0 (APPROVED-by-owner 2026-11-02)
+  sha256 90dbd31c98227229239363921e60fcf5e558e43ec69094d46fc4996f08d1d5bc -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+bitcoin_hashes 0.14.101 -- origin crates.io -- holder UNKNOWN -- license CC0-1.0 (APPROVED-by-owner 2026-11-02)
+  sha256 bca4c7abb40c8817d77403c880988cfd484f23ab2365726afb2f798363e2c4a2 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 bitflags 1.3.2 -- origin crates.io -- holder UNKNOWN -- license MIT/Apache-2.0 (VERIFIED-manifest)
   sha256 bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a -- duty: preserve the crate license text and its notices
 bitflags 2.13.2 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -73,8 +74,8 @@ build-time 0.1.3 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-
   sha256 f1219c19fc29b7bfd74b7968b420aff5bc951cf517800176e795d6b2300dd382 -- duty: preserve the crate license text and its notices
 bumpalo 3.20.3 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649 -- duty: preserve the crate license text and its notices
-byteorder 1.5.0 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+byteorder 1.5.0 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (APPROVED-by-owner 2026-11-02)
+  sha256 1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 bytes 1.12.1 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
   sha256 fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04 -- duty: preserve the crate license text and its notices
 camino 1.1.12 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -243,8 +244,8 @@ ghash 0.5.1 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR MIT (
   sha256 f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1 -- duty: preserve the crate license text and its notices
 glob 0.3.4 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b -- duty: preserve the crate license text and its notices
-globset 0.4.20 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+globset 0.4.20 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (APPROVED-by-owner 2026-11-02)
+  sha256 07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 globwalk 0.8.1 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
   sha256 93e3af942408868f6934a7b85134a3230832b9977cf66125df2f9edcfce4ddcc -- duty: preserve the crate license text and its notices
 goblin 0.8.2 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
@@ -263,8 +264,8 @@ heck 0.5.0 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (V
   sha256 2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea -- duty: preserve the crate license text and its notices
 hex 0.4.3 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70 -- duty: preserve the crate license text and its notices
-hex-conservative 0.2.3 -- origin crates.io -- holder UNKNOWN -- license CC0-1.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 db3fef046dca3ca91ee1408a8c1b80ab777e80a4d308d1bf4e7adb3fcb047e08 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+hex-conservative 0.2.3 -- origin crates.io -- holder UNKNOWN -- license CC0-1.0 (APPROVED-by-owner 2026-11-02)
+  sha256 db3fef046dca3ca91ee1408a8c1b80ab777e80a4d308d1bf4e7adb3fcb047e08 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 hkdf 0.12.4 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7 -- duty: preserve the crate license text and its notices
 hmac 0.12.1 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -277,8 +278,8 @@ iana-time-zone-haiku 0.1.2 -- origin crates.io -- holder UNKNOWN -- license MIT 
   sha256 f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f -- duty: preserve the crate license text and its notices
 ident_case 1.0.1 -- origin crates.io -- holder UNKNOWN -- license MIT/Apache-2.0 (VERIFIED-manifest)
   sha256 b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39 -- duty: preserve the crate license text and its notices
-ignore 0.4.33 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+ignore 0.4.33 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (APPROVED-by-owner 2026-11-02)
+  sha256 00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 inout 0.1.4 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01 -- duty: preserve the crate license text and its notices
 itertools 0.13.0 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -305,8 +306,8 @@ linux-raw-sys 0.12.1 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0
   sha256 32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53 -- duty: preserve the crate license text and its notices; Note: LLVM-exception alternative present; effective license via an allowed Apache-2.0/MIT alternative; preserve notices
 log 0.4.34 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6 -- duty: preserve the crate license text and its notices
-memchr 2.8.3 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+memchr 2.8.3 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (APPROVED-by-owner 2026-11-02)
+  sha256 cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 micromath 2.1.0 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR MIT (VERIFIED-manifest)
   sha256 c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815 -- duty: preserve the crate license text and its notices
 mime 0.3.17 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -389,10 +390,10 @@ rustix 1.1.5 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 WITH LL
   sha256 891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d -- duty: preserve the crate license text and its notices; Note: LLVM-exception alternative present; effective license via an allowed Apache-2.0/MIT alternative; preserve notices
 rustversion 1.0.23 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f -- duty: preserve the crate license text and its notices
-ryu 1.0.23 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR BSL-1.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: BSL-1.0 permissive alternative listed explicitly for evidence; effective license via Apache-2.0 alternative; technical evaluation only, pending legal review
-same-file 1.0.6 -- origin crates.io -- holder UNKNOWN -- license Unlicense/MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+ryu 1.0.23 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR BSL-1.0 (APPROVED-by-owner 2026-11-02)
+  sha256 9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+same-file 1.0.6 -- origin crates.io -- holder UNKNOWN -- license Unlicense/MIT (APPROVED-by-owner 2026-11-02)
+  sha256 93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 scroll 0.12.0 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
   sha256 6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6 -- duty: preserve the crate license text and its notices
 scroll_derive 0.12.1 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
@@ -465,40 +466,40 @@ uncased 0.9.10 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.
   sha256 e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697 -- duty: preserve the crate license text and its notices
 unicase 2.10.0 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f -- duty: preserve the crate license text and its notices
-unicode-ident 1.0.27 -- origin crates.io -- holder UNKNOWN -- license (MIT OR Apache-2.0) AND Unicode-3.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; technical evaluation only, pending legal review
-unicode-normalization 0.1.26 -- origin crates.io -- holder UNKNOWN -- license (MIT OR Apache-2.0) AND Unicode-3.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; technical evaluation only, pending legal review
+unicode-ident 1.0.27 -- origin crates.io -- holder UNKNOWN -- license (MIT OR Apache-2.0) AND Unicode-3.0 (APPROVED-by-owner 2026-11-02)
+  sha256 a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+unicode-normalization 0.1.26 -- origin crates.io -- holder UNKNOWN -- license (MIT OR Apache-2.0) AND Unicode-3.0 (APPROVED-by-owner 2026-11-02)
+  sha256 75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 unicode-width 0.2.2 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254 -- duty: preserve the crate license text and its notices
 unicode-xid 0.2.6 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853 -- duty: preserve the crate license text and its notices
-uniffi 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 4cb08c58c7ed7033150132febe696bef553f891b1ede57424b40d87a89e3c170 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_bindgen 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 cade167af943e189a55020eda2c314681e223f1e42aca7c4e52614c2b627698f -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_build 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 4c7cf32576e08104b7dc2a6a5d815f37616e66c6866c2a639fe16e6d2286b75b -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_checksum_derive 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 802d2051a700e3ec894c79f80d2705b69d85844dafbbe5d1a92776f8f48b563a -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_core 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 bc7687007d2546c454d8ae609b105daceb88175477dac280707ad6d95bcd6f1f -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_macros 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 12c65a5b12ec544ef136693af8759fb9d11aefce740fb76916721e876639033b -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_meta 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 4a74ed96c26882dac1ca9b93ca23c827e284bacbd7ec23c6f0b0372f747d59e4 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_testing 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 6a6f984f0781f892cc864a62c3a5c60361b1ccbd68e538e6c9fbced5d82268ac -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
-uniffi_udl 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 037820a4cfc4422db1eaa82f291a3863c92c7d1789dc513489c36223f9b4cdfc -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review
+uniffi 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 4cb08c58c7ed7033150132febe696bef553f891b1ede57424b40d87a89e3c170 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_bindgen 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 cade167af943e189a55020eda2c314681e223f1e42aca7c4e52614c2b627698f -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_build 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 4c7cf32576e08104b7dc2a6a5d815f37616e66c6866c2a639fe16e6d2286b75b -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_checksum_derive 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 802d2051a700e3ec894c79f80d2705b69d85844dafbbe5d1a92776f8f48b563a -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_core 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 bc7687007d2546c454d8ae609b105daceb88175477dac280707ad6d95bcd6f1f -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_macros 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 12c65a5b12ec544ef136693af8759fb9d11aefce740fb76916721e876639033b -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_meta 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 4a74ed96c26882dac1ca9b93ca23c827e284bacbd7ec23c6f0b0372f747d59e4 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_testing 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 6a6f984f0781f892cc864a62c3a5c60361b1ccbd68e538e6c9fbced5d82268ac -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
+uniffi_udl 0.28.3 -- origin crates.io -- holder UNKNOWN -- license MPL-2.0 (APPROVED-by-owner 2026-11-02)
+  sha256 037820a4cfc4422db1eaa82f291a3863c92c7d1789dc513489c36223f9b4cdfc -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 universal-hash 0.5.1 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea -- duty: preserve the crate license text and its notices
 version_check 0.9.5 -- origin crates.io -- holder UNKNOWN -- license MIT/Apache-2.0 (VERIFIED-manifest)
   sha256 0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a -- duty: preserve the crate license text and its notices
 void 1.0.2 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
   sha256 6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d -- duty: preserve the crate license text and its notices
-walkdir 2.5.0 -- origin crates.io -- holder UNKNOWN -- license Unlicense/MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+walkdir 2.5.0 -- origin crates.io -- holder UNKNOWN -- license Unlicense/MIT (APPROVED-by-owner 2026-11-02)
+  sha256 29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 wasi 0.11.1+wasi-snapshot-preview1 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT (VERIFIED-manifest)
   sha256 ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b -- duty: preserve the crate license text and its notices; Note: LLVM-exception alternative present; effective license via an allowed Apache-2.0/MIT alternative; preserve notices
 wasm-bindgen 0.2.129 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
@@ -513,8 +514,8 @@ weedle2 5.0.0 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-man
   sha256 998d2c24ec099a87daf9467808859f9d82b61f1d9c9701251aea037f514eae0e -- duty: preserve the crate license text and its notices
 which 4.4.2 -- origin crates.io -- holder UNKNOWN -- license MIT (VERIFIED-manifest)
   sha256 87ba24419a2078cd2b0f2ede2691b6c66d8e47836da3b6db8265ebad47afbfc7 -- duty: preserve the crate license text and its notices
-winapi-util 0.1.11 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (VERIFIED-manifest; REVIEW-HUMANO-PENDENTE)
-  sha256 c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22 -- duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review
+winapi-util 0.1.11 -- origin crates.io -- holder UNKNOWN -- license Unlicense OR MIT (APPROVED-by-owner 2026-11-02)
+  sha256 c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22 -- duty: preserve the crate license text and its notices; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): "as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir".
 windows_aarch64_gnullvm 0.52.6 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)
   sha256 32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3 -- duty: preserve the crate license text and its notices
 windows_aarch64_msvc 0.52.6 -- origin crates.io -- holder UNKNOWN -- license MIT OR Apache-2.0 (VERIFIED-manifest)

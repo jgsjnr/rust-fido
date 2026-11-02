@@ -23,3 +23,8 @@ NAO foi modificado. Este arquivo e o snapshot pos-migracao desta lane.
 Revisao juridica humana (23 crates) segue pendente — sem PASS legal.
 Full raw output capturado no log do shell do host (transitorio);
 este arquivo registra comando, HEAD, exit code e classe dos warnings.
+
+===== owner-approval re-check 2026-11-02 =====
+command: cargo-deny.exe check licenses
+EXIT_CODE=0
+Result: PASS -- licenses ok, no errors. 23 entries APPROVED-by-owner (owner-accepted technical acceptance; not a legal certification).

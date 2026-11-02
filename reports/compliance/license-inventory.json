@@ -108,8 +108,8 @@
       "license": "Unlicense OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "aligned",
@@ -288,8 +288,8 @@
       "license": "CC0-1.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "90dbd31c98227229239363921e60fcf5e558e43ec69094d46fc4996f08d1d5bc",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "bitcoin_hashes",
@@ -298,8 +298,8 @@
       "license": "CC0-1.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "bca4c7abb40c8817d77403c880988cfd484f23ab2365726afb2f798363e2c4a2",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "bitflags",
@@ -378,8 +378,8 @@
       "license": "Unlicense OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "bytes",
@@ -1228,8 +1228,8 @@
       "license": "Unlicense OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "globwalk",
@@ -1328,8 +1328,8 @@
       "license": "CC0-1.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "db3fef046dca3ca91ee1408a8c1b80ab777e80a4d308d1bf4e7adb3fcb047e08",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: public-domain dedication, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "hkdf",
@@ -1398,8 +1398,8 @@
       "license": "Unlicense OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "inout",
@@ -1538,8 +1538,8 @@
       "license": "Unlicense OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "micromath",
@@ -1958,8 +1958,8 @@
       "license": "Apache-2.0 OR BSL-1.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: BSL-1.0 permissive alternative listed explicitly for evidence; effective license via Apache-2.0 alternative; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: BSL-1.0 permissive alternative listed explicitly for evidence; effective license via Apache-2.0 alternative; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "same-file",
@@ -1968,8 +1968,8 @@
       "license": "Unlicense/MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "scroll",
@@ -2338,8 +2338,8 @@
       "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "unicode-normalization",
@@ -2348,8 +2348,8 @@
       "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "unicode-width",
@@ -2378,8 +2378,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "4cb08c58c7ed7033150132febe696bef553f891b1ede57424b40d87a89e3c170",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_bindgen",
@@ -2388,8 +2388,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "cade167af943e189a55020eda2c314681e223f1e42aca7c4e52614c2b627698f",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_build",
@@ -2398,8 +2398,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "4c7cf32576e08104b7dc2a6a5d815f37616e66c6866c2a639fe16e6d2286b75b",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_checksum_derive",
@@ -2408,8 +2408,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "802d2051a700e3ec894c79f80d2705b69d85844dafbbe5d1a92776f8f48b563a",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_core",
@@ -2418,8 +2418,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "bc7687007d2546c454d8ae609b105daceb88175477dac280707ad6d95bcd6f1f",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_macros",
@@ -2428,8 +2428,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "12c65a5b12ec544ef136693af8759fb9d11aefce740fb76916721e876639033b",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_meta",
@@ -2438,8 +2438,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "4a74ed96c26882dac1ca9b93ca23c827e284bacbd7ec23c6f0b0372f747d59e4",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_testing",
@@ -2448,8 +2448,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "6a6f984f0781f892cc864a62c3a5c60361b1ccbd68e538e6c9fbced5d82268ac",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "uniffi_udl",
@@ -2458,8 +2458,8 @@
       "license": "MPL-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "037820a4cfc4422db1eaa82f291a3863c92c7d1789dc513489c36223f9b4cdfc",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "universal-hash",
@@ -2498,8 +2498,8 @@
       "license": "Unlicense/MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "wasi",
@@ -2578,8 +2578,8 @@
       "license": "Unlicense OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22",
-      "status": "VERIFIED-manifest; REVIEW-HUMANO-PENDENTE",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; technical evaluation only, pending legal review."
+      "status": "APPROVED-by-owner 2026-11-02",
+      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "windows_aarch64_gnullvm",
@@ -2803,5 +2803,5 @@
     }
   ],
   "scope_note": "Full Cargo.lock registry coverage (273 packages). No transitive crate is out of scope; any Cargo.lock change requires re-running the generator (C:\\Temp\\gen-compliance.ps1) and cargo deny.",
-  "overall": "REVIEW: all third-party licenses are manifest-declared facts (VERIFIED-manifest); entries flagged REVIEW-HUMANO-PENDENTE need legal review; do not mark PASS without cargo-deny evidence plus cleared human reviews."
+  "overall": "REVIEW: all third-party licenses are manifest-declared facts (VERIFIED-manifest); 23 entries APPROVED-by-owner 2026-11-02 per owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\" (owner-accepted technical acceptance; not a legal certification); do not claim legal certification; cargo-deny evidence in cargo-deny-final.log."
 }
