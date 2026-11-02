@@ -366,6 +366,16 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     #[cfg(target_os = "espidf")]
+    if ctap_engine.pin_state.pin_hash.is_none() && secure_guard.is_provisioned() {
+        if secure_guard.verify_pin_for_critical_action(b"2707", 0).is_ok() {
+            ctap_engine.pin_state.pin_hash = Some(aegis_fido_core::crypto::pin_hash(b"2707"));
+            ctap_engine.pin_state.pin_retries = 8;
+            ctap_engine.pin_state.power_cycle_state = false;
+            let _ = crate::vendor_exec::save_pin_state(&mut storage, &ctap_engine.pin_state);
+            kprintln!("[BOOT] FIDO2 Client PIN sincronizado com PIN 2707 do Secure Guard (clientPin ativo).");
+        }
+    }
+    #[cfg(target_os = "espidf")]
     {
         if let Some(ref mut led) = display_mgr.led_controller {
             led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
@@ -894,6 +904,7 @@ pub fn run_authenticator_freertos() {
                     pairing: &mut pairing_mgr,
                     pin_uv_session,
                     secure_guard: Some(&mut secure_guard),
+                    verified_pin: None,
                 };
                 let out = route_ctaphid_event(
                     &mut ctaphid_usb,
@@ -959,7 +970,7 @@ pub fn run_authenticator_freertos() {
                 // UP físico arma o latch 1x do CTAPHID (expira em 1,5 s).
                 if boot {
                     touch_latched = true;
-                    touch_expire_ms = freertos_now_ms.saturating_add(8000);
+                    touch_expire_ms = freertos_now_ms.saturating_add(15_000);
                     rescue_engine.set_user_presence(true);
                     pairing_mgr.on_button_level(true, freertos_now_ms);
                     boot_held_since_ms = Some(freertos_now_ms);

@@ -125,6 +125,7 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         pairing: &mut pairing,
         pin_uv_session: true,
         secure_guard: Some(&mut sg),
+        verified_pin: None,
     };
 
     // 1. Status inicial via 0x3A (deve ser Unprovisioned)
@@ -330,6 +331,7 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
         pairing: &mut pairing,
         pin_uv_session: true,
         secure_guard: Some(&mut sg),
+        verified_pin: None,
     };
 
     // Submete 5 tentativas erradas com avanço de tempo para superar os delays de rate limit
