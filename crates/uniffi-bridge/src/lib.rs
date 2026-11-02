@@ -363,7 +363,7 @@ pub fn totp_format_display(code: String) -> String {
     }
 }
 
-/// PBKDF2-SHA1 iterations for the app lock verifier (mirrors YKOATH set_password).
+/// PBKDF2-SHA1 iterations for the app lock verifier (mirrors OATH applet set-password behavior).
 pub const APP_LOCK_PBKDF2_ITERATIONS: u32 = 1000;
 /// Minimum app-lock salt length in bytes.
 pub const APP_LOCK_SALT_MIN_LEN: usize = 16;

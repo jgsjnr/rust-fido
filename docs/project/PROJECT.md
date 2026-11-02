@@ -20,7 +20,7 @@
 - AegisKey is a FIDO2/WebAuthn security key and cryptographic hardware guardian.
 - AegisKey runs 100 percent native Rust on ESP32-S3 and ESP32 classic microcontrollers.
 - AegisKey removes legacy C SDK dependencies.
-- AegisKey follows FIDO Alliance (CTAP 2.1), W3C WebAuthn, NIST, BIP-32/39, SLIP-0039, YKOATH, OpenSSH, and Microsoft OS 2.0 descriptors.
+- AegisKey follows FIDO Alliance (CTAP 2.1), W3C WebAuthn, NIST, BIP-32/39, SLIP-0039, OATH (RFC 4226/6238 compatible layer), OpenSSH, and OS 2.0 platform capability descriptors.
 - AegisKey exposes a web RP interface at `http://localhost:8888`.
 - AegisKey exposes a web management dashboard at `http://127.0.0.1:5678/dashboard`.
 - AegisKey exposes an interactive visual architecture map at `http://127.0.0.1:5678/architecture`.
@@ -540,7 +540,7 @@ sequenceDiagram
     Router-->>App: DENIED (Error 0x36 / HTTP 403 Forbidden - Vault Locked)
 
     Note over User,LED: Standard WebAuthn continues operating without interruption
-    User->>App: Authenticate on Google / GitHub (CTAP2 GetAssertion 0x02)
+    User->>App: Authenticate on a relying party (CTAP2 GetAssertion 0x02)
     Router->>Router: Standard FIDO2 flow (Exempt / Fail-Open)
     Router->>FW: Execute P-256 Signature with UP touch
     FW-->>User: Authentication Succeeded!

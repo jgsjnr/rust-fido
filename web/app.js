@@ -383,7 +383,7 @@ function setupOathTimer() {
   });
 
   document.getElementById("btnOpenAddOathModal").addEventListener("click", () => {
-    const issuer = prompt("Enter Account Issuer (e.g. Google, AWS):", "Cloudflare");
+    const issuer = prompt("Enter Account Issuer (e.g. Example Co, Cloud):", "Cloudflare");
     if (!issuer) return;
     const account = prompt("Enter Account Name (e.g. user@email.com):", "devops@company.org");
     if (!account) return;

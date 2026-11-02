@@ -1,7 +1,7 @@
 //! USB CCID (Smart Card / PC/SC) Protocol Transport & APDU Parser.
 //!
 //! Compliant with ISO 7816-4 and USB CCID Specification Rev 1.1.
-//! Supports OATH applet (YKOATH Compatible Layer) and FIDO U2F/CTAP applet routing.
+//! Supports OATH applet (standard OATH compatible layer) and FIDO U2F/CTAP applet routing.
 //! 100% Native Rust implementation.
 //!
 //! PIV routing is wired through [`crate::piv::PivApplet`] owned by
@@ -272,7 +272,7 @@ impl CcidTransport {
             if apdu.data == AID_YKOATH {
                 self.selected_applet = SelectedApplet::Oath;
                 self.reset_piv();
-                // Return YKOATH applet version / name: "AegisKey OATH"
+                // Return OATH applet version / name: "AegisKey OATH"
                 let mut name_resp = Vec::new();
                 name_resp.push(0x79); // Name tag
                 name_resp.push(13); // Length

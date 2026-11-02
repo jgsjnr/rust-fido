@@ -1,7 +1,7 @@
-//! WinUSB High-Speed Bulk Transport and Microsoft OS 2.0 Descriptors.
+//! WinUSB High-Speed Bulk Transport and OS 2.0 platform capability descriptors.
 //!
 //! Provides direct, high-throughput bulk transport (Bulk OUT 0x02, Bulk IN 0x82)
-//! bypassing Windows CTAPHID user-mode filtering, with full support for Microsoft OS 2.0
+//! bypassing Windows CTAPHID user-mode filtering, with full support for OS 2.0 platform
 //! Descriptors for driverless WinUSB.sys auto-binding on Windows 8.1, 10, and 11.
 //! 100% Native Rust implementation.
 
@@ -15,7 +15,7 @@ pub const BULK_CHUNK_SIZE: usize = 64;
 /// Magic header: ASCII "AEGS" (0x41454753 in big-endian, or 0x53474541 in little-endian).
 pub const WINUSB_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x53];
 
-/// Vendor Control Request Code for Microsoft OS 2.0 Descriptors query.
+/// Vendor Control Request Code for OS 2.0 platform descriptor query.
 pub const MS_OS_20_VENDOR_CODE: u8 = 0x02;
 pub const MS_OS_20_DESCRIPTOR_INDEX: u16 = 0x0007;
 
@@ -211,10 +211,10 @@ impl WinUsbDeframer {
 }
 
 // ============================================================================
-// Microsoft OS 2.0 Descriptors Builder
+// OS 2.0 Descriptors Builder
 // ============================================================================
 
-/// Generates the Microsoft OS 2.0 Platform Capability Descriptor
+/// Generates the OS 2.0 Platform Capability Descriptor
 /// to be embedded into the USB BOS (Binary Device Object Store) descriptor.
 pub fn build_ms_os_20_platform_capability_descriptor(
     vendor_code: u8,
@@ -226,7 +226,7 @@ pub fn build_ms_os_20_platform_capability_descriptor(
     desc[2] = 0x05; // bDevCapabilityType: PLATFORM
     desc[3] = 0x00; // bReserved
 
-    // MS OS 2.0 Platform Capability UUID: D8DD60DF-4589-4CC7-9CD2-659D9E648A9F
+    // OS 2.0 Platform Capability UUID: D8DD60DF-4589-4CC7-9CD2-659D9E648A9F
     desc[4..20].copy_from_slice(&[
         0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D, 0x9E, 0x64, 0x8A,
         0x9F,
@@ -247,7 +247,7 @@ pub fn build_ms_os_20_platform_capability_descriptor(
     desc
 }
 
-/// Generates the Microsoft OS 2.0 Descriptor Set returned during Vendor Request.
+/// Generates the OS 2.0 Descriptor Set returned during Vendor Request.
 /// Configures interface 3 as Compatible ID "WINUSB" with DeviceInterfaceGUIDs registry key.
 pub fn build_ms_os_20_descriptor_set(winusb_interface_idx: u8) -> Vec<u8> {
     let mut out = Vec::new();

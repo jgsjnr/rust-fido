@@ -1656,7 +1656,7 @@
               <span class="card-status-badge status-verified">FIDO 2.1 Ready</span>
             </div>
             <div class="card-description">
-              Complete cryptographic domain suite: WebAuthn CTAP 2.3 engine (Ed25519, P-256, secp256k1, P-384, P-521 COSE algorithms), BIP-32/BIP-39 HD Wallets (BTC, ETH, SOL, DOT), YKOATH TOTP/HOTP engine (RFC 6238), PIV smartcard applet (Slots 9A, 9C, 9D, 9E), and RSA Digital Signature (DS) hardware driver.
+              Complete cryptographic domain suite: WebAuthn CTAP 2.3 engine (Ed25519, P-256, secp256k1, P-384, P-521 COSE algorithms), BIP-32/BIP-39 HD Wallets (BTC, ETH, SOL, DOT), OATH TOTP/HOTP engine (RFC 6238), PIV smartcard applet (Slots 9A, 9C, 9D, 9E), and RSA Digital Signature (DS) hardware driver.
             </div>
             <div class="card-meta-list">
               <div class="card-meta-row">
@@ -1665,13 +1665,13 @@
               </div>
               <div class="card-meta-row">
                 <span class="meta-label">Domain Applets</span>
-                <span class="meta-value">FIDO2, Web3 Wallet, YKOATH, PIV Smartcard</span>
+                <span class="meta-value">FIDO2, Web3 Wallet, OATH, PIV Smartcard</span>
               </div>
             </div>
             <div class="card-tags">
               <span class="tag-chip">CTAP 2.3</span>
               <span class="tag-chip">BIP-39</span>
-              <span class="tag-chip">YKOATH</span>
+              <span class="tag-chip">OATH</span>
               <span class="tag-chip">PIV</span>
               <span class="tag-chip">RSA DS</span>
             </div>
@@ -2216,7 +2216,7 @@
         title: "CTAP 2.3 & Domain Cryptographic Engines",
         path: "crates/aegis-fido-core",
         layer: "Layer 4 — Cryptographic Core & Hardware Peripherals",
-        description: "Pure #![no_std] cryptographic engine implementing CTAP 2.3 specifications. Supports 5 COSE algorithms (Ed25519, P-256, secp256k1, P-384, P-521). Houses domain engines for BIP-32/39 HD cryptocurrency wallets (BTC, ETH, SOL, DOT), YKOATH TOTP/HOTP code generator (RFC 6238), PIV smartcard applet (Slots 9A, 9C, 9D, 9E), and RSA Digital Signature (DS) hardware accelerator.",
+        description: "Pure #![no_std] cryptographic engine implementing CTAP 2.3 specifications. Supports 5 COSE algorithms (Ed25519, P-256, secp256k1, P-384, P-521). Houses domain engines for BIP-32/39 HD cryptocurrency wallets (BTC, ETH, SOL, DOT), OATH TOTP/HOTP code generator (RFC 6238), PIV smartcard applet (Slots 9A, 9C, 9D, 9E), and RSA Digital Signature (DS) hardware accelerator.",
         invariants: "• Private keys are never exported in plaintext.\n• Server-side credentials wrapped in authenticated AES-256-GCM envelopes.\n• Resident passkeys strictly indexed by RP ID hash.",
         upstream: [
           { text: "freertos_route.rs dispatcher", type: "in" }
@@ -2225,7 +2225,7 @@
           { text: "Hardware ESP32-S3 crypto accelerators (AES, SHA, RSA, ECC, RNG)", type: "out" },
           { text: "crates/aegis-fido-firmware/src/persistence.rs", type: "out" }
         ],
-        opcodes: "• CTAP2 Operations: authenticatorMakeCredential (0x01), authenticatorGetAssertion (0x02), authenticatorGetInfo (0x04), authenticatorClientPIN (0x06)\n• YKOATH Commands: PUT (0x01), DELETE (0x02), LIST (0x03), CALCULATE (0x04)",
+        opcodes: "• CTAP2 Operations: authenticatorMakeCredential (0x01), authenticatorGetAssertion (0x02), authenticatorGetInfo (0x04), authenticatorClientPIN (0x06)\n• OATH Commands: PUT (0x01), DELETE (0x02), LIST (0x03), CALCULATE (0x04)",
         files: "crates/aegis-fido-core/src/ctap/mod.rs\ncrates/aegis-fido-core/src/crypto/mod.rs\ncrates/aegis-fido-core/src/oath/mod.rs\ncrates/aegis-fido-core/src/piv/mod.rs\ncrates/aegis-fido-core/src/wallet/mod.rs",
         buildCmd: "cargo build -p aegis-fido-core",
         testCmd: "cargo test -p aegis-fido-core"

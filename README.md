@@ -31,7 +31,7 @@
 AegisKey is a high-security hardware authenticator key and cryptographic guardian.
 The key runs completely in native Rust on ESP32-S3 microcontrollers.
 The project removes all legacy C SDK dependencies.
-The project strictly follows standards from the FIDO Alliance (CTAP 2.1), W3C WebAuthn, NIST, BIP-32/39, SLIP-0039, YKOATH, OpenSSH (`sk-ssh-ed25519@openssh.com`), and Microsoft OS 2.0 Descriptors.
+The project strictly follows standards from the FIDO Alliance (CTAP 2.1), W3C WebAuthn, NIST, BIP-32/39, SLIP-0039, OATH (RFC 4226/6238 compatible layer), OpenSSH (`sk-ssh-ed25519@openssh.com`), and OS 2.0 platform capability descriptors.
 
 AegisKey protects user credentials through a four-layer architecture.
 AegisKey uses a Zero-Trust Authorization Barrier in the FreeRTOS router.
