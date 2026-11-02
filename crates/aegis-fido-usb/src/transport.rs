@@ -6,6 +6,7 @@
 //! `CtapHidFramer`/`process_packet` with identical frames/timing.
 
 use super::ctaphid::{CtapHidError, CtapHidFramer, CtapHidManager, CtapHidMessage, PACKET_SIZE};
+use alloc::vec::Vec;
 
 /// Minimal USB transport: send frames, receive packets, poll readiness.
 pub trait Transport {

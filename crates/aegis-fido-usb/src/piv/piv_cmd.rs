@@ -15,6 +15,7 @@ pub use super::piv_applet::PivApplet;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     fn select_apdu(data: &[u8]) -> CommandApdu {
         CommandApdu {
@@ -181,11 +182,15 @@ mod tests {
 #[cfg(test)]
 mod secure_tests {
     use super::*;
+    #[cfg(not(feature = "getrandom"))]
+    use crate::ccid::SW_UNKNOWN_ERROR;
     use crate::ccid::{
         sw_retries_left, SW_AUTH_BLOCKED, SW_REFERENCED_DATA_NOT_FOUND,
         SW_SECURITY_STATUS_NOT_SATISFIED, SW_WRONG_DATA, SW_WRONG_P1P2,
     };
-    use std::collections::HashMap;
+    use alloc::collections::BTreeMap;
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
 
     const PIN: &[u8] = b"123456";
     const NEW_PIN: &[u8] = b"654321";
@@ -197,7 +202,7 @@ mod secure_tests {
     /// Store em RAM (contrato `PivRecordStore`; firmware pluga `SecureStorage`).
     #[derive(Default)]
     struct MemStore {
-        map: HashMap<String, Vec<u8>>,
+        map: BTreeMap<String, Vec<u8>>,
     }
 
     impl PivRecordStore for MemStore {
@@ -550,6 +555,36 @@ mod secure_tests {
         assert!(!h.applet.is_verified());
     }
 
+    /// Sem `getrandom` (bare-metal/ESP32 sem RNG de SO) CHANGE não cunha salt:
+    /// fail-closed `6F 00` após wipe (PIN volta a virgem = `6A 88`).
+    #[cfg(not(feature = "getrandom"))]
+    #[test]
+    fn should_change_without_os_rng_fail_closed_6f00() {
+        // Arrange
+        let mut h = Harness::new();
+        h.select();
+        h.provision();
+        let mut data = PIN.to_vec();
+        data.extend_from_slice(NEW_PIN);
+        let apdu = CommandApdu {
+            cla: 0x00,
+            ins: INS_CHANGE,
+            p1: 0x00,
+            p2: P2_PIN,
+            data,
+            le: None,
+        };
+
+        // Act
+        let resp = h.run(&apdu);
+
+        // Assert: 6F 00 fail-closed + registros apagados (virgem = 6A 88).
+        assert_eq!((resp.sw1, resp.sw2), SW_UNKNOWN_ERROR);
+        let no_pin = h.run(&verify_apdu(PIN));
+        assert_eq!((no_pin.sw1, no_pin.sw2), SW_REFERENCED_DATA_NOT_FOUND);
+    }
+
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_pin_with_old_ok() {
         // Arrange
@@ -600,6 +635,7 @@ mod secure_tests {
         assert_eq!((resp.sw1, resp.sw2), sw_retries_left(2));
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_puk_with_old_ok() {
         // Arrange
@@ -624,6 +660,7 @@ mod secure_tests {
         assert_eq!((resp.sw1, resp.sw2), (0x90, 0x00));
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_unblock_with_puk_after_block() {
         // Arrange
@@ -1034,6 +1071,7 @@ mod secure_tests {
         assert_eq!((put.sw1, put.sw2), SW_SECURITY_STATUS_NOT_SATISFIED);
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_and_unblock_new_secrets_roundtrip() {
         // Arrange
@@ -1155,6 +1193,7 @@ mod secure_tests {
         assert_eq!(raw, vec![2]);
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_pin_with_padded_old_ok() {
         // Arrange

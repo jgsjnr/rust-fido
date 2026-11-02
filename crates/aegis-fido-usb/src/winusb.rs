@@ -5,6 +5,8 @@
 //! Descriptors for driverless WinUSB.sys auto-binding on Windows 8.1, 10, and 11.
 //! 100% Native Rust implementation.
 
+use alloc::vec::Vec;
+
 /// Endpoint addresses
 pub const WINUSB_BULK_OUT_EP: u8 = 0x02;
 pub const WINUSB_BULK_IN_EP: u8 = 0x82;

@@ -1,4 +1,5 @@
 use super::parse::PivSlot;
+use alloc::vec::Vec;
 /// Erro tipado do store PIV (firmware mapeia do `StorageError`; sem panics).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PivStoreError {
@@ -68,4 +69,4 @@ impl PivKeyBackend for NoBackend {
     ) -> Result<Vec<u8>, PivCryptoError> {
         Err(PivCryptoError::Unavailable)
     }
-}
+}

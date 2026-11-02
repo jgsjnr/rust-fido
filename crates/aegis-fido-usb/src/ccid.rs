@@ -11,6 +11,7 @@
 // (dados sensiveis em memoria; usar `zeroize` com `Zeroizing`/`Drop`).
 
 use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
+use alloc::vec::Vec;
 
 /// Standard ATR (Answer To Reset) for AegisKey SmartCard emulation.
 /// ATR PIV real (uTrust, T=1 sem T=0, TA1 padrão): consta na tabela do
@@ -549,15 +550,17 @@ impl CcidTransport {
 mod tests {
     use super::*;
     use crate::piv::{
-        provision_pin, PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError,
+        provision_pin_with_rng, PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot,
+        PivStoreError,
     };
-    use std::collections::HashMap;
+    use alloc::collections::BTreeMap;
+    use alloc::string::{String, ToString};
 
     /// Store em RAM para os testes do caminho firmware (espelha `MemStore`
     /// de `piv::tests`; duplicado aqui porque aquele é privado).
     #[derive(Default)]
     struct TMemStore {
-        map: HashMap<String, Vec<u8>>,
+        map: BTreeMap<String, Vec<u8>>,
     }
 
     impl PivRecordStore for TMemStore {
@@ -574,6 +577,46 @@ mod tests {
             self.map.remove(key);
             Ok(())
         }
+    }
+
+    /// RNG determinístico (xorshift64*; só para testes): enroll sem RNG de SO,
+    /// então estes testes passam com e sem a feature `getrandom`.
+    struct TSeqRng(u64);
+
+    impl rand_core::TryRng for TSeqRng {
+        type Error = core::convert::Infallible;
+
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(self.try_next_u64().unwrap() as u32)
+        }
+
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            let mut x = self.0;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.0 = x;
+            Ok(x.wrapping_mul(0x2545_F491_4F6C_DD1D))
+        }
+
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+            let mut i = 0;
+            while i < dest.len() {
+                let v = self.try_next_u64().unwrap().to_le_bytes();
+                let n = (dest.len() - i).min(8);
+                dest[i..i + n].copy_from_slice(&v[..n]);
+                i += n;
+            }
+            Ok(())
+        }
+    }
+
+    impl rand_core::TryCryptoRng for TSeqRng {}
+
+    /// Enroll PIN/PUK de teste com RNG determinístico (sem `getrandom`).
+    fn enroll(store: &mut TMemStore) {
+        let mut rng = TSeqRng(0x1234_5678_9ABC_DEF0);
+        provision_pin_with_rng(store, &mut rng, b"123456", b"12345678").expect("enroll");
     }
 
     /// Backend cripto stub (firma devolve bytes enlatados).
@@ -637,7 +680,7 @@ mod tests {
     impl TStore {
         fn enrolled() -> Self {
             let mut store = TMemStore::default();
-            provision_pin(&mut store, b"123456", b"12345678").expect("enroll");
+            enroll(&mut store);
             Self {
                 store,
                 crypto: TStubCrypto {
@@ -738,7 +781,7 @@ mod tests {
     fn store_rsa_recusado_como_badalg() {
         let mut t = CcidTransport::new();
         let mut store = TMemStore::default();
-        provision_pin(&mut store, b"123456", b"12345678").expect("enroll");
+        enroll(&mut store);
         let mut crypto = TBadAlgCrypto;
         let mut h = TOnlyPiv;
         let mut run = |t: &mut CcidTransport, f: &[u8]| {

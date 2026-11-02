@@ -1,7 +1,9 @@
 use super::admin::PivRecordStore;
-use super::parse::{PIV_HASH_LEN, PIV_NVS_PIN_HASH, PIV_NVS_PIN_RETRIES, PIV_NVS_PIN_SALT,
-    PIV_NVS_PUK_HASH, PIV_NVS_PUK_RETRIES, PIV_NVS_PUK_SALT, PIV_PIN_MAX_LEN, PIV_PIN_MAX_RETRIES,
-    PIV_PIN_MIN_LEN, PIV_PUK_LEN, PIV_PUK_MAX_RETRIES, PIV_SALT_LEN};
+use super::parse::{
+    PIV_HASH_LEN, PIV_NVS_PIN_HASH, PIV_NVS_PIN_RETRIES, PIV_NVS_PIN_SALT, PIV_NVS_PUK_HASH,
+    PIV_NVS_PUK_RETRIES, PIV_NVS_PUK_SALT, PIV_PIN_MAX_LEN, PIV_PIN_MAX_RETRIES, PIV_PIN_MIN_LEN,
+    PIV_PUK_LEN, PIV_PUK_MAX_RETRIES, PIV_SALT_LEN,
+};
 use rand_core::CryptoRng;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
@@ -100,6 +102,13 @@ pub(crate) fn write_credential<S: PivRecordStore>(
 
 /// Provisiona PIN+PUK iniciais: exige aparelho virgem, valida, grava com
 /// verify-after-write. Chamado no enrollment do firmware (gate UP); nunca via APDU.
+///
+/// Requer a feature `getrandom` (ligada por padrão via `std`): o salt vem do
+/// RNG do SO (`getrandom::SysRng`). Alvos bare-metal/ESP32 sem RNG de SO devem
+/// desligar `getrandom` (`--no-default-features`) e semear explicitamente via
+/// [`provision_pin_with_rng`], ou registrar um backend `getrandom` customizado
+/// e religar a feature `getrandom`.
+#[cfg(feature = "getrandom")]
 pub fn provision_pin<S: PivRecordStore>(
     store: &mut S,
     new_pin: &[u8],
@@ -164,4 +173,4 @@ pub(crate) fn wipe_pin_records<S: PivRecordStore>(store: &mut S) {
     ] {
         let _ = store.delete_record(key);
     }
-}
+}

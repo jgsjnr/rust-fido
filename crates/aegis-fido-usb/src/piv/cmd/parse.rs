@@ -121,4 +121,4 @@ pub(crate) const PIV_FCI: &[u8] = &[0x61, 0x05, 0x4F, 0x03, 0xA0, 0x00, 0x00];
 pub(crate) const CHUID_MOCK: &[u8] = &[0x5F, 0xC1, 0x02, 0x00];
 /// LAB-ONLY mock CCC container bytes (no full cert allocated).
 #[cfg(any(test, feature = "lab-mocks"))]
-pub(crate) const CCC_MOCK: &[u8] = &[0x5F, 0xC1, 0x07, 0x00];
+pub(crate) const CCC_MOCK: &[u8] = &[0x5F, 0xC1, 0x07, 0x00];

@@ -15,14 +15,16 @@
 //! `CommandApdu::parse` stays in the `ccid.rs` transport.
 
 use super::apdu::{parse_auth_witness, parse_gen_alg, parse_get_tag, parse_put_cert, tlv};
+#[cfg(feature = "getrandom")]
+use super::piv_cmd::write_credential;
 use super::piv_cmd::{
-    ct_eq_32, hash_pin, is_valid_piv_pin, wipe_pin_records, write_credential, NoBackend,
-    PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot, PivStoreError, INS_CHANGE,
-    INS_GENERAL_AUTH, INS_GENERATE, INS_GET_DATA, INS_PUT_DATA, INS_SELECT, INS_UNBLOCK,
-    INS_VERIFY, MAX_PIV_CERT_BYTES, P2_PIN, P2_PUK, PIV_HASH_LEN, PIV_NVS_PIN_HASH,
-    PIV_NVS_PIN_RETRIES, PIV_NVS_PIN_SALT, PIV_NVS_PUK_HASH, PIV_NVS_PUK_RETRIES, PIV_NVS_PUK_SALT,
-    PIV_PIN_MAX_LEN, PIV_PIN_MAX_RETRIES, PIV_PIN_MIN_LEN, PIV_PUK_LEN, PIV_PUK_MAX_RETRIES,
-    PIV_SALT_LEN, PIV_SLOT_9A,
+    ct_eq_32, hash_pin, is_valid_piv_pin, wipe_pin_records, NoBackend, PivCryptoError,
+    PivKeyBackend, PivRecordStore, PivSlot, PivStoreError, INS_CHANGE, INS_GENERAL_AUTH,
+    INS_GENERATE, INS_GET_DATA, INS_PUT_DATA, INS_SELECT, INS_UNBLOCK, INS_VERIFY,
+    MAX_PIV_CERT_BYTES, P2_PIN, P2_PUK, PIV_HASH_LEN, PIV_NVS_PIN_HASH, PIV_NVS_PIN_RETRIES,
+    PIV_NVS_PIN_SALT, PIV_NVS_PUK_HASH, PIV_NVS_PUK_RETRIES, PIV_NVS_PUK_SALT, PIV_PIN_MAX_LEN,
+    PIV_PIN_MAX_RETRIES, PIV_PIN_MIN_LEN, PIV_PUK_LEN, PIV_PUK_MAX_RETRIES, PIV_SALT_LEN,
+    PIV_SLOT_9A,
 };
 #[cfg(any(test, feature = "lab-mocks"))]
 use super::piv_cmd::{CCC_MOCK, CHUID_MOCK, PIV_FCI};
@@ -32,6 +34,7 @@ use crate::ccid::{
     SW_NOT_FOUND, SW_REFERENCED_DATA_NOT_FOUND, SW_SECURITY_STATUS_NOT_SATISFIED, SW_UNKNOWN_ERROR,
     SW_WRONG_DATA, SW_WRONG_LENGTH, SW_WRONG_P1P2,
 };
+use alloc::vec::Vec;
 use zeroize::{Zeroize, Zeroizing};
 
 /// Store nulo: nenhum registro (transporte puro sem NVS; tudo fail-closed).
@@ -631,6 +634,13 @@ fn load_triple_or_fail<S: PivRecordStore>(
 
 /// Regrava credencial (salt novo, retries cheios); falha = wipe PIN/PUK + `Err`
 /// (chamador responde `6F 00`; fail-closed para re-enrollment).
+///
+/// Requer a feature `getrandom` (ligada por padrão via `std`): o salt novo vem
+/// do RNG do SO. Sem `getrandom` (bare-metal/ESP32 sem RNG de SO) não há como
+/// cunhar salt fresco — fail-closed `6F 00` após wipe, mesmo semanticamente
+/// que falha de gravação. Para trocar PIN/PUK nesses alvos, re-provisione via
+/// `provision_pin_with_rng` com RNG semeado explicitamente.
+#[cfg(feature = "getrandom")]
 fn rewrite_credential<S: PivRecordStore>(
     store: &mut S,
     salt_key: &str,
@@ -655,4 +665,21 @@ fn rewrite_credential<S: PivRecordStore>(
         return Err(ResponseApdu::status(SW_UNKNOWN_ERROR));
     }
     Ok(())
+}
+
+/// Sem `getrandom` (bare-metal/ESP32 sem RNG de SO): sem salt fresco não há
+/// rewrite seguro — fail-closed `6F 00` após wipe (mesma semântica da falha
+/// de gravação acima). CHANGE/UNBLOCK nesses alvos sempre devolvem `6F 00`;
+/// re-provisione via `provision_pin_with_rng` com RNG explícito.
+#[cfg(not(feature = "getrandom"))]
+fn rewrite_credential<S: PivRecordStore>(
+    store: &mut S,
+    _salt_key: &str,
+    _hash_key: &str,
+    _retries_key: &str,
+    _new_secret: &[u8],
+    _max_retries: u8,
+) -> Result<(), ResponseApdu> {
+    wipe_pin_records(store);
+    Err(ResponseApdu::status(SW_UNKNOWN_ERROR))
 }
