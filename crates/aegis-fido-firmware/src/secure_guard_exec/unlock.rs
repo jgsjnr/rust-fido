@@ -7,6 +7,7 @@ use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::secure_guard::{MAX_ATTEMPTS, SecureGuardEngine, SecureGuardState};
 use aegis_fido_core::wallet::WalletStore;
 use ciborium::value::Value;
+use core::sync::atomic::{AtomicU64, Ordering};
 use rand_core::CryptoRng;
 use std::format;
 use std::vec::Vec;
@@ -15,6 +16,59 @@ use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::SecretKey;
 use crate::persistence::{FlashStorageBackend, SecureStorage};
 use crate::secure_guard_storage::save_secure_guard_record;
+/// F-05: deadline (ms monotonicos) ate a qual `change_pin` e negado sem oraculo.
+///
+/// O `change_pin` do engine nao arma `rate_limit_until_ms` (so o unlock arma);
+/// a janela propria aqui espelha o atraso da MESMA `compute_backoff_ms` do unlock
+/// (sem segunda tabela). Limpa no sucesso; reboot zera (a janela do engine,
+/// persistida em NVS, segue valendo via pre-gate).
+static CHANGE_PIN_BACKOFF_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Le a janela propria do change_pin (0 = sem backoff armado).
+pub(crate) fn change_pin_backoff_until_ms() -> u64 {
+    CHANGE_PIN_BACKOFF_UNTIL_MS.load(Ordering::Relaxed)
+}
+
+/// Arma a janela propria do change_pin.
+pub(crate) fn arm_change_pin_backoff(until_ms: u64) {
+    CHANGE_PIN_BACKOFF_UNTIL_MS.store(until_ms, Ordering::Relaxed);
+}
+
+/// Limpa a janela propria (sucesso troca o PIN e zera o contador).
+pub(crate) fn clear_change_pin_backoff() {
+    CHANGE_PIN_BACKOFF_UNTIL_MS.store(0, Ordering::Relaxed);
+}
+
+/// Corpo CBOR do change_pin negado por backoff (mesmo formato do unlock em
+/// `RateLimited`: sucesso falso, contadores e `rate_limit_remaining_ms`).
+fn change_pin_backoff_body(engine: &SecureGuardEngine, rate_limit_remaining_ms: u64) -> Vec<u8> {
+    let rem_attempts = MAX_ATTEMPTS.saturating_sub(engine.failed_attempts());
+    let out_map = vec![
+        (Value::Text("success".into()), Value::Bool(false)),
+        (Value::Text("state".into()), Value::from(engine.state().wire_code())),
+        (Value::Text("state_name".into()), Value::Text(format!("{:?}", engine.state()))),
+        (Value::Text("failed_attempts".into()), Value::from(engine.failed_attempts())),
+        (Value::Text("remaining_attempts".into()), Value::from(rem_attempts)),
+        (Value::Text("rate_limit_remaining_ms".into()), Value::from(rate_limit_remaining_ms)),
+        (Value::Text("error".into()), Value::Text("rate_limited_change_pin_backoff".into())),
+    ];
+    to_cbor_bytes(&Value::Map(out_map))
+}
+
+/// Pre-gate F-05: nega change_pin sem consultar o oraculo com backoff ativo
+/// (janela compartilhada do engine OU janela propria). `Some` = negado.
+fn deny_change_pin_if_rate_limited(
+    engine: &SecureGuardEngine,
+    now_ms: u64,
+) -> Option<(u8, Vec<u8>)> {
+    let engine_remaining = engine.rate_limit_until_ms().saturating_sub(now_ms);
+    let own_remaining = change_pin_backoff_until_ms().saturating_sub(now_ms);
+    let remaining_ms = engine_remaining.max(own_remaining);
+    if remaining_ms == 0 {
+        return None;
+    }
+    Some((CTAP2_ERR_PIN_REQUIRED, change_pin_backoff_body(engine, remaining_ms)))
+}
 /// 0x3B: OP_SECURE_GUARD_UNLOCK
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_unlock_or_mgmt<B, R>(
@@ -178,6 +232,10 @@ where
         }
     } else if is_change_pin {
         // --- 2. CHANGE PIN ---
+        // F-05: backoff igual ao do unlock (pre-gate sem oraculo).
+        if let Some(denied) = deny_change_pin_if_rate_limited(engine, now_ms) {
+            return denied;
+        }
         let current_pin = match get_field(&entries, "current_pin").and_then(extract_bytes) {
             Some(p) => p,
             None => return (0x04, to_cbor_bytes(&cbor_err("missing_current_pin"))),
@@ -195,6 +253,7 @@ where
 
         match res {
             Ok(()) => {
+                clear_change_pin_backoff();
                 crate::hmac_cr_compat_layer::set_secure_guard_unlocked(true);
                 let out_map = vec![
                     (
@@ -208,10 +267,24 @@ where
                 ];
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
             }
-            Err(e) => (
-                CTAP2_ERR_PIN_AUTH_INVALID,
-                to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
-            ),
+            Err(e) => {
+                // F-05: reusa a MESMA politica do unlock (compute_backoff_ms),
+                // sem segunda tabela. Com atraso > 0, arma a janela propria e
+                // responde como o unlock em backoff (0x36 + remaining_ms).
+                let delay_ms = engine.policy().compute_backoff_ms(engine.failed_attempts());
+                if delay_ms > 0 {
+                    arm_change_pin_backoff(now_ms.saturating_add(delay_ms));
+                    (
+                        CTAP2_ERR_PIN_REQUIRED,
+                        change_pin_backoff_body(engine, delay_ms),
+                    )
+                } else {
+                    (
+                        CTAP2_ERR_PIN_AUTH_INVALID,
+                        to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+                    )
+                }
+            }
         }
     } else if is_recover {
         // --- 3. RECOVER WITH CODE ---

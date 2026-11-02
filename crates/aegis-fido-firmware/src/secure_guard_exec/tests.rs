@@ -950,3 +950,112 @@ use crate::persistence::SecureStorage;
         assert!(!engine.is_unlocked());
         assert_eq!(engine.state(), SecureGuardState::Locked);
     }
+
+    fn change_pin_payload(current: &[u8], new_pin: &[u8]) -> Vec<u8> {
+        let m = vec![
+            (Value::Text("action".into()), Value::Text("change_pin".into())),
+            (Value::Text("current_pin".into()), Value::Bytes(current.to_vec())),
+            (Value::Text("new_pin".into()), Value::Bytes(new_pin.to_vec())),
+        ];
+        to_cbor_bytes(&Value::Map(m))
+    }
+
+    fn unlock_payload(pin: &[u8]) -> Vec<u8> {
+        let m = vec![
+            (Value::Text("action".into()), Value::Text("unlock".into())),
+            (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
+        ];
+        to_cbor_bytes(&Value::Map(m))
+    }
+
+    #[test]
+    fn change_pin_applies_unlock_backoff_policy() {
+        // F-05: change_pin usa o mesmo backoff progressivo do unlock
+        // (`compute_backoff_ms`), sem segunda tabela; negado sem oraculo.
+        super::unlock::clear_change_pin_backoff();
+        let mut rng = rand::rng();
+        let mut storage = test_storage();
+        let policy = SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            ..Default::default()
+        };
+        let mut engine = SecureGuardEngine::new(policy);
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+
+        // Provision + lock.
+        let prov = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Bytes(b"5839".to_vec())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &to_cbor_bytes(&Value::Map(prov)), 1000, &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        let _ = engine.lock_now(1001);
+
+        // Falha #1: atraso 0 -> 0x33, sem janela armada.
+        let (st1, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &change_pin_payload(b"0000", b"9999"), 2000, &mut rng,
+        );
+        assert_eq!(st1, CTAP2_ERR_PIN_AUTH_INVALID);
+        assert_eq!(engine.failed_attempts(), 1);
+        assert_eq!(super::unlock::change_pin_backoff_until_ms(), 0);
+
+        // Falha #2: atraso 2000 (mesma tabela do unlock) -> 0x36 + janela ate 4100.
+        let (st2, body2) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &change_pin_payload(b"0000", b"9999"), 2100, &mut rng,
+        );
+        assert_eq!(st2, CTAP2_ERR_PIN_REQUIRED);
+        assert_eq!(engine.failed_attempts(), 2);
+        assert_eq!(super::unlock::change_pin_backoff_until_ms(), 4100);
+        let v2: Value = ciborium::from_reader(body2.as_slice()).expect("cbor");
+        assert_eq!(
+            get_field(v2.as_map().expect("map"), "rate_limit_remaining_ms"),
+            Some(&Value::from(2000u64)),
+        );
+
+        // PIN correto DENTRO da janela: negado sem oraculo (contador intacto).
+        let (st3, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &change_pin_payload(b"5839", b"1234"), 2200, &mut rng,
+        );
+        assert_eq!(st3, CTAP2_ERR_PIN_REQUIRED);
+        assert_eq!(engine.failed_attempts(), 2);
+
+        // Janela vencida: troca com PIN correto e limpa a janela.
+        let (st4, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &change_pin_payload(b"5839", b"1234"), 4200, &mut rng,
+        );
+        assert_eq!(st4, 0x00);
+        assert_eq!(engine.failed_attempts(), 0);
+        assert_eq!(super::unlock::change_pin_backoff_until_ms(), 0);
+
+        // Janela do engine (via unlock) tambem fecha o change_pin sem oraculo.
+        let _ = engine.lock_now(4201);
+        let (u1, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &unlock_payload(b"0000"), 5000, &mut rng,
+        );
+        assert_eq!(u1, CTAP2_ERR_PIN_REQUIRED);
+        assert_eq!(engine.failed_attempts(), 1);
+        let (u2, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &unlock_payload(b"0000"), 5100, &mut rng,
+        );
+        assert_eq!(u2, CTAP2_ERR_PIN_REQUIRED);
+        assert_eq!(engine.failed_attempts(), 2);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
+        let (st5, _) = exec_secure_guard_op(
+            &mut engine, &mut storage, &mut wallet, &mut key_mgr, &mut oath,
+            OP_SECURE_GUARD_UNLOCK, &change_pin_payload(b"1234", b"5678"), 5200, &mut rng,
+        );
+        assert_eq!(st5, CTAP2_ERR_PIN_REQUIRED);
+        assert_eq!(engine.failed_attempts(), 2);
+        super::unlock::clear_change_pin_backoff();
+    }
