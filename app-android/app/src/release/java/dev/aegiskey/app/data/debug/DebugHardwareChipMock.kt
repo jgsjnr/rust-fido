@@ -31,8 +31,10 @@ object DebugHardwareChipMock {
     private val _isChipConnected = MutableStateFlow(false)
     val isChipConnected: StateFlow<Boolean> = _isChipConnected.asStateFlow()
 
+    @Suppress("UNUSED_PARAMETER")
     fun getCandidateForTransport(transport: ConnectionTransportType): DiscoveredKeyCandidate? = null
 
+    @Suppress("UNUSED_PARAMETER")
     fun isMockCandidate(candidateId: String?): Boolean = false
 
     fun simulateHold5s() {
@@ -47,14 +49,17 @@ object DebugHardwareChipMock {
 
     fun simulateHealthPing(): String = ""
 
+    @Suppress("UNUSED_PARAMETER")
     fun seedChipDataForKey(keyId: String, store: EncryptedKeysStore) {
         // No-op in release: real hardware NVS and cryptographic operations only
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun injectExtraSample(keyId: String, store: EncryptedKeysStore) {
         // No-op in release
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun purgeResidualMockData(store: EncryptedKeysStore) {
         // No-op in release: Zero-mock production build has no mock data to purge
     }

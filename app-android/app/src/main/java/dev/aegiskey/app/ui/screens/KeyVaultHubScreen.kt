@@ -75,6 +75,7 @@ import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
  * Exclusively responsible for Secure Guard Authority Card + Real Hardware Vault Keys & Wallets.
  * Standardized in ASD-STE100 technical English.
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun KeyVaultHubScreen(
     viewModel: KeyVaultViewModel,

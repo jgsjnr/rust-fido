@@ -400,7 +400,7 @@ class AegisBleClient(private val context: Context) {
             scope.launch { afterServices(g) }
         }
 
-        @Suppress("DEPRECATION")
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
             completeRead(c.value)
         }
@@ -424,7 +424,7 @@ class AegisBleClient(private val context: Context) {
             pendingWrite = null
         }
 
-        @Suppress("DEPRECATION")
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
             handleCharacteristicChanged(c.uuid, c.value)
         }

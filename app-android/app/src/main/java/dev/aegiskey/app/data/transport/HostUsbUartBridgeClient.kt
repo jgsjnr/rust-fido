@@ -642,7 +642,7 @@ class HostUsbUartBridgeClient(
             bleName = if (json.has("ble_name")) json.optString("ble_name") else null,
             registeredDevice = if (json.has("registered_device")) {
                 val rd = json.optJSONObject("registered_device")
-                if (rd != null) rd.optString("name", "Device") + " (" + rd.optString("mac", "") + ")" else json.optString("registered_device", null)
+                if (rd != null) rd.optString("name", "Device") + " (" + rd.optString("mac", "") + ")" else json.optString("registered_device", "")
             } else null
         )
     }

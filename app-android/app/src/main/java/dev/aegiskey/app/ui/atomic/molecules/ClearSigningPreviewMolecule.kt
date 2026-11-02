@@ -228,7 +228,7 @@ fun ClearSigningPreviewMolecule(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     // Linhas do Buffer Gráfico OLED Renderizadas em Monospace
-                    resolvedOledLines.forEachIndexed { index, line ->
+                    resolvedOledLines.forEachIndexed { _, line ->
                         val lineColor = when {
                             line.contains("PRESS", true) || line.contains("HW BTN", true) -> Color(0xFF4ADE80)
                             line.contains("NET:", true) || line.contains("VAL:", true) -> Color(0xFFF8FAFC)

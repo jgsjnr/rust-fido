@@ -41,6 +41,7 @@ class WifiDiscovery(context: Context) {
             override fun onDiscoveryStarted(regType: String) {
                 DeviceLog.append(DeviceLog.Category.WIFI, "mDNS discovery started")
             }
+            @Suppress("DEPRECATION")
             override fun onServiceFound(service: NsdServiceInfo) {
                 val name = service.serviceName ?: return
                 if (!name.startsWith("aegiskey-", ignoreCase = true)) return
