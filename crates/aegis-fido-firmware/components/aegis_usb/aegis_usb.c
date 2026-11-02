@@ -15,6 +15,7 @@
 #include "soc/rtc_cntl_reg.h"
 #include "soc/soc.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "tusb.h"
 #include "class/hid/hid_device.h"
 #include "aegis_usb.h"
@@ -296,14 +297,30 @@ esp_err_t aegis_usb_init(void) {
         s_rx_queue = xQueueCreate(RX_QUEUE_SIZE, sizeof(hid_packet_t));
     }
 
+    // TinyUSB v2 (esp_tinyusb 2.x, IDF v6): v1 flat fields moved to sub-structs.
+    // 1:1 mapping with the v5.3.1 init: device_descriptor->descriptor.device,
+    // string_descriptor(+count)->descriptor.string(+count),
+    // configuration_descriptor->descriptor.full_speed_config (S3 is FS-only),
+    // external_phy=false->phy.skip_setup=false, self_powered, vbus_monitor_io=-1.
+    // Task = TINYUSB_TASK_DEFAULT() (4096/5/CPU1) == v1 Kconfig (4096/5);
+    // v1 used no-affinity but v2 validates xCoreID <= SOC_CPU_CORES_NUM.
     const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &desc_device,
-        .string_descriptor = string_desc_arr,
-        .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
-        .external_phy = false,
-        .configuration_descriptor = desc_configuration,
-        .self_powered = false,
-        .vbus_monitor_io = -1
+        .port = TINYUSB_PORT_FULL_SPEED_0,
+        .phy = {
+            .skip_setup = false,
+            .self_powered = false,
+            .vbus_monitor_io = -1,
+        },
+        .task = TINYUSB_TASK_DEFAULT(),
+        .descriptor = {
+            .device = &desc_device,
+            .string = string_desc_arr,
+            .string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
+            .full_speed_config = desc_configuration,
+        },
+        .pm_lock_enable = false,
+        .event_cb = NULL,
+        .event_arg = NULL,
     };
 
     esp_err_t err = tinyusb_driver_install(&tusb_cfg);

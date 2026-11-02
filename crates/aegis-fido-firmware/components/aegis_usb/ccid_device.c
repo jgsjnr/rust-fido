@@ -91,7 +91,7 @@ static void ccid_arm_notify(uint8_t rhport) {
     }
     s_notify_busy = true;
     s_notify_has_pending = false;
-    usbd_edpt_xfer(rhport, s_ep_notify, s_notify_buf, sizeof(s_notify_buf));
+    usbd_edpt_xfer(rhport, s_ep_notify, s_notify_buf, sizeof(s_notify_buf), false); // task ctx (xfer_isr == NULL)
 }
 
 static void ccid_arm_out(uint8_t rhport) {
@@ -99,7 +99,7 @@ static void ccid_arm_out(uint8_t rhport) {
         return;
     }
     memset(s_rx_chunk, 0, sizeof(s_rx_chunk));
-    usbd_edpt_xfer(rhport, s_ep_out, s_rx_chunk, CCID_BULK_MPS);
+    usbd_edpt_xfer(rhport, s_ep_out, s_rx_chunk, CCID_BULK_MPS, false); // task ctx (xfer_isr == NULL)
 }
 
 // Enqueue one complete frame; drops (with log) when the Rust side lags.
@@ -301,7 +301,7 @@ bool aegis_ccid_send(const uint8_t *data, uint16_t len) {
     }
     memcpy(s_tx_buf, data, len);
     s_tx_busy = true;
-    if (!usbd_edpt_xfer(0, s_ep_in, s_tx_buf, len)) {
+    if (!usbd_edpt_xfer(0, s_ep_in, s_tx_buf, len, false)) { // task ctx: Rust FFI poll, xfer_isr == NULL
         ESP_LOGW(TAG, "tx xfer failed");
         s_tx_busy = false;
         return false;
