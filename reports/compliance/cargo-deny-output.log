@@ -802,3 +802,33 @@ command: cargo deny --all-features check licenses
 
 licenses ok
 ALLFEATURES_LICENSES_EXIT_CODE=0
+
+===== fix-wave 2026-11-02: RUSTSEC-2026-0387 + wildcard bans (cargo-deny 0.20.2) =====
+command: cargo deny check licenses advisories bans sources
+
+[1] RUSTSEC-2026-0387 (crypto-bigint 0.5.5, timing/CT) -- BLOCKED, sem reescrita de codigo:
+- tree: crypto-bigint 0.5.5 <- elliptic-curve 0.13.8 <- {ecdsa 0.16.9, primeorder 0.13.6}
+  <- {k256 0.13.4, p256 0.13.2, p384 0.13.1, p521 0.13.3}
+  <- aegis-fido-core / aegis-fido-firmware / aegis-secure-guard / uniffi-bridge.
+- tentativa: bump p256/k256/p384/p521 0.13 -> 0.14 (prova isolada: crypto-bigint 0.7.10,
+  >=0.7.6 e nao-yanked; 0.7.6 esta yanked; elliptic-curve 0.13 fixa crypto-bigint ^0.5,
+  logo 'cargo update -p crypto-bigint --precise 0.7.6' falha: required by elliptic-curve v0.13.8).
+- resultado: 'cargo check --workspace' QUEBROU em aegis-secure-guard/src/secure_channel.rs:
+  E0277 'R: CryptoRng not satisfied: DerefMut not implemented' (SecretKey::random agora exige R: DerefMut),
+  E0599 'no method to_encoded_point' (API renomeada p/ to_sec1_point; trait ToSec1Point fora de escopo).
+- acao: Cargo.toml + Cargo.lock REVERTIDOS (git checkout -- ). crypto-bigint segue 0.5.5.
+  advisories exit: 1 (FAILED apenas por RUSTSEC-2026-0387). Nenhum 'ignore' adicionado ao deny.toml.
+
+[2] bans error[wildcard] x6 path-deps intra-workspace -- RESOLVIDO (sem versionar path-deps):
+- tentativa 1 '[[bans.skip]]' nos alvos: INEFICAZ p/ wildcards (skip cobre so duplicatas;
+  erros persistiram + warnings 'unnecessary-skip'). Entradas removidas.
+- tentativa 2 'allow-wildcard-paths = true' sozinho: INEFICAZ -- crates do workspace eram
+  tratados como publicos ("does not apply to public crates...").
+- fix: 'publish = false' em [workspace.package] + 'publish.workspace = true' nos 6 crates
+  (firmware/SDK GPL interno, nunca publicado no crates.io; impede 'cargo publish' acidental).
+  deny.toml [bans]: allow-wildcard-paths = true (wildcards de registro seguem deny).
+- bans exit: 0 (bans ok; 'duplicate' segue warn p/ multi-versoes transitivas ESP-IDF/uniffi).
+
+[3] re-run final: 'cargo deny check licenses advisories bans sources'
+=> licenses ok, sources ok, bans ok, advisories FAILED (RUSTSEC-2026-0387). FULL_EXIT_CODE=1
+=> lock inalterado (revertido); 'licenses --all-features' nao re-rodado (ultimo exit 0).

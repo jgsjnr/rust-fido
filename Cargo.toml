@@ -16,6 +16,10 @@ edition = "2021"
 authors = ["Aegis Security <contact@aegiskey.dev>"]
 license = "GPL-3.0-only"
 repository = "https://github.com/jgsjnr/rust-fido.git"
+# Nunca publicado no crates.io (firmware/SDK GPL interno com path-deps):
+# marca os membros como crates privados para o cargo-deny
+# ([bans] allow-wildcard-paths so se aplica a crates privados).
+publish = false
 
 [workspace.dependencies]
 # Serialization & CBOR

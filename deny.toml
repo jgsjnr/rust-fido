@@ -76,6 +76,12 @@ ignore = []
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Path-deps intra-workspace declaradas sem versao explicita: a versao e
+# fixada pelo proprio workspace ([workspace.package] version = "1.0.0").
+# allow-wildcard-paths suprime o lint `wildcard` para path-deps em crates
+# privados (nao publicados no crates.io), sem mascarar wildcards reais de
+# dependencias externas de registro.
+allow-wildcard-paths = true
 deny = []
 
 [sources]
