@@ -19,16 +19,15 @@ function Add-Check([string]$name, [bool]$ok, [string]$detail) {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
-# 1. ESP-IDF fixado pelo projeto (.cargo/config.toml -> C:\esp\v6.0.3 via EIM; legado C:\.embuild v5.3.1 preservado)
-# Legado preservado (NAO remover): C:\.embuild\espressif\esp-idf\v5.3.1
-$idf = "C:\esp\v6.0.3\esp-idf"
+# 1. ESP-IDF fixado pelo projeto (.cargo/config.toml -> C:\.embuild v5.3.1)
+$idf = "C:\.embuild\espressif\esp-idf\v5.3.1"
 Add-Check "idf-dir" (Test-Path $idf) $idf
 Add-Check "idf-py" (Test-Path (Join-Path $idf "tools\idf.py")) "tools\idf.py"
 
 # 2. Toolchain C Xtensa + clang (linker do esp-idf-sys)
 $clang = "C:\Users\junior\.rustup\toolchains\esp\xtensa-esp32-elf-clang\esp-clang\bin\libclang.dll"
 Add-Check "esp-clang" (Test-Path $clang) $clang
-$gcc = Get-ChildItem "C:\Espressif\tools\xtensa-esp-elf" -Directory -Name -ErrorAction SilentlyContinue | Select-Object -First 1
+$gcc = Get-ChildItem "C:\.embuild\espressif\tools\xtensa-esp-elf" -Directory -Name -ErrorAction SilentlyContinue | Select-Object -First 1
 Add-Check "xtensa-gcc" ($null -ne $gcc) ("xtensa-esp-elf\" + $gcc)
 
 # 3. Toolchain Rust Xtensa (fork ESP): std vem do fonte via -Zbuild-std, logo o
@@ -47,8 +46,8 @@ $ldp = Get-Command ldproxy -ErrorAction SilentlyContinue
 Add-Check "ldproxy" ($null -ne $ldp) "linker do esp-idf-sys"
 $ef = (& cargo-espflash --version 2>$null)
 Add-Check "cargo-espflash" ($LASTEXITCODE -eq 0) ([string]$ef)
-# Legado preservado (NAO remover): C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts\esptool.exe
-Add-Check "esptool-idf603" $esptool "python venv v6.0.3 (EIM)"
+$esptool = Test-Path "C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts\esptool.exe"
+Add-Check "esptool-idf53" $esptool "python_env idf5.3"
 
 # 5. Portas seriais: exige ao menos 1 bridge ESP (CP210x/CH340/CH9102)
 $ports = Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Select-Object DeviceID, Description
