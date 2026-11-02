@@ -1,0 +1,40 @@
+[graph]
+all-features = false
+
+[licenses]
+unlicensed = "deny"
+copyleft = "warn"
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+]
+exceptions = [
+  { name = "aegis-secure-guard", allow = ["GPL-3.0-only"] },
+  { name = "aegis-fido-core", allow = ["GPL-3.0-only"] },
+  { name = "aegis-fido-usb", allow = ["GPL-3.0-only"] },
+  { name = "aegis-fido-firmware", allow = ["GPL-3.0-only"] },
+  { name = "universal-device-sdk", allow = ["GPL-3.0-only"] },
+  { name = "uniffi-bridge", allow = ["GPL-3.0-only"] },
+]
+confidence-threshold = 0.8
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
