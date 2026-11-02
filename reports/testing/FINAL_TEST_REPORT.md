@@ -169,3 +169,23 @@ weakening any assertion: the demo now waits for the `EVT_TICK_10MS` bit
 - `cargo deny check licenses advisories bans sources`: PASS (exit 0, MPL gone).
 - `cargo fmt --check`: segue BLOCKED (28 arquivos, pre-existente, nao revalidado).
 - ESP-IDF/on-device: nao validados nesta lane (fora de escopo host-only).
+
+## Heavy battery (HEAD `b1a10b3`, 2026-11-02 UTC) — detalhe em `HEAVY_TEST_REPORT.md`
+
+- `cargo test --workspace`: PASS (exit 0, **941 passed / 0 failed / 1 ignored**).
+- Feature matrix: `check --workspace --all-features` FAIL exit 101 **by design**
+  (GAP-04 `compile_error!` bloqueia `test-mode`+`prod-strict` juntos);
+  `test -p aegis-fido-firmware --features freertos,proximity` PASS (lib 562/0,
+  integration 68/0); `check --features prod-strict` PASS; `check --features
+  test-mode` PASS (somente leitura, nada commitado).
+- Stress: `freertos_sched` 5/5 (18/18 cada), `proximity_freertos` 3/3 default
+  (0 testes, feature-gated) + 3/3 com features (11/11) — **zero flakes**.
+- `cargo test --workspace --release`: PASS (exit 0, 941/0/1, identico ao debug).
+- Probes (somente leitura, sem flash/dispositivo): sem target xtensa instalado;
+  `check --target xtensa-esp32s3-espidf` BLOCKED (E0463 `can't find crate for
+  core`); `IDF_PATH\tools\idf.py` existe; Android SDK dirs setadas, adb
+  presente mas nunca invocado; sdkmanager NOT VERIFIED.
+- Testes novos: nenhum (sem gap genuino encontrado). Sem Mock/Fake/Stub
+  adicionados; `MockFlashBackend` revisado (cfg-gated, documentado).
+- Veredito: bateria host-only verde; pernas de dispositivo/ESP seguem
+  BLOCKED/NOT VERIFIED por ambiente. Sem aceite em dispositivo fisico.
