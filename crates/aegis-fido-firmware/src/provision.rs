@@ -11,7 +11,7 @@
 //! - Segredos nunca no repo: nenhum `0x5A`/`0xA5`/serial fixo neste arquivo.
 
 #[cfg(not(target_os = "espidf"))]
-use rand_core::RngCore;
+use rand_core::TryRng;
 
 use crate::efuse::{EfuseManager, EfuseStorage, EFUSE_KEY_LEN};
 
@@ -85,7 +85,7 @@ fn fallback_or_error() -> Result<DeviceKeys, ProvisionError> {
     {
         let mut master_key = [0u8; EFUSE_KEY_LEN];
         let mut device_salt = [0u8; EFUSE_KEY_LEN];
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         rng.try_fill_bytes(&mut master_key)
             .map_err(|_| ProvisionError::RngFault)?;
         rng.try_fill_bytes(&mut device_salt)

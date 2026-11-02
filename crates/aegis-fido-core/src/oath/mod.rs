@@ -39,12 +39,10 @@ mod tests {
     use super::*;
     use alloc::vec;
     use alloc::vec::Vec;
-    use rand_core::OsRng;
-
     #[test]
     fn test_ykoath_select() {
         let mut applet = OathApplet::new();
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let mut presence = AlwaysPresentVerifier;
 
         let mut apdu = vec![0x00, INS_SELECT, 0x04, 0x00, 0x07];
@@ -65,7 +63,7 @@ mod tests {
     #[test]
     fn test_ykoath_put_list_calculate_delete() {
         let mut applet = OathApplet::new();
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let mut presence = AlwaysPresentVerifier;
 
         // 1. SELECT
@@ -155,7 +153,7 @@ mod tests {
     #[test]
     fn test_ykoath_touch_requirement() {
         let mut applet = OathApplet::new();
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
 
         // PUT a credential requiring touch
         let mut put_data = Vec::new();
@@ -196,7 +194,7 @@ mod tests {
     #[test]
     fn test_ykoath_password_protection_and_validation() {
         let mut applet = OathApplet::new();
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let mut presence = AlwaysPresentVerifier;
 
         // Set a password

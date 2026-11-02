@@ -1,8 +1,9 @@
 use crate::crypto::cose::CoseKey;
 use alloc::vec::Vec;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::{ecdh::diffie_hellman, PublicKey, SecretKey};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 #[derive(Clone)]
 pub struct EcdhKeyAgreement {
@@ -20,8 +21,8 @@ impl core::fmt::Debug for EcdhKeyAgreement {
 
 impl EcdhKeyAgreement {
     /// Generates a new ephemeral P-256 key pair for ECDH
-    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        let private_key = SecretKey::random(rng);
+    pub fn generate<R: CryptoRng>(rng: &mut R) -> Self {
+        let private_key = SecretKey::generate_from_rng(rng);
         let public_key = private_key.public_key();
         Self {
             private_key,
@@ -41,7 +42,7 @@ impl EcdhKeyAgreement {
 
     /// Returns public key as COSE structure
     pub fn to_cose_key(&self) -> CoseKey {
-        let point = self.public_key.to_encoded_point(false);
+        let point = self.public_key.to_sec1_point(false);
         let x = point.x().expect("x coordinate missing").to_vec();
         let y = point.y().expect("y coordinate missing").to_vec();
         CoseKey::p256(x, y)

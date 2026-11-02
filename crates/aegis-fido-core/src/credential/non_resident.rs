@@ -9,7 +9,7 @@ use aes_gcm::{
 };
 use alloc::string::String;
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 const CRED_WRAP_VERSION: u8 = 0x01;
@@ -24,7 +24,7 @@ impl CredentialWrapper {
     }
 
     /// Wraps a non-resident credential into an encrypted credential ID
-    pub fn wrap<R: RngCore + CryptoRng>(
+    pub fn wrap<R: CryptoRng>(
         &self,
         record: &CredentialRecord,
         rng: &mut R,

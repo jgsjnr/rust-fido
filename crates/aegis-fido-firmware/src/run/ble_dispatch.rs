@@ -67,7 +67,7 @@ pub(crate) fn ble_dispatch_complete(
                 ble::notify_frame(op, st, &body)
             } else {
                 ctap_engine.set_user_presence(up);
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 let resp = ctap_engine.process_packet(p, now_secs, &mut rng);
                 // F3: ClientPIN (0x06) mudou estado? Persiste hash+retries.
                 if p.first() == Some(&0x06)
@@ -103,7 +103,7 @@ pub(crate) fn ble_dispatch_complete(
             if !p.is_empty() {
                 ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
             } else {
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 match g::dispatch_bind_challenge(binding_mgr, storage, &mut rng) {
                     Ok(ch) => ble::notify_frame(op, 0x00, &ch),
                     Err(e) => ble::notify_frame(op, e.to_vendor_status(), &[]),
@@ -184,7 +184,7 @@ pub(crate) fn ble_dispatch_complete(
             // (envelope AEGN + vault = F2b). F4: 0x39 enrollment PIV
             // (binding -> UP, sem PIN). Gates §9.4 intactos.
             let pin_ok = ctap_engine.pin_state.has_valid_pin_uv_session();
-            let mut rng = rand_core::OsRng;
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let (st, body) = crate::vendor_exec::exec_vendor_op(
                 key_mgr,
                 oath_applet,
@@ -207,7 +207,7 @@ pub(crate) fn ble_dispatch_complete(
             // verdade no WalletStore de sessão (chaves TRNG no device).
             match g::authorize_wallet_op(o, binding_mgr.is_claimed(), up) {
                 Ok(()) => {
-                    let mut rng = rand_core::OsRng;
+                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                     let (st, body) = match o {
                         g::OP_WALLET_GEN => w::wallet_gen(wallet, p, now_secs, true, &mut rng),
                         g::OP_WALLET_LIST => w::wallet_list(wallet, true),

@@ -72,12 +72,12 @@ pub fn address_for_public_key(
     match (pubkey, network) {
         (PublicKey::K256(vk), CryptoNetwork::Bitcoin) => {
             let mut compressed = [0u8; 33];
-            compressed.copy_from_slice(vk.to_encoded_point(true).as_bytes());
+            compressed.copy_from_slice(vk.to_sec1_point(true).as_bytes());
             Ok(bitcoin_p2wpkh_address(&compressed))
         }
         (PublicKey::K256(vk), CryptoNetwork::EthereumEvm) => {
             let mut raw = [0u8; 64];
-            raw.copy_from_slice(&vk.to_encoded_point(false).as_bytes()[1..65]);
+            raw.copy_from_slice(&vk.to_sec1_point(false).as_bytes()[1..65]);
             Ok(ethereum_address(&raw))
         }
         (PublicKey::Ed25519(vk), CryptoNetwork::Solana) => Ok(solana_address(&vk.to_bytes())),

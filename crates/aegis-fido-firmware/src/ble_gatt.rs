@@ -269,7 +269,7 @@ mod tests {
         let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
         let mut m = BindingManager::new();
         let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         let id = [0xABu8; BIND_ID_LEN];
@@ -279,7 +279,7 @@ mod tests {
         // Segundo claim nega (dono preservado).
         assert!(dispatch_bind_claim(&mut m, &mut st, &sec1, &id, true, true).is_err());
         // Challenge emite 32B; verify consome (uso unico).
-        let ch = dispatch_bind_challenge(&mut m, &st, &mut rand_core::OsRng).expect("ch");
+        let ch = dispatch_bind_challenge(&mut m, &st, &mut rand_core::UnwrapErr(getrandom::SysRng)).expect("ch");
         assert!(m.has_active_challenge());
         let ph = [0x11u8; 32];
         let msg = BindingManager::signed_message(&ch, OP_KEY_LIST, &ph);
@@ -291,7 +291,7 @@ mod tests {
         dispatch_bind_verify(&mut m, &sig, &ch, OP_KEY_LIST, &ph).expect("verify gatt ok");
         assert!(!m.has_active_challenge());
         // Release com prova valida faz wipe (re-claim liberado).
-        let ch2 = dispatch_bind_challenge(&mut m, &st, &mut rand_core::OsRng).expect("ch2");
+        let ch2 = dispatch_bind_challenge(&mut m, &st, &mut rand_core::UnwrapErr(getrandom::SysRng)).expect("ch2");
         let id_hash = {
             use sha2::{Digest, Sha256};
             let d = Sha256::digest(id);
@@ -325,7 +325,7 @@ mod tests {
         let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
         let mut m = BindingManager::new();
         let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true)

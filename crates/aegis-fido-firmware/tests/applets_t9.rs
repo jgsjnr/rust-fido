@@ -111,7 +111,7 @@ fn exec(
         pin_ok,
         up,
         0,
-        &mut rand_core::OsRng,
+        &mut rand::rng(),
     )
 }
 
@@ -450,7 +450,7 @@ fn oath_segredo_nunca_sai_list_code_log_tela() {
 
 #[test]
 fn wallet_keymanager_dedicado_isola_stores_e_fido_alheio() {
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand::rng();
     let mut a = WalletStore::new();
     let b = WalletStore::new();
     let rec = a
@@ -478,7 +478,7 @@ fn wallet_keymanager_dedicado_isola_stores_e_fido_alheio() {
 
 #[test]
 fn wallet_exec_sessao_sem_segredo_no_fio() {
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand::rng();
     let mut store = WalletStore::new();
     let mut payload = Vec::new();
     write_tlv(&mut payload, TAG_WALLET_SLOT, &[3]);
@@ -696,7 +696,7 @@ fn ccid_oath_fido_fora_de_escopo_6d00_honesto_e_piv_servido() {
 
 #[test]
 fn keymanager_dominios_nao_compartilham_estado() {
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand::rng();
     // Domínio FIDO (slots baixos) vs domínio PIV (slots 24-27): sem interseção.
     let mut fido = KeyManager::new();
     fido.generate(

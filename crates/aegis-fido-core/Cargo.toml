@@ -17,7 +17,7 @@ p384 = { workspace = true }
 p521 = { workspace = true, features = ["sha512", "getrandom"] }
 k256 = { workspace = true }
 ed25519-dalek = { workspace = true }
-signature = { version = "2.2", default-features = false }
+signature = { version = "3.0", default-features = false }
 sha2 = { workspace = true }
 sha1 = { workspace = true }
 hmac = { workspace = true }
@@ -35,7 +35,7 @@ bs58 = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
-rand = "0.8"
+rand = "0.10"
 
 [features]
 # Wave7: lifetime debug counters (default OFF; release builds compile ltrace! to nothing).

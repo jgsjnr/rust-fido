@@ -639,7 +639,7 @@ fn rewrite_credential<S: PivRecordStore>(
     new_secret: &[u8],
     max_retries: u8,
 ) -> Result<(), ResponseApdu> {
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
     if write_credential(
         store,
         salt_key,

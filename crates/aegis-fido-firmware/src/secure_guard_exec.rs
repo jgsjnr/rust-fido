@@ -9,12 +9,13 @@
 //! - 0x3E: OP_SECURE_GUARD_WIPE_SELECTIVE
 
 use ciborium::value::Value;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use std::format;
 use std::string::String;
 use std::vec::Vec;
 
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::SecretKey;
 
 use aegis_fido_core::credential::key_manager::KeyManager;
@@ -106,7 +107,7 @@ fn gf256_div(a: u8, b: u8) -> u8 {
 
 /// Divide um segredo em 3 partes com limiar de 2 partes (Shamir 2-de-3 sobre GF(256)).
 /// Cada share é formado por `[x_coord, y_0, y_1, ..., y_{n-1}]`.
-pub fn shamir_2_of_3_split<R: RngCore + CryptoRng>(secret: &[u8], rng: &mut R) -> [Vec<u8>; 3] {
+pub fn shamir_2_of_3_split<R: CryptoRng>(secret: &[u8], rng: &mut R) -> [Vec<u8>; 3] {
     let len = secret.len();
     let mut share1 = Vec::with_capacity(1 + len);
     let mut share2 = Vec::with_capacity(1 + len);
@@ -189,7 +190,7 @@ pub fn exec_secure_guard_op<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: FlashStorageBackend,
-    R: RngCore + CryptoRng,
+    R: CryptoRng,
 {
     match op {
         OP_SECURE_GUARD_STATUS => handle_status(engine, now_ms),
@@ -349,7 +350,7 @@ fn handle_unlock_or_mgmt<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: FlashStorageBackend,
-    R: RngCore + CryptoRng,
+    R: CryptoRng,
 {
     // Tenta decodificar como mapa CBOR
     let cbor_parsed: Option<Value> = if !payload.is_empty() {
@@ -546,9 +547,9 @@ where
         }
     } else if action_str == Some("ecdh_handshake") {
         // --- 4. ECDH HANDSHAKE (GAP-02) ---
-        let eph_secret = SecretKey::random(rng);
+        let eph_secret = SecretKey::generate_from_rng(rng);
         let eph_public = eph_secret.public_key();
-        let encoded_point = eph_public.to_encoded_point(false);
+        let encoded_point = eph_public.to_sec1_point(false);
         let pub_bytes = encoded_point.as_bytes().to_vec();
 
         let out_map = vec![
@@ -1150,7 +1151,7 @@ mod tests {
             ..Default::default()
         };
         let mut engine = SecureGuardEngine::new(policy);
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rng();
 
         // 1. Provision via 0x3B CBOR
         let prov_map = vec![
@@ -1276,7 +1277,7 @@ mod tests {
         let mut key_mgr = KeyManager::new();
         let mut oath = OathApplet::new();
         let mut engine = SecureGuardEngine::new(SecureGuardPolicy::default());
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rng();
 
         let req = vec![(
             Value::Text("action".into()),
@@ -1326,7 +1327,7 @@ mod tests {
             pbkdf2_iterations: 10,
             ..Default::default()
         });
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rng();
 
         // Provision e unlock primeiro
         let prov_map = vec![
@@ -1415,7 +1416,7 @@ mod tests {
         let mut key_mgr = KeyManager::new();
         let mut oath = OathApplet::new();
         let mut engine = SecureGuardEngine::new(SecureGuardPolicy::default());
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rng();
 
         let preview_map = vec![
             (
@@ -1477,7 +1478,7 @@ mod tests {
             pbkdf2_iterations: 10,
             ..Default::default()
         });
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rng();
 
         // Provision PIN "4927"
         let prov_map = vec![
@@ -1564,7 +1565,7 @@ mod tests {
             test_mode_non_destructive_wipe: false,
             ..Default::default()
         });
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rng();
 
         // Provision PIN "4927"
         let prov_map = vec![
@@ -1642,7 +1643,7 @@ mod tests {
 
     #[test]
     fn test_keepassxc_slot_config_and_challenge_vendor_exec() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut storage = test_storage();
         let mut engine = SecureGuardEngine::new(SecureGuardPolicy { pbkdf2_iterations: 10, ..Default::default() });
         let mut wallet = WalletStore::new();
@@ -1765,7 +1766,7 @@ mod tests {
 
     #[test]
     fn test_register_ble_proximity_and_rssi_update_cbor() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut storage = test_storage();
         let mut engine = SecureGuardEngine::new(SecureGuardPolicy::default());
         let mut wallet = WalletStore::new();

@@ -12,7 +12,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AeadError {
@@ -79,7 +79,7 @@ pub fn aes_256_gcm_decrypt(
 
 /// Convenience envelope: Generates random 12-byte nonce, encrypts `plaintext` with AES-256-GCM,
 /// and returns `nonce (12 bytes) || ciphertext || tag (16 bytes)`.
-pub fn seal_blob<R: RngCore + CryptoRng>(
+pub fn seal_blob<R: CryptoRng>(
     master_key: &[u8; 32],
     plaintext: &[u8],
     aad: &[u8],
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_aes_256_gcm_seal_open_roundtrip() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let master_key = [0x42u8; 32];
         let secret_data = b"AegisKey Secret Hardware Master Seed Payload 2026";
         let aad = b"Aegis-Vault-Header-v1";

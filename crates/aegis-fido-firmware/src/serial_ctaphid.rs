@@ -763,7 +763,7 @@ mod tests {
         use crate::persistence::{MockFlashBackend, SecureStorage};
         let mut b = BindingManager::new();
         let mut s = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         // Fora da faixa, comprimentos errados e PIN nao-UTF8: 0x04, sem panics.
         assert_eq!(
             dispatch_serial_bind_mgmt(0x20, &[], true, true, &mut b, &mut s, &mut rng).0,
@@ -894,14 +894,14 @@ mod tests {
             (BindingManager::new(), st)
         }
         let sk = p256::ecdsa::SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         let id = [0xABu8; BIND_ID_LEN];
         let mut claim_p = Vec::with_capacity(BIND_PUB_LEN + BIND_ID_LEN);
         claim_p.extend_from_slice(&sec1);
         claim_p.extend_from_slice(&id);
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
 
         // CLAIM sem janela: PairingRequired vira PresenceRequired (0x01) nos dois.
         {

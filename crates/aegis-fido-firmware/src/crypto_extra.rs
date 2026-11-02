@@ -156,7 +156,7 @@ impl P384Secret {
     /// Chave publica comprimida SEC1 (49 bytes, prefixo 02/03 + x).
     pub fn public_compressed(&self) -> [u8; P384_PUB_COMPRESSED_LEN] {
         let verifying = P384VerifyingKey::from(self.signing());
-        let point = verifying.to_encoded_point(true);
+        let point = verifying.to_sec1_point(true);
         let mut out = [0u8; P384_PUB_COMPRESSED_LEN];
         out.copy_from_slice(point.as_bytes());
         out

@@ -11,7 +11,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -70,7 +70,7 @@ impl core::fmt::Debug for Mnemonic24 {
 
 impl Mnemonic24 {
     /// Generates a cryptographically secure 24-word mnemonic using the given RNG.
-    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Result<Self, Bip39Error> {
+    pub fn generate<R: CryptoRng>(rng: &mut R) -> Result<Self, Bip39Error> {
         let mut entropy = [0u8; 32];
         rng.fill_bytes(&mut entropy);
         let res = Self::from_entropy(&entropy);
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_bip39_24_words_lifecycle() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
 
         // 1. Generate new 24-word mnemonic
         let mnemonic = Mnemonic24::generate(&mut rng).unwrap();

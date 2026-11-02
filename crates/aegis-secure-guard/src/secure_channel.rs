@@ -16,9 +16,10 @@
 //! 6. **Zeroization**: All ephemeral keys, shared secrets, and session keys are scrubbed with `Zeroize` on drop.
 
 use alloc::vec::Vec;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::{ecdh::diffie_hellman, PublicKey, SecretKey};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 use crate::crypto::{constant_time_eq_32, hkdf_sha256, hmac_sha256};
@@ -72,8 +73,8 @@ impl Drop for SecureGuardEcdhChannel {
 
 impl SecureGuardEcdhChannel {
     /// Generates a new ephemeral channel for the device side.
-    pub fn new_device<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        let private_key = SecretKey::random(rng);
+    pub fn new_device<R: CryptoRng>(rng: &mut R) -> Self {
+        let private_key = SecretKey::generate_from_rng(rng);
         let public_key = private_key.public_key();
         let sec1 = Self::encode_public_key_sec1(&public_key);
 
@@ -88,7 +89,7 @@ impl SecureGuardEcdhChannel {
     }
 
     /// Generates a new ephemeral channel for the host side (used in clients, tests, or bridge).
-    pub fn new_host<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
+    pub fn new_host<R: CryptoRng>(rng: &mut R) -> Self {
         Self::new_device(rng)
     }
 
@@ -111,7 +112,7 @@ impl SecureGuardEcdhChannel {
 
     /// Encodes a P-256 public key into uncompressed 65-byte SEC1 format (`0x04 || X || Y`).
     fn encode_public_key_sec1(pubkey: &PublicKey) -> [u8; 65] {
-        let point = pubkey.to_encoded_point(false);
+        let point = pubkey.to_sec1_point(false);
         let bytes = point.as_bytes();
         let mut out = [0u8; 65];
         if bytes.len() == 65 {
@@ -266,11 +267,10 @@ impl SecureGuardEcdhChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand_core::OsRng;
 
     #[test]
     fn test_ecdh_channel_handshake_and_roundtrip() {
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
 
         // 1. Instantiate Device and Host channels
         let mut device_chan = SecureGuardEcdhChannel::new_device(&mut rng);
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_ecdh_channel_rejects_tampered_tag() {
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let mut device_chan = SecureGuardEcdhChannel::new_device(&mut rng);
         let mut host_chan = SecureGuardEcdhChannel::new_host(&mut rng);
 
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_ecdh_channel_rejects_replay() {
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let mut device_chan = SecureGuardEcdhChannel::new_device(&mut rng);
         let mut host_chan = SecureGuardEcdhChannel::new_host(&mut rng);
 

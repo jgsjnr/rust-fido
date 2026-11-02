@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 use crate::crypto::cose::CoseKey;
 use crate::crypto::ecdh::EcdhKeyAgreement;
@@ -157,7 +157,7 @@ impl ClientPinState {
 pub struct ClientPinHandler;
 
 impl ClientPinHandler {
-    pub fn handle<R: RngCore + CryptoRng>(
+    pub fn handle<R: CryptoRng>(
         state: &mut ClientPinState,
         payload: &[u8],
         rng: &mut R,
@@ -217,7 +217,7 @@ impl ClientPinHandler {
         Err(CtapError::InvalidSubcommand)
     }
 
-    fn handle_get_key_agreement<R: RngCore + CryptoRng>(
+    fn handle_get_key_agreement<R: CryptoRng>(
         state: &mut ClientPinState,
         rng: &mut R,
     ) -> Result<Vec<u8>, CtapError> {
@@ -411,7 +411,7 @@ impl ClientPinHandler {
         encode_cbor_value(&Value::Map(Vec::new()))
     }
 
-    fn handle_get_pin_token<R: RngCore + CryptoRng>(
+    fn handle_get_pin_token<R: CryptoRng>(
         state: &mut ClientPinState,
         map: &[(Value, Value)],
         protocol: u32,
@@ -492,7 +492,7 @@ impl ClientPinHandler {
         encode_cbor_value(&Value::Map(resp))
     }
 
-    fn handle_get_pin_uv_auth_token_with_permissions<R: RngCore + CryptoRng>(
+    fn handle_get_pin_uv_auth_token_with_permissions<R: CryptoRng>(
         state: &mut ClientPinState,
         map: &[(Value, Value)],
         protocol: u32,

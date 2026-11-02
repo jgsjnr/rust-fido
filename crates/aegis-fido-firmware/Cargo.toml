@@ -39,10 +39,11 @@ aes-gcm = { workspace = true, features = ["alloc"] }
 sha2 = { workspace = true }
 sha1 = { workspace = true }
 rand_core = { workspace = true }
+getrandom = { version = "0.4", features = ["sys_rng"] }
 p256 = { workspace = true }
 p384 = { workspace = true }
 ed25519-dalek = { workspace = true }
-signature = { version = "2.2", default-features = false }
+signature = { version = "3.0", default-features = false }
 zeroize = { workspace = true }
 hex = { workspace = true }
 
@@ -55,7 +56,7 @@ esp-idf-hal = { version = "0.45", default-features = false }
 embuild = { version = "0.33", features = ["espidf"] }
 
 [dev-dependencies]
-rand = "0.8"
+rand = "0.10"
 
 [package.metadata.esp-idf-sys]
 esp_idf_component_manager = false

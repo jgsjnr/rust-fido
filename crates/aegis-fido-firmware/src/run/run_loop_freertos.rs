@@ -198,7 +198,7 @@ pub fn run_authenticator_freertos() {
     let mut ctaphid_serial = CtapHidManager::new();
     #[cfg(target_os = "espidf")]
     let (mut ctap_engine, dev_master_key, dev_salt) = {
-        use rand_core::RngCore as _;
+        use rand_core::Rng as _;
         let efuse_mgr = EfuseManager::new(RamEfuseStorage::new());
         match load_device_keys(&efuse_mgr) {
             Ok(keys) => {
@@ -210,7 +210,7 @@ pub fn run_authenticator_freertos() {
                 )
             }
             Err(_) => {
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 let mut mk = [0u8; 32];
                 let mut salt = [0u8; 32];
                 rng.fill_bytes(&mut mk);

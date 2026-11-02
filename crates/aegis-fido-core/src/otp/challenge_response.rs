@@ -3,7 +3,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha1::Sha1;
 use zeroize::Zeroize;
 
@@ -192,7 +192,7 @@ impl Ed25519ChallengeManager {
     }
 
     /// Gera segredo fresco via TRNG (mesmo padrão de `KeyPair::generate`).
-    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
+    pub fn generate<R: CryptoRng>(rng: &mut R) -> Self {
         let mut secret = [0u8; ED25519_CHALLENGE_LEN];
         rng.fill_bytes(&mut secret);
         Self {
@@ -213,7 +213,7 @@ impl Ed25519ChallengeManager {
     }
 
     /// Emite challenge 32B via TRNG; invalida o anterior (só o último vale).
-    pub fn new_challenge<R: RngCore + CryptoRng>(
+    pub fn new_challenge<R: CryptoRng>(
         &mut self,
         rng: &mut R,
     ) -> [u8; ED25519_CHALLENGE_LEN] {
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn should_emit_32b_trng_challenge_unique() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let seed = [0x42u8; ED25519_CHALLENGE_LEN];
         let mut manager = Ed25519ChallengeManager::from_seed(&seed);
 
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn should_sign_64b_and_verify_via_envelope_in_app() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut manager = Ed25519ChallengeManager::generate(&mut rng);
         let pubkey = manager.verifying_key_bytes();
         assert_eq!(pubkey.len(), ED25519_PUBKEY_LEN);
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn should_deny_replay_single_use() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut manager = Ed25519ChallengeManager::generate(&mut rng);
         manager.new_challenge(&mut rng);
         assert!(manager.respond_active().is_ok());
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn should_reject_tampered_envelope_and_wrong_key() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut manager = Ed25519ChallengeManager::generate(&mut rng);
         let pubkey = manager.verifying_key_bytes();
         manager.new_challenge(&mut rng);
@@ -414,7 +414,7 @@ mod tests {
         // Envelope íntegro com chave errada falha
         manager.new_challenge(&mut rng);
         let good = manager.respond_active().unwrap();
-        let mut other_rng = rand::rngs::OsRng;
+        let mut other_rng = rand::rng();
         let other = Ed25519ChallengeManager::generate(&mut other_rng);
         let wrong_pubkey = other.verifying_key_bytes();
         assert_eq!(

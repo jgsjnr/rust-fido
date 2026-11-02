@@ -17,7 +17,7 @@ pub use extensions_ctap21::{
 };
 
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 use crate::credential::non_resident::CredentialWrapper;
 use crate::credential::store::{CredentialStore, MemoryCredentialStore};
@@ -82,7 +82,7 @@ impl<S: CredentialStore> CtapEngine<S> {
 
     /// Processes a single raw CTAP2 command packet [cmd_byte, cbor_payload...]
     /// Returns [status_code, response_cbor...]
-    pub fn process_packet<R: RngCore + CryptoRng>(
+    pub fn process_packet<R: CryptoRng>(
         &mut self,
         packet: &[u8],
         current_time_seconds: u64,
@@ -107,7 +107,7 @@ impl<S: CredentialStore> CtapEngine<S> {
     }
 
     /// Dispatches a CTAP2 command byte and CBOR payload
-    pub fn process_command<R: RngCore + CryptoRng>(
+    pub fn process_command<R: CryptoRng>(
         &mut self,
         cmd: u8,
         payload: &[u8],

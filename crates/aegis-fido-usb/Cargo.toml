@@ -11,7 +11,8 @@ publish.workspace = true
 log = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
-rand_core = { workspace = true, features = ["getrandom"] }
+rand_core = { workspace = true }
+getrandom = { version = "0.4", features = ["sys_rng"] }
 
 [features]
 # LAB-ONLY: habilita mocks PIV (FCI/CHUID/CCC) para testes de laboratorio.

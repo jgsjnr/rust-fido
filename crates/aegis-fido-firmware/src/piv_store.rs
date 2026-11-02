@@ -125,7 +125,7 @@ impl PivKeyBackend for PivFwBackend<'_> {
     fn generate(&mut self, slot: PivSlot, alg: u8) -> Result<Vec<u8>, PivCryptoError> {
         let (cose, coord) = piv_alg(alg)?;
         let id = piv_key_slot(slot);
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         // Presença: applet já exigiu PIN verificado (documentado no módulo).
         self.keys
             .generate(
@@ -327,7 +327,7 @@ mod tests {
         assert!(der_to_raw(b"", 32).is_none());
         assert!(der_to_raw(b"\x30\x03\x02\x01\x01", 32).is_none());
         // DER real P-256 (70-72B) deve dar 64B.
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let kp = aegis_fido_core::crypto::curves::KeyPair::generate(CoseAlgorithm::ES256, &mut rng)
             .expect("kp");
         let der = kp.sign(b"m").expect("sign");

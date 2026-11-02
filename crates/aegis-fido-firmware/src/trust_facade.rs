@@ -373,7 +373,7 @@ mod trust_failsafe_tests {
 
     fn app_key(seed: u8) -> [u8; BIND_PUB_LEN] {
         let sk = p256::ecdsa::SigningKey::from_slice(&[seed; 32]).expect("scalar");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         sec1

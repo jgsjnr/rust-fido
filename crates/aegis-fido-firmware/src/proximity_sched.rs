@@ -120,7 +120,7 @@ impl ProxSchedState {
     ) -> bool
     where
         B: FlashStorageBackend,
-        R: rand_core::RngCore + rand_core::CryptoRng,
+        R: rand_core::CryptoRng,
     {
         self.fob_id = beacon_fob_id();
         if self.load_key_from_storage(storage) {
@@ -153,7 +153,7 @@ impl ProxSchedState {
     pub fn note_boot(&mut self, trusted: bool) {
         self.fob_id = beacon_fob_id();
         if trusted {
-            self.key = generate_proximity_key(&mut rand_core::OsRng);
+            self.key = generate_proximity_key(&mut rand_core::UnwrapErr(getrandom::SysRng));
             self.key_present = true;
             self.bonded = true;
             log::info!("[PROX] K_prox gerado no boot (vinculo previo).");
@@ -211,7 +211,7 @@ impl ProxSchedState {
     ) -> bool
     where
         B: crate::persistence::FlashStorageBackend,
-        R: rand_core::RngCore + rand_core::CryptoRng,
+        R: rand_core::CryptoRng,
     {
         crate::proximity::save_proximity_key(storage, &self.key, rng).is_ok()
     }
@@ -269,7 +269,7 @@ impl ProxSchedState {
                 && self.fob_id.is_some();
         if want {
             if self.ctr == u32::MAX {
-                self.key = generate_proximity_key(&mut rand_core::OsRng);
+                self.key = generate_proximity_key(&mut rand_core::UnwrapErr(getrandom::SysRng));
                 self.key_present = true;
                 self.ctr = 0;
                 log::info!("[PROX] rekey pos-rollover (ctr=0).");
@@ -309,7 +309,7 @@ impl ProxSchedState {
     ) -> bool
     where
         B: FlashStorageBackend,
-        R: rand_core::RngCore + rand_core::CryptoRng,
+        R: rand_core::CryptoRng,
     {
         match rekey_proximity(storage, rng) {
             Ok(key) => {
@@ -340,7 +340,7 @@ impl ProxSchedState {
     /// fila. Sem segredos em log.
     #[allow(dead_code)]
     pub fn note_paired(&mut self, now_ms: u64) {
-        self.key = generate_proximity_key(&mut rand_core::OsRng);
+        self.key = generate_proximity_key(&mut rand_core::UnwrapErr(getrandom::SysRng));
         self.key_present = true;
         self.bonded = true;
         self.ctr = 0;
@@ -464,7 +464,7 @@ impl ProxSchedState {
         if want {
             // Rollover: rekey em RAM + ctr=0; sem adv neste tick.
             if self.ctr == u32::MAX {
-                self.key = generate_proximity_key(&mut rand_core::OsRng);
+                self.key = generate_proximity_key(&mut rand_core::UnwrapErr(getrandom::SysRng));
                 self.key_present = true;
                 self.ctr = 0;
                 log::info!("[PROX] rekey pos-rollover (ctr=0).");
@@ -536,7 +536,7 @@ mod tests {
             &[0x55u8; 32],
             &[0xAAu8; 32],
         );
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         // Primeiro boot com vinculo: gera e persiste.
         let mut a = ProxSchedState::new();
         assert!(a.note_boot_with_storage(&mut st, &mut rng, true));
@@ -556,7 +556,7 @@ mod tests {
             &[0x55u8; 32],
             &[0xAAu8; 32],
         );
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let mut s = ProxSchedState::new();
         assert!(!s.note_boot_with_storage(&mut st, &mut rng, false));
         assert!(!s.key_present);
@@ -570,7 +570,7 @@ mod tests {
             &[0x55u8; 32],
             &[0xAAu8; 32],
         );
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let mut s = ProxSchedState::new();
         assert!(!s.key_present);
         assert!(s.note_paired_with_storage(&mut st, &mut rng, 9000));

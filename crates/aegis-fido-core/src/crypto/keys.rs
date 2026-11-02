@@ -2,7 +2,8 @@ use crate::crypto::cose::{
     CoseKey, COSE_ALG_EDDSA, COSE_ALG_ES256, COSE_ALG_ES256K, COSE_ALG_ES384, COSE_ALG_ES512,
 };
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use p256::elliptic_curve::Generate;
+use rand_core::CryptoRng;
 
 #[derive(Clone)]
 pub enum FidoKeyPair {
@@ -15,22 +16,22 @@ pub enum FidoKeyPair {
 
 impl FidoKeyPair {
     /// Generates a new key pair for the requested COSE algorithm
-    pub fn generate<R: RngCore + CryptoRng>(alg: i32, rng: &mut R) -> Result<Self, &'static str> {
+    pub fn generate<R: CryptoRng>(alg: i32, rng: &mut R) -> Result<Self, &'static str> {
         match alg {
             COSE_ALG_ES256 => {
-                let sk = p256::ecdsa::SigningKey::random(rng);
+                let sk = p256::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::Es256(sk))
             }
             COSE_ALG_ES384 => {
-                let sk = p384::ecdsa::SigningKey::random(rng);
+                let sk = p384::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::Es384(sk))
             }
             COSE_ALG_ES512 => {
-                let sk = p521::ecdsa::SigningKey::random(rng);
+                let sk = p521::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::Es512(sk))
             }
             COSE_ALG_ES256K => {
-                let sk = k256::ecdsa::SigningKey::random(rng);
+                let sk = k256::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::Es256k(sk))
             }
             COSE_ALG_EDDSA => {
@@ -93,28 +94,28 @@ impl FidoKeyPair {
         match self {
             Self::Es256(sk) => {
                 let vk = sk.verifying_key();
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("x").to_vec();
                 let y = pt.y().expect("y").to_vec();
                 CoseKey::p256(x, y)
             }
             Self::Es384(sk) => {
                 let vk = sk.verifying_key();
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("x").to_vec();
                 let y = pt.y().expect("y").to_vec();
                 CoseKey::p384(x, y)
             }
             Self::Es512(sk) => {
                 let vk = p521::ecdsa::VerifyingKey::from(sk);
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("x").to_vec();
                 let y = pt.y().expect("y").to_vec();
                 CoseKey::p521(x, y)
             }
             Self::Es256k(sk) => {
                 let vk = sk.verifying_key();
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("x").to_vec();
                 let y = pt.y().expect("y").to_vec();
                 CoseKey::secp256k1(x, y)

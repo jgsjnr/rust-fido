@@ -31,7 +31,7 @@ use crate::ccid::{
     CommandApdu, ResponseApdu, AID_PIV, SW_CONDITIONS_NOT_SATISFIED, SW_INS_NOT_SUPPORTED,
     SW_NOT_FOUND,
 };
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
@@ -272,7 +272,7 @@ pub(crate) fn write_credential<S: PivRecordStore>(
     hash_key: &str,
     retries_key: &str,
     secret: &[u8],
-    rng: &mut (impl RngCore + CryptoRng),
+    rng: &mut impl CryptoRng,
     max_retries: u8,
 ) -> Result<(), PivPinError> {
     let mut salt = [0u8; PIV_SALT_LEN];
@@ -318,12 +318,12 @@ pub fn provision_pin<S: PivRecordStore>(
     new_pin: &[u8],
     new_puk: &[u8],
 ) -> Result<(), PivPinError> {
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
     provision_pin_with_rng(store, &mut rng, new_pin, new_puk)
 }
 
 /// Variante com RNG injetável (testes determinísticos).
-pub fn provision_pin_with_rng<S: PivRecordStore, R: RngCore + CryptoRng>(
+pub fn provision_pin_with_rng<S: PivRecordStore, R: CryptoRng>(
     store: &mut S,
     rng: &mut R,
     new_pin: &[u8],
@@ -601,37 +601,35 @@ mod secure_tests {
     /// RNG determinístico (xorshift64*; só para testes).
     struct SeqRng(u64);
 
-    impl rand_core::RngCore for SeqRng {
-        fn next_u32(&mut self) -> u32 {
-            self.next_u64() as u32
+    impl rand_core::TryRng for SeqRng {
+        type Error = core::convert::Infallible;
+
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(self.try_next_u64().unwrap() as u32)
         }
 
-        fn next_u64(&mut self) -> u64 {
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
             let mut x = self.0;
             x ^= x >> 12;
             x ^= x << 25;
             x ^= x >> 27;
             self.0 = x;
-            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+            Ok(x.wrapping_mul(0x2545_F491_4F6C_DD1D))
         }
 
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
             let mut i = 0;
             while i < dest.len() {
-                let v = self.next_u64().to_le_bytes();
+                let v = self.try_next_u64().unwrap().to_le_bytes();
                 let n = (dest.len() - i).min(8);
                 dest[i..i + n].copy_from_slice(&v[..n]);
                 i += n;
             }
-        }
-
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-            self.fill_bytes(dest);
             Ok(())
         }
     }
 
-    impl rand_core::CryptoRng for SeqRng {}
+    impl rand_core::TryCryptoRng for SeqRng {}
 
     /// Backend cripto stub (chave/RNG ficam no firmware; aqui bytes enlatados).
     struct StubCrypto {

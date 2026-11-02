@@ -107,8 +107,8 @@ pub fn run_authenticator() {
             // Gera chaves efemeras via TRNG (RAM, zeradas no reboot) e segue o boot
             // com comportamento identico ao modo dev anterior. NUNCA panic no boot.
             kprintln!("[WARN] eFuse nao provisionado ({e:?}); usando chaves efemeras TRNG (modo DEV, sem persistencia entre reboots). Rode tools/factory_provision.py para provisionar.");
-            use rand_core::RngCore;
-            let mut rng = rand_core::OsRng;
+            use rand_core::Rng;
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let mut master_key = [0u8; 32];
             let mut salt = [0u8; 32];
             rng.fill_bytes(&mut master_key);
@@ -331,7 +331,7 @@ pub fn run_authenticator() {
             Err(_) => {
                 let bonded_now = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
                 if bonded_now {
-                    let mut rng = rand_core::OsRng;
+                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                     match crate::proximity::rekey_proximity(&mut storage, &mut rng) {
                         Ok(k) => {
                             prox_key = k;
@@ -695,7 +695,7 @@ pub fn run_authenticator() {
             }
             // Rollover (ctr travou no MAX): rekey + ctr=0; sem rekey, mudo.
             if prox_beacon.is_rollover() && prox_key_present {
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 match prox_mod::rekey_proximity(&mut storage, &mut rng) {
                     Ok(k) => {
                         prox_key = k;
@@ -789,7 +789,7 @@ pub fn run_authenticator() {
                             // zera o contador do beacon (ctr=0 no proximo adv).
                             #[cfg(feature = "proximity")]
                             {
-                                let mut rng = rand_core::OsRng;
+                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                 match crate::proximity::rekey_proximity(&mut storage, &mut rng) {
                                     Ok(k) => {
                                         prox_key = k;
@@ -856,7 +856,7 @@ pub fn run_authenticator() {
                     // zera o contador do beacon (ctr=0 no proximo adv).
                     #[cfg(feature = "proximity")]
                     {
-                        let mut rng = rand_core::OsRng;
+                        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                         match crate::proximity::rekey_proximity(&mut storage, &mut rng) {
                             Ok(k) => {
                                 prox_key = k;
@@ -1419,7 +1419,7 @@ pub fn run_authenticator() {
 
                                     ctap_engine.set_user_presence(up_confirmed);
 
-                                    let mut rng = rand_core::OsRng;
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                     let ctap_res = ctap_engine.process_packet(
                                         &msg.payload,
                                         now_secs,
@@ -1722,7 +1722,7 @@ pub fn run_authenticator() {
                                         touch_latched,
                                         &mut binding_mgr,
                                         &mut storage,
-                                        &mut rand_core::OsRng,
+                                        &mut rand_core::UnwrapErr(getrandom::SysRng),
                                     );
                                     if st == 0x00 && serial_bind_mgmt_consumes_up(op) {
                                         touch_latched = false;
@@ -1798,7 +1798,7 @@ pub fn run_authenticator() {
                                             let (st, body) = if is_wallet_op(op) {
                                                 // Carteira Fase7: executa de verdade
                                                 // (gate pairing+UP já passou acima).
-                                                let mut rng = rand_core::OsRng;
+                                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                                 use crate::wallet_exec as w;
                                                 match op {
                                                     OP_WALLET_GEN => w::wallet_gen(
@@ -1822,7 +1822,7 @@ pub fn run_authenticator() {
                                                 // F2: executor real on-device
                                                 // (gate pairing+UP já passou;
                                                 // PIN via plumbing ClientPIN).
-                                                let mut rng = rand_core::OsRng;
+                                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                                 let (st, body) = crate::vendor_exec::exec_vendor_op(
                                                     &mut key_mgr,
                                                     &mut oath_applet,
@@ -2046,7 +2046,7 @@ pub fn run_authenticator() {
                                         up_ok = true;
                                     }
                                     ctap_engine.set_user_presence(up_ok);
-                                    let mut rng = rand_core::OsRng;
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                     let res = ctap_engine.process_packet(
                                         &msg.payload,
                                         now_secs,

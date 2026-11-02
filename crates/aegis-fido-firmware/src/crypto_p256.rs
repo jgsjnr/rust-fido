@@ -14,7 +14,7 @@
 use core::fmt;
 
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::{ProjectivePoint, PublicKey, SecretKey};
 use signature::{Signer, Verifier};
 use zeroize::Zeroize;
@@ -72,7 +72,7 @@ impl P256Secret {
     /// Chave publica comprimida SEC1 (33 bytes, prefixo 02/03 + x).
     pub fn public_compressed(&self) -> [u8; 33] {
         let verifying = VerifyingKey::from(self.signing());
-        let point = verifying.to_encoded_point(true);
+        let point = verifying.to_sec1_point(true);
         let mut out = [0u8; 33];
         out.copy_from_slice(point.as_bytes());
         out
@@ -119,7 +119,7 @@ pub fn ecdh_p256(secret: &[u8; 32], peer_sec1: &[u8]) -> Result<[u8; 32], P256Er
     let peer = PublicKey::from_sec1_bytes(peer_sec1).map_err(|_| P256Error::InvalidPublicKey)?;
     let scalar = sk.to_nonzero_scalar();
     let shared = ProjectivePoint::from(*peer.as_affine()) * scalar.as_ref();
-    let encoded = shared.to_affine().to_encoded_point(false);
+    let encoded = shared.to_affine().to_sec1_point(false);
     let x = encoded.x().ok_or(P256Error::IdentityPeer)?;
     let mut out = [0u8; 32];
     copy_n(x, &mut out);

@@ -22,7 +22,7 @@
 
 extern crate alloc;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 #[cfg(feature = "debug-terminal")]
@@ -281,7 +281,7 @@ impl BindingManager {
 
     /// Emite challenge 32B via TRNG; invalida o anterior (so o ultimo vale).
     /// Exige dono (sem dono nao ha a quem autenticar).
-    pub fn new_challenge<R: RngCore + CryptoRng>(
+    pub fn new_challenge<R: CryptoRng>(
         &mut self,
         rng: &mut R,
     ) -> Result<[u8; BIND_CHALLENGE_LEN], BindingError> {
@@ -495,9 +495,9 @@ fn ct_eq_32(a: &[u8; BIND_CHALLENGE_LEN], b: &[u8; BIND_CHALLENGE_LEN]) -> bool 
 /// assinatura que `curves.rs`: aceita DER ou raw no `verify`).
 fn decode_app_pubkey(app_pub: &[u8; BIND_PUB_LEN]) -> Result<(), BindingError> {
     use p256::ecdsa::VerifyingKey;
-    use p256::EncodedPoint;
-    let pt = EncodedPoint::from_bytes(app_pub.as_slice()).map_err(|_| BindingError::BadPubkey)?;
-    VerifyingKey::from_encoded_point(&pt).map_err(|_| BindingError::BadPubkey)?;
+    use p256::Sec1Point;
+    let pt = Sec1Point::from_bytes(app_pub.as_slice()).map_err(|_| BindingError::BadPubkey)?;
+    VerifyingKey::from_sec1_point(&pt).map_err(|_| BindingError::BadPubkey)?;
     Ok(())
 }
 
@@ -508,10 +508,10 @@ fn verify_p256_sec1(
     sig: &[u8],
 ) -> Result<(), BindingError> {
     use p256::ecdsa::{Signature, VerifyingKey};
-    use p256::EncodedPoint;
+    use p256::Sec1Point;
     use signature::Verifier;
-    let pt = EncodedPoint::from_bytes(app_pub.as_slice()).map_err(|_| BindingError::BadPubkey)?;
-    let vk = VerifyingKey::from_encoded_point(&pt).map_err(|_| BindingError::BadPubkey)?;
+    let pt = Sec1Point::from_bytes(app_pub.as_slice()).map_err(|_| BindingError::BadPubkey)?;
+    let vk = VerifyingKey::from_sec1_point(&pt).map_err(|_| BindingError::BadPubkey)?;
     let signature = Signature::from_der(sig)
         .or_else(|_| Signature::from_slice(sig))
         .map_err(|_| BindingError::BadSignature)?;
@@ -532,7 +532,7 @@ mod tests {
     fn fixed_app_key() -> (p256::ecdsa::SigningKey, [u8; BIND_PUB_LEN]) {
         use p256::ecdsa::SigningKey;
         let sk = SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         assert_eq!(sec1[0], 0x04);
@@ -542,7 +542,7 @@ mod tests {
     fn other_app_key() -> (p256::ecdsa::SigningKey, [u8; BIND_PUB_LEN]) {
         use p256::ecdsa::SigningKey;
         let sk = SigningKey::from_slice(&[0x22u8; 32]).expect("scalar valido");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         (sk, sec1)
@@ -693,11 +693,11 @@ mod tests {
         // Sem dono nao emite challenge.
         let mut bare = BindingManager::new();
         assert_eq!(
-            bare.new_challenge(&mut rand_core::OsRng),
+            bare.new_challenge(&mut rand::rng()),
             Err(BindingError::NotClaimed)
         );
         // Emite, verifica, consome.
-        let challenge = m.new_challenge(&mut rand_core::OsRng).expect("challenge");
+        let challenge = m.new_challenge(&mut rand::rng()).expect("challenge");
         assert!(m.has_active_challenge());
         let op = crate::ble_gatt::OP_KEY_LIST;
         let ph = payload_hash(b"list-keys");
@@ -712,7 +712,7 @@ mod tests {
             Err(BindingError::Replay)
         );
         // Challenge antigo apos novo emitido: mismatch.
-        let fresh = m.new_challenge(&mut rand_core::OsRng).expect("novo");
+        let fresh = m.new_challenge(&mut rand::rng()).expect("novo");
         assert_eq!(
             m.verify(&sig, &challenge, op, &ph),
             Err(BindingError::ChallengeMismatch)
@@ -726,7 +726,7 @@ mod tests {
     fn wrong_app_key_and_tampered_fields_denied() {
         let (mut m, _sk, _id) = claimed_manager();
         let (sk_evil, _) = other_app_key();
-        let challenge = m.new_challenge(&mut rand_core::OsRng).expect("challenge");
+        let challenge = m.new_challenge(&mut rand::rng()).expect("challenge");
         let op = crate::ble_gatt::OP_KEY_DELETE;
         let ph = payload_hash(b"slot-7");
         let msg = BindingManager::signed_message(&challenge, op, &ph);
@@ -770,7 +770,7 @@ mod tests {
         m.claim(&sec1, &id, true, true).expect("claim");
         m.persist(&mut st).expect("persist");
         // Release exige prova assinada: lixo nega e mantem dono.
-        let challenge = m.new_challenge(&mut rand_core::OsRng).expect("ch");
+        let challenge = m.new_challenge(&mut rand::rng()).expect("ch");
         let id_hash = payload_hash(&id);
         assert_eq!(
             m.release_signed(&mut st, b"lixo", &challenge, &id_hash),
@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn verify_with_pin_follows_binding_up_pin_order() {
         let (mut m, sk, _id) = claimed_manager();
-        let challenge = m.new_challenge(&mut rand_core::OsRng).expect("ch");
+        let challenge = m.new_challenge(&mut rand::rng()).expect("ch");
         let op = crate::ble_gatt::OP_OATH_PUT;
         let ph = payload_hash(b"oath-put");
         let msg = BindingManager::signed_message(&challenge, op, &ph);
@@ -820,7 +820,7 @@ mod tests {
             Err(BindingError::PresenceRequired)
         );
         // Novo challenge: sem PIN em op privilegiada nega.
-        let ch2 = m.new_challenge(&mut rand_core::OsRng).expect("ch2");
+        let ch2 = m.new_challenge(&mut rand::rng()).expect("ch2");
         let msg2 = BindingManager::signed_message(&ch2, op, &ph);
         let sig2 = sign_der(&sk, &msg2);
         assert_eq!(
@@ -828,12 +828,12 @@ mod tests {
             Err(BindingError::PinRequired)
         );
         // Completo: ok. LIST (sem PIN) com UP: ok.
-        let ch3 = m.new_challenge(&mut rand_core::OsRng).expect("ch3");
+        let ch3 = m.new_challenge(&mut rand::rng()).expect("ch3");
         let msg3 = BindingManager::signed_message(&ch3, op, &ph);
         let sig3 = sign_der(&sk, &msg3);
         m.verify_with_pin(&sig3, &ch3, op, &ph, true, true, true)
             .expect("privilegiada ok");
-        let ch4 = m.new_challenge(&mut rand_core::OsRng).expect("ch4");
+        let ch4 = m.new_challenge(&mut rand::rng()).expect("ch4");
         let list_op = crate::ble_gatt::OP_OATH_LIST;
         let msg4 = BindingManager::signed_message(&ch4, list_op, &ph);
         let sig4 = sign_der(&sk, &msg4);

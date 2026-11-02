@@ -13,7 +13,7 @@
 //!   from the hardware Digital Signature / HMAC peripheral (`DsHmacSeedEnvelope`).
 
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 use crate::crypto::aead::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
@@ -221,7 +221,7 @@ pub struct DsHmacSeedEnvelope {
 
 impl DsHmacSeedEnvelope {
     /// Seals a BIP-39 seed (typically 32 to 64 bytes) with the hardware DS/HMAC key.
-    pub fn seal<R: RngCore + CryptoRng>(
+    pub fn seal<R: CryptoRng>(
         seed: &[u8],
         ds_hmac_key: &[u8; 32],
         rng: &mut R,
@@ -253,8 +253,6 @@ impl DsHmacSeedEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand_core::OsRng;
-
     #[test]
     fn test_gf256_arithmetic() {
         // Test identity
@@ -323,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_ds_hmac_seed_envelope_roundtrip() {
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let ds_key = [0x5Au8; 32];
         let seed = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 

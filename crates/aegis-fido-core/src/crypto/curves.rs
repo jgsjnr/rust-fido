@@ -10,7 +10,8 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use p256::elliptic_curve::Generate;
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 use signature::{Signer, Verifier};
@@ -105,25 +106,25 @@ pub enum KeyPair {
 
 impl KeyPair {
     /// Generates a new cryptographic key pair using the specified algorithm and RNG.
-    pub fn generate<R: RngCore + CryptoRng>(
+    pub fn generate<R: CryptoRng>(
         alg: CoseAlgorithm,
         rng: &mut R,
     ) -> Result<Self, CryptoError> {
         match alg {
             CoseAlgorithm::ES256 => {
-                let sk = p256::ecdsa::SigningKey::random(rng);
+                let sk = p256::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::P256(sk))
             }
             CoseAlgorithm::ES384 => {
-                let sk = p384::ecdsa::SigningKey::random(rng);
+                let sk = p384::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::P384(sk))
             }
             CoseAlgorithm::ES512 => {
-                let sk = p521::ecdsa::SigningKey::random(rng);
+                let sk = p521::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::P521(sk))
             }
             CoseAlgorithm::ES256K => {
-                let sk = k256::ecdsa::SigningKey::random(rng);
+                let sk = k256::ecdsa::SigningKey::generate_from_rng(rng);
                 Ok(Self::K256(sk))
             }
             CoseAlgorithm::EdDSA => {
@@ -218,19 +219,27 @@ impl KeyPair {
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, CryptoError> {
         match self {
             Self::P256(sk) => {
-                let sig: p256::ecdsa::Signature = sk.sign(message);
+                let sig: p256::ecdsa::Signature = sk
+                    .try_sign(message)
+                    .map_err(|e| CryptoError::SigningFailed(format!("{:?}", e)))?;
                 Ok(sig.to_der().as_bytes().to_vec())
             }
             Self::P384(sk) => {
-                let sig: p384::ecdsa::Signature = sk.sign(message);
+                let sig: p384::ecdsa::Signature = sk
+                    .try_sign(message)
+                    .map_err(|e| CryptoError::SigningFailed(format!("{:?}", e)))?;
                 Ok(sig.to_der().as_bytes().to_vec())
             }
             Self::P521(sk) => {
-                let sig: p521::ecdsa::Signature = sk.sign(message);
+                let sig: p521::ecdsa::Signature = sk
+                    .try_sign(message)
+                    .map_err(|e| CryptoError::SigningFailed(format!("{:?}", e)))?;
                 Ok(sig.to_der().as_bytes().to_vec())
             }
             Self::K256(sk) => {
-                let sig: k256::ecdsa::Signature = sk.sign(message);
+                let sig: k256::ecdsa::Signature = sk
+                    .try_sign(message)
+                    .map_err(|e| CryptoError::SigningFailed(format!("{:?}", e)))?;
                 Ok(sig.to_der().as_bytes().to_vec())
             }
             Self::Ed25519(sk) => {
@@ -285,25 +294,25 @@ impl PublicKey {
     pub fn to_cose_key(&self) -> CoseKey {
         match self {
             Self::P256(vk) => {
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("valid x coordinate").to_vec();
                 let y = pt.y().expect("valid y coordinate").to_vec();
                 CoseKey::p256(x, y)
             }
             Self::P384(vk) => {
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("valid x coordinate").to_vec();
                 let y = pt.y().expect("valid y coordinate").to_vec();
                 CoseKey::p384(x, y)
             }
             Self::P521(vk) => {
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("valid x coordinate").to_vec();
                 let y = pt.y().expect("valid y coordinate").to_vec();
                 CoseKey::p521(x, y)
             }
             Self::K256(vk) => {
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let x = pt.x().expect("valid x coordinate").to_vec();
                 let y = pt.y().expect("valid y coordinate").to_vec();
                 CoseKey::secp256k1(x, y)
@@ -320,10 +329,10 @@ impl PublicKey {
     /// Ed25519 devolve os 32B crus (PIV-EC só; chamador valida a curva).
     pub fn to_sec1_uncompressed(&self) -> Vec<u8> {
         match self {
-            Self::P256(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
-            Self::P384(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
-            Self::P521(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
-            Self::K256(vk) => vk.to_encoded_point(false).as_bytes().to_vec(),
+            Self::P256(vk) => vk.to_sec1_point(false).as_bytes().to_vec(),
+            Self::P384(vk) => vk.to_sec1_point(false).as_bytes().to_vec(),
+            Self::P521(vk) => vk.to_sec1_point(false).as_bytes().to_vec(),
+            Self::K256(vk) => vk.to_sec1_point(false).as_bytes().to_vec(),
             Self::Ed25519(vk) => vk.to_bytes().to_vec(),
         }
     }
@@ -332,42 +341,50 @@ impl PublicKey {
         match cose {
             CoseKey::Ec2 { alg, crv, x, y } => match (*alg, *crv) {
                 (COSE_ALG_ES256, COSE_CRV_P256) => {
-                    let pt = p256::EncodedPoint::from_affine_coordinates(
-                        x.as_slice().into(),
-                        y.as_slice().into(),
-                        false,
-                    );
-                    let vk = p256::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                    if x.len() != 32 || y.len() != 32 {
+                        return Err(CryptoError::InvalidKeyLength);
+                    }
+                    let mut sec1 = Vec::with_capacity(65);
+                    sec1.push(0x04);
+                    sec1.extend_from_slice(x);
+                    sec1.extend_from_slice(y);
+                    let vk = p256::ecdsa::VerifyingKey::from_sec1_bytes(&sec1)
                         .map_err(|_| CryptoError::InvalidKeyLength)?;
                     Ok(Self::P256(vk))
                 }
                 (COSE_ALG_ES384, COSE_CRV_P384) => {
-                    let pt = p384::EncodedPoint::from_affine_coordinates(
-                        x.as_slice().into(),
-                        y.as_slice().into(),
-                        false,
-                    );
-                    let vk = p384::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                    if x.len() != 48 || y.len() != 48 {
+                        return Err(CryptoError::InvalidKeyLength);
+                    }
+                    let mut sec1 = Vec::with_capacity(97);
+                    sec1.push(0x04);
+                    sec1.extend_from_slice(x);
+                    sec1.extend_from_slice(y);
+                    let vk = p384::ecdsa::VerifyingKey::from_sec1_bytes(&sec1)
                         .map_err(|_| CryptoError::InvalidKeyLength)?;
                     Ok(Self::P384(vk))
                 }
                 (COSE_ALG_ES512, COSE_CRV_P521) => {
-                    let pt = p521::EncodedPoint::from_affine_coordinates(
-                        x.as_slice().into(),
-                        y.as_slice().into(),
-                        false,
-                    );
-                    let vk = p521::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                    if x.len() != 66 || y.len() != 66 {
+                        return Err(CryptoError::InvalidKeyLength);
+                    }
+                    let mut sec1 = Vec::with_capacity(133);
+                    sec1.push(0x04);
+                    sec1.extend_from_slice(x);
+                    sec1.extend_from_slice(y);
+                    let vk = p521::ecdsa::VerifyingKey::from_sec1_bytes(&sec1)
                         .map_err(|_| CryptoError::InvalidKeyLength)?;
                     Ok(Self::P521(vk))
                 }
                 (COSE_ALG_ES256K, COSE_CRV_SECP256K1) => {
-                    let pt = k256::EncodedPoint::from_affine_coordinates(
-                        x.as_slice().into(),
-                        y.as_slice().into(),
-                        false,
-                    );
-                    let vk = k256::ecdsa::VerifyingKey::from_encoded_point(&pt)
+                    if x.len() != 32 || y.len() != 32 {
+                        return Err(CryptoError::InvalidKeyLength);
+                    }
+                    let mut sec1 = Vec::with_capacity(65);
+                    sec1.push(0x04);
+                    sec1.extend_from_slice(x);
+                    sec1.extend_from_slice(y);
+                    let vk = k256::ecdsa::VerifyingKey::from_sec1_bytes(&sec1)
                         .map_err(|_| CryptoError::InvalidKeyLength)?;
                     Ok(Self::K256(vk))
                 }
@@ -448,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_all_five_curves_lifecycle() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let test_message = b"AegisKey FIDO2 Multi-Curve Cryptographic Assertion";
 
         let curves = [
@@ -516,7 +533,7 @@ mod tests {
     #[test]
     fn test_sec1_uncompressed_shapes() {
         // F4: ponto SEC1 p/ template PIV 7F49 (04||x||y).
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         for (curve, len) in [
             (CoseAlgorithm::ES256, 65),
             (CoseAlgorithm::ES384, 97),

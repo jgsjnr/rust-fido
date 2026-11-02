@@ -142,7 +142,7 @@ pub fn dispatch_serial_vendor_msg(
     );
     // Bind-mgmt 0x28-0x2D: mesmos gates do BLE (status-first, sem framing novo).
     if is_bind_mgmt_op(op) {
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let (st, body) = dispatch_serial_bind_mgmt(
             op,
             &payload[1..],
@@ -191,7 +191,7 @@ pub fn dispatch_serial_vendor_msg(
     // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
     if crate::ble_gatt::is_secure_guard_op(op) {
         if let Some(ref mut sg) = ctx.secure_guard {
-            let mut rng = rand_core::OsRng;
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let (st, body) = crate::secure_guard_exec::exec_secure_guard_op(
                 sg,
                 ctx.storage,
@@ -252,7 +252,7 @@ pub fn dispatch_serial_vendor_msg(
                 ));
             }
             SerialGate::Ok => {
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 let pin_effective = ctx.pin_uv_session
                     || ctx.pin_verified
                     || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
@@ -446,7 +446,7 @@ pub fn route_ctaphid_event(
                 let up_ok = !up_needed || up_latched;
                 let consumed = up_needed && up_latched;
                 engine.set_user_presence(up_ok);
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 let resp = engine.process_packet(&msg.payload, now_secs, &mut rng);
                 return CtaphidDispatch {
                     responses: CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),

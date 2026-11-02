@@ -79,7 +79,7 @@ pub fn dispatch_serial_bind_mgmt<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: crate::persistence::FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
+    R: rand_core::CryptoRng,
 {
     use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PAYLOAD_HASH_LEN, BIND_PUB_LEN};
     use crate::ble_gatt as g;
