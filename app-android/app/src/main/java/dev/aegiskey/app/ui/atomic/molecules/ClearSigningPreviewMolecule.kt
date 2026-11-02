@@ -63,7 +63,7 @@ fun ClearSigningPreviewMolecule(
 ) {
     val displayTo = toAddress?.ifBlank { null } ?: parseFallbackToAddress(txPayload)
     val displayAmount = amount?.ifBlank { null } ?: parseFallbackAmount(txPayload)
-    val displayFee = maxFee?.ifBlank { null } ?: "0.0015 ETH (Standard)"
+    val displayFee = maxFee?.ifBlank { null } ?: stringResource(R.string.clearsign_fee_default)
     val displayHash = payloadHash?.ifBlank { null } ?: computeFallbackHash(txPayload)
 
     val resolvedOledLines = if (!oledLines.isNullOrEmpty()) {

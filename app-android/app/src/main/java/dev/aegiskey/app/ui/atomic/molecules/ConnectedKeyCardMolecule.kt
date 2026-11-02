@@ -29,9 +29,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ui.atomic.atoms.ConnectionStatusBadgeAtom
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 
@@ -108,7 +110,7 @@ fun ConnectedKeyCardMolecule(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
-                            text = keyName.ifBlank { "Security Key" },
+                            text = keyName.ifBlank { stringResource(R.string.default_security_key_name) },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -121,7 +123,7 @@ fun ConnectedKeyCardMolecule(
                                 color = MaterialTheme.colorScheme.primary,
                             ) {
                                 Text(
-                                    text = "Active",
+                                    text = stringResource(R.string.key_card_active),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimary,
                                     maxLines = 1,
@@ -134,7 +136,7 @@ fun ConnectedKeyCardMolecule(
 
                     if (!serialNumber.isNullOrBlank()) {
                         Text(
-                            text = "Serial: $serialNumber",
+                            text = stringResource(R.string.key_card_serial, serialNumber),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -160,7 +162,7 @@ fun ConnectedKeyCardMolecule(
             ) {
                 if (!isCurrentKey) {
                     QuickActionPillButton(
-                        text = "Select",
+                        text = stringResource(R.string.action_select),
                         icon = Icons.Filled.CheckCircle,
                         onClick = onSelectKey,
                     )
@@ -179,7 +181,7 @@ fun ConnectedKeyCardMolecule(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Rename",
+                        text = stringResource(R.string.action_rename),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -201,7 +203,7 @@ fun ConnectedKeyCardMolecule(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "Unbind",
+                        text = stringResource(R.string.action_unbind),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,

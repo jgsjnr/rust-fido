@@ -46,8 +46,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import dev.aegiskey.app.R
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.ui.atomic.molecules.TotpCodeCardMolecule
@@ -76,6 +78,7 @@ fun TotpDedicatedScreen(
     var scannedDigits by remember { mutableIntStateOf(6) }
     var scannedPeriodSeconds by remember { mutableIntStateOf(30) }
     var scannedIsHotp by remember { mutableStateOf(false) }
+    val scanPrompt = stringResource(R.string.addtotp_scan_prompt)
 
     val qrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val content = result.contents
@@ -150,7 +153,7 @@ fun TotpDedicatedScreen(
                             Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Add Code",
+                                text = stringResource(R.string.totp_add_short),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -162,7 +165,7 @@ fun TotpDedicatedScreen(
                     OutlinedButton(
                         onClick = {
                             val options = ScanOptions().apply {
-                                setPrompt("Posicione o QR Code do TOTP")
+                                setPrompt(scanPrompt)
                                 setBeepEnabled(false)
                                 setOrientationLocked(false)
                             }
@@ -177,7 +180,7 @@ fun TotpDedicatedScreen(
                             Icon(imageVector = Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Scan QR Code",
+                                text = stringResource(R.string.addtotp_scan_qr),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -196,7 +199,7 @@ fun TotpDedicatedScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "Verification Codes",
+                        text = stringResource(R.string.totp_section_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -214,7 +217,7 @@ fun TotpDedicatedScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Sync codes",
+                                contentDescription = stringResource(R.string.totp_sync_codes),
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -242,14 +245,14 @@ fun TotpDedicatedScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "No codes registered",
+                                text = stringResource(R.string.totp_empty_alt_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Add Google, GitHub, or other accounts to generate offline verification codes.",
+                                text = stringResource(R.string.totp_empty_alt_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -332,7 +335,7 @@ fun TotpDedicatedScreen(
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Delete Code?",
+                    text = stringResource(R.string.totp_del_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -341,7 +344,7 @@ fun TotpDedicatedScreen(
             },
             text = {
                 Text(
-                    text = "Do you want to delete \"${item.issuer.ifBlank { item.accountName }}\"? You will need the original secret to reconfigure.",
+                    text = stringResource(R.string.totp_del_desc, item.issuer.ifBlank { item.accountName }),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
@@ -361,12 +364,12 @@ fun TotpDedicatedScreen(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.height(38.dp),
                 ) {
-                    Text("Delete Code", maxLines = 1)
+                    Text(stringResource(R.string.totp_del_btn), maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { accountToDelete = null }) {
-                    Text("Cancel", maxLines = 1)
+                    Text(stringResource(R.string.guard_btn_cancel), maxLines = 1)
                 }
             },
         )

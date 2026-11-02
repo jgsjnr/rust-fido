@@ -208,7 +208,7 @@ fun HardwareSessionPinPopupDialog(
                 // Rate limit notice if active
                 if (isRateLimited && status.rateLimitRemainingMs > 0) {
                     Text(
-                        text = "⏳ " + stringResource(R.string.guard_rate_limit_wait, (status.rateLimitRemainingMs / 1000).coerceAtLeast(1)),
+                        text = stringResource(R.string.guard_rate_limit_wait, (status.rateLimitRemainingMs / 1000).coerceAtLeast(1)),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFFF59E0B)
@@ -218,7 +218,7 @@ fun HardwareSessionPinPopupDialog(
                 // Error feedback directly from hardware validation
                 if (errorMessage != null) {
                     Text(
-                        text = "⚠️ $errorMessage",
+                        text = errorMessage,
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
@@ -267,7 +267,7 @@ fun HardwareSessionPinPopupDialog(
                         CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Sincronizando com a hardwallet...",
+                            text = stringResource(R.string.hw_sync),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.primary
                         )

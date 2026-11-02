@@ -5,6 +5,7 @@ import android.content.Context
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
 import android.os.CancellationSignal
+import dev.aegiskey.app.R
 
 /**
  * Wave7 biometric gate (stub): full BiometricPrompt + CryptoObject wiring,
@@ -48,9 +49,9 @@ object BiometricGate {
             return
         }
         val prompt = BiometricPrompt.Builder(activity)
-            .setTitle("Unlock AegisKey")
-            .setSubtitle("Confirm device biometrics")
-            .setNegativeButton("Use password", activity.mainExecutor) { _, _ ->
+            .setTitle(activity.getString(R.string.biogate_title))
+            .setSubtitle(activity.getString(R.string.biogate_subtitle))
+            .setNegativeButton(activity.getString(R.string.biogate_use_pw), activity.mainExecutor) { _, _ ->
                 onResult(Result.Unavailable)
             }
             .build()

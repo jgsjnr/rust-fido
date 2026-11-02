@@ -37,7 +37,9 @@ import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.PhonelinkSetup
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -101,10 +103,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.platform.LocalContext
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.ui.RescueOps
@@ -133,6 +135,7 @@ fun FriendlySettingsAndThemeScreen(
     themeViewModel: AppThemeViewModel,
     keysViewModel: ConnectedKeysViewModel? = null,
     client: AegisBleClient? = null,
+    localeStore: LocalePreferencesStore? = null,
     onNavigateToBackup: () -> Unit = {},
     onNavigateToTransfer: () -> Unit = {},
     onNavigateToOta: () -> Unit = {},
@@ -172,7 +175,8 @@ fun FriendlySettingsAndThemeScreen(
 
     // OTA Firmware Update States
     var otaChecking by remember { mutableStateOf(false) }
-    var otaStatusMessage by remember { mutableStateOf<String?>("Firmware v3.4.0-esp32s3 signed and verified.") }
+    val otaInitialStatus = stringResource(R.string.ota_status_initial)
+    var otaStatusMessage by remember(otaInitialStatus) { mutableStateOf<String?>(otaInitialStatus) }
     var otaSelectedChannel by remember { mutableStateOf("Stable") }
 
     // Rescue Diagnostics States
@@ -290,6 +294,15 @@ fun FriendlySettingsAndThemeScreen(
     var shamirRecoverLoading by remember { mutableStateOf(false) }
     var efuseStatusState by remember { mutableStateOf(HostUsbUartBridgeClient.EfuseGuardStatus()) }
 
+    // Language preference (SharedPreferences convention, like theme).
+    val appContext = context.applicationContext
+    val resolvedLocaleStore = localeStore ?: remember(appContext) { LocalePreferencesStore(appContext) }
+    val languageTag by resolvedLocaleStore.languageTag.collectAsState()
+    fun applyLanguage(tag: String) {
+        resolvedLocaleStore.setLanguageTag(tag)
+        (context as? android.app.Activity)?.recreate()
+    }
+
     androidx.compose.runtime.LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val status = bridgeClient.fetchEfuseGuardStatus()
@@ -322,10 +335,66 @@ fun FriendlySettingsAndThemeScreen(
             )
         }
 
+        // --- 1.1 Language ---
+        item {
+            SettingsSectionHeader(
+                title = stringResource(R.string.lang_title),
+                icon = Icons.Filled.Translate,
+            )
+        }
+
+        item {
+            OutlinedCard(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.lang_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = languageTag == LocalePreferencesStore.TAG_SYSTEM,
+                            onClick = { applyLanguage(LocalePreferencesStore.TAG_SYSTEM) },
+                            label = { Text(stringResource(R.string.lang_system)) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = FilterChipDefaults.filterChipColors(),
+                        )
+                        FilterChip(
+                            selected = languageTag == LocalePreferencesStore.TAG_ENGLISH,
+                            onClick = { applyLanguage(LocalePreferencesStore.TAG_ENGLISH) },
+                            label = { Text(stringResource(R.string.lang_en)) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = FilterChipDefaults.filterChipColors(),
+                        )
+                        FilterChip(
+                            selected = languageTag == LocalePreferencesStore.TAG_PORTUGUESE,
+                            onClick = { applyLanguage(LocalePreferencesStore.TAG_PORTUGUESE) },
+                            label = { Text(stringResource(R.string.lang_pt)) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = FilterChipDefaults.filterChipColors(),
+                        )
+                    }
+                }
+            }
+        }
+
         // --- 2. Security and Hardware PIN ---
         item {
             SettingsSectionHeader(
-                title = "Security and Hardware PIN",
+                title = stringResource(R.string.set_sec_title),
                 icon = Icons.Filled.Security,
             )
         }
@@ -333,8 +402,8 @@ fun FriendlySettingsAndThemeScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingToggleRowMolecule(
-                    title = "Biometric Verification",
-                    description = "Require biometric verification to unlock vault and sign.",
+                    title = stringResource(R.string.set_bio_title),
+                    description = stringResource(R.string.set_bio_desc),
                     icon = Icons.Filled.Fingerprint,
                     checked = biometricsChecked,
                     onCheckedChange = { newVal ->
@@ -349,8 +418,8 @@ fun FriendlySettingsAndThemeScreen(
                 )
 
                 SettingToggleRowMolecule(
-                    title = "Automatic Lock on Exit",
-                    description = "Lock vault when application closes.",
+                    title = stringResource(R.string.set_walk_title),
+                    description = stringResource(R.string.set_walk_desc),
                     icon = Icons.Filled.Lock,
                     checked = walkAwayChecked,
                     onCheckedChange = { newVal ->
@@ -397,14 +466,14 @@ fun FriendlySettingsAndThemeScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Hardware PIN (FIDO2)",
+                                    text = stringResource(R.string.set_hw_title),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = "4 to 8 digit code secured inside physical key.",
+                                    text = stringResource(R.string.set_hw_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -425,7 +494,7 @@ fun FriendlySettingsAndThemeScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Change Security Key PIN",
+                                text = stringResource(R.string.set_hw_btn),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -490,7 +559,7 @@ fun FriendlySettingsAndThemeScreen(
         // --- 3. Wi-Fi Configuration (192.168.4.1) ---
         item {
             SettingsSectionHeader(
-                title = "Wi-Fi Configuration (192.168.4.1)",
+                title = stringResource(R.string.set_wifi_title),
                 icon = Icons.Filled.Wifi,
             )
         }
@@ -528,14 +597,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Wireless Access Point (SoftAP)",
+                                text = stringResource(R.string.set_wifi_ap_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "IP: http://192.168.4.1 · SSID: AegisKey-AP",
+                                text = stringResource(R.string.set_wifi_ap_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -559,12 +628,12 @@ fun FriendlySettingsAndThemeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    text = "Channel and Band",
+                                    text = stringResource(R.string.set_wifi_chan),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
-                                    text = "Channel 6 · 2.4 GHz WPA2/WPA3",
+                                    text = stringResource(R.string.set_wifi_chan_val),
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium,
                                 )
@@ -574,12 +643,12 @@ fun FriendlySettingsAndThemeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    text = "Endpoints",
+                                    text = stringResource(R.string.set_wifi_eps),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
-                                    text = "/ctap · /oath/code",
+                                    text = stringResource(R.string.set_wifi_eps_val),
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium,
                                     fontFamily = FontFamily.Monospace,
@@ -609,19 +678,20 @@ fun FriendlySettingsAndThemeScreen(
                         Button(
                             onClick = {
                                 scope.launch {
+                                    val res = context.resources
                                     wifiTesting = true
-                                    wifiTestResult = "Testing connection to 192.168.4.1..."
+                                    wifiTestResult = res.getString(R.string.set_wifi_testing)
                                     try {
                                         val reachable = withContext(Dispatchers.IO) {
                                             WifiApi.testConnection("http://192.168.4.1")
                                         }
                                         wifiTestResult = if (reachable) {
-                                            "Security key accessible via Wi-Fi at 192.168.4.1."
+                                            res.getString(R.string.set_wifi_ok)
                                         } else {
-                                            "No response at IP 192.168.4.1. Connect to AegisKey-AP."
+                                            res.getString(R.string.set_wifi_fail)
                                         }
                                     } catch (e: Exception) {
-                                        wifiTestResult = "Test failed: ${e.message?.take(48) ?: "Network error"}"
+                                        wifiTestResult = res.getString(R.string.set_wifi_test_fail, e.message?.take(48) ?: res.getString(R.string.set_wifi_unknown))
                                     } finally {
                                         wifiTesting = false
                                     }
@@ -640,7 +710,7 @@ fun FriendlySettingsAndThemeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (wifiTesting) "Testing..." else "Test Connection",
+                                text = if (wifiTesting) stringResource(R.string.set_wifi_testing_short) else stringResource(R.string.set_wifi_test),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -654,7 +724,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Open Wi-Fi Portal",
+                                text = stringResource(R.string.set_wifi_open),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -671,15 +741,16 @@ fun FriendlySettingsAndThemeScreen(
                         OutlinedButton(
                             onClick = {
                                 scope.launch {
+                                    val res = context.resources
                                     wifiTotpReading = true
-                                    wifiTestResult = "Reading TOTP code via Wi-Fi (/oath/code)..."
+                                    wifiTestResult = res.getString(R.string.set_wifi_reading)
                                     try {
-                                        val res = withContext(Dispatchers.IO) {
+                                        val oath = withContext(Dispatchers.IO) {
                                             WifiApi.fetchOathCode("http://192.168.4.1", "AegisKey:admin")
                                         }
-                                        wifiTestResult = res.fold(
-                                            onSuccess = { "Wi-Fi TOTP: ${it.code} (${it.remainingSeconds}s remaining)" },
-                                            onFailure = { "Failed to read TOTP: ${it.message ?: "Unknown error"}" }
+                                        wifiTestResult = oath.fold(
+                                            onSuccess = { res.getString(R.string.set_wifi_totp, it.code, it.remainingSeconds) },
+                                            onFailure = { res.getString(R.string.set_wifi_totp_fail, it.message ?: res.getString(R.string.set_wifi_unknown)) }
                                         )
                                     } finally {
                                         wifiTotpReading = false
@@ -699,7 +770,7 @@ fun FriendlySettingsAndThemeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (wifiTotpReading) "Reading..." else "Read TOTP via Wi-Fi",
+                                text = if (wifiTotpReading) stringResource(R.string.set_wifi_reading_short) else stringResource(R.string.set_wifi_read),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -713,7 +784,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Configure Wi-Fi",
+                                text = stringResource(R.string.set_wifi_config),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -728,7 +799,7 @@ fun FriendlySettingsAndThemeScreen(
         // --- 4. Recovery Backup & DKEK Quorum ---
         item {
             SettingsSectionHeader(
-                title = "Recovery Backup & DKEK Quorum",
+                title = stringResource(R.string.set_backup_title),
                 icon = Icons.Filled.Backup,
             )
         }
@@ -766,14 +837,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Encrypted Backup & Guardians Quorum",
+                                text = stringResource(R.string.set_backup_card),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "AEGN Envelopes (AES-256-GCM) and 24-word recovery phrase.",
+                                text = stringResource(R.string.set_backup_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -792,7 +863,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "24-Word Recovery Phrase",
+                                text = stringResource(R.string.set_backup_phrase),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -806,7 +877,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "DKEK Quorum",
+                                text = stringResource(R.string.set_backup_dkek),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -824,7 +895,7 @@ fun FriendlySettingsAndThemeScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = "Open Backup Central",
+                            text = stringResource(R.string.set_backup_open),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -860,7 +931,7 @@ fun FriendlySettingsAndThemeScreen(
         // --- 5. OTA Firmware Update ---
         item {
             SettingsSectionHeader(
-                title = "OTA Firmware Update",
+                title = stringResource(R.string.set_ota_title),
                 icon = Icons.Filled.SystemUpdate,
             )
         }
@@ -898,14 +969,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Firmware v3.4.0-esp32s3",
+                                text = stringResource(R.string.set_ota_fw),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Ed25519 signature and anti-rollback verification active.",
+                                text = stringResource(R.string.set_ota_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -921,21 +992,21 @@ fun FriendlySettingsAndThemeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Channel:",
+                            text = stringResource(R.string.set_ota_channel),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
                         )
                         FilterChip(
                             selected = otaSelectedChannel == "Stable",
                             onClick = { otaSelectedChannel = "Stable" },
-                            label = { Text("Stable (Production)") },
+                            label = { Text(stringResource(R.string.ota_stable)) },
                             shape = RoundedCornerShape(8.dp),
                             colors = FilterChipDefaults.filterChipColors(),
                         )
                         FilterChip(
                             selected = otaSelectedChannel == "Verified Beta",
                             onClick = { otaSelectedChannel = "Verified Beta" },
-                            label = { Text("Verified Beta") },
+                            label = { Text(stringResource(R.string.ota_beta)) },
                             shape = RoundedCornerShape(8.dp),
                             colors = FilterChipDefaults.filterChipColors(),
                         )
@@ -958,13 +1029,14 @@ fun FriendlySettingsAndThemeScreen(
                         Button(
                             onClick = {
                                 scope.launch {
+                                    val res = context.resources
                                     otaChecking = true
-                                    otaStatusMessage = "Checking signed server manifest..."
+                                    otaStatusMessage = res.getString(R.string.ota_checking_manifest)
                                     try {
                                         withContext(Dispatchers.IO) {
                                             kotlinx.coroutines.delay(600)
                                         }
-                                        otaStatusMessage = "Security key runs the latest firmware (v3.4.0-esp32s3, $otaSelectedChannel)."
+                                        otaStatusMessage = res.getString(R.string.ota_latest, otaSelectedChannel)
                                     } finally {
                                         otaChecking = false
                                     }
@@ -983,7 +1055,7 @@ fun FriendlySettingsAndThemeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (otaChecking) "Checking..." else "Check for Updates",
+                                text = if (otaChecking) stringResource(R.string.ota_checking) else stringResource(R.string.ota_check),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -997,7 +1069,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Open OTA Panel",
+                                text = stringResource(R.string.ota_open),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1012,7 +1084,7 @@ fun FriendlySettingsAndThemeScreen(
         // --- 6. Rescue Diagnostics & Audit ---
         item {
             SettingsSectionHeader(
-                title = "Rescue Diagnostics and Audit",
+                title = stringResource(R.string.set_rescue_section),
                 icon = Icons.Filled.Medication,
             )
         }
@@ -1050,14 +1122,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Self-Test (0x2E) and Audit Logs (0x38)",
+                                text = stringResource(R.string.set_rescue_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "NVS, TRNG, cryptographic engine, and monotonic counter.",
+                                text = stringResource(R.string.set_rescue_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1073,15 +1145,27 @@ fun FriendlySettingsAndThemeScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        StatusMiniBadge(label = if (diagNvsOk) "NVS OK" else "NVS FAIL", isOk = diagNvsOk)
-                        StatusMiniBadge(label = if (diagCryptoOk) "Crypto HW OK" else "Crypto HW FAIL", isOk = diagCryptoOk)
-                        StatusMiniBadge(label = if (diagTrngOk) "TRNG Active" else "TRNG Inactive", isOk = diagTrngOk)
-                        StatusMiniBadge(label = if (diagButtonOk) "Button OK" else "Button FAIL", isOk = diagButtonOk)
-                        StatusMiniBadge(label = "Counter: %,d ops".format(Locale.US, diagCounterOps), isOk = true)
+                        StatusMiniBadge(
+                            label = stringResource(if (diagNvsOk) R.string.set_rescue_badge_nvs_ok else R.string.set_rescue_badge_nvs_fail),
+                            isOk = diagNvsOk
+                        )
+                        StatusMiniBadge(
+                            label = stringResource(if (diagCryptoOk) R.string.set_rescue_badge_crypto_ok else R.string.set_rescue_badge_crypto_fail),
+                            isOk = diagCryptoOk
+                        )
+                        StatusMiniBadge(
+                            label = stringResource(if (diagTrngOk) R.string.set_rescue_badge_trng_ok else R.string.set_rescue_badge_trng_fail),
+                            isOk = diagTrngOk
+                        )
+                        StatusMiniBadge(
+                            label = stringResource(if (diagButtonOk) R.string.set_rescue_badge_btn_ok else R.string.set_rescue_badge_btn_fail),
+                            isOk = diagButtonOk
+                        )
+                        StatusMiniBadge(label = stringResource(R.string.set_rescue_counter, "%,d".format(Locale.US, diagCounterOps)), isOk = true)
                     }
 
                     Text(
-                        text = "Last integrity verification: $rescueTimestamp",
+                        text = stringResource(R.string.set_rescue_last, rescueTimestamp),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1118,7 +1202,7 @@ fun FriendlySettingsAndThemeScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (rescueRefreshing) "Auditing..." else "Refresh",
+                                text = if (rescueRefreshing) stringResource(R.string.set_rescue_auditing) else stringResource(R.string.guard_refresh),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1135,7 +1219,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Diagnostics (0x2E)",
+                                text = stringResource(R.string.set_rescue_diag_btn),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1152,7 +1236,7 @@ fun FriendlySettingsAndThemeScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = "Audit Logs (0x38)",
+                                text = stringResource(R.string.set_rescue_logs_btn),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1167,7 +1251,7 @@ fun FriendlySettingsAndThemeScreen(
         // --- 7. Security Key Ownership & Factory Reset ---
         item {
             SettingsSectionHeader(
-                title = "Security Key Ownership and Factory Reset",
+                title = stringResource(R.string.set_own_section),
                 icon = Icons.Filled.PhonelinkSetup,
             )
         }
@@ -1205,14 +1289,14 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Ownership and Factory Reset (0x2B)",
+                                text = stringResource(R.string.set_own_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "This mobile phone is the registered owner of the security key.",
+                                text = stringResource(R.string.set_own_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1238,7 +1322,7 @@ fun FriendlySettingsAndThemeScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Pair New Security Key",
+                            text = stringResource(R.string.set_own_pair),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -1263,7 +1347,7 @@ fun FriendlySettingsAndThemeScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Release Ownership or Reset Key (0x2B)",
+                            text = stringResource(R.string.set_own_reset),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -1277,8 +1361,8 @@ fun FriendlySettingsAndThemeScreen(
         // --- 8. Smart Card (PIV / Certificates) ---
         item {
             SettingsNavigationItemCard(
-                title = "Smart Card (PIV / Certificates)",
-                description = "Digital certificates and authentication slots (NIST SP 800-73-4).",
+                title = stringResource(R.string.set_piv_title),
+                description = stringResource(R.string.set_piv_desc),
                 icon = Icons.Filled.Badge,
                 onClick = onNavigateToPiv,
             )
@@ -1297,7 +1381,7 @@ fun FriendlySettingsAndThemeScreen(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = "AegisKey App · v0.1.0",
+                        text = stringResource(R.string.set_foot_app),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1305,7 +1389,7 @@ fun FriendlySettingsAndThemeScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "Hardware security with complete transparency and open source.",
+                        text = stringResource(R.string.set_foot_tag),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1415,14 +1499,14 @@ fun FriendlySettingsAndThemeScreen(
             onDismissRequest = { showResetConfirmDialog = false },
             title = {
                 Text(
-                    text = "Release Device Ownership?",
+                    text = stringResource(R.string.set_own_dialog_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
             },
             text = {
                 Text(
-                    text = "Releasing ownership (0x2B) unbinds this mobile phone from the security key and requires user presence confirmation. To bind again, hold the physical button for 5 seconds to enter pairing mode.",
+                    text = stringResource(R.string.set_own_dialog_desc),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -1437,12 +1521,12 @@ fun FriendlySettingsAndThemeScreen(
                         contentColor = MaterialTheme.colorScheme.onError,
                     ),
                 ) {
-                    Text("Proceed to Transfer")
+                    Text(stringResource(R.string.set_own_proceed))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showResetConfirmDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.guard_btn_cancel))
                 }
             },
         )
@@ -1463,10 +1547,11 @@ fun FriendlySettingsAndThemeScreen(
                 wifiConfigChannel = channel
                 wifiConfigPowerSave = powerSave
                 scope.launch {
+                    val res = context.resources
                     wifiConfiguring = true
-                    wifiTestResult = "Configuring Wi-Fi parameters in hardware..."
+                    wifiTestResult = res.getString(R.string.set_wifi_configuring)
                     try {
-                        val res = withContext(Dispatchers.IO) {
+                        val wifiRes = withContext(Dispatchers.IO) {
                             WifiApi.configureWifi(
                                 baseUrl = "http://192.168.4.1",
                                 ssid = ssid,
@@ -1475,7 +1560,7 @@ fun FriendlySettingsAndThemeScreen(
                                 powerSave = powerSave
                             )
                         }
-                        wifiTestResult = res.getOrElse { "Configuration failed: ${it.localizedMessage}" }
+                        wifiTestResult = wifiRes.getOrElse { res.getString(R.string.set_wifi_config_fail, it.localizedMessage ?: res.getString(R.string.set_wifi_unknown)) }
                     } finally {
                         wifiConfiguring = false
                         showWifiConfigDialog = false
@@ -1654,7 +1739,7 @@ private fun ShamirRecoverModalDialog(
                     value = share1,
                     onValueChange = onShare1Change,
                     label = { Text(stringResource(R.string.shamir_enter_share_1)) },
-                    placeholder = { Text("share-1-of-3: cricket dynamic acid...") },
+                    placeholder = { Text(stringResource(R.string.shamir_share_hint_1)) },
                     singleLine = false,
                     maxLines = 3,
                     enabled = !isLoading,
@@ -1665,7 +1750,7 @@ private fun ShamirRecoverModalDialog(
                     value = share2,
                     onValueChange = onShare2Change,
                     label = { Text(stringResource(R.string.shamir_enter_share_2)) },
-                    placeholder = { Text("share-2-of-3: cricket dynamic blast...") },
+                    placeholder = { Text(stringResource(R.string.shamir_share_hint_2)) },
                     singleLine = false,
                     maxLines = 3,
                     enabled = !isLoading,
@@ -1734,7 +1819,7 @@ private fun WifiConfigModalDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         title = {
             Text(
-                text = "Configure Security Key Wi-Fi",
+                text = stringResource(R.string.wifi_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -1742,7 +1827,7 @@ private fun WifiConfigModalDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Configure SSID, WPA2 password, and 2.4 GHz channel. The security key persists these settings securely.",
+                    text = stringResource(R.string.wifi_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1750,7 +1835,7 @@ private fun WifiConfigModalDialog(
                 OutlinedTextField(
                     value = ssid,
                     onValueChange = { ssid = it },
-                    label = { Text("Network Name (SSID)") },
+                    label = { Text(stringResource(R.string.wifi_ssid_label)) },
                     singleLine = true,
                     enabled = !isLoading,
                     modifier = Modifier.fillMaxWidth()
@@ -1759,7 +1844,7 @@ private fun WifiConfigModalDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("WPA2 Password (minimum 8 characters)") },
+                    label = { Text(stringResource(R.string.wifi_pass_label)) },
                     singleLine = true,
                     enabled = !isLoading,
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -1774,7 +1859,7 @@ private fun WifiConfigModalDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text(text = "Wi-Fi Channel (2.4 GHz)", style = MaterialTheme.typography.labelMedium)
+                Text(text = stringResource(R.string.wifi_chan_title), style = MaterialTheme.typography.labelMedium)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -1785,7 +1870,7 @@ private fun WifiConfigModalDialog(
                             modifier = Modifier.clickable(enabled = !isLoading) { channel = ch }
                         ) {
                             RadioButton(selected = channel == ch, onClick = { channel = ch }, enabled = !isLoading)
-                            Text("Channel $ch", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.wifi_channel, ch), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -1795,7 +1880,7 @@ private fun WifiConfigModalDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Power Saving Mode", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.wifi_power_save), style = MaterialTheme.typography.bodySmall)
                     Switch(checked = powerSave, onCheckedChange = { powerSave = it }, enabled = !isLoading)
                 }
             }
@@ -1809,12 +1894,12 @@ private fun WifiConfigModalDialog(
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(6.dp))
                 }
-                Text("Save to Hardware")
+                Text(stringResource(R.string.wifi_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isLoading) {
-                Text("Cancel")
+                Text(stringResource(R.string.guard_btn_cancel))
             }
         }
     )
@@ -1835,12 +1920,13 @@ private fun ChangeHardwarePinDialog(
     var isSaving by remember { mutableStateOf(false) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
     var isError by remember { mutableStateOf(false) }
+    val dialogResources = LocalContext.current.resources
 
     AlertDialog(
         onDismissRequest = { if (!isSaving) onDismiss() },
         title = {
             Text(
-                text = "Change Hardware PIN",
+                text = stringResource(R.string.set_pin_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -1848,7 +1934,7 @@ private fun ChangeHardwarePinDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Enter a 4 to 8 digit numeric PIN. It will be stored inside the security key.",
+                    text = stringResource(R.string.set_pin_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1856,7 +1942,7 @@ private fun ChangeHardwarePinDialog(
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
-                    label = { Text("New PIN (4-8 digits)") },
+                    label = { Text(stringResource(R.string.set_pin_new)) },
                     visualTransformation = if (pinVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     trailingIcon = {
@@ -1876,7 +1962,7 @@ private fun ChangeHardwarePinDialog(
                 OutlinedTextField(
                     value = confirmPin,
                     onValueChange = { confirmPin = it.filter { ch -> ch.isDigit() }.take(8) },
-                    label = { Text("Confirm New PIN") },
+                    label = { Text(stringResource(R.string.set_pin_confirm)) },
                     visualTransformation = if (pinVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     singleLine = true,
@@ -1899,19 +1985,19 @@ private fun ChangeHardwarePinDialog(
             Button(
                 onClick = {
                     if (pin.length !in 4..8) {
-                        feedbackMessage = "PIN must contain between 4 and 8 digits."
+                        feedbackMessage = dialogResources.getString(R.string.set_pin_err_len)
                         isError = true
                         return@Button
                     }
                     if (pin != confirmPin) {
-                        feedbackMessage = "The two entered PINs do not match."
+                        feedbackMessage = dialogResources.getString(R.string.set_pin_err_match)
                         isError = true
                         return@Button
                     }
 
                     scope.launch {
                         isSaving = true
-                        feedbackMessage = "Sending to security key... Press the physical button on the key."
+                        feedbackMessage = dialogResources.getString(R.string.set_pin_sending)
                         isError = false
                         try {
                             if (client != null) {
@@ -1921,22 +2007,22 @@ private fun ChangeHardwarePinDialog(
                                 }
                                 val resp = VendorOps.parseResponse(raw)
                                 if (resp != null && resp.status == VendorOps.STATUS_OK) {
-                                    feedbackMessage = "PIN saved to security key successfully."
+                                    feedbackMessage = dialogResources.getString(R.string.set_pin_ok)
                                     kotlinx.coroutines.delay(800)
                                     onDismiss()
                                 } else {
                                     feedbackMessage = resp?.let { BindingOps.statusLabel(it.status) }
-                                        ?: "No response from hardware. Press the physical button."
+                                        ?: dialogResources.getString(R.string.set_pin_no_resp)
                                     isError = true
                                 }
                             } else {
                                 kotlinx.coroutines.delay(600)
-                                feedbackMessage = "PIN saved to security key successfully."
+                                feedbackMessage = dialogResources.getString(R.string.set_pin_ok)
                                 kotlinx.coroutines.delay(800)
                                 onDismiss()
                             }
                         } catch (e: Exception) {
-                            feedbackMessage = "Failed to save PIN: ${e.message?.take(48) ?: "Unknown error"}"
+                            feedbackMessage = dialogResources.getString(R.string.set_pin_fail, e.message?.take(48) ?: dialogResources.getString(R.string.set_wifi_unknown))
                             isError = true
                         } finally {
                             isSaving = false
@@ -1953,7 +2039,7 @@ private fun ChangeHardwarePinDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                 }
-                Text("Save PIN")
+                Text(stringResource(R.string.set_pin_save))
             }
         },
         dismissButton = {
@@ -1961,7 +2047,7 @@ private fun ChangeHardwarePinDialog(
                 onClick = onDismiss,
                 enabled = !isSaving,
             ) {
-                Text("Cancel")
+                Text(stringResource(R.string.guard_btn_cancel))
             }
         },
     )
@@ -1987,7 +2073,7 @@ private fun RecoveryPhraseModalDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Recovery Phrase (24 Words)",
+                text = stringResource(R.string.set_phrase_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -2014,7 +2100,7 @@ private fun RecoveryPhraseModalDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Write these words on paper. Never store digitally or share with anyone.",
+                            text = stringResource(R.string.set_phrase_warn),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
@@ -2067,7 +2153,7 @@ private fun RecoveryPhraseModalDialog(
 
                 if (copied) {
                     Text(
-                        text = "Recovery phrase copied to clipboard.",
+                        text = stringResource(R.string.set_phrase_copied),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -2076,7 +2162,7 @@ private fun RecoveryPhraseModalDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text("Complete")
+                Text(stringResource(R.string.action_done))
             }
         },
         dismissButton = {
@@ -2093,7 +2179,7 @@ private fun RecoveryPhraseModalDialog(
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Copy")
+                Text(stringResource(R.string.action_copy))
             }
         },
     )
@@ -2120,7 +2206,7 @@ private fun DkekQuorumModalDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "DKEK Quorum Configuration",
+                text = stringResource(R.string.set_dkek_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -2128,7 +2214,7 @@ private fun DkekQuorumModalDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Specify total guardians (N) and required quorum (M) to recover the security key without a single point of failure.",
+                    text = stringResource(R.string.set_dkek_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2140,7 +2226,7 @@ private fun DkekQuorumModalDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Total Guardians (N): $totalGuardians",
+                        text = stringResource(R.string.set_dkek_total, totalGuardians),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -2167,7 +2253,7 @@ private fun DkekQuorumModalDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Required Quorum (M): $threshold",
+                        text = stringResource(R.string.set_dkek_quorum, threshold),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -2193,7 +2279,7 @@ private fun DkekQuorumModalDialog(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = "Active configuration: Any $threshold of the $totalGuardians guardians can authorize recovery.",
+                        text = stringResource(R.string.set_dkek_active, threshold, totalGuardians),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(10.dp),
@@ -2217,12 +2303,12 @@ private fun DkekQuorumModalDialog(
                 },
                 enabled = validationError == null,
             ) {
-                Text("Save Quorum")
+                Text(stringResource(R.string.set_dkek_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text(stringResource(R.string.guard_btn_close))
             }
         },
     )
@@ -2420,7 +2506,7 @@ private fun RescueDiagnosticsModalDialog(
         },
         title = {
             Text(
-                text = "Rescue Diagnostics (0x2E)",
+                text = stringResource(R.string.set_diag_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -2433,7 +2519,7 @@ private fun RescueDiagnosticsModalDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "Hardware Self-Test execution across core security modules (0x2E payload over OP_MSG 0x83).",
+                    text = stringResource(R.string.set_diag_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2448,13 +2534,13 @@ private fun RescueDiagnosticsModalDialog(
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Executing hardware self-test...", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.set_diag_running), style = MaterialTheme.typography.bodyMedium)
                     }
                 } else {
                     val rep = report ?: FriendlySettingsAndThemeScreenAuditReport(
                         nvsOk = true, cryptoHwOk = true, trngOk = true, buttonOk = true,
                         counterOps = 1420L, firmwareVersion = "v0.2.1-esp32s3",
-                        statusText = "Auto-teste concluído"
+                        statusText = stringResource(R.string.set_diag_default)
                     )
 
                     Surface(
@@ -2464,13 +2550,13 @@ private fun RescueDiagnosticsModalDialog(
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "Verdict: ${rep.statusText}",
+                                text = stringResource(R.string.set_diag_verdict, rep.statusText),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                text = "Firmware Version: ${rep.firmwareVersion}",
+                                text = stringResource(R.string.set_diag_fw, rep.firmwareVersion),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -2481,14 +2567,14 @@ private fun RescueDiagnosticsModalDialog(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        DiagnosticSubsystemRow(label = "NVS Flash Storage", isOk = rep.nvsOk, detail = if (rep.nvsOk) "Non-volatile storage validated" else "Storage read/write error")
-                        DiagnosticSubsystemRow(label = "TRNG True Randomness", isOk = rep.trngOk, detail = if (rep.trngOk) "Entropy source active & passing FIPS 140-2" else "Entropy error")
-                        DiagnosticSubsystemRow(label = "Crypto Hardware", isOk = rep.cryptoHwOk, detail = if (rep.cryptoHwOk) "P-256 ECC & AES-256 accelerator OK" else "Engine fault")
-                        DiagnosticSubsystemRow(label = "User Presence Button", isOk = rep.buttonOk, detail = if (rep.buttonOk) "Physical touch sensor operational" else "Sensor fault")
+                        DiagnosticSubsystemRow(label = stringResource(R.string.set_diag_nvs), isOk = rep.nvsOk, detail = if (rep.nvsOk) stringResource(R.string.set_diag_nvs_ok) else stringResource(R.string.set_diag_nvs_fail))
+                        DiagnosticSubsystemRow(label = stringResource(R.string.set_diag_trng), isOk = rep.trngOk, detail = if (rep.trngOk) stringResource(R.string.set_diag_trng_ok) else stringResource(R.string.set_diag_trng_fail))
+                        DiagnosticSubsystemRow(label = stringResource(R.string.set_diag_crypto), isOk = rep.cryptoHwOk, detail = if (rep.cryptoHwOk) stringResource(R.string.set_diag_crypto_ok) else stringResource(R.string.set_diag_crypto_fail))
+                        DiagnosticSubsystemRow(label = stringResource(R.string.set_diag_btn), isOk = rep.buttonOk, detail = if (rep.buttonOk) stringResource(R.string.set_diag_btn_ok) else stringResource(R.string.set_diag_btn_fail))
                         DiagnosticSubsystemRow(
-                            label = "Monotonic Counter",
+                            label = stringResource(R.string.set_diag_counter),
                             isOk = true,
-                            detail = "%,d operations recorded (Panic: %d, Wipe: %d)".format(Locale.US, rep.counterOps, rep.panicCount, rep.wipeCount)
+                            detail = stringResource(R.string.set_diag_counter_val, rep.counterOps, rep.panicCount, rep.wipeCount)
                         )
                     }
                 }
@@ -2505,12 +2591,12 @@ private fun RescueDiagnosticsModalDialog(
                 },
                 enabled = !isRunning
             ) {
-                Text("Re-run Test")
+                Text(stringResource(R.string.set_diag_rerun))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text(stringResource(R.string.guard_btn_close))
             }
         }
     )
@@ -2567,7 +2653,7 @@ private fun AuditLogsModalDialog(
         },
         title = {
             Text(
-                text = "Security Audit Logs (0x38)",
+                text = stringResource(R.string.set_logs_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -2580,7 +2666,7 @@ private fun AuditLogsModalDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "Live security audit trace (transport 0x38, BLE, Secure Guard and locks).",
+                    text = stringResource(R.string.set_logs_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2596,7 +2682,7 @@ private fun AuditLogsModalDialog(
                     ) {
                         Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copy All", style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.action_copy_all), style = MaterialTheme.typography.labelSmall)
                     }
 
                     OutlinedButton(
@@ -2604,7 +2690,7 @@ private fun AuditLogsModalDialog(
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Clear Logs", style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.action_clear_logs), style = MaterialTheme.typography.labelSmall)
                     }
 
                     if (client != null) {
@@ -2634,7 +2720,7 @@ private fun AuditLogsModalDialog(
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(if (isFetchingFwLog) "..." else "Fw 0x38", style = MaterialTheme.typography.labelSmall)
+                            Text(if (isFetchingFwLog) "..." else stringResource(R.string.set_logs_fw), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -2647,7 +2733,7 @@ private fun AuditLogsModalDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No audit log entries recorded yet.",
+                            text = stringResource(R.string.set_logs_empty),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2711,7 +2797,7 @@ private fun AuditLogsModalDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text("Close")
+                Text(stringResource(R.string.guard_btn_close))
             }
         }
     )
@@ -2737,7 +2823,7 @@ private fun BackupCentralModalDialog(
         },
         title = {
             Text(
-                text = "Central de Backup e Recuperação",
+                text = stringResource(R.string.set_backup_central_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -2748,7 +2834,7 @@ private fun BackupCentralModalDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Escolha o método seguro de proteção e redundância criptográfica:",
+                    text = stringResource(R.string.set_backup_central_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2780,12 +2866,12 @@ private fun BackupCentralModalDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Frase de Recuperação (BIP-39)",
+                                text = stringResource(R.string.set_backup_opt1_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "24 palavras mnemônicas offline (256-bit entropia + checksum).",
+                                text = stringResource(R.string.set_backup_opt1_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2826,12 +2912,12 @@ private fun BackupCentralModalDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Quorum de Guardiões DKEK (N-de-M)",
+                                text = stringResource(R.string.set_backup_opt2_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Divisão criptográfica entre N guardiões com limiar de M assinaturas.",
+                                text = stringResource(R.string.set_backup_opt2_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2872,12 +2958,12 @@ private fun BackupCentralModalDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Shamir SLIP-39 Backup (2-de-3)",
+                                text = stringResource(R.string.set_backup_opt3_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Geração de shares Shamir de alta segurança para redundância em hardware.",
+                                text = stringResource(R.string.set_backup_opt3_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2894,7 +2980,7 @@ private fun BackupCentralModalDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Fechar")
+                Text(stringResource(R.string.guard_btn_cancel))
             }
         }
     )

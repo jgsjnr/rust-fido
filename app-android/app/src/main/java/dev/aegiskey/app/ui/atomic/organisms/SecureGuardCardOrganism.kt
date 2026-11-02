@@ -119,7 +119,7 @@ fun SecureGuardCardOrganism(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "🛡️ ${stringResource(R.string.guard_title)}",
+                            text = stringResource(R.string.guard_title),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -198,7 +198,7 @@ fun SecureGuardCardOrganism(
             // Feedback Messages
             if (uiState.errorMessage != null && activePopupOperation == null) {
                 Text(
-                    text = "⚠️ ${uiState.errorMessage}",
+                    text = uiState.errorMessage,
                     color = MaterialTheme.colorScheme.error,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
@@ -206,7 +206,7 @@ fun SecureGuardCardOrganism(
             }
             if (uiState.successMessage != null) {
                 Text(
-                    text = "✅ ${uiState.successMessage}",
+                    text = uiState.successMessage,
                     color = Color(0xFF16A34A),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
@@ -297,7 +297,7 @@ fun SecureGuardCardOrganism(
                             onClick = onLock,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                         ) {
-                            Text("🔒 ${stringResource(R.string.guard_lock_now)}")
+                            Text(stringResource(R.string.guard_lock_now))
                         }
                         OutlinedButton(
                             onClick = { showChangePinDialog = !showChangePinDialog }
@@ -305,10 +305,10 @@ fun SecureGuardCardOrganism(
                             Text(stringResource(R.string.guard_change_pin))
                         }
                         TextButton(onClick = { showPolicySettings = !showPolicySettings }) {
-                            Text("⚙️ ${stringResource(R.string.guard_security_policies)}", fontSize = 12.sp)
+                            Text(stringResource(R.string.guard_security_policies), fontSize = 12.sp)
                         }
                         TextButton(onClick = { activePopupOperation = HardwareSessionOperationType.WIPE_SELECTIVE }) {
-                            Text("🔥 ${stringResource(R.string.guard_selective_wipe)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.guard_selective_wipe), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -322,7 +322,7 @@ fun SecureGuardCardOrganism(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "⚠️ ${stringResource(R.string.guard_max_attempts_reached)}",
+                                text = stringResource(R.string.guard_max_attempts_reached),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFF97316)

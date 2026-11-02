@@ -194,7 +194,7 @@ fun EfuseSafetyNoticeMolecule(
                     )
                     EfuseTelemetryItem(
                         label = stringResource(R.string.efuse_status_anti_rollback),
-                        value = "v${efuseStatus.secureVersion} (Silicon Monotonic)",
+                        value = stringResource(R.string.efuse_secure_ver, efuseStatus.secureVersion.toString()),
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     EfuseTelemetryItem(

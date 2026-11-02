@@ -41,9 +41,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
@@ -91,7 +93,7 @@ fun ConnectedKeysRepositoryScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Security Keys",
+                        text = stringResource(R.string.keys_screen_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -101,7 +103,7 @@ fun ConnectedKeysRepositoryScreen(
                 navigationIcon = {
                     if (onBackClick != null) {
                         IconButton(onClick = onBackClick) {
-                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                         }
                     }
                 },
@@ -143,13 +145,13 @@ fun ConnectedKeysRepositoryScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Dynamic Lock & Secure Guard",
+                                    text = stringResource(R.string.keys_prox_title),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             }
                             Text(
-                                text = if (proximityStatus.locked) "LOCKED (Key & PC Locked)" else "${proximityStatus.state} (${proximityStatus.currentRssiDbm} dBm)",
+                                text = if (proximityStatus.locked) stringResource(R.string.keys_prox_locked) else stringResource(R.string.keys_prox_state, proximityStatus.state, proximityStatus.currentRssiDbm),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
@@ -157,12 +159,12 @@ fun ConnectedKeysRepositoryScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Registered Bluetooth in Memory: " + (proximityStatus.registeredDevice ?: proximityStatus.bleName ?: "Galaxy S24 Ultra (3C:84:27:C7:17:7A)"),
+                            text = stringResource(R.string.keys_prox_reg, proximityStatus.registeredDevice ?: proximityStatus.bleName ?: stringResource(R.string.keys_prox_fallback)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = "Secure Guard Proximity Watch: ACTIVE (Locks Key & PC when Away)",
+                            text = stringResource(R.string.keys_prox_watch),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Medium,
                             color = if (proximityStatus.locked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
@@ -188,7 +190,7 @@ fun ConnectedKeysRepositoryScreen(
                         Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Connect New Security Key",
+                            text = stringResource(R.string.keys_connect_btn),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -200,7 +202,7 @@ fun ConnectedKeysRepositoryScreen(
 
             item {
                 Text(
-                    text = "Bound Security Keys",
+                    text = stringResource(R.string.keys_bound_title),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -228,14 +230,14 @@ fun ConnectedKeysRepositoryScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = "No security keys bound",
+                                text = stringResource(R.string.keys_bound_empty),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "Tap the button above to connect your first security key.",
+                                text = stringResource(R.string.keys_bound_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -249,10 +251,10 @@ fun ConnectedKeysRepositoryScreen(
             items(uiState.keys, key = { it.id }) { device ->
                 val isCurrent = device.id == uiState.activeKey?.id
                 val transportText = when (device.transportType) {
-                    ConnectionTransportType.BLE -> "Wireless BLE"
-                    ConnectionTransportType.USB -> "USB / UART Cable"
-                    ConnectionTransportType.WIFI -> "Wi-Fi Network"
-                    ConnectionTransportType.SIMULATOR -> "Virtual Simulator"
+                    ConnectionTransportType.BLE -> stringResource(R.string.keys_transport_ble)
+                    ConnectionTransportType.USB -> stringResource(R.string.keys_transport_usb)
+                    ConnectionTransportType.WIFI -> stringResource(R.string.keys_transport_wifi)
+                    ConnectionTransportType.SIMULATOR -> stringResource(R.string.transport_simulator)
                 }
 
                 ConnectedKeyCardMolecule(
@@ -287,7 +289,7 @@ fun ConnectedKeysRepositoryScreen(
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Rename Security Key",
+                    text = stringResource(R.string.keys_rename_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -297,7 +299,7 @@ fun ConnectedKeysRepositoryScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Enter an identifiable name for this security key:",
+                        text = stringResource(R.string.keys_rename_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -306,7 +308,7 @@ fun ConnectedKeysRepositoryScreen(
                     OutlinedTextField(
                         value = newKeyName,
                         onValueChange = { newKeyName = it },
-                        label = { Text("Security key name", maxLines = 1) },
+                        label = { Text(stringResource(R.string.keys_name_label), maxLines = 1) },
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -315,7 +317,7 @@ fun ConnectedKeysRepositoryScreen(
             },
             confirmButton = {
                 PrimaryNextButton(
-                    text = "Save",
+                    text = stringResource(R.string.action_save),
                     enabled = newKeyName.trim().isNotBlank(),
                     onClick = {
                         viewModel.renameKey(device.id, newKeyName.trim())
@@ -325,7 +327,7 @@ fun ConnectedKeysRepositoryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { keyToRename = null }) {
-                    Text("Cancel", maxLines = 1)
+                    Text(stringResource(R.string.guard_btn_cancel), maxLines = 1)
                 }
             },
         )
@@ -338,7 +340,7 @@ fun ConnectedKeysRepositoryScreen(
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Unbind Security Key?",
+                    text = stringResource(R.string.keys_unbind_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -347,7 +349,7 @@ fun ConnectedKeysRepositoryScreen(
             },
             text = {
                 Text(
-                    text = "Do you want to unbind \"${device.displayName}\"? You can bind this key again at any time.",
+                    text = stringResource(R.string.keys_unbind_desc, device.displayName),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
@@ -367,12 +369,12 @@ fun ConnectedKeysRepositoryScreen(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.height(40.dp),
                 ) {
-                    Text("Unbind", maxLines = 1)
+                    Text(stringResource(R.string.action_unbind), maxLines = 1)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { keyToRemove = null }) {
-                    Text("Cancel", maxLines = 1)
+                    Text(stringResource(R.string.guard_btn_cancel), maxLines = 1)
                 }
             },
         )

@@ -58,12 +58,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
@@ -113,14 +115,14 @@ fun KeyDetailManagementScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Gestão da Chave Física",
+                            text = stringResource(R.string.kd_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Hardware Slot #${entry.slotId} · ${entry.label}",
+                            text = stringResource(R.string.kd_subtitle, entry.slotId, entry.label),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -132,7 +134,7 @@ fun KeyDetailManagementScreen(
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Voltar ao Cofre"
+                            contentDescription = stringResource(R.string.kd_back_cd)
                         )
                     }
                 },
@@ -270,14 +272,14 @@ fun KeyDetailManagementScreen(
             },
             title = {
                 Text(
-                    text = "Excluir Chave do Hardware?",
+                    text = stringResource(R.string.kd_delete_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "Esta ação enviará o comando de exclusão 0x23 para o chip físico AegisKey e liberará o slot #${entry.slotId}. O par de chaves será permanentemente apagado e não poderá ser recuperado a menos que você possua um backup autenticado.",
+                    text = stringResource(R.string.kd_delete_desc, entry.slotId),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -293,12 +295,12 @@ fun KeyDetailManagementScreen(
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
-                    Text("Excluir Permanentemente")
+                    Text(stringResource(R.string.kd_confirm_delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.vault_cancel_btn))
                 }
             }
         )
@@ -315,14 +317,14 @@ private fun KeyHeaderCard(
     onCopy: (String) -> Unit
 ) {
     val typeTitle = when (entry.type) {
-        AccessKeyType.PASSKEY_FIDO -> "Passkey FIDO2 / WebAuthn"
-        AccessKeyType.VENDOR_SIGNING_KEY -> "Chave de Assinatura SSH / GPG"
-        AccessKeyType.CRYPTO_WALLET_BTC -> "Carteira Bitcoin (BIP84)"
-        AccessKeyType.CRYPTO_WALLET_ETH -> "Carteira Ethereum (EIP-55)"
-        AccessKeyType.CRYPTO_WALLET_SOL -> "Carteira Solana (Ed25519)"
-        AccessKeyType.CRYPTO_WALLET_DOT -> "Carteira Polkadot (SS58)"
-        AccessKeyType.PIV_SMARTCARD_SLOT -> "Smartcard Corporativo PIV"
-        AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "Envelope Criptografado AEGN"
+        AccessKeyType.PASSKEY_FIDO -> stringResource(R.string.kd_type_passkey)
+        AccessKeyType.VENDOR_SIGNING_KEY -> stringResource(R.string.kd_type_vendor)
+        AccessKeyType.CRYPTO_WALLET_BTC -> stringResource(R.string.kd_type_btc)
+        AccessKeyType.CRYPTO_WALLET_ETH -> stringResource(R.string.kd_type_eth)
+        AccessKeyType.CRYPTO_WALLET_SOL -> stringResource(R.string.kd_type_sol)
+        AccessKeyType.CRYPTO_WALLET_DOT -> stringResource(R.string.kd_type_dot)
+        AccessKeyType.PIV_SMARTCARD_SLOT -> stringResource(R.string.kd_type_piv)
+        AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> stringResource(R.string.kd_type_aegn)
     }
 
     val typeIcon: ImageVector = when (entry.type) {
@@ -400,7 +402,7 @@ private fun KeyHeaderCard(
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                 ) {
                     Text(
-                        text = "Slot #${entry.slotId}",
+                        text = stringResource(R.string.kd_slot, entry.slotId),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -439,7 +441,7 @@ private fun KeyHeaderCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Toque Obrigatório",
+                                text = stringResource(R.string.kd_touch),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -471,7 +473,7 @@ private fun KeyHeaderCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         QuickActionPillButton(
-                            text = "Copiar",
+                            text = stringResource(R.string.action_copy),
                             icon = Icons.Filled.ContentCopy,
                             onClick = { onCopy(entry.publicSummary) }
                         )
@@ -505,24 +507,24 @@ private fun PasskeyFidoSection(
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Propriedades da Credencial FIDO2",
+                    text = stringResource(R.string.kd_pk_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                PropertyRow(label = "Protocolo", value = "FIDO2 / WebAuthn Level 3 (CTAP 2.1)")
-                PropertyRow(label = "Curva COSE", value = entry.algorithmOrCurve)
-                PropertyRow(label = "Armazenamento", value = "Credencial Residente no Hardware (Discoverable)")
-                PropertyRow(label = "Verificação de Usuário (UV)", value = "Proteção Biométrica do Dispositivo + Toque Físico")
+                PropertyRow(label = stringResource(R.string.kd_pk_proto), value = stringResource(R.string.kd_pk_proto_val))
+                PropertyRow(label = stringResource(R.string.kd_pk_curve), value = entry.algorithmOrCurve)
+                PropertyRow(label = stringResource(R.string.kd_pk_store), value = stringResource(R.string.kd_pk_store_val))
+                PropertyRow(label = stringResource(R.string.kd_pk_uv), value = stringResource(R.string.kd_pk_uv_val))
             }
         }
 
         // Card Interativo: Assinar Desafio FIDO2
         InteractiveSignCard(
-            title = "Testar Autenticação / Assinar Desafio FIDO2",
-            subtitle = "Envie um desafio (clientDataHash) para ser assinado no hardware pelo chip de segurança:",
+            title = stringResource(R.string.kd_pk_sign_title),
+            subtitle = stringResource(R.string.kd_pk_sign_desc),
             inputValue = challengeInput,
             onInputChange = onChallengeChange,
-            buttonText = "Assinar no Chip Agora",
+            buttonText = stringResource(R.string.kd_pk_sign_btn),
             onAction = onSignClick,
             isLoading = isActionLoading,
             resultText = signatureResult,
@@ -531,9 +533,9 @@ private fun PasskeyFidoSection(
 
         // Card Interativo: Backup Criptografado AEGN
         InteractiveExportCard(
-            title = "Backup Criptografado (Envelope AEGN)",
-            subtitle = "Exporte a credencial selada com AES-256-GCM vinculada à semente mestra do chip:",
-            buttonText = "Gerar / Exportar Envelope AEGN",
+            title = stringResource(R.string.kd_pk_exp_title),
+            subtitle = stringResource(R.string.kd_pk_exp_desc),
+            buttonText = stringResource(R.string.kd_pk_exp_btn),
             onAction = onExportEnvelopeClick,
             isLoading = isActionLoading,
             exportedEnvelope = exportedEnvelope ?: entry.envelopeHex.takeIf { it.isNotBlank() },
@@ -558,11 +560,11 @@ private fun CryptoWalletSection(
     onCopy: (String) -> Unit
 ) {
     val (networkName, standardFormat, defaultPath) = when (entry.type) {
-        AccessKeyType.CRYPTO_WALLET_BTC -> Triple("Bitcoin Mainnet", "BIP84 Native SegWit (bc1q...)", "m/84'/0'/0'/0/0")
-        AccessKeyType.CRYPTO_WALLET_ETH -> Triple("Ethereum / EVM Mainnet", "EIP-55 Checksummed (0x...)", "m/44'/60'/0'/0/0")
-        AccessKeyType.CRYPTO_WALLET_SOL -> Triple("Solana Mainnet", "Base58 Public Key (Ed25519)", "m/44'/501'/0'/0'")
-        AccessKeyType.CRYPTO_WALLET_DOT -> Triple("Polkadot / Substrate", "SS58 Address (Ed25519)", "m/44'/354'/0'/0'/0'")
-        else -> Triple("Cripto", "Padrão", "")
+        AccessKeyType.CRYPTO_WALLET_BTC -> Triple(stringResource(R.string.kd_net_btc), stringResource(R.string.kd_net_btc_fmt), "m/84'/0'/0'/0/0")
+        AccessKeyType.CRYPTO_WALLET_ETH -> Triple(stringResource(R.string.kd_net_eth), stringResource(R.string.kd_net_eth_fmt), "m/44'/60'/0'/0/0")
+        AccessKeyType.CRYPTO_WALLET_SOL -> Triple(stringResource(R.string.kd_net_sol), stringResource(R.string.kd_net_sol_fmt), "m/44'/501'/0'/0'")
+        AccessKeyType.CRYPTO_WALLET_DOT -> Triple(stringResource(R.string.kd_net_dot), stringResource(R.string.kd_net_dot_fmt), "m/44'/354'/0'/0'/0'")
+        else -> Triple(stringResource(R.string.kd_net_other), stringResource(R.string.kd_fmt_other), "")
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -570,17 +572,17 @@ private fun CryptoWalletSection(
         OutlinedCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Parâmetros da Rede Cripto",
+                    text = stringResource(R.string.kd_w_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                PropertyRow(label = "Rede Cripto", value = networkName)
-                PropertyRow(label = "Formato de Endereço", value = standardFormat)
+                PropertyRow(label = stringResource(R.string.kd_w_net), value = networkName)
+                PropertyRow(label = stringResource(R.string.kd_w_fmt), value = standardFormat)
                 PropertyRow(
-                    label = "Caminho de Derivação HD",
+                    label = stringResource(R.string.kd_w_path),
                     value = entry.derivationPathOrSlotCode.ifBlank { defaultPath }
                 )
-                PropertyRow(label = "Algoritmo / Curva", value = entry.algorithmOrCurve)
+                PropertyRow(label = stringResource(R.string.kd_w_algo), value = entry.algorithmOrCurve)
             }
         }
 
@@ -602,7 +604,7 @@ private fun CryptoWalletSection(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Endereço de Recebimento",
+                        text = stringResource(R.string.kd_recv_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -620,7 +622,7 @@ private fun CryptoWalletSection(
                 ) {
                     Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Copiar Endereço Completo")
+                    Text(stringResource(R.string.kd_copy_full))
                 }
             }
         }
@@ -634,11 +636,11 @@ private fun CryptoWalletSection(
 
         // Card Interativo: Assinar Transação ou Mensagem no Hardware (0x38)
         InteractiveSignCard(
-            title = "Assinar Transação ou Mensagem no Chip (0x38)",
-            subtitle = "Insira o hash da transação bruta ou mensagem para ser validada e assinada com a chave privada da carteira:",
+            title = stringResource(R.string.kd_sign_tx_title),
+            subtitle = stringResource(R.string.kd_sign_tx_desc),
             inputValue = txInput,
             onInputChange = onTxInputChange,
-            buttonText = "Confirmar e Assinar com a Chave",
+            buttonText = stringResource(R.string.kd_sign_tx_btn),
             onAction = onSignClick,
             isLoading = isActionLoading,
             resultText = signatureResult,
@@ -647,9 +649,9 @@ private fun CryptoWalletSection(
 
         // Card Backup Criptografado AEGN
         InteractiveExportCard(
-            title = "Exportar Backup Criptografado AEGN",
-            subtitle = "Exporte a chave privada da carteira envelopada com chave derivada de hardware (DKEK):",
-            buttonText = "Gerar Envelope Criptografado",
+            title = stringResource(R.string.kd_exp_title),
+            subtitle = stringResource(R.string.kd_exp_desc),
+            buttonText = stringResource(R.string.kd_exp_btn),
             onAction = onExportEnvelopeClick,
             isLoading = isActionLoading,
             exportedEnvelope = exportedEnvelope ?: entry.envelopeHex.takeIf { it.isNotBlank() },
@@ -678,24 +680,24 @@ private fun VendorSigningSection(
         OutlinedCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Capacidades Criptográficas da Chave",
+                    text = stringResource(R.string.kd_v_caps),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                PropertyRow(label = "Curva / Algoritmo", value = entry.algorithmOrCurve)
-                PropertyRow(label = "Uso Autorizado", value = entry.usageDescription)
-                PropertyRow(label = "Identificador de Slot NVS", value = "0x20 (Memória Criptografada do Chip)")
-                PropertyRow(label = "Compatibilidade", value = "OpenSSH (sk-ssh-ed25519), Git Sign, GPG, Cosign")
+                PropertyRow(label = stringResource(R.string.kd_v_curve), value = entry.algorithmOrCurve)
+                PropertyRow(label = stringResource(R.string.kd_v_usage), value = entry.usageDescription)
+                PropertyRow(label = stringResource(R.string.kd_v_slot), value = stringResource(R.string.kd_v_slot_val))
+                PropertyRow(label = stringResource(R.string.kd_v_compat), value = stringResource(R.string.kd_v_compat_val))
             }
         }
 
         // Card Interativo: Assinar Documento / Git / SSH
         InteractiveSignCard(
-            title = "Assinar Documento, Commit Git ou Desafio SSH",
-            subtitle = "O chip calcula a assinatura digital ECDSA/Ed25519 usando a chave interna sem nunca expô-la:",
+            title = stringResource(R.string.kd_v_sign_title),
+            subtitle = stringResource(R.string.kd_v_sign_desc),
             inputValue = messageInput,
             onInputChange = onMessageChange,
-            buttonText = "Assinar no Hardware",
+            buttonText = stringResource(R.string.kd_v_sign_btn),
             onAction = onSignClick,
             isLoading = isActionLoading,
             resultText = signatureResult,
@@ -704,9 +706,9 @@ private fun VendorSigningSection(
 
         // Card Interativo: Exportar Envelope Selado AEGN
         InteractiveExportCard(
-            title = "Exportar Envelope Selado AEGN (0x21/0x22)",
-            subtitle = "Exporte o envelope AEGN selado em hardware para sincronização segura entre dispositivos:",
-            buttonText = "Exportar Envelope Selado",
+            title = stringResource(R.string.kd_v_exp_title),
+            subtitle = stringResource(R.string.kd_v_exp_desc),
+            buttonText = stringResource(R.string.kd_v_exp_btn),
             onAction = onExportEnvelopeClick,
             isLoading = isActionLoading,
             exportedEnvelope = exportedEnvelope ?: entry.envelopeHex.takeIf { it.isNotBlank() },
@@ -735,11 +737,11 @@ private fun PivSmartcardSection(
 ) {
     val slotCode = entry.derivationPathOrSlotCode.ifBlank { "9A" }
     val slotDescription = when {
-        slotCode.contains("9A") -> "9A Autenticação PIV (Logon Corporativo / Windows Hello)"
-        slotCode.contains("9C") -> "9C Assinatura Digital (ICP-Brasil / Certificados X.509)"
-        slotCode.contains("9D") -> "9D Gestão de Chaves / Cifragem de E-mails (S/MIME)"
-        slotCode.contains("9E") -> "9E Autenticação Física / Crachá de Acesso a Portas"
-        else -> "$slotCode Slot Smartcard PIV"
+        slotCode.contains("9A") -> stringResource(R.string.kd_piv_9a)
+        slotCode.contains("9C") -> stringResource(R.string.kd_piv_9c)
+        slotCode.contains("9D") -> stringResource(R.string.kd_piv_9d)
+        slotCode.contains("9E") -> stringResource(R.string.kd_piv_9e)
+        else -> stringResource(R.string.kd_piv_other, slotCode)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -747,13 +749,13 @@ private fun PivSmartcardSection(
         OutlinedCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Configuração do Smartcard NIST SP 800-73-4",
+                    text = stringResource(R.string.kd_piv_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                PropertyRow(label = "Função do Slot", value = slotDescription)
-                PropertyRow(label = "Algoritmo Criptográfico", value = entry.algorithmOrCurve)
-                PropertyRow(label = "Política de PIN", value = "Sempre Exigir PIN de Acesso (NIST SP 800-73-4)")
+                PropertyRow(label = stringResource(R.string.kd_piv_func), value = slotDescription)
+                PropertyRow(label = stringResource(R.string.kd_piv_algo), value = entry.algorithmOrCurve)
+                PropertyRow(label = stringResource(R.string.kd_piv_policy), value = stringResource(R.string.kd_piv_policy_val))
             }
         }
 
@@ -769,14 +771,14 @@ private fun PivSmartcardSection(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Configurar / Alterar PIN e PUK do Slot PIV (0x39)",
+                        text = stringResource(R.string.kd_pin_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
                 Text(
-                    text = "Defina o PIN de acesso (6 a 8 dígitos) e a chave de desbloqueio PUK (8 dígitos) gravadas no chip:",
+                    text = stringResource(R.string.kd_pin_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -788,7 +790,7 @@ private fun PivSmartcardSection(
                     OutlinedTextField(
                         value = newPin,
                         onValueChange = onPinChange,
-                        label = { Text("Novo PIN (6-8)") },
+                        label = { Text(stringResource(R.string.kd_pin_new)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.weight(1f)
@@ -796,7 +798,7 @@ private fun PivSmartcardSection(
                     OutlinedTextField(
                         value = newPuk,
                         onValueChange = onPukChange,
-                        label = { Text("Novo PUK (8)") },
+                        label = { Text(stringResource(R.string.kd_puk_new)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.weight(1f)
@@ -814,7 +816,7 @@ private fun PivSmartcardSection(
                     } else {
                         Icon(imageVector = Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Gravar PIN/PUK no Smartcard")
+                        Text(stringResource(R.string.kd_pin_save))
                     }
                 }
             }
@@ -822,11 +824,11 @@ private fun PivSmartcardSection(
 
         // Card Interativo: Testar Autenticação PIV
         InteractiveSignCard(
-            title = "Testar Assinatura / Desafio de Autenticação PIV",
-            subtitle = "Autentique uma resposta com a chave corporativa NIST SP 800-73-4 do chip:",
+            title = stringResource(R.string.kd_test_title),
+            subtitle = stringResource(R.string.kd_test_desc),
             inputValue = challengeInput,
             onInputChange = onChallengeChange,
-            buttonText = "Assinar Desafio PIV",
+            buttonText = stringResource(R.string.kd_test_btn),
             onAction = onSignClick,
             isLoading = isActionLoading,
             resultText = signatureResult,
@@ -855,21 +857,21 @@ private fun AegnEnvelopeSection(
         OutlinedCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Integridade do Envelope AEGN v1",
+                    text = stringResource(R.string.kd_a_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                PropertyRow(label = "Cabeçalho do Envelope", value = "AEGN v1 (Magic Header 0x4145474E)")
-                PropertyRow(label = "Criptografia", value = "AES-256-GCM com Tag de Autenticação de 128 bits")
-                PropertyRow(label = "Chave de Envelope (DKEK)", value = "Derivada exclusivamente do chip de hardware (0x21)")
+                PropertyRow(label = stringResource(R.string.kd_a_head), value = stringResource(R.string.kd_a_head_val))
+                PropertyRow(label = stringResource(R.string.kd_a_crypto), value = stringResource(R.string.kd_a_crypto_val))
+                PropertyRow(label = stringResource(R.string.kd_a_dkek), value = stringResource(R.string.kd_a_dkek_val))
             }
         }
 
         // Card Interativo: Inspecionar e Exportar Envelope
         InteractiveExportCard(
-            title = "Inspecionar e Exportar Envelope Criptografado",
-            subtitle = "Payload completo autenticado com AES-256-GCM pronto para importação ou backup seguro:",
-            buttonText = "Copiar / Validar Envelope AEGN",
+            title = stringResource(R.string.kd_a_insp_title),
+            subtitle = stringResource(R.string.kd_a_insp_desc),
+            buttonText = stringResource(R.string.kd_a_insp_btn),
             onAction = onExportEnvelopeClick,
             isLoading = isActionLoading,
             exportedEnvelope = exportedEnvelope ?: entry.envelopeHex.takeIf { it.isNotBlank() },
@@ -878,11 +880,11 @@ private fun AegnEnvelopeSection(
 
         // Card Interativo: Provar Posse / Assinar com Segredo
         InteractiveSignCard(
-            title = "Provar Posse / Assinar com Segredo do Slot",
-            subtitle = "Gera uma prova de integridade HMAC ou assinatura digital vinculada ao segredo selado:",
+            title = stringResource(R.string.kd_a_prove_title),
+            subtitle = stringResource(R.string.kd_a_prove_desc),
             inputValue = challengeInput,
             onInputChange = onChallengeChange,
-            buttonText = "Provar Posse no Hardware",
+            buttonText = stringResource(R.string.kd_a_prove_btn),
             onAction = onSignClick,
             isLoading = isActionLoading,
             resultText = signatureResult,
@@ -919,7 +921,7 @@ private fun SecureHardwareDeletionCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Zona de Exclusão Segura no Hardware",
+                    text = stringResource(R.string.kd_zone_title),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error
@@ -927,7 +929,7 @@ private fun SecureHardwareDeletionCard(
             }
 
             Text(
-                text = "Ao excluir esta chave, o comando de expurgo 0x23 será enviado diretamente à AegisKey. A área de memória do chip será sobrescrita com zeros criptográficos e a chave deixará de existir no hardware.",
+                text = stringResource(R.string.kd_zone_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -943,7 +945,7 @@ private fun SecureHardwareDeletionCard(
             ) {
                 Icon(imageVector = Icons.Filled.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Excluir Chave do Chip Físico (0x23)")
+                Text(stringResource(R.string.kd_zone_btn))
             }
         }
     }
@@ -999,7 +1001,7 @@ private fun InteractiveSignCard(
             OutlinedTextField(
                 value = inputValue,
                 onValueChange = onInputChange,
-                label = { Text("Desafio / Dados de Teste") },
+                label = { Text(stringResource(R.string.kd_challenge_label)) },
                 maxLines = 2,
                 textStyle = AegisAddressMonospaceStyle.copy(fontSize = 12.sp),
                 modifier = Modifier.fillMaxWidth()
@@ -1033,13 +1035,13 @@ private fun InteractiveSignCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Assinatura Gerada pelo Chip:",
+                                text = stringResource(R.string.kd_signed_label),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             QuickActionPillButton(
-                                text = "Copiar",
+                                text = stringResource(R.string.action_copy),
                                 icon = Icons.Filled.ContentCopy,
                                 onClick = { onCopy(resultText ?: "") }
                             )
@@ -1099,13 +1101,13 @@ private fun InteractiveExportCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Payload Envelope AEGN:",
+                                text = stringResource(R.string.kd_env_label),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             QuickActionPillButton(
-                                text = "Copiar",
+                                text = stringResource(R.string.action_copy),
                                 icon = Icons.Filled.ContentCopy,
                                 onClick = { onCopy(exportedEnvelope ?: "") }
                             )

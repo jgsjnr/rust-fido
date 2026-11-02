@@ -21,9 +21,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 import dev.aegiskey.app.ui.atomic.atoms.SecondaryBackButton
 import dev.aegiskey.app.ui.atomic.atoms.StepProgressDotsAtom
@@ -37,8 +39,8 @@ fun WizardStepTemplate(
     totalSteps: Int,
     title: String,
     onNextClick: () -> Unit,
+    nextButtonText: String,
     subtitle: String? = null,
-    nextButtonText: String = if (currentStep >= totalSteps) "Complete" else "Next",
     isNextEnabled: Boolean = true,
     isNextLoading: Boolean = false,
     onBackClick: (() -> Unit)? = null,
@@ -117,6 +119,7 @@ fun WizardStepTemplate(
             ) {
                 if (onBackClick != null) {
                     SecondaryBackButton(
+                        text = stringResource(R.string.wizard_btn_back),
                         onClick = onBackClick,
                         modifier = Modifier.weight(1f),
                     )

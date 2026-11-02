@@ -50,10 +50,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
@@ -119,24 +121,24 @@ fun FriendlyOnboardingWizardScreen(
     val totalSteps = uiState.currentStep.totalSteps
 
     val stepTitle = when (uiState.currentStep) {
-        OnboardingStep.WELCOME_TRANSPORT -> "Select Connection Method"
-        OnboardingStep.HOLD_PHYSICAL_BUTTON -> "Activate Security Key"
-        OnboardingStep.DISCOVER_AND_CONNECT -> "Find Security Key"
-        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> "Confirm User Presence"
-        OnboardingStep.NAME_AND_FINISH -> "Name Security Key"
+        OnboardingStep.WELCOME_TRANSPORT -> stringResource(R.string.wizard_title_transport)
+        OnboardingStep.HOLD_PHYSICAL_BUTTON -> stringResource(R.string.wizard_title_hold)
+        OnboardingStep.DISCOVER_AND_CONNECT -> stringResource(R.string.wizard_title_discover)
+        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> stringResource(R.string.wizard_title_bind)
+        OnboardingStep.NAME_AND_FINISH -> stringResource(R.string.wizard_title_name)
     }
 
     val stepSubtitle = when (uiState.currentStep) {
-        OnboardingStep.WELCOME_TRANSPORT -> "Select how to connect the security key to this device."
-        OnboardingStep.HOLD_PHYSICAL_BUTTON -> "Press and hold the physical button for 5 seconds."
-        OnboardingStep.DISCOVER_AND_CONNECT -> "Select your security key from the list to connect."
-        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> "Presence confirmed automatically via hardware command 0x2F."
-        OnboardingStep.NAME_AND_FINISH -> "Enter a name for the security key and complete setup."
+        OnboardingStep.WELCOME_TRANSPORT -> stringResource(R.string.wizard_desc_transport)
+        OnboardingStep.HOLD_PHYSICAL_BUTTON -> stringResource(R.string.wizard_desc_hold)
+        OnboardingStep.DISCOVER_AND_CONNECT -> stringResource(R.string.wizard_desc_discover)
+        OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> stringResource(R.string.onb_bind_hw_desc)
+        OnboardingStep.NAME_AND_FINISH -> stringResource(R.string.wizard_desc_name)
     }
 
     val nextButtonText = when (uiState.currentStep) {
-        OnboardingStep.NAME_AND_FINISH -> "Complete Setup"
-        else -> "Next"
+        OnboardingStep.NAME_AND_FINISH -> stringResource(R.string.wizard_btn_complete)
+        else -> stringResource(R.string.wizard_btn_next)
     }
 
     val isNextLoading = uiState.isConnecting || uiState.isBinding
@@ -180,7 +182,7 @@ fun FriendlyOnboardingWizardScreen(
                 ) {
                     Icon(imageVector = Icons.Filled.Usb, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("⚡ Conectar chave USB detectada e abrir Cofre", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.onb_usb_open), fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -191,7 +193,7 @@ fun FriendlyOnboardingWizardScreen(
             ) {
                 Icon(imageVector = Icons.Filled.VpnKey, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Já tenho uma chave configurada — Ir para o Cofre", fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.onb_skip), fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -303,50 +305,50 @@ private fun WelcomeTransportStepContent(
                     Icon(imageVector = Icons.Filled.Usb, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Chave USB Conectada", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                        Text("Chave AegisKey física detectada via USB OTG.", style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.onb_usb_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.onb_usb_desc), style = MaterialTheme.typography.bodySmall)
                     }
                     Button(onClick = onConnectUsb, shape = RoundedCornerShape(8.dp)) {
-                        Text("Abrir Cofre")
+                        Text(stringResource(R.string.onb_open_vault))
                     }
                 }
             }
         }
 
         TransportOptionCard(
-            title = "Bluetooth Low Energy",
-            description = "Connect to the security key wirelessly via Bluetooth (BLE).",
+            title = stringResource(R.string.onb_transport_ble),
+            description = stringResource(R.string.onb_transport_ble_desc),
             icon = Icons.Filled.Bluetooth,
             isSelected = selectedTransport == ConnectionTransportType.BLE,
-            badgeText = "Recommended",
+            badgeText = stringResource(R.string.onb_transport_ble_badge),
             onSelect = { onSelectTransport(ConnectionTransportType.BLE) },
         )
 
         TransportOptionCard(
-            title = "USB Cable or Serial (UART)",
-            description = "Connect via direct USB-C cable or host bridge emulator.",
+            title = stringResource(R.string.onb_transport_usb),
+            description = stringResource(R.string.onb_transport_usb_desc),
             icon = Icons.Filled.Usb,
             isSelected = selectedTransport == ConnectionTransportType.USB,
-            badgeText = "Wired",
+            badgeText = stringResource(R.string.onb_transport_usb_badge),
             onSelect = { onSelectTransport(ConnectionTransportType.USB) },
         )
 
         TransportOptionCard(
-            title = "Wi-Fi Access Point",
-            description = "Connect to the security key access point (192.168.4.1).",
+            title = stringResource(R.string.onb_transport_wifi),
+            description = stringResource(R.string.onb_transport_wifi_desc),
             icon = Icons.Filled.Wifi,
             isSelected = selectedTransport == ConnectionTransportType.WIFI,
-            badgeText = "Direct",
+            badgeText = stringResource(R.string.onb_transport_wifi_badge),
             onSelect = { onSelectTransport(ConnectionTransportType.WIFI) },
         )
 
         if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
             TransportOptionCard(
-                title = "Virtual Simulator (Renode / Test)",
-                description = "Connect to simulated hardware in memory or TCP bridge.",
+                title = stringResource(R.string.onb_transport_sim),
+                description = stringResource(R.string.onb_transport_sim_desc),
                 icon = Icons.Filled.Computer,
                 isSelected = selectedTransport == ConnectionTransportType.SIMULATOR,
-                badgeText = "Debug",
+                badgeText = stringResource(R.string.onb_transport_sim_badge),
                 onSelect = { onSelectTransport(ConnectionTransportType.SIMULATOR) },
             )
         }
@@ -374,12 +376,10 @@ private fun HoldPhysicalButtonStepContent(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = Icons.Filled.TouchApp, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Função do Botão Físico BOOT (GPIO 0)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.onb_boot_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                 }
                 Text(
-                    text = "• Segurar por 5s: Abre a janela de pareamento Bluetooth por 60 segundos (necessário apenas para novo pareamento BLE).\n" +
-                           "• No USB OTG: O aplicativo já envia o comando 0x2F automaticamente sem precisar segurar o botão!\n" +
-                           "• Toque rápido (1s): Confirma presença física (User Presence) quando solicitado em operações críticas.",
+                    text = stringResource(R.string.onb_boot_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -395,13 +395,13 @@ private fun HoldPhysicalButtonStepContent(
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("USB OTG ativo: A ativação é direta. Toque em Next para avançar.", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.onb_usb_otg), style = MaterialTheme.typography.bodySmall)
                 }
             }
         } else {
             PhysicalButtonPromptCardMolecule(
-                title = "Press and hold the button",
-                instruction = "Press and hold the physical button for 5 seconds until the LED flashes.",
+                title = stringResource(R.string.onb_hold_btn),
+                instruction = stringResource(R.string.onb_hold_instr),
                 isLongPress = true,
                 isSimulatedMode = isSimulated,
                 onSimulateTouch = onSimulateHold,
@@ -426,7 +426,7 @@ private fun HoldPhysicalButtonStepContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Activation signal received. Tap Next to continue.",
+                        text = stringResource(R.string.onb_activated),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -466,7 +466,7 @@ private fun DiscoverAndConnectStepContent(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
-                    text = if (isScanning) "Scanning for security keys..." else "Discovered security keys:",
+                    text = if (isScanning) stringResource(R.string.onb_scanning) else stringResource(R.string.onb_discovered),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -475,7 +475,7 @@ private fun DiscoverAndConnectStepContent(
             }
 
             QuickActionPillButton(
-                text = "Refresh scan",
+                text = stringResource(R.string.onb_refresh),
                 icon = Icons.Filled.Refresh,
                 onClick = onRefresh,
             )
@@ -499,7 +499,7 @@ private fun DiscoverAndConnectStepContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Simulator mode active: virtual security key connected automatically.",
+                        text = stringResource(R.string.onb_sim_active),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -520,7 +520,7 @@ private fun DiscoverAndConnectStepContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = "No security key found.",
+                        text = stringResource(R.string.onb_no_key),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -528,9 +528,9 @@ private fun DiscoverAndConnectStepContent(
                     )
                     Text(
                         text = if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
-                            "Ensure the button was pressed or test with the virtual security key."
+                            stringResource(R.string.onb_no_key_hint_mock)
                         } else {
-                            "Ensure Bluetooth or USB is connected and press the button on the security key."
+                            stringResource(R.string.onb_no_key_hint)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -547,7 +547,7 @@ private fun DiscoverAndConnectStepContent(
                             Icon(imageVector = Icons.Filled.Computer, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Use Test Simulator",
+                                text = stringResource(R.string.onb_use_sim),
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -599,14 +599,14 @@ private fun DiscoverAndConnectStepContent(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = candidate.name.ifBlank { "Security Key" },
+                            text = candidate.name.ifBlank { stringResource(R.string.default_security_key_name) },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "Tap to select",
+                            text = stringResource(R.string.onb_tap_select),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -617,7 +617,7 @@ private fun DiscoverAndConnectStepContent(
                     if (isSelected) {
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = "Selected",
+                            contentDescription = stringResource(R.string.cd_selected),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp),
                         )
@@ -652,12 +652,12 @@ private fun TouchAndBiometricBindStepContent(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Presença Confirmada",
+                        text = stringResource(R.string.onb_presence_ok),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Comando 0x2F enviado à chave com sucesso. Toque em Next para avançar.",
+                        text = stringResource(R.string.onb_presence_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -691,14 +691,14 @@ private fun TouchAndBiometricBindStepContent(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Cryptographic Device Binding",
+                        text = stringResource(R.string.onb_bind_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "The device stores an encrypted credential in Android KeyStore.",
+                        text = stringResource(R.string.onb_bind_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -721,8 +721,8 @@ private fun NameAndFinishStepContent(
         OutlinedTextField(
             value = keyAlias,
             onValueChange = onKeyAliasChange,
-            label = { Text("Security key name", maxLines = 1) },
-            placeholder = { Text("e.g. Primary Security Key", maxLines = 1) },
+            label = { Text(stringResource(R.string.keys_name_label), maxLines = 1) },
+            placeholder = { Text(stringResource(R.string.onb_name_hint), maxLines = 1) },
             leadingIcon = {
                 Icon(imageVector = Icons.Filled.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
             },
@@ -734,8 +734,8 @@ private fun NameAndFinishStepContent(
         OutlinedTextField(
             value = recoveryPin,
             onValueChange = onRecoveryPinChange,
-            label = { Text("Recovery PIN (Optional)", maxLines = 1) },
-            placeholder = { Text("4 to 16 numeric digits", maxLines = 1) },
+            label = { Text(stringResource(R.string.onb_pin_label), maxLines = 1) },
+            placeholder = { Text(stringResource(R.string.onb_pin_hint), maxLines = 1) },
             leadingIcon = {
                 Icon(imageVector = Icons.Filled.Pin, contentDescription = null, modifier = Modifier.size(18.dp))
             },
@@ -762,7 +762,7 @@ private fun NameAndFinishStepContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "The security key is ready to protect your accounts and vault entries.",
+                    text = stringResource(R.string.onb_ready),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

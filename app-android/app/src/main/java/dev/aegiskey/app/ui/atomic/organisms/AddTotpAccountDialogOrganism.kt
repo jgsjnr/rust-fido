@@ -34,11 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import dev.aegiskey.app.R
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
@@ -91,13 +93,14 @@ fun AddTotpAccountDialogOrganism(
     }
 
     val isFormValid = issuer.trim().isNotBlank() && secretOrUri.trim().isNotBlank()
+    val scanPrompt = stringResource(R.string.addtotp_scan_prompt)
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismissRequest() },
         shape = RoundedCornerShape(16.dp),
         title = {
             Text(
-                text = if (isHotp) "Add HOTP Account (Counter)" else "Add TOTP Account (Time)",
+                text = if (isHotp) stringResource(R.string.addtotp_title_hotp) else stringResource(R.string.addtotp_title_totp),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -112,7 +115,7 @@ fun AddTotpAccountDialogOrganism(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "The security key generates cryptographic codes offline.",
+                    text = stringResource(R.string.addtotp_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -123,7 +126,7 @@ fun AddTotpAccountDialogOrganism(
                 Button(
                     onClick = {
                         val options = ScanOptions().apply {
-                            setPrompt("Posicione o QR Code do TOTP")
+                            setPrompt(scanPrompt)
                             setBeepEnabled(false)
                             setOrientationLocked(false)
                         }
@@ -148,7 +151,7 @@ fun AddTotpAccountDialogOrganism(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Scan QR Code",
+                            text = stringResource(R.string.addtotp_scan_qr),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -179,7 +182,7 @@ fun AddTotpAccountDialogOrganism(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Fill test data",
+                                text = stringResource(R.string.addtotp_fill_test),
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -189,7 +192,7 @@ fun AddTotpAccountDialogOrganism(
                 }
 
                 Text(
-                    text = "Code Type:",
+                    text = stringResource(R.string.addtotp_code_type),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -200,17 +203,17 @@ fun AddTotpAccountDialogOrganism(
                     FilterChip(
                         selected = !isHotp,
                         onClick = { isHotp = false },
-                        label = { Text("TOTP (30s Time)", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.addtotp_type_totp), style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = isHotp,
                         onClick = { isHotp = true },
-                        label = { Text("HOTP (Counter)", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.addtotp_type_hotp), style = MaterialTheme.typography.labelSmall) }
                     )
                 }
 
                 Text(
-                    text = "Code Length:",
+                    text = stringResource(R.string.addtotp_code_len),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -221,20 +224,20 @@ fun AddTotpAccountDialogOrganism(
                     FilterChip(
                         selected = digits == 6,
                         onClick = { digits = 6 },
-                        label = { Text("6 digits (Standard)", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.addtotp_len_6), style = MaterialTheme.typography.labelSmall) }
                     )
                     FilterChip(
                         selected = digits == 8,
                         onClick = { digits = 8 },
-                        label = { Text("8 digits", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.addtotp_len_8), style = MaterialTheme.typography.labelSmall) }
                     )
                 }
 
                 OutlinedTextField(
                     value = issuer,
                     onValueChange = { issuer = it },
-                    label = { Text("Service name", maxLines = 1) },
-                    placeholder = { Text("e.g. Google or GitHub", maxLines = 1) },
+                    label = { Text(stringResource(R.string.addtotp_svc_label), maxLines = 1) },
+                    placeholder = { Text(stringResource(R.string.addtotp_svc_hint), maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -244,8 +247,8 @@ fun AddTotpAccountDialogOrganism(
                 OutlinedTextField(
                     value = accountName,
                     onValueChange = { accountName = it },
-                    label = { Text("Account name or email", maxLines = 1) },
-                    placeholder = { Text("e.g. user@company.com", maxLines = 1) },
+                    label = { Text(stringResource(R.string.addtotp_acc_label), maxLines = 1) },
+                    placeholder = { Text(stringResource(R.string.addtotp_acc_hint), maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -255,8 +258,8 @@ fun AddTotpAccountDialogOrganism(
                 OutlinedTextField(
                     value = secretOrUri,
                     onValueChange = { secretOrUri = it },
-                    label = { Text("Secret key or otpauth:// URI", maxLines = 1) },
-                    placeholder = { Text("Paste Base32 secret", maxLines = 1) },
+                    label = { Text(stringResource(R.string.addtotp_sec_label), maxLines = 1) },
+                    placeholder = { Text(stringResource(R.string.addtotp_sec_hint), maxLines = 1) },
                     singleLine = true,
                     enabled = !isLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -266,7 +269,7 @@ fun AddTotpAccountDialogOrganism(
         },
         confirmButton = {
             PrimaryNextButton(
-                text = "Save to Security Key",
+                text = stringResource(R.string.addtotp_save),
                 enabled = isFormValid,
                 isLoading = isLoading,
                 onClick = {
@@ -289,7 +292,7 @@ fun AddTotpAccountDialogOrganism(
                 enabled = !isLoading,
             ) {
                 Text(
-                    text = "Cancel",
+                    text = stringResource(R.string.guard_btn_cancel),
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                 )

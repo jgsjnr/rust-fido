@@ -78,10 +78,11 @@ fun PrimaryNextButton(
 
 /**
  * Secondary back button ("Back").
+ * Text is always supplied by the caller (localized).
  */
 @Composable
 fun SecondaryBackButton(
-    text: String = "Back",
+    text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,

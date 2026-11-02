@@ -10,6 +10,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
+import dev.aegiskey.app.R
 import java.io.File
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -223,7 +224,7 @@ object BindingKey {
         val prompt = BiometricPrompt.Builder(activity)
             .setTitle(title.take(64))
             .setSubtitle(subtitle.take(128))
-            .setNegativeButton("Cancelar", activity.mainExecutor) { _, _ ->
+            .setNegativeButton(activity.getString(R.string.guard_btn_cancel), activity.mainExecutor) { _, _ ->
                 onResult(SignResult.Failed("cancelled"))
             }
             .build()

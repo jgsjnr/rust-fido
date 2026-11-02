@@ -27,10 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ui.atomic.molecules.SettingToggleRowMolecule
 import dev.aegiskey.app.ui.theme.ThemeMode
 
@@ -119,7 +121,7 @@ fun ThemeSelectorOrganism(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Theme and Appearance",
+            text = stringResource(R.string.theme_title),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -131,7 +133,7 @@ fun ThemeSelectorOrganism(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ThemeModeOptionCard(
-                label = "System",
+                label = stringResource(R.string.theme_mode_system),
                 icon = Icons.Filled.BrightnessAuto,
                 isSelected = selectedThemeMode == ThemeMode.SYSTEM,
                 onSelect = { onThemeModeChange(ThemeMode.SYSTEM) },
@@ -139,7 +141,7 @@ fun ThemeSelectorOrganism(
             )
 
             ThemeModeOptionCard(
-                label = "Light",
+                label = stringResource(R.string.theme_mode_light),
                 icon = Icons.Filled.LightMode,
                 isSelected = selectedThemeMode == ThemeMode.LIGHT,
                 onSelect = { onThemeModeChange(ThemeMode.LIGHT) },
@@ -147,7 +149,7 @@ fun ThemeSelectorOrganism(
             )
 
             ThemeModeOptionCard(
-                label = "Dark",
+                label = stringResource(R.string.theme_mode_dark),
                 icon = Icons.Filled.DarkMode,
                 isSelected = selectedThemeMode == ThemeMode.DARK,
                 onSelect = { onThemeModeChange(ThemeMode.DARK) },
@@ -156,8 +158,8 @@ fun ThemeSelectorOrganism(
         }
 
         SettingToggleRowMolecule(
-            title = "Dynamic Colors",
-            description = "Apply Material You dynamic palette from system wallpaper.",
+            title = stringResource(R.string.theme_dynamic_title),
+            description = stringResource(R.string.theme_dynamic_desc),
             icon = Icons.Filled.Palette,
             checked = dynamicColorEnabled,
             onCheckedChange = onDynamicColorToggle,

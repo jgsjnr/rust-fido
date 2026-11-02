@@ -27,9 +27,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 import dev.aegiskey.app.ui.atomic.atoms.TotpCountdownRingAtom
 import dev.aegiskey.app.ui.theme.AegisCodeMonospaceStyle
@@ -58,6 +60,8 @@ fun TotpCodeCardMolecule(
     modifier: Modifier = Modifier,
 ) {
     val formattedCode = formatGroupedDigits(code)
+    val issuerFallback = stringResource(R.string.totp_card_fallback_issuer)
+    val accountFallback = stringResource(R.string.totp_card_fallback_account)
 
     ElevatedCard(
         shape = RoundedCornerShape(14.dp),
@@ -99,7 +103,7 @@ fun TotpCodeCardMolecule(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = issuer.ifBlank { "Access Code" },
+                            text = issuer.ifBlank { issuerFallback },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -123,7 +127,7 @@ fun TotpCodeCardMolecule(
                     }
 
                     Text(
-                        text = accountName.ifBlank { "Primary Account" },
+                        text = accountName.ifBlank { accountFallback },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -138,7 +142,7 @@ fun TotpCodeCardMolecule(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
-                            contentDescription = "Delete code",
+                            contentDescription = stringResource(R.string.cd_delete_code),
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                             modifier = Modifier.size(16.dp),
                         )
@@ -170,7 +174,7 @@ fun TotpCodeCardMolecule(
                         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
                     ) {
                         Text(
-                            text = "Counter #$counter",
+                            text = stringResource(R.string.totp_card_counter, counter),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -200,13 +204,13 @@ fun TotpCodeCardMolecule(
                     ) {
                         Icon(imageVector = Icons.Filled.PlusOne, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Next Code (+1)", style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.totp_card_next_code), style = MaterialTheme.typography.labelSmall)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                 }
 
                 QuickActionPillButton(
-                    text = "Copy code",
+                    text = stringResource(R.string.totp_card_copy),
                     icon = Icons.Filled.ContentCopy,
                     onClick = { onCopyCode(code.filter { it.isDigit() }) },
                 )

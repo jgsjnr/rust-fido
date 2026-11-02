@@ -662,20 +662,32 @@ private fun HardwareManagerSummaryPanel(
                     ) {
                         Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "Health status: ${diagnostics?.healthStatusText ?: "Hardware OK (ATECC608A + ESP32-S3)"}",
+                                text = stringResource(
+                                    R.string.vault_diag_health,
+                                    diagnostics?.healthStatusText ?: stringResource(R.string.vault_diag_health_ok)
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "PIV Slots: ${diagnostics?.pivSlotsAvailable?.joinToString() ?: "9A, 9C, 9D, 9E"}",
+                                text = stringResource(
+                                    R.string.vault_diag_piv,
+                                    diagnostics?.pivSlotsAvailable?.joinToString() ?: stringResource(R.string.vault_diag_piv_ok)
+                                ),
                                 style = MaterialTheme.typography.labelSmall
                             )
                             Text(
-                                text = "Hardware PIN: ${if (diagnostics?.isPinConfigured == true) "Configured" else "Default"}",
+                                text = stringResource(
+                                    R.string.vault_diag_pin,
+                                    if (diagnostics?.isPinConfigured == true) stringResource(R.string.vault_diag_pin_ok) else stringResource(R.string.vault_diag_pin_default)
+                                ),
                                 style = MaterialTheme.typography.labelSmall
                             )
                             Text(
-                                text = "Device binding: ${if (diagnostics?.isBoundToThisPhone == true) "Bound to this device" else "Unbound"}",
+                                text = stringResource(
+                                    R.string.vault_diag_bind,
+                                    if (diagnostics?.isBoundToThisPhone == true) stringResource(R.string.vault_diag_bound) else stringResource(R.string.vault_diag_unbound)
+                                ),
                                 style = MaterialTheme.typography.labelSmall
                             )
                             Text(
