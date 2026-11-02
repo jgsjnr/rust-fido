@@ -1,0 +1,111 @@
+# ci.yml — the ONLY CI workflow (tudo estruturado, sem coisas soltas).
+#
+# Design:
+# - Every check lives in tools/run_all.py. This file ONLY bootstraps
+#   toolchains (checkout, Python, Rust, cargo-deny) and invokes run_all.py.
+#   No check commands are duplicated here — DRY by construction.
+# - windows-latest: repo tooling/scripts are pwsh + ESP-IDF paths are
+#   Windows-oriented, so CI runs where the scripts run.
+# - No dependabot.yml by decision: cargo-deny `advisories` (a run_all.py gate
+#   leg, pinned to 0.20.2 below to match reports) already covers vuln
+#   tracking; a second updater would be coisa solta.
+# - Action pins: tag + comment (tags used are the upstreams stable refs).
+#
+# Jobs:
+# - validate: default legs, no release (push/PR on this branch + manual).
+# - validate-release: full legs incl. release, manual dispatch only
+#   (Actions tab -> Run workflow -> release=true).
+
+name: ci
+
+on:
+  push:
+    branches: [refactor/standalone-architecture-cleanup]
+  pull_request:
+    branches: [refactor/standalone-architecture-cleanup]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Run release legs too (tools/run_all.py --release)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # stable tag; upstream keeps v4 immutable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5 # stable tag
+        with:
+          python-version: '3.12'
+
+      - name: Setup Rust stable (minimal profile)
+        # dtolnay/rust-toolchain installs via rustup with
+        # --profile minimal --no-self-update by default.
+        uses: dtolnay/rust-toolchain@stable # stable tag = latest stable toolchain
+
+      - name: Install cargo-deny 0.20.2
+        # 0.20.2 pinned to match reports; taiki-e/install-action restores
+        # the prebuilt binary from cache when available (no cargo build).
+        uses: taiki-e/install-action@v2 # stable major tag
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Run all gates (default legs, no release)
+        run: python tools/run_all.py
+
+      - name: Upload consolidated results
+        if: always()
+        uses: actions/upload-artifact@v4 # stable tag
+        with:
+          name: consolidated-results
+          path: |
+            reports/testing/consolidated-result.json
+            reports/testing/CONSOLIDATED_RUN.md
+          if-no-files-found: warn
+
+  validate-release:
+    # Manual dispatch only, with release=true. Same bootstrap as `validate`
+    # (duplicated steps on purpose: no composite action = sem coisas soltas).
+    if: github.event_name == 'workflow_dispatch' && inputs.release == true
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # stable tag; upstream keeps v4 immutable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5 # stable tag
+        with:
+          python-version: '3.12'
+
+      - name: Setup Rust stable (minimal profile)
+        # dtolnay/rust-toolchain installs via rustup with
+        # --profile minimal --no-self-update by default.
+        uses: dtolnay/rust-toolchain@stable # stable tag = latest stable toolchain
+
+      - name: Install cargo-deny 0.20.2
+        # 0.20.2 pinned to match reports; taiki-e/install-action restores
+        # the prebuilt binary from cache when available (no cargo build).
+        uses: taiki-e/install-action@v2 # stable major tag
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Run all gates (release legs)
+        run: python tools/run_all.py --release
+
+      - name: Upload consolidated results
+        if: always()
+        uses: actions/upload-artifact@v4 # stable tag
+        with:
+          name: consolidated-results-release
+          path: |
+            reports/testing/consolidated-result.json
+            reports/testing/CONSOLIDATED_RUN.md
+          if-no-files-found: warn
