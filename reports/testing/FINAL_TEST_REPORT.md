@@ -104,3 +104,68 @@ weakening any assertion: the demo now waits for the `EVT_TICK_10MS` bit
 - `git log --oneline -6`: `33df2ea` / `ab1dfcd` / `c48038b` / `d33cf41` / `e683979` / `6a3fd53`.
 - Migracao: p256/k256/p384/p521 0.13->0.14 (+ecdsa 0.17, elliptic-curve 0.14, signature 3.0, ed25519-dalek 3.0, crypto-bigint 0.7.10). Wire-preserving (Sec1Point alias, mesmos bytes, try_sign propaga erro).
 - Escopo desta lane: somente `cargo deny check licenses advisories bans sources` (exit 0) + `git log --oneline -6` para SHAs; demais gates usados verbatim do dono do codigo, sem re-validacao.
+
+## Pos-JNI (HEAD `915ebf3`, 2026-11-02 UTC) — UniFFI removido, zero MPL
+
+- Commit: `915ebf3` "refactor(ffi): drop UniFFI runtime for manual JNI (zero MPL)".
+  `crates/uniffi-bridge` sem `uniffi` (deps + build-dep + `build.rs` removidos);
+  22 funcoes de dominio byte-identicas + nova ABI `extern "C"` estavel (`aegis_*`,
+  two-call buffer protocol, JSON so na borda JNI). UDL congelada como referencia
+  (`reports/refactoring/UNIFFI_REMOVAL_PLAN.md`). Lock: 34 pacotes podados, 0
+  adicionados. `deny.toml` sem entrada MPL-2.0; notices/inventory/SBOM 273->239.
+- Toolchain: `cargo 1.99.1` / `rustc 1.99.1` (inalterada).
+- Escopo: host-only Windows x86_64. Sem ESP-IDF target, sem matriz NDK .so,
+  sem aceite em dispositivo fisico. Builds, mocked traffic, ports, screenshots,
+  emuladores e handshakes NAO sao aceitacao de dispositivo fisico.
+- Sem Mock/Fake/Stub em codigo de producao (somente testes/`cfg(test)`).
+
+### `cargo test --workspace` — PASS (exit 0, VERIFIED)
+
+- Log host-local: `$env:TEMP\postjni-workspace-test.log`.
+- Total: **937 passed, 0 failed, 1 ignored** (firmware doc-test, ignore
+  pre-existente). Delta pos-JNI vs `33df2ea`: 927 -> 937 (+10 na bridge).
+- Per-crate (todos `ok`):
+  - `aegis-fido-core` lib: 124 passed, 0 failed.
+  - `ctap_tests` integration: 9 passed, 0 failed.
+  - `e2e_vectors` integration: 1 passed, 0 failed.
+  - `aegis-fido-firmware` lib: 515 passed, 0 failed (demo
+    `freertos_sched` segue passando pos-`e683979`); bin `main`: 0 tests.
+  - firmware bins/integration: `applets_t9` 12, `freertos_tasks` 2,
+    `migration_tests` 3, `namespaced_store_t5` 14, `netwifi_t10` 16,
+    `otakey_provider_t6` 8, `proximity_freertos` 0, `secure_guard_integration` 2.
+  - `aegis-fido-usb` lib: 92 passed, 0 failed.
+  - `aegis-secure-guard` lib: 39 passed, 0 failed.
+  - `aegis-bridge` lib (`uniffi-bridge` crate): **36 passed, 0 failed** —
+    27 de dominio preservadas + 9 FFI novas (`ffi_c_abi`, NULL-reject,
+    length-query, mapeamento de codigos de erro).
+  - `universal-device-sdk` lib: **64 passed, 0 failed**.
+  - Doc-tests: todos `ok` (1 ignored pre-existente).
+
+### Focado single-thread (`--test-threads=1`) — PASS exato
+
+- `cargo test -p uniffi-bridge -- --test-threads=1`: **36 passed, 0 failed,
+  0 ignored** (exit 0) — resultado focado exato, multiprocess-safe.
+- `cargo test -p universal-device-sdk`: **64 passed, 0 failed** (exit 0).
+
+### `cargo clippy --workspace --all-targets -- -D warnings` — PASS (exit 0, VERIFIED)
+
+- `Finished dev profile [unoptimized + debuginfo]` sem warnings (10.49s).
+
+### `cargo deny check licenses advisories bans sources` — PASS (exit 0, VERIFIED)
+
+- Log host-local: `$env:TEMP\postjni-deny.log`.
+  `advisories ok, bans ok, licenses ok, sources ok`.
+- MPL eliminado: `cargo tree -i uniffi` nao casa nenhum pacote (zero `uniffi*`
+  no grafo); unicas ocorrencias de "mpl" no log sao substrings
+  (`thiserror-impl`, `windows-implement`), nao licenca MPL-2.0.
+- Notices/inventory 273->239 entradas (SBOM 280->246 pacotes/relacoes),
+  conforme commit `915ebf3` (dono da lane FFI).
+
+### Veredito pos-JNI (`915ebf3`)
+
+- `cargo test --workspace`: PASS (exit 0, 937/0/1). Bridge 36/36, SDK 64/64.
+- Focado `--test-threads=1` (bridge): PASS exato 36/0.
+- `cargo clippy --workspace --all-targets -- -D warnings`: PASS (exit 0).
+- `cargo deny check licenses advisories bans sources`: PASS (exit 0, MPL gone).
+- `cargo fmt --check`: segue BLOCKED (28 arquivos, pre-existente, nao revalidado).
+- ESP-IDF/on-device: nao validados nesta lane (fora de escopo host-only).
