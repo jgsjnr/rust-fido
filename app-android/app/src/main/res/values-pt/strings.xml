@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Glossary (ASD-STE100): key = chave de segurança. vault = cofre.
+         guard = autoridade Secure Guard no chip. wipe = apagar dados.
+         share = parte de backup. quorum = aprovações para recuperar.
+         Texto curto. Um conceito por string. Sem emoji. -->
     <!-- App & Navigation -->
     <string name="app_name">AegisKey</string>
     <string name="nav_vault">Cofre</string>
@@ -65,6 +69,20 @@
     <string name="guard_unlock_success">Cofre desbloqueado com sucesso.</string>
     <string name="guard_lock_success">Cofre bloqueado imediatamente.</string>
     <string name="guard_change_pin_success">PIN alterado com sucesso. Cofre bloqueado.</string>
+    <string name="guard_session_pin_title">Autenticação de Sessão de Hardware</string>
+    <string name="guard_session_pin_desc_unlock">Digite seu PIN para autenticar e desbloquear uma sessão sincronizada com a carteira de hardware.</string>
+    <string name="guard_session_pin_desc_wipe">Digite seu PIN para autenticar e autorizar uma Limpeza Seletiva na carteira de hardware.</string>
+    <string name="guard_session_pin_desc_reset">Digite seu PIN para autenticar e executar um Reset de Fábrica na carteira de hardware.</string>
+    <string name="guard_session_pin_desc_config">Digite seu PIN para autenticar e atualizar as Políticas de Segurança na carteira de hardware.</string>
+    <string name="guard_session_pin_desc_key_op">Sessão de hardware exigida. Digite seu PIN para autenticar esta operação na carteira de hardware.</string>
+    <string name="guard_session_unprovisioned_hint">Nenhum PIN padrão no hardware. Digite seu PIN (ex.: 123456 na configuração inicial) para autenticar esta sessão na carteira de hardware.</string>
+    <string name="guard_session_active_badge">Sessão Ativa</string>
+    <string name="guard_session_locked_badge">Sessão Bloqueada</string>
+    <string name="guard_session_unprovisioned_badge">Não Provisionado</string>
+    <string name="guard_btn_unlock_session">Desbloquear Sessão</string>
+    <string name="guard_reset_title">Reset de Fábrica do Hardware</string>
+    <string name="guard_confirm_reset_btn">Confirmar Reset</string>
+    <string name="vault_sign_btn">Assinar Transação</string>
 
     <!-- Keypad Molecule -->
     <string name="pin_label_default">PIN do Cofre</string>
@@ -151,10 +169,10 @@
     <string name="efuse_status_write_lock_val">BLOQUEADO / GRAVAÇÃO DESATIVADA</string>
 
     <!-- OPP-05: Backup Shamir Secret Sharing 2-de-3 (SLIP-0039) -->
-    <string name="shamir_backup_title">Shamir 2-of-3 Backup (SLIP-0039)</string>
+    <string name="shamir_backup_title">Backup Shamir 2-de-3 (SLIP-0039)</string>
     <string name="shamir_backup_desc">Divide a semente mestre em 3 partes criptográficas. Quaisquer 2 partes recuperam o cofre.</string>
-    <string name="shamir_generate_shares_btn">Generate 3 Hardware Shares</string>
-    <string name="shamir_recover_shares_btn">Recover from 2 Shares</string>
+    <string name="shamir_generate_shares_btn">Gerar 3 Partes de Hardware</string>
+    <string name="shamir_recover_shares_btn">Recuperar com 2 Partes</string>
     <string name="shamir_share_1_label">Parte 1 (Chave de Hardware A)</string>
     <string name="shamir_share_2_label">Parte 2 (Chave de Hardware B)</string>
     <string name="shamir_share_3_label">Parte 3 (Parte em Papel Offline)</string>
@@ -169,13 +187,13 @@
     <string name="shamir_copy_share">Copiar Parte</string>
 
     <!-- OPP-02: CTAP 2.1 hmac-secret & largeBlobKey -->
-    <string name="ctap21_hmac_secret_title">CTAP 2.1 hmac-secret &amp; largeBlobKey Ready</string>
+    <string name="ctap21_hmac_secret_title">CTAP 2.1 hmac-secret e largeBlobKey Prontos</string>
     <string name="ctap21_hmac_secret_desc">Suporte no hardware para credenciais KeePassXC com sal, desbloqueio LUKS e envelopes criptografados de 4 KiB.</string>
     <string name="ctap21_hmac_secret_badge">CTAP 2.1 PRONTO</string>
 
     <!-- OPP-06: Pré-visualização Web3 Clear Signing -->
-    <string name="clear_signing_preview_title">Web3 Clear Signing Preview (Code-Only OLED 128x64)</string>
-    <string name="clear_signing_badge_code_only">CODE-ONLY OLED PREVIEW (NO PHYSICAL DISPLAY REQUIRED)</string>
+    <string name="clear_signing_preview_title">Prévia Web3 Clear Signing (OLED 128x64 só código)</string>
+    <string name="clear_signing_badge_code_only">PRÉVIA OLED SÓ CÓDIGO (SEM DISPLAY FÍSICO)</string>
     <string name="clear_signing_parsed_tx">Quadro Decodificado da Transação</string>
     <string name="clear_signing_network">Rede:</string>
     <string name="clear_signing_to_address">Destino:</string>
@@ -209,4 +227,494 @@
     <string name="keepassxc_crypto_ready">ChaCha20-Poly1305 / RSA-2048/3072 DS Pronto: PRONTO</string>
     <string name="keepassxc_psram_status">ESP32-S3 PSRAM 8MB: ATIVADO</string>
     <string name="keepassxc_desc">Derivação de chave mestra de bancos .kdbx do KeePassXC direto no hardware com limpeza imediata da SRAM e proteção por PIN.</string>
+
+    <!-- Ações genéricas -->
+    <string name="action_select">Selecionar</string>
+    <string name="action_rename">Renomear</string>
+    <string name="action_unbind">Desvincular</string>
+    <string name="action_save">Salvar</string>
+    <string name="action_copy">Copiar</string>
+    <string name="action_copy_all">Copiar tudo</string>
+    <string name="action_clear_logs">Limpar registros</string>
+    <string name="action_done">Concluir</string>
+    <string name="cd_back">Voltar</string>
+    <string name="cd_delete_code">Excluir código</string>
+    <string name="cd_delete_vault">Excluir do cofre</string>
+    <string name="cd_selected">Selecionado</string>
+
+    <!-- Cartão de código TOTP -->
+    <string name="totp_card_fallback_issuer">Código de acesso</string>
+    <string name="totp_card_fallback_account">Conta principal</string>
+    <string name="totp_card_next_code">Próximo código (+1)</string>
+    <string name="totp_card_copy">Copiar código</string>
+    <string name="totp_card_counter">Contador #%1$d</string>
+
+    <!-- Cartão de chave -->
+    <string name="key_card_active">Ativa</string>
+    <string name="key_card_serial">Série: %1$s</string>
+
+    <!-- Cartão do cofre -->
+    <string name="vault_card_manage">Gerenciar</string>
+
+    <!-- Diagnóstico do cofre -->
+    <string name="vault_diag_health">Estado de saúde: %1$s</string>
+    <string name="vault_diag_health_ok">Hardware OK (ATECC608A + ESP32-S3)</string>
+    <string name="vault_diag_piv">Slots PIV: %1$s</string>
+    <string name="vault_diag_piv_ok">9A, 9C, 9D, 9E</string>
+    <string name="vault_diag_pin">PIN de hardware: %1$s</string>
+    <string name="vault_diag_pin_ok">Configurado</string>
+    <string name="vault_diag_pin_default">Padrão</string>
+    <string name="vault_diag_bind">Vínculo do dispositivo: %1$s</string>
+    <string name="vault_diag_bound">Vinculado a este aparelho</string>
+    <string name="vault_diag_unbound">Sem vínculo</string>
+
+    <!-- Diálogo de adicionar TOTP -->
+    <string name="addtotp_title_totp">Adicionar conta TOTP (tempo)</string>
+    <string name="addtotp_title_hotp">Adicionar conta HOTP (contador)</string>
+    <string name="addtotp_desc">A chave gera códigos criptográficos offline.</string>
+    <string name="addtotp_scan_qr">Ler QR Code</string>
+    <string name="addtotp_scan_prompt">Posicione o QR Code do TOTP</string>
+    <string name="addtotp_fill_test">Preencher dados de teste</string>
+    <string name="addtotp_code_type">Tipo de código:</string>
+    <string name="addtotp_type_totp">TOTP (tempo 30s)</string>
+    <string name="addtotp_type_hotp">HOTP (contador)</string>
+    <string name="addtotp_code_len">Tamanho do código:</string>
+    <string name="addtotp_len_6">6 dígitos (padrão)</string>
+    <string name="addtotp_len_8">8 dígitos</string>
+    <string name="addtotp_svc_label">Nome do serviço</string>
+    <string name="addtotp_svc_hint">ex.: Google ou GitHub</string>
+    <string name="addtotp_acc_label">Nome da conta ou e-mail</string>
+    <string name="addtotp_acc_hint">ex.: usuario@empresa.com</string>
+    <string name="addtotp_sec_label">Chave secreta ou URI otpauth://</string>
+    <string name="addtotp_sec_hint">Cole o segredo Base32</string>
+    <string name="addtotp_save">Salvar na chave</string>
+
+    <!-- Diálogo de gerar chave -->
+    <string name="keygen_desc">A chave é gerada e guardada só na chave.</string>
+    <string name="keygen_label">Rótulo da chave</string>
+    <string name="keygen_hint_passkey">ex.: Conta Google ou GitHub</string>
+    <string name="keygen_hint_ssh">ex.: Chave SSH do notebook</string>
+    <string name="keygen_hint_btc">ex.: Cofre Bitcoin</string>
+    <string name="keygen_hint_eth">ex.: Carteira DeFi Ethereum</string>
+    <string name="keygen_hint_sol">ex.: Solana Mainnet</string>
+    <string name="keygen_hint_dot">ex.: Staking Polkadot</string>
+    <string name="keygen_hint_piv">ex.: Crachá PIV corporativo</string>
+    <string name="keygen_hint_aegn">ex.: Semente secreta mestra</string>
+    <string name="keygen_type_title">Selecione o tipo de chave:</string>
+    <string name="keygen_curve_title">Algoritmo / curva:</string>
+    <string name="keygen_hd_title">Caminho de derivação (HD Path):</string>
+    <string name="keygen_hd_hint">HD Path (BIP32/44/84)</string>
+    <string name="keygen_native_curve">Curva nativa: %1$s</string>
+    <string name="keygen_piv_title">Selecione o slot PIV (NIST SP 800-73-4):</string>
+    <string name="keygen_secret_title">Segredo (selado com AES-256-GCM):</string>
+    <string name="keygen_secret_label">Segredo ou semente</string>
+    <string name="keygen_secret_hint">Digite o segredo</string>
+
+    <!-- Tipos de chave -->
+    <string name="keytype_passkey">Passkey (FIDO2 / WebAuthn)</string>
+    <string name="keytype_passkey_desc">Login sem senha para Google, Apple e GitHub</string>
+    <string name="keytype_vendor">Chave de assinatura (SSH / Git)</string>
+    <string name="keytype_vendor_desc">Assinaturas digitais de commits, código e SSH</string>
+    <string name="keytype_btc">Carteira Bitcoin (BIP84)</string>
+    <string name="keytype_btc_desc">Segurança SegWit nativa no dispositivo</string>
+    <string name="keytype_eth">Carteira Ethereum / EVM</string>
+    <string name="keytype_eth_desc">Suporte a Ethereum, Polygon e redes EVM</string>
+    <string name="keytype_sol">Carteira Solana</string>
+    <string name="keytype_sol_desc">Chave Solana rápida (Ed25519)</string>
+    <string name="keytype_dot">Carteira Polkadot</string>
+    <string name="keytype_dot_desc">Endereço SS58 Substrate (Ed25519)</string>
+    <string name="keytype_piv">Smartcard PIV corporativo</string>
+    <string name="keytype_piv_desc">NIST SP 800-73-4 para autenticação e logon</string>
+    <string name="keytype_aegn">Envelope cifrado AEGN</string>
+    <string name="keytype_aegn_desc">Cofre de segredo selado com AES-256-GCM</string>
+
+    <!-- Faixa de bloqueio -->
+    <string name="gate_noble_title">Conecte o hardware primeiro</string>
+    <string name="gate_noble_body">Conexão BLE offline. Conecte o dispositivo antes.</string>
+    <string name="gate_ok">OK</string>
+    <string name="gate_bind_title">Vincule o hardware primeiro</string>
+    <string name="gate_bind_body">Hardware sem dono. Conclua o pareamento inicial.</string>
+    <string name="gate_bind_action">Vincular dispositivo</string>
+    <string name="gate_up_title">Pressione o botão físico</string>
+    <string name="gate_up_body">Hardware exige presença do usuário (UP).</string>
+    <string name="gate_pin_title">PIN exigido</string>
+    <string name="gate_pin_body">Hardware exige autenticação por PIN.</string>
+
+    <!-- Tema -->
+    <string name="theme_title">Tema e Aparência</string>
+    <string name="theme_mode_system">Sistema</string>
+    <string name="theme_mode_light">Claro</string>
+    <string name="theme_mode_dark">Escuro</string>
+    <string name="theme_dynamic_title">Cores dinâmicas</string>
+    <string name="theme_dynamic_desc">Aplica paleta dinâmica Material You do papel de parede.</string>
+
+    <!-- Tela de dispositivos -->
+    <string name="keys_prox_title">Bloqueio Dinâmico e Secure Guard</string>
+    <string name="keys_prox_locked">BLOQUEADO (Chave e PC Bloqueados)</string>
+    <string name="keys_prox_state">%1$s (%2$d dBm)</string>
+    <string name="keys_prox_reg">Bluetooth registrado em memória: %1$s</string>
+    <string name="keys_prox_fallback">Galaxy S24 Ultra (3C:84:27:C7:17:7A)</string>
+    <string name="keys_prox_watch">Vigia de proximidade: ATIVO (bloqueia chave e PC longe)</string>
+    <string name="keys_connect_btn">Conectar nova chave</string>
+    <string name="keys_bound_title">Chaves vinculadas</string>
+    <string name="keys_bound_empty">Nenhuma chave vinculada</string>
+    <string name="keys_bound_hint">Toque no botão acima para conectar a primeira chave.</string>
+    <string name="keys_transport_ble">BLE sem fio</string>
+    <string name="keys_transport_usb">Cabo USB / UART</string>
+    <string name="keys_transport_wifi">Rede Wi-Fi</string>
+    <string name="keys_name_label">Nome da chave</string>
+    <string name="keys_rename_title">Renomear chave</string>
+    <string name="keys_rename_desc">Digite um nome para esta chave:</string>
+    <string name="keys_unbind_title">Desvincular chave?</string>
+    <string name="keys_unbind_desc">Desvincular \"%1$s\"? Você pode vincular de novo quando quiser.</string>
+
+    <!-- Tela TOTP -->
+    <string name="totp_add_short">Adicionar código</string>
+    <string name="totp_empty_alt_title">Nenhum código registrado</string>
+    <string name="totp_empty_alt_desc">Adicione Google, GitHub ou outras contas para gerar códigos offline.</string>
+    <string name="totp_del_title">Excluir código?</string>
+    <string name="totp_del_desc">Excluir \"%1$s\"? Você precisa do segredo original para configurar de novo.</string>
+    <string name="totp_del_btn">Excluir código</string>
+
+    <!-- Popup de sessão de hardware -->
+    <string name="hw_sync">Sincronizando com a carteira de hardware...</string>
+
+    <!-- Assistente de configuração -->
+    <string name="onb_usb_open">Conectar chave USB detectada e abrir Cofre</string>
+    <string name="onb_skip">Já tenho uma chave configurada — Ir para o Cofre</string>
+    <string name="onb_usb_title">Chave USB Conectada</string>
+    <string name="onb_usb_desc">Chave AegisKey física detectada via USB OTG.</string>
+    <string name="onb_open_vault">Abrir Cofre</string>
+    <string name="onb_transport_ble">Bluetooth Low Energy</string>
+    <string name="onb_transport_ble_desc">Conecte a chave sem fio via Bluetooth (BLE).</string>
+    <string name="onb_transport_ble_badge">Recomendado</string>
+    <string name="onb_transport_usb">Cabo USB ou Serial (UART)</string>
+    <string name="onb_transport_usb_desc">Conecte via cabo USB-C ou emulador de ponte.</string>
+    <string name="onb_transport_usb_badge">Com fio</string>
+    <string name="onb_transport_wifi">Ponto de acesso Wi-Fi</string>
+    <string name="onb_transport_wifi_desc">Conecte ao ponto de acesso da chave (192.168.4.1).</string>
+    <string name="onb_transport_wifi_badge">Direto</string>
+    <string name="onb_transport_sim">Simulador virtual (Renode / Teste)</string>
+    <string name="onb_transport_sim_desc">Conecte ao hardware simulado em memória ou ponte TCP.</string>
+    <string name="onb_transport_sim_badge">Debug</string>
+    <string name="onb_boot_title">Função do Botão Físico BOOT (GPIO 0)</string>
+    <string name="onb_boot_desc">• Segure 5s: abre pareamento Bluetooth por 60 segundos (só pareamento BLE novo).\n• No USB OTG: o app já envia o comando 0x2F. Sem segurar.\n• Toque rápido (1s): confirma presença física nas operações críticas.</string>
+    <string name="onb_usb_otg">USB OTG ativo: a ativação é direta. Toque em Next para avançar.</string>
+    <string name="onb_hold_btn">Pressione e segure o botão</string>
+    <string name="onb_hold_instr">Pressione e segure o botão físico por 5 segundos até o LED piscar.</string>
+    <string name="onb_hold_hint">Segure 5 segundos até o LED piscar</string>
+    <string name="onb_hold_once">Pressione uma vez para confirmar</string>
+    <string name="onb_simulate">Simular toque no botão</string>
+    <string name="onb_activated">Sinal de ativação recebido. Toque em Next para continuar.</string>
+    <string name="onb_scanning">Procurando chaves...</string>
+    <string name="onb_discovered">Chaves encontradas:</string>
+    <string name="onb_refresh">Atualizar busca</string>
+    <string name="onb_sim_active">Modo simulador ativo: chave virtual conectada.</string>
+    <string name="onb_no_key">Nenhuma chave encontrada.</string>
+    <string name="onb_no_key_hint_mock">Verifique o botão ou teste com a chave virtual.</string>
+    <string name="onb_no_key_hint">Verifique Bluetooth ou USB e pressione o botão da chave.</string>
+    <string name="onb_use_sim">Usar simulador de teste</string>
+    <string name="onb_tap_select">Toque para selecionar</string>
+    <string name="onb_presence_ok">Presença Confirmada</string>
+    <string name="onb_presence_desc">Comando 0x2F enviado à chave. Toque em Next para avançar.</string>
+    <string name="onb_bind_title">Vínculo criptográfico do dispositivo</string>
+    <string name="onb_bind_desc">O dispositivo guarda credencial cifrada no Android KeyStore.</string>
+    <string name="onb_bind_hw_desc">Presença confirmada via comando de hardware 0x2F.</string>
+    <string name="onb_name_hint">ex.: Chave principal</string>
+    <string name="onb_pin_label">PIN de recuperação (opcional)</string>
+    <string name="onb_pin_hint">4 a 16 dígitos numéricos</string>
+    <string name="onb_ready">A chave está pronta para proteger contas e cofres.</string>
+
+    <!-- Detalhe da chave -->
+    <string name="kd_title">Gestão da Chave Física</string>
+    <string name="kd_subtitle">Slot de hardware #%1$d · %2$s</string>
+    <string name="kd_back_cd">Voltar ao Cofre</string>
+    <string name="kd_delete_title">Excluir Chave do Hardware?</string>
+    <string name="kd_delete_desc">Esta ação envia o comando de exclusão 0x23 ao chip físico e libera o slot #%1$d. O par de chaves é apagado para sempre. Recupere só com backup autenticado.</string>
+    <string name="kd_confirm_delete">Excluir Permanentemente</string>
+    <string name="kd_type_passkey">Passkey FIDO2 / WebAuthn</string>
+    <string name="kd_type_vendor">Chave de Assinatura SSH / GPG</string>
+    <string name="kd_type_btc">Carteira Bitcoin (BIP84)</string>
+    <string name="kd_type_eth">Carteira Ethereum (EIP-55)</string>
+    <string name="kd_type_sol">Carteira Solana (Ed25519)</string>
+    <string name="kd_type_dot">Carteira Polkadot (SS58)</string>
+    <string name="kd_type_piv">Smartcard Corporativo PIV</string>
+    <string name="kd_type_aegn">Envelope Criptografado AEGN</string>
+    <string name="kd_slot">Slot #%1$d</string>
+    <string name="kd_touch">Toque Obrigatório</string>
+    <string name="kd_pk_title">Propriedades da Credencial FIDO2</string>
+    <string name="kd_pk_proto">Protocolo</string>
+    <string name="kd_pk_proto_val">FIDO2 / WebAuthn Level 3 (CTAP 2.1)</string>
+    <string name="kd_pk_curve">Curva COSE</string>
+    <string name="kd_pk_store">Armazenamento</string>
+    <string name="kd_pk_store_val">Credencial Residente no Hardware (Discoverable)</string>
+    <string name="kd_pk_uv">Verificação de Usuário (UV)</string>
+    <string name="kd_pk_uv_val">Proteção Biométrica do Dispositivo + Toque Físico</string>
+    <string name="kd_pk_sign_title">Testar Autenticação / Assinar Desafio FIDO2</string>
+    <string name="kd_pk_sign_desc">Envie um desafio (clientDataHash) para ser assinado no hardware pelo chip de segurança:</string>
+    <string name="kd_pk_sign_btn">Assinar no Chip Agora</string>
+    <string name="kd_pk_exp_title">Backup Criptografado (Envelope AEGN)</string>
+    <string name="kd_pk_exp_desc">Exporte a credencial selada com AES-256-GCM vinculada à semente mestra do chip:</string>
+    <string name="kd_pk_exp_btn">Gerar / Exportar Envelope AEGN</string>
+    <string name="kd_net_btc">Bitcoin Mainnet</string>
+    <string name="kd_net_btc_fmt">BIP84 Native SegWit (bc1q...)</string>
+    <string name="kd_net_eth">Ethereum / EVM Mainnet</string>
+    <string name="kd_net_eth_fmt">EIP-55 Checksummed (0x...)</string>
+    <string name="kd_net_sol">Solana Mainnet</string>
+    <string name="kd_net_sol_fmt">Base58 Public Key (Ed25519)</string>
+    <string name="kd_net_dot">Polkadot / Substrate</string>
+    <string name="kd_net_dot_fmt">SS58 Address (Ed25519)</string>
+    <string name="kd_net_other">Cripto</string>
+    <string name="kd_fmt_other">Padrão</string>
+    <string name="kd_w_title">Parâmetros da Rede Cripto</string>
+    <string name="kd_w_net">Rede Cripto</string>
+    <string name="kd_w_fmt">Formato de Endereço</string>
+    <string name="kd_w_path">Caminho de Derivação HD</string>
+    <string name="kd_w_algo">Algoritmo / Curva</string>
+    <string name="kd_recv_title">Endereço de Recebimento</string>
+    <string name="kd_copy_full">Copiar Endereço Completo</string>
+    <string name="kd_sign_tx_title">Assinar Transação ou Mensagem no Chip (0x38)</string>
+    <string name="kd_sign_tx_desc">Insira o hash da transação bruta ou mensagem para ser validada e assinada com a chave privada da carteira:</string>
+    <string name="kd_sign_tx_btn">Confirmar e Assinar com a Chave</string>
+    <string name="kd_exp_title">Exportar Backup Criptografado AEGN</string>
+    <string name="kd_exp_desc">Exporte a chave privada da carteira envelopada com chave derivada de hardware (DKEK):</string>
+    <string name="kd_exp_btn">Gerar Envelope Criptografado</string>
+    <string name="kd_v_caps">Capacidades Criptográficas da Chave</string>
+    <string name="kd_v_curve">Curva / Algoritmo</string>
+    <string name="kd_v_usage">Uso Autorizado</string>
+    <string name="kd_v_slot">Identificador de Slot NVS</string>
+    <string name="kd_v_slot_val">0x20 (Memória Criptografada do Chip)</string>
+    <string name="kd_v_compat">Compatibilidade</string>
+    <string name="kd_v_compat_val">OpenSSH (sk-ssh-ed25519), Git Sign, GPG, Cosign</string>
+    <string name="kd_v_sign_title">Assinar Documento, Commit Git ou Desafio SSH</string>
+    <string name="kd_v_sign_desc">O chip calcula a assinatura digital ECDSA/Ed25519 usando a chave interna sem nunca expô-la:</string>
+    <string name="kd_v_sign_btn">Assinar no Hardware</string>
+    <string name="kd_v_exp_title">Exportar Envelope Selado AEGN (0x21/0x22)</string>
+    <string name="kd_v_exp_desc">Exporte o envelope AEGN selado em hardware para sincronização segura entre dispositivos:</string>
+    <string name="kd_v_exp_btn">Exportar Envelope Selado</string>
+    <string name="kd_piv_9a">9A Autenticação PIV (Logon Corporativo / Windows Hello)</string>
+    <string name="kd_piv_9c">9C Assinatura Digital (ICP-Brasil / Certificados X.509)</string>
+    <string name="kd_piv_9d">9D Gestão de Chaves / Cifragem de E-mails (S/MIME)</string>
+    <string name="kd_piv_9e">9E Autenticação Física / Crachá de Acesso a Portas</string>
+    <string name="kd_piv_other">%1$s Slot Smartcard PIV</string>
+    <string name="kd_piv_title">Configuração do Smartcard NIST SP 800-73-4</string>
+    <string name="kd_piv_func">Função do Slot</string>
+    <string name="kd_piv_algo">Algoritmo Criptográfico</string>
+    <string name="kd_piv_policy">Política de PIN</string>
+    <string name="kd_piv_policy_val">Sempre Exigir PIN de Acesso (NIST SP 800-73-4)</string>
+    <string name="kd_pin_title">Configurar / Alterar PIN e PUK do Slot PIV (0x39)</string>
+    <string name="kd_pin_desc">Defina o PIN de acesso (6 a 8 dígitos) e a chave de desbloqueio PUK (8 dígitos) gravadas no chip:</string>
+    <string name="kd_pin_new">Novo PIN (6-8)</string>
+    <string name="kd_puk_new">Novo PUK (8)</string>
+    <string name="kd_pin_save">Gravar PIN/PUK no Smartcard</string>
+    <string name="kd_test_title">Testar Assinatura / Desafio de Autenticação PIV</string>
+    <string name="kd_test_desc">Autentique uma resposta com a chave corporativa NIST SP 800-73-4 do chip:</string>
+    <string name="kd_test_btn">Assinar Desafio PIV</string>
+    <string name="kd_a_title">Integridade do Envelope AEGN v1</string>
+    <string name="kd_a_head">Cabeçalho do Envelope</string>
+    <string name="kd_a_head_val">AEGN v1 (Magic Header 0x4145474E)</string>
+    <string name="kd_a_crypto">Criptografia</string>
+    <string name="kd_a_crypto_val">AES-256-GCM com Tag de Autenticação de 128 bits</string>
+    <string name="kd_a_dkek">Chave de Envelope (DKEK)</string>
+    <string name="kd_a_dkek_val">Derivada exclusivamente do chip de hardware (0x21)</string>
+    <string name="kd_a_insp_title">Inspecionar e Exportar Envelope Criptografado</string>
+    <string name="kd_a_insp_desc">Payload completo autenticado com AES-256-GCM pronto para importação ou backup seguro:</string>
+    <string name="kd_a_insp_btn">Copiar / Validar Envelope AEGN</string>
+    <string name="kd_a_prove_title">Provar Posse / Assinar com Segredo do Slot</string>
+    <string name="kd_a_prove_desc">Gera uma prova de integridade HMAC ou assinatura digital vinculada ao segredo selado:</string>
+    <string name="kd_a_prove_btn">Provar Posse no Hardware</string>
+    <string name="kd_zone_title">Zona de Exclusão Segura no Hardware</string>
+    <string name="kd_zone_desc">Ao excluir esta chave, o comando de expurgo 0x23 será enviado diretamente à AegisKey. A área de memória do chip será sobrescrita com zeros criptográficos e a chave deixará de existir no hardware.</string>
+    <string name="kd_zone_btn">Excluir Chave do Chip Físico (0x23)</string>
+    <string name="kd_challenge_label">Desafio / Dados de Teste</string>
+    <string name="kd_signed_label">Assinatura Gerada pelo Chip:</string>
+    <string name="kd_env_label">Payload Envelope AEGN:</string>
+
+    <!-- Clear signing -->
+    <string name="clearsign_fee_default">0.0015 ETH (Standard)</string>
+
+    <!-- eFuse -->
+    <string name="efuse_secure_ver">v%1$s (Monotônica em silício)</string>
+
+    <!-- Porta biométrica -->
+    <string name="biogate_title">Desbloquear AegisKey</string>
+    <string name="biogate_subtitle">Confirme a biometria do aparelho</string>
+    <string name="biogate_use_pw">Usar senha</string>
+
+    <!-- Configurações: segurança -->
+    <string name="set_sec_title">Segurança e PIN de Hardware</string>
+    <string name="set_bio_title">Verificação Biométrica</string>
+    <string name="set_bio_desc">Exige biometria para desbloquear o cofre e assinar.</string>
+    <string name="set_walk_title">Bloqueio Automático ao Sair</string>
+    <string name="set_walk_desc">Bloqueia o cofre ao fechar o app.</string>
+    <string name="set_hw_title">PIN de Hardware (FIDO2)</string>
+    <string name="set_hw_desc">Código de 4 a 8 dígitos guardado na chave física.</string>
+    <string name="set_hw_btn">Alterar PIN da Chave</string>
+
+    <!-- Configurações: Wi-Fi -->
+    <string name="set_wifi_title">Configuração Wi-Fi (192.168.4.1)</string>
+    <string name="set_wifi_ap_title">Ponto de Acesso Sem Fio (SoftAP)</string>
+    <string name="set_wifi_ap_desc">IP: http://192.168.4.1 · SSID: AegisKey-AP</string>
+    <string name="set_wifi_chan">Canal e Banda</string>
+    <string name="set_wifi_chan_val">Canal 6 · 2.4 GHz WPA2/WPA3</string>
+    <string name="set_wifi_eps">Endpoints</string>
+    <string name="set_wifi_eps_val">/ctap · /oath/code</string>
+    <string name="set_wifi_testing">Testando conexão com 192.168.4.1...</string>
+    <string name="set_wifi_testing_short">Testando...</string>
+    <string name="set_wifi_test">Testar Conexão</string>
+    <string name="set_wifi_open">Abrir Portal Wi-Fi</string>
+    <string name="set_wifi_reading">Lendo código TOTP via Wi-Fi (/oath/code)...</string>
+    <string name="set_wifi_reading_short">Lendo...</string>
+    <string name="set_wifi_read">Ler TOTP via Wi-Fi</string>
+    <string name="set_wifi_config">Configurar Wi-Fi</string>
+    <string name="set_wifi_ok">Chave acessível via Wi-Fi em 192.168.4.1.</string>
+    <string name="set_wifi_fail">Sem resposta em 192.168.4.1. Conecte ao AegisKey-AP.</string>
+    <string name="set_wifi_test_fail">Teste falhou: %1$s</string>
+    <string name="set_wifi_unknown">Erro desconhecido</string>
+    <string name="set_wifi_totp">TOTP via Wi-Fi: %1$s (restam %2$d s)</string>
+    <string name="set_wifi_totp_fail">Falha ao ler TOTP: %1$s</string>
+    <string name="set_wifi_configuring">Configurando Wi-Fi no hardware...</string>
+    <string name="set_wifi_config_fail">Falha ao configurar: %1$s</string>
+
+    <!-- Configurações: diálogo Wi-Fi -->
+    <string name="wifi_title">Configurar Wi-Fi da Chave</string>
+    <string name="wifi_desc">Configure SSID, senha WPA2 e canal 2.4 GHz. A chave guarda tudo com segurança.</string>
+    <string name="wifi_ssid_label">Nome da Rede (SSID)</string>
+    <string name="wifi_pass_label">Senha WPA2 (mínimo 8 caracteres)</string>
+    <string name="wifi_chan_title">Canal Wi-Fi (2.4 GHz)</string>
+    <string name="wifi_channel">Canal %1$d</string>
+    <string name="wifi_power_save">Modo Economia de Energia</string>
+    <string name="wifi_save">Salvar no Hardware</string>
+
+    <!-- Configurações: backup -->
+    <string name="set_backup_title">Backup de Recuperação e Quorum DKEK</string>
+    <string name="set_backup_card">Backup Cifrado e Quorum de Guardiões</string>
+    <string name="set_backup_desc">Envelopes AEGN (AES-256-GCM) e frase de 24 palavras.</string>
+    <string name="set_backup_phrase">Frase de Recuperação (24 Palavras)</string>
+    <string name="set_backup_dkek">Quorum DKEK</string>
+    <string name="set_backup_open">Abrir Central de Backup</string>
+
+    <!-- Configurações: OTA -->
+    <string name="set_ota_title">Atualização de Firmware OTA</string>
+    <string name="set_ota_fw">Firmware v3.4.0-esp32s3</string>
+    <string name="set_ota_desc">Assinatura Ed25519 e anti-rollback ativos.</string>
+    <string name="set_ota_channel">Canal:</string>
+    <string name="ota_stable">Estável (Produção)</string>
+    <string name="ota_beta">Beta Verificado</string>
+    <string name="ota_check">Verificar Atualizações</string>
+    <string name="ota_checking">Verificando...</string>
+    <string name="ota_open">Abrir Painel OTA</string>
+    <string name="ota_status_initial">Firmware v3.4.0-esp32s3 assinado e verificado.</string>
+    <string name="ota_checking_manifest">Verificando manifesto assinado...</string>
+    <string name="ota_latest">Chave com firmware atual (v3.4.0-esp32s3, %1$s).</string>
+
+    <!-- Configurações: resgate -->
+    <string name="set_rescue_section">Diagnóstico de Resgate e Auditoria</string>
+    <string name="set_rescue_title">Auto-Teste (0x2E) e Registros (0x38)</string>
+    <string name="set_rescue_desc">NVS, TRNG, motor cripto e contador monotônico.</string>
+    <string name="set_rescue_badge_nvs_ok">NVS OK</string>
+    <string name="set_rescue_badge_nvs_fail">NVS FALHA</string>
+    <string name="set_rescue_badge_crypto_ok">Cripto HW OK</string>
+    <string name="set_rescue_badge_crypto_fail">Cripto HW FALHA</string>
+    <string name="set_rescue_badge_trng_ok">TRNG Ativo</string>
+    <string name="set_rescue_badge_trng_fail">TRNG Inativo</string>
+    <string name="set_rescue_badge_btn_ok">Botão OK</string>
+    <string name="set_rescue_badge_btn_fail">Botão FALHA</string>
+    <string name="set_rescue_counter">Contador: %1$s ops</string>
+    <string name="set_rescue_last">Última verificação: %1$s</string>
+    <string name="set_rescue_auditing">Auditando...</string>
+    <string name="set_rescue_diag_btn">Diagnóstico (0x2E)</string>
+    <string name="set_rescue_logs_btn">Registros (0x38)</string>
+    <string name="set_diag_title">Diagnóstico de Resgate (0x2E)</string>
+    <string name="set_diag_desc">Auto-teste nos módulos de segurança (payload 0x2E via OP_MSG 0x83).</string>
+    <string name="set_diag_running">Executando auto-teste...</string>
+    <string name="set_diag_default">Auto-teste concluído</string>
+    <string name="set_diag_verdict">Veredito: %1$s</string>
+    <string name="set_diag_fw">Versão do Firmware: %1$s</string>
+    <string name="set_diag_rerun">Repetir Teste</string>
+    <string name="set_diag_nvs">Armazenamento Flash NVS</string>
+    <string name="set_diag_nvs_ok">Armazenamento não volátil validado</string>
+    <string name="set_diag_nvs_fail">Erro de leitura/escrita</string>
+    <string name="set_diag_trng">Aleatoriedade Verdadeira TRNG</string>
+    <string name="set_diag_trng_ok">Fonte de entropia ativa e aprovada FIPS 140-2</string>
+    <string name="set_diag_trng_fail">Erro de entropia</string>
+    <string name="set_diag_crypto">Hardware Cripto</string>
+    <string name="set_diag_crypto_ok">Acelerador ECC P-256 e AES-256 OK</string>
+    <string name="set_diag_crypto_fail">Falha no motor</string>
+    <string name="set_diag_btn">Botão de Presença</string>
+    <string name="set_diag_btn_ok">Sensor de toque operacional</string>
+    <string name="set_diag_btn_fail">Falha no sensor</string>
+    <string name="set_diag_counter">Contador Monotônico</string>
+    <string name="set_diag_counter_val">%,d operações (Pânico: %d, Wipe: %d)</string>
+
+    <!-- Configurações: registros -->
+    <string name="set_logs_title">Registros de Auditoria (0x38)</string>
+    <string name="set_logs_desc">Auditoria ao vivo (transporte 0x38, BLE, Secure Guard e travas).</string>
+    <string name="set_logs_empty">Nenhum registro ainda.</string>
+    <string name="set_logs_fw">Fw 0x38</string>
+
+    <!-- Configurações: posse -->
+    <string name="set_own_section">Posse da Chave e Reset de Fábrica</string>
+    <string name="set_own_title">Posse e Reset de Fábrica (0x2B)</string>
+    <string name="set_own_desc">Este celular é o dono registrado da chave.</string>
+    <string name="set_own_pair">Parear Nova Chave</string>
+    <string name="set_own_reset">Liberar Posse ou Resetar (0x2B)</string>
+    <string name="set_own_dialog_title">Liberar Posse do Dispositivo?</string>
+    <string name="set_own_dialog_desc">Liberar a posse (0x2B) desvincula o celular da chave e exige presença. Para vincular de novo, segure o botão físico por 5 segundos.</string>
+    <string name="set_own_proceed">Ir para Transferência</string>
+
+    <!-- Configurações: PIV -->
+    <string name="set_piv_title">Smartcard (PIV / Certificados)</string>
+    <string name="set_piv_desc">Certificados digitais e slots de autenticação (NIST SP 800-73-4).</string>
+
+    <!-- Configurações: rodapé -->
+    <string name="set_foot_app">AegisKey App · v0.1.0</string>
+    <string name="set_foot_tag">Segurança de hardware aberta e transparente.</string>
+
+    <!-- Configurações: diálogo PIN -->
+    <string name="set_pin_title">Alterar PIN de Hardware</string>
+    <string name="set_pin_desc">Digite um PIN numérico de 4 a 8 dígitos. Ele fica dentro da chave.</string>
+    <string name="set_pin_new">Novo PIN (4-8 dígitos)</string>
+    <string name="set_pin_confirm">Confirmar Novo PIN</string>
+    <string name="set_pin_save">Salvar PIN</string>
+    <string name="set_pin_err_len">PIN precisa de 4 a 8 dígitos.</string>
+    <string name="set_pin_err_match">Os dois PINs não conferem.</string>
+    <string name="set_pin_sending">Enviando à chave... Pressione o botão físico.</string>
+    <string name="set_pin_ok">PIN salvo na chave.</string>
+    <string name="set_pin_no_resp">Sem resposta do hardware. Pressione o botão físico.</string>
+    <string name="set_pin_fail">Falha ao salvar PIN: %1$s</string>
+
+    <!-- Configurações: frase -->
+    <string name="set_phrase_title">Frase de Recuperação (24 Palavras)</string>
+    <string name="set_phrase_warn">Escreva as palavras no papel. Nunca guarde digital nem compartilhe.</string>
+    <string name="set_phrase_copied">Frase copiada.</string>
+
+    <!-- Configurações: quorum DKEK -->
+    <string name="set_dkek_title">Configuração de Quorum DKEK</string>
+    <string name="set_dkek_desc">Defina total de guardiões (N) e quorum (M) para recuperar a chave sem ponto único de falha.</string>
+    <string name="set_dkek_total">Total de Guardiões (N): %1$d</string>
+    <string name="set_dkek_quorum">Quorum Exigido (M): %1$d</string>
+    <string name="set_dkek_active">Configuração ativa: %1$d de %2$d guardiões autorizam a recuperação.</string>
+    <string name="set_dkek_save">Salvar Quorum</string>
+
+    <!-- Configurações: central de backup -->
+    <string name="set_backup_central_title">Central de Backup e Recuperação</string>
+    <string name="set_backup_central_desc">Escolha o método seguro de proteção e redundância criptográfica:</string>
+    <string name="set_backup_opt1_title">Frase de Recuperação (BIP-39)</string>
+    <string name="set_backup_opt1_desc">24 palavras mnemônicas offline (256-bit entropia + checksum).</string>
+    <string name="set_backup_opt2_title">Quorum de Guardiões DKEK (N-de-M)</string>
+    <string name="set_backup_opt2_desc">Divisão criptográfica entre N guardiões com limiar de M assinaturas.</string>
+    <string name="set_backup_opt3_title">Shamir SLIP-39 Backup (2-de-3)</string>
+    <string name="set_backup_opt3_desc">Geração de shares Shamir de alta segurança para redundância em hardware.</string>
+
+    <!-- Shamir exemplos -->
+    <string name="shamir_share_hint_1">share-1-of-3: cricket dynamic acid...</string>
+    <string name="shamir_share_hint_2">share-2-of-3: cricket dynamic blast...</string>
+
+    <!-- Configurações: idioma -->
+    <string name="lang_title">Idioma</string>
+    <string name="lang_desc">Idioma do app. Aplica na hora.</string>
+    <string name="lang_system">Sistema</string>
+    <string name="lang_en">Inglês</string>
+    <string name="lang_pt">Português (Brasil)</string>
 </resources>

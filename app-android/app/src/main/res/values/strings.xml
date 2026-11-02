@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Glossary (ASD-STE100): key = security key. vault = stored keys.
+         guard = Secure Guard on-chip authority. wipe = erase data.
+         share = backup part. quorum = recovery approvals.
+         Write short text. Use one concept per string. No emoji. -->
     <!-- App & Navigation -->
     <string name="app_name">AegisKey</string>
     <string name="nav_vault">Vault</string>
@@ -223,4 +227,494 @@
     <string name="keepassxc_crypto_ready">ChaCha20-Poly1305 / RSA-2048/3072 DS Ready: READY</string>
     <string name="keepassxc_psram_status">ESP32-S3 PSRAM 8MB: ENABLED</string>
     <string name="keepassxc_desc">Hardware-backed KeePassXC .kdbx master key derivation with just-in-time SRAM key wiping and zero-trust PIN protection.</string>
+
+    <!-- Generic actions -->
+    <string name="action_select">Select</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_unbind">Unbind</string>
+    <string name="action_save">Save</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_copy_all">Copy All</string>
+    <string name="action_clear_logs">Clear Logs</string>
+    <string name="action_done">Complete</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_delete_code">Delete code</string>
+    <string name="cd_delete_vault">Delete from vault</string>
+    <string name="cd_selected">Selected</string>
+
+    <!-- TOTP code card -->
+    <string name="totp_card_fallback_issuer">Access Code</string>
+    <string name="totp_card_fallback_account">Primary Account</string>
+    <string name="totp_card_next_code">Next Code (+1)</string>
+    <string name="totp_card_copy">Copy code</string>
+    <string name="totp_card_counter">Counter #%1$d</string>
+
+    <!-- Key card -->
+    <string name="key_card_active">Active</string>
+    <string name="key_card_serial">Serial: %1$s</string>
+
+    <!-- Vault card -->
+    <string name="vault_card_manage">Manage</string>
+
+    <!-- Vault diagnostics -->
+    <string name="vault_diag_health">Health status: %1$s</string>
+    <string name="vault_diag_health_ok">Hardware OK (ATECC608A + ESP32-S3)</string>
+    <string name="vault_diag_piv">PIV Slots: %1$s</string>
+    <string name="vault_diag_piv_ok">9A, 9C, 9D, 9E</string>
+    <string name="vault_diag_pin">Hardware PIN: %1$s</string>
+    <string name="vault_diag_pin_ok">Configured</string>
+    <string name="vault_diag_pin_default">Default</string>
+    <string name="vault_diag_bind">Device binding: %1$s</string>
+    <string name="vault_diag_bound">Bound to this device</string>
+    <string name="vault_diag_unbound">Unbound</string>
+
+    <!-- Add TOTP dialog -->
+    <string name="addtotp_title_totp">Add TOTP Account (Time)</string>
+    <string name="addtotp_title_hotp">Add HOTP Account (Counter)</string>
+    <string name="addtotp_desc">The security key generates cryptographic codes offline.</string>
+    <string name="addtotp_scan_qr">Scan QR Code</string>
+    <string name="addtotp_scan_prompt">Point at the TOTP QR code</string>
+    <string name="addtotp_fill_test">Fill test data</string>
+    <string name="addtotp_code_type">Code Type:</string>
+    <string name="addtotp_type_totp">TOTP (30s Time)</string>
+    <string name="addtotp_type_hotp">HOTP (Counter)</string>
+    <string name="addtotp_code_len">Code Length:</string>
+    <string name="addtotp_len_6">6 digits (Standard)</string>
+    <string name="addtotp_len_8">8 digits</string>
+    <string name="addtotp_svc_label">Service name</string>
+    <string name="addtotp_svc_hint">e.g. Google or GitHub</string>
+    <string name="addtotp_acc_label">Account name or email</string>
+    <string name="addtotp_acc_hint">e.g. user@company.com</string>
+    <string name="addtotp_sec_label">Secret key or otpauth:// URI</string>
+    <string name="addtotp_sec_hint">Paste Base32 secret</string>
+    <string name="addtotp_save">Save to Security Key</string>
+
+    <!-- Key generation dialog -->
+    <string name="keygen_desc">The cryptographic key is generated and stored exclusively on the security key.</string>
+    <string name="keygen_label">Key label</string>
+    <string name="keygen_hint_passkey">e.g. Google Account or GitHub</string>
+    <string name="keygen_hint_ssh">e.g. Laptop SSH Key</string>
+    <string name="keygen_hint_btc">e.g. Bitcoin Savings Vault</string>
+    <string name="keygen_hint_eth">e.g. Ethereum DeFi Wallet</string>
+    <string name="keygen_hint_sol">e.g. Solana Mainnet</string>
+    <string name="keygen_hint_dot">e.g. Polkadot Staking</string>
+    <string name="keygen_hint_piv">e.g. Corporate PIV Badge</string>
+    <string name="keygen_hint_aegn">e.g. Master Secret Seed</string>
+    <string name="keygen_type_title">Select Key Type:</string>
+    <string name="keygen_curve_title">Cryptographic Algorithm / Curve:</string>
+    <string name="keygen_hd_title">Hierarchical Derivation Path (HD Path):</string>
+    <string name="keygen_hd_hint">HD Path (BIP32/44/84)</string>
+    <string name="keygen_native_curve">Native curve: %1$s</string>
+    <string name="keygen_piv_title">Select PIV Slot (NIST SP 800-73-4):</string>
+    <string name="keygen_secret_title">Secret Payload (Sealed with AES-256-GCM):</string>
+    <string name="keygen_secret_label">Secret or Seed</string>
+    <string name="keygen_secret_hint">Enter confidential secret</string>
+
+    <!-- Key type options -->
+    <string name="keytype_passkey">Passkey (FIDO2 / WebAuthn)</string>
+    <string name="keytype_passkey_desc">Passwordless login for Google, Apple, and GitHub</string>
+    <string name="keytype_vendor">Vendor Signing Key (SSH / Git)</string>
+    <string name="keytype_vendor_desc">Digital signatures for commits, code, and SSH</string>
+    <string name="keytype_btc">Bitcoin Wallet (BIP84)</string>
+    <string name="keytype_btc_desc">Native SegWit on-device security</string>
+    <string name="keytype_eth">Ethereum / EVM Wallet</string>
+    <string name="keytype_eth_desc">Support for Ethereum, Polygon, and EVM chains</string>
+    <string name="keytype_sol">Solana Wallet</string>
+    <string name="keytype_sol_desc">High-speed Solana key (Ed25519)</string>
+    <string name="keytype_dot">Polkadot Wallet</string>
+    <string name="keytype_dot_desc">Substrate SS58 address (Ed25519)</string>
+    <string name="keytype_piv">Corporate PIV Smartcard</string>
+    <string name="keytype_piv_desc">NIST SP 800-73-4 for authentication and logon</string>
+    <string name="keytype_aegn">AEGN Encrypted Envelope</string>
+    <string name="keytype_aegn_desc">Sealed secret vault with AES-256-GCM</string>
+
+    <!-- Gate banner -->
+    <string name="gate_noble_title">Connect hardware device first</string>
+    <string name="gate_noble_body">BLE connection is offline. Connect device before operation.</string>
+    <string name="gate_ok">OK</string>
+    <string name="gate_bind_title">Bind hardware device first</string>
+    <string name="gate_bind_body">Hardware device has no owner. Complete initial pairing setup.</string>
+    <string name="gate_bind_action">Bind device</string>
+    <string name="gate_up_title">Press physical button</string>
+    <string name="gate_up_body">Hardware device requires User Presence (UP) verification.</string>
+    <string name="gate_pin_title">PIN authentication required</string>
+    <string name="gate_pin_body">Hardware device requires PIN authentication.</string>
+
+    <!-- Theme -->
+    <string name="theme_title">Theme and Appearance</string>
+    <string name="theme_mode_system">System</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+    <string name="theme_dynamic_title">Dynamic Colors</string>
+    <string name="theme_dynamic_desc">Apply Material You dynamic palette from system wallpaper.</string>
+
+    <!-- Devices screen -->
+    <string name="keys_prox_title">Dynamic Lock &amp; Secure Guard</string>
+    <string name="keys_prox_locked">LOCKED (Key &amp; PC Locked)</string>
+    <string name="keys_prox_state">%1$s (%2$d dBm)</string>
+    <string name="keys_prox_reg">Registered Bluetooth in Memory: %1$s</string>
+    <string name="keys_prox_fallback">Galaxy S24 Ultra (3C:84:27:C7:17:7A)</string>
+    <string name="keys_prox_watch">Secure Guard Proximity Watch: ACTIVE (Locks Key &amp; PC when Away)</string>
+    <string name="keys_connect_btn">Connect New Security Key</string>
+    <string name="keys_bound_title">Bound Security Keys</string>
+    <string name="keys_bound_empty">No security keys bound</string>
+    <string name="keys_bound_hint">Tap the button above to connect your first security key.</string>
+    <string name="keys_transport_ble">Wireless BLE</string>
+    <string name="keys_transport_usb">USB / UART Cable</string>
+    <string name="keys_transport_wifi">Wi-Fi Network</string>
+    <string name="keys_name_label">Security key name</string>
+    <string name="keys_rename_title">Rename Security Key</string>
+    <string name="keys_rename_desc">Enter an identifiable name for this security key:</string>
+    <string name="keys_unbind_title">Unbind Security Key?</string>
+    <string name="keys_unbind_desc">Do you want to unbind \"%1$s\"? You can bind this key again at any time.</string>
+
+    <!-- TOTP screen -->
+    <string name="totp_add_short">Add Code</string>
+    <string name="totp_empty_alt_title">No codes registered</string>
+    <string name="totp_empty_alt_desc">Add Google, GitHub, or other accounts to generate offline verification codes.</string>
+    <string name="totp_del_title">Delete Code?</string>
+    <string name="totp_del_desc">Do you want to delete \"%1$s\"? You will need the original secret to reconfigure.</string>
+    <string name="totp_del_btn">Delete Code</string>
+
+    <!-- Hardware session popup -->
+    <string name="hw_sync">Syncing with hardware wallet...</string>
+
+    <!-- Onboarding wizard -->
+    <string name="onb_usb_open">Connect detected USB key and open Vault</string>
+    <string name="onb_skip">I have a configured key — Go to Vault</string>
+    <string name="onb_usb_title">USB Key Connected</string>
+    <string name="onb_usb_desc">Physical AegisKey detected via USB OTG.</string>
+    <string name="onb_open_vault">Open Vault</string>
+    <string name="onb_transport_ble">Bluetooth Low Energy</string>
+    <string name="onb_transport_ble_desc">Connect to the security key wirelessly via Bluetooth (BLE).</string>
+    <string name="onb_transport_ble_badge">Recommended</string>
+    <string name="onb_transport_usb">USB Cable or Serial (UART)</string>
+    <string name="onb_transport_usb_desc">Connect via direct USB-C cable or host bridge emulator.</string>
+    <string name="onb_transport_usb_badge">Wired</string>
+    <string name="onb_transport_wifi">Wi-Fi Access Point</string>
+    <string name="onb_transport_wifi_desc">Connect to the security key access point (192.168.4.1).</string>
+    <string name="onb_transport_wifi_badge">Direct</string>
+    <string name="onb_transport_sim">Virtual Simulator (Renode / Test)</string>
+    <string name="onb_transport_sim_desc">Connect to simulated hardware in memory or TCP bridge.</string>
+    <string name="onb_transport_sim_badge">Debug</string>
+    <string name="onb_boot_title">Physical BOOT Button Function (GPIO 0)</string>
+    <string name="onb_boot_desc">• Hold 5s: opens Bluetooth pairing window for 60 seconds (only for new BLE pairing).\n• On USB OTG: the app already sends command 0x2F. No hold needed.\n• Quick tap (1s): confirms physical presence (User Presence) for critical operations.</string>
+    <string name="onb_usb_otg">USB OTG active: activation is direct. Tap Next to continue.</string>
+    <string name="onb_hold_btn">Press and hold the button</string>
+    <string name="onb_hold_instr">Press and hold the physical button for 5 seconds until the LED flashes.</string>
+    <string name="onb_hold_hint">Hold for 5 seconds until the LED flashes</string>
+    <string name="onb_hold_once">Press once to confirm</string>
+    <string name="onb_simulate">Simulate button press</string>
+    <string name="onb_activated">Activation signal received. Tap Next to continue.</string>
+    <string name="onb_scanning">Scanning for security keys...</string>
+    <string name="onb_discovered">Discovered security keys:</string>
+    <string name="onb_refresh">Refresh scan</string>
+    <string name="onb_sim_active">Simulator mode active: virtual security key connected automatically.</string>
+    <string name="onb_no_key">No security key found.</string>
+    <string name="onb_no_key_hint_mock">Ensure the button was pressed or test with the virtual security key.</string>
+    <string name="onb_no_key_hint">Ensure Bluetooth or USB is connected and press the button on the security key.</string>
+    <string name="onb_use_sim">Use Test Simulator</string>
+    <string name="onb_tap_select">Tap to select</string>
+    <string name="onb_presence_ok">Presence Confirmed</string>
+    <string name="onb_presence_desc">Command 0x2F sent to key. Tap Next to continue.</string>
+    <string name="onb_bind_title">Cryptographic Device Binding</string>
+    <string name="onb_bind_desc">The device stores an encrypted credential in Android KeyStore.</string>
+    <string name="onb_bind_hw_desc">Presence confirmed automatically via hardware command 0x2F.</string>
+    <string name="onb_name_hint">e.g. Primary Security Key</string>
+    <string name="onb_pin_label">Recovery PIN (Optional)</string>
+    <string name="onb_pin_hint">4 to 16 numeric digits</string>
+    <string name="onb_ready">The security key is ready to protect your accounts and vault entries.</string>
+
+    <!-- Key detail -->
+    <string name="kd_title">Physical Key Management</string>
+    <string name="kd_subtitle">Hardware Slot #%1$d · %2$s</string>
+    <string name="kd_back_cd">Back to Vault</string>
+    <string name="kd_delete_title">Delete Key from Hardware?</string>
+    <string name="kd_delete_desc">This sends delete command 0x23 to the physical AegisKey chip and frees slot #%1$d. The key pair is erased permanently. Recover only with an authenticated backup.</string>
+    <string name="kd_confirm_delete">Delete Permanently</string>
+    <string name="kd_type_passkey">Passkey FIDO2 / WebAuthn</string>
+    <string name="kd_type_vendor">SSH / GPG Signing Key</string>
+    <string name="kd_type_btc">Bitcoin Wallet (BIP84)</string>
+    <string name="kd_type_eth">Ethereum Wallet (EIP-55)</string>
+    <string name="kd_type_sol">Solana Wallet (Ed25519)</string>
+    <string name="kd_type_dot">Polkadot Wallet (SS58)</string>
+    <string name="kd_type_piv">Corporate PIV Smartcard</string>
+    <string name="kd_type_aegn">AEGN Encrypted Envelope</string>
+    <string name="kd_slot">Slot #%1$d</string>
+    <string name="kd_touch">Touch Required</string>
+    <string name="kd_pk_title">FIDO2 Credential Properties</string>
+    <string name="kd_pk_proto">Protocol</string>
+    <string name="kd_pk_proto_val">FIDO2 / WebAuthn Level 3 (CTAP 2.1)</string>
+    <string name="kd_pk_curve">COSE Curve</string>
+    <string name="kd_pk_store">Storage</string>
+    <string name="kd_pk_store_val">Resident hardware credential (Discoverable)</string>
+    <string name="kd_pk_uv">User Verification (UV)</string>
+    <string name="kd_pk_uv_val">Device biometric protection + physical touch</string>
+    <string name="kd_pk_sign_title">Test Authentication / Sign FIDO2 Challenge</string>
+    <string name="kd_pk_sign_desc">Send a challenge (clientDataHash) for on-chip signing by the security chip:</string>
+    <string name="kd_pk_sign_btn">Sign on Chip Now</string>
+    <string name="kd_pk_exp_title">Encrypted Backup (AEGN Envelope)</string>
+    <string name="kd_pk_exp_desc">Export the credential sealed with AES-256-GCM, bound to the chip master seed:</string>
+    <string name="kd_pk_exp_btn">Generate / Export AEGN Envelope</string>
+    <string name="kd_net_btc">Bitcoin Mainnet</string>
+    <string name="kd_net_btc_fmt">BIP84 Native SegWit (bc1q...)</string>
+    <string name="kd_net_eth">Ethereum / EVM Mainnet</string>
+    <string name="kd_net_eth_fmt">EIP-55 Checksummed (0x...)</string>
+    <string name="kd_net_sol">Solana Mainnet</string>
+    <string name="kd_net_sol_fmt">Base58 Public Key (Ed25519)</string>
+    <string name="kd_net_dot">Polkadot / Substrate</string>
+    <string name="kd_net_dot_fmt">SS58 Address (Ed25519)</string>
+    <string name="kd_net_other">Crypto</string>
+    <string name="kd_fmt_other">Standard</string>
+    <string name="kd_w_title">Crypto Network Parameters</string>
+    <string name="kd_w_net">Crypto Network</string>
+    <string name="kd_w_fmt">Address Format</string>
+    <string name="kd_w_path">HD Derivation Path</string>
+    <string name="kd_w_algo">Algorithm / Curve</string>
+    <string name="kd_recv_title">Receive Address</string>
+    <string name="kd_copy_full">Copy Full Address</string>
+    <string name="kd_sign_tx_title">Sign Transaction or Message on Chip (0x38)</string>
+    <string name="kd_sign_tx_desc">Enter the raw transaction hash or message for validation and signing with the wallet private key:</string>
+    <string name="kd_sign_tx_btn">Confirm and Sign with Key</string>
+    <string name="kd_exp_title">Export Encrypted AEGN Backup</string>
+    <string name="kd_exp_desc">Export the wallet private key enveloped with hardware-derived key (DKEK):</string>
+    <string name="kd_exp_btn">Generate Encrypted Envelope</string>
+    <string name="kd_v_caps">Key Cryptographic Capabilities</string>
+    <string name="kd_v_curve">Curve / Algorithm</string>
+    <string name="kd_v_usage">Authorized Use</string>
+    <string name="kd_v_slot">NVS Slot Identifier</string>
+    <string name="kd_v_slot_val">0x20 (Chip Encrypted Memory)</string>
+    <string name="kd_v_compat">Compatibility</string>
+    <string name="kd_v_compat_val">OpenSSH (sk-ssh-ed25519), Git Sign, GPG, Cosign</string>
+    <string name="kd_v_sign_title">Sign Document, Git Commit or SSH Challenge</string>
+    <string name="kd_v_sign_desc">The chip computes the ECDSA/Ed25519 signature with the internal key. It never exposes the key:</string>
+    <string name="kd_v_sign_btn">Sign on Hardware</string>
+    <string name="kd_v_exp_title">Export Sealed AEGN Envelope (0x21/0x22)</string>
+    <string name="kd_v_exp_desc">Export the hardware-sealed AEGN envelope for safe sync between devices:</string>
+    <string name="kd_v_exp_btn">Export Sealed Envelope</string>
+    <string name="kd_piv_9a">9A PIV Authentication (Corporate Logon / Windows Hello)</string>
+    <string name="kd_piv_9c">9C Digital Signature (ICP-Brasil / X.509 Certificates)</string>
+    <string name="kd_piv_9d">9D Key Management / Email Encryption (S/MIME)</string>
+    <string name="kd_piv_9e">9E Physical Authentication / Door Access Badge</string>
+    <string name="kd_piv_other">%1$s PIV Smartcard Slot</string>
+    <string name="kd_piv_title">NIST SP 800-73-4 Smartcard Setup</string>
+    <string name="kd_piv_func">Slot Function</string>
+    <string name="kd_piv_algo">Cryptographic Algorithm</string>
+    <string name="kd_piv_policy">PIN Policy</string>
+    <string name="kd_piv_policy_val">Always Require Access PIN (NIST SP 800-73-4)</string>
+    <string name="kd_pin_title">Configure / Change Slot PIV PIN and PUK (0x39)</string>
+    <string name="kd_pin_desc">Set the access PIN (6 to 8 digits) and the PUK unlock key (8 digits) stored on the chip:</string>
+    <string name="kd_pin_new">New PIN (6-8)</string>
+    <string name="kd_puk_new">New PUK (8)</string>
+    <string name="kd_pin_save">Save PIN/PUK to Smartcard</string>
+    <string name="kd_test_title">Test PIV Signature / Authentication Challenge</string>
+    <string name="kd_test_desc">Authenticate a response with the on-chip corporate NIST SP 800-73-4 key:</string>
+    <string name="kd_test_btn">Sign PIV Challenge</string>
+    <string name="kd_a_title">AEGN v1 Envelope Integrity</string>
+    <string name="kd_a_head">Envelope Header</string>
+    <string name="kd_a_head_val">AEGN v1 (Magic Header 0x4145474E)</string>
+    <string name="kd_a_crypto">Encryption</string>
+    <string name="kd_a_crypto_val">AES-256-GCM with 128-bit Authentication Tag</string>
+    <string name="kd_a_dkek">Envelope Key (DKEK)</string>
+    <string name="kd_a_dkek_val">Derived exclusively from hardware chip (0x21)</string>
+    <string name="kd_a_insp_title">Inspect and Export Encrypted Envelope</string>
+    <string name="kd_a_insp_desc">Complete payload authenticated with AES-256-GCM, ready for import or safe backup:</string>
+    <string name="kd_a_insp_btn">Copy / Validate AEGN Envelope</string>
+    <string name="kd_a_prove_title">Prove Possession / Sign with Slot Secret</string>
+    <string name="kd_a_prove_desc">Generates HMAC integrity proof or digital signature bound to the sealed secret:</string>
+    <string name="kd_a_prove_btn">Prove Possession on Hardware</string>
+    <string name="kd_zone_title">Secure On-Hardware Deletion Zone</string>
+    <string name="kd_zone_desc">Deleting this key sends purge command 0x23 directly to the AegisKey. Chip memory is overwritten with cryptographic zeros. The key leaves the hardware.</string>
+    <string name="kd_zone_btn">Delete Key from Physical Chip (0x23)</string>
+    <string name="kd_challenge_label">Challenge / Test Data</string>
+    <string name="kd_signed_label">Chip-Signed Signature:</string>
+    <string name="kd_env_label">AEGN Envelope Payload:</string>
+
+    <!-- Clear signing -->
+    <string name="clearsign_fee_default">0.0015 ETH (Standard)</string>
+
+    <!-- eFuse -->
+    <string name="efuse_secure_ver">v%1$s (Silicon Monotonic)</string>
+
+    <!-- Biometric gate -->
+    <string name="biogate_title">Unlock AegisKey</string>
+    <string name="biogate_subtitle">Confirm device biometrics</string>
+    <string name="biogate_use_pw">Use password</string>
+
+    <!-- Settings: security -->
+    <string name="set_sec_title">Security and Hardware PIN</string>
+    <string name="set_bio_title">Biometric Verification</string>
+    <string name="set_bio_desc">Require biometric verification to unlock vault and sign.</string>
+    <string name="set_walk_title">Automatic Lock on Exit</string>
+    <string name="set_walk_desc">Lock vault when application closes.</string>
+    <string name="set_hw_title">Hardware PIN (FIDO2)</string>
+    <string name="set_hw_desc">4 to 8 digit code secured inside physical key.</string>
+    <string name="set_hw_btn">Change Security Key PIN</string>
+
+    <!-- Settings: Wi-Fi -->
+    <string name="set_wifi_title">Wi-Fi Configuration (192.168.4.1)</string>
+    <string name="set_wifi_ap_title">Wireless Access Point (SoftAP)</string>
+    <string name="set_wifi_ap_desc">IP: http://192.168.4.1 · SSID: AegisKey-AP</string>
+    <string name="set_wifi_chan">Channel and Band</string>
+    <string name="set_wifi_chan_val">Channel 6 · 2.4 GHz WPA2/WPA3</string>
+    <string name="set_wifi_eps">Endpoints</string>
+    <string name="set_wifi_eps_val">/ctap · /oath/code</string>
+    <string name="set_wifi_testing">Testing connection to 192.168.4.1...</string>
+    <string name="set_wifi_testing_short">Testing...</string>
+    <string name="set_wifi_test">Test Connection</string>
+    <string name="set_wifi_open">Open Wi-Fi Portal</string>
+    <string name="set_wifi_reading">Reading TOTP code via Wi-Fi (/oath/code)...</string>
+    <string name="set_wifi_reading_short">Reading...</string>
+    <string name="set_wifi_read">Read TOTP via Wi-Fi</string>
+    <string name="set_wifi_config">Configure Wi-Fi</string>
+    <string name="set_wifi_ok">Security key accessible via Wi-Fi at 192.168.4.1.</string>
+    <string name="set_wifi_fail">No response at IP 192.168.4.1. Connect to AegisKey-AP.</string>
+    <string name="set_wifi_test_fail">Test failed: %1$s</string>
+    <string name="set_wifi_unknown">Unknown error</string>
+    <string name="set_wifi_totp">Wi-Fi TOTP: %1$s (%2$d s remaining)</string>
+    <string name="set_wifi_totp_fail">Failed to read TOTP: %1$s</string>
+    <string name="set_wifi_configuring">Configuring Wi-Fi parameters in hardware...</string>
+    <string name="set_wifi_config_fail">Configuration failed: %1$s</string>
+
+    <!-- Settings: Wi-Fi dialog -->
+    <string name="wifi_title">Configure Security Key Wi-Fi</string>
+    <string name="wifi_desc">Configure SSID, WPA2 password, and 2.4 GHz channel. The security key persists these settings securely.</string>
+    <string name="wifi_ssid_label">Network Name (SSID)</string>
+    <string name="wifi_pass_label">WPA2 Password (minimum 8 characters)</string>
+    <string name="wifi_chan_title">Wi-Fi Channel (2.4 GHz)</string>
+    <string name="wifi_channel">Channel %1$d</string>
+    <string name="wifi_power_save">Power Saving Mode</string>
+    <string name="wifi_save">Save to Hardware</string>
+
+    <!-- Settings: backup -->
+    <string name="set_backup_title">Recovery Backup &amp; DKEK Quorum</string>
+    <string name="set_backup_card">Encrypted Backup &amp; Guardians Quorum</string>
+    <string name="set_backup_desc">AEGN Envelopes (AES-256-GCM) and 24-word recovery phrase.</string>
+    <string name="set_backup_phrase">24-Word Recovery Phrase</string>
+    <string name="set_backup_dkek">DKEK Quorum</string>
+    <string name="set_backup_open">Open Backup Central</string>
+
+    <!-- Settings: OTA -->
+    <string name="set_ota_title">OTA Firmware Update</string>
+    <string name="set_ota_fw">Firmware v3.4.0-esp32s3</string>
+    <string name="set_ota_desc">Ed25519 signature and anti-rollback verification active.</string>
+    <string name="set_ota_channel">Channel:</string>
+    <string name="ota_stable">Stable (Production)</string>
+    <string name="ota_beta">Verified Beta</string>
+    <string name="ota_check">Check for Updates</string>
+    <string name="ota_checking">Checking...</string>
+    <string name="ota_open">Open OTA Panel</string>
+    <string name="ota_status_initial">Firmware v3.4.0-esp32s3 signed and verified.</string>
+    <string name="ota_checking_manifest">Checking signed server manifest...</string>
+    <string name="ota_latest">Security key runs the latest firmware (v3.4.0-esp32s3, %1$s).</string>
+
+    <!-- Settings: rescue -->
+    <string name="set_rescue_section">Rescue Diagnostics and Audit</string>
+    <string name="set_rescue_title">Self-Test (0x2E) and Audit Logs (0x38)</string>
+    <string name="set_rescue_desc">NVS, TRNG, cryptographic engine, and monotonic counter.</string>
+    <string name="set_rescue_badge_nvs_ok">NVS OK</string>
+    <string name="set_rescue_badge_nvs_fail">NVS FAIL</string>
+    <string name="set_rescue_badge_crypto_ok">Crypto HW OK</string>
+    <string name="set_rescue_badge_crypto_fail">Crypto HW FAIL</string>
+    <string name="set_rescue_badge_trng_ok">TRNG Active</string>
+    <string name="set_rescue_badge_trng_fail">TRNG Inactive</string>
+    <string name="set_rescue_badge_btn_ok">Button OK</string>
+    <string name="set_rescue_badge_btn_fail">Button FAIL</string>
+    <string name="set_rescue_counter">Counter: %1$s ops</string>
+    <string name="set_rescue_last">Last integrity verification: %1$s</string>
+    <string name="set_rescue_auditing">Auditing...</string>
+    <string name="set_rescue_diag_btn">Diagnostics (0x2E)</string>
+    <string name="set_rescue_logs_btn">Audit Logs (0x38)</string>
+    <string name="set_diag_title">Rescue Diagnostics (0x2E)</string>
+    <string name="set_diag_desc">Hardware Self-Test execution across core security modules (0x2E payload over OP_MSG 0x83).</string>
+    <string name="set_diag_running">Executing hardware self-test...</string>
+    <string name="set_diag_default">Self-test completed</string>
+    <string name="set_diag_verdict">Verdict: %1$s</string>
+    <string name="set_diag_fw">Firmware Version: %1$s</string>
+    <string name="set_diag_rerun">Re-run Test</string>
+    <string name="set_diag_nvs">NVS Flash Storage</string>
+    <string name="set_diag_nvs_ok">Non-volatile storage validated</string>
+    <string name="set_diag_nvs_fail">Storage read/write error</string>
+    <string name="set_diag_trng">TRNG True Randomness</string>
+    <string name="set_diag_trng_ok">Entropy source active and passing FIPS 140-2</string>
+    <string name="set_diag_trng_fail">Entropy error</string>
+    <string name="set_diag_crypto">Crypto Hardware</string>
+    <string name="set_diag_crypto_ok">P-256 ECC and AES-256 accelerator OK</string>
+    <string name="set_diag_crypto_fail">Engine fault</string>
+    <string name="set_diag_btn">User Presence Button</string>
+    <string name="set_diag_btn_ok">Physical touch sensor operational</string>
+    <string name="set_diag_btn_fail">Sensor fault</string>
+    <string name="set_diag_counter">Monotonic Counter</string>
+    <string name="set_diag_counter_val">%,d operations recorded (Panic: %d, Wipe: %d)</string>
+
+    <!-- Settings: audit logs -->
+    <string name="set_logs_title">Security Audit Logs (0x38)</string>
+    <string name="set_logs_desc">Live security audit trace (transport 0x38, BLE, Secure Guard and locks).</string>
+    <string name="set_logs_empty">No audit log entries recorded yet.</string>
+    <string name="set_logs_fw">Fw 0x38</string>
+
+    <!-- Settings: ownership -->
+    <string name="set_own_section">Security Key Ownership and Factory Reset</string>
+    <string name="set_own_title">Ownership and Factory Reset (0x2B)</string>
+    <string name="set_own_desc">This mobile phone is the registered owner of the security key.</string>
+    <string name="set_own_pair">Pair New Security Key</string>
+    <string name="set_own_reset">Release Ownership or Reset Key (0x2B)</string>
+    <string name="set_own_dialog_title">Release Device Ownership?</string>
+    <string name="set_own_dialog_desc">Releasing ownership (0x2B) unbinds this mobile phone from the security key and requires user presence confirmation. To bind again, hold the physical button for 5 seconds to enter pairing mode.</string>
+    <string name="set_own_proceed">Proceed to Transfer</string>
+
+    <!-- Settings: PIV nav -->
+    <string name="set_piv_title">Smart Card (PIV / Certificates)</string>
+    <string name="set_piv_desc">Digital certificates and authentication slots (NIST SP 800-73-4).</string>
+
+    <!-- Settings: footer -->
+    <string name="set_foot_app">AegisKey App · v0.1.0</string>
+    <string name="set_foot_tag">Hardware security with complete transparency and open source.</string>
+
+    <!-- Settings: hardware PIN dialog -->
+    <string name="set_pin_title">Change Hardware PIN</string>
+    <string name="set_pin_desc">Enter a 4 to 8 digit numeric PIN. It will be stored inside the security key.</string>
+    <string name="set_pin_new">New PIN (4-8 digits)</string>
+    <string name="set_pin_confirm">Confirm New PIN</string>
+    <string name="set_pin_save">Save PIN</string>
+    <string name="set_pin_err_len">PIN must contain between 4 and 8 digits.</string>
+    <string name="set_pin_err_match">The two entered PINs do not match.</string>
+    <string name="set_pin_sending">Sending to security key... Press the physical button on the key.</string>
+    <string name="set_pin_ok">PIN saved to security key successfully.</string>
+    <string name="set_pin_no_resp">No response from hardware. Press the physical button.</string>
+    <string name="set_pin_fail">Failed to save PIN: %1$s</string>
+
+    <!-- Settings: recovery phrase -->
+    <string name="set_phrase_title">Recovery Phrase (24 Words)</string>
+    <string name="set_phrase_warn">Write these words on paper. Never store digitally or share with anyone.</string>
+    <string name="set_phrase_copied">Recovery phrase copied to clipboard.</string>
+
+    <!-- Settings: DKEK quorum -->
+    <string name="set_dkek_title">DKEK Quorum Configuration</string>
+    <string name="set_dkek_desc">Specify total guardians (N) and required quorum (M) to recover the security key without a single point of failure.</string>
+    <string name="set_dkek_total">Total Guardians (N): %1$d</string>
+    <string name="set_dkek_quorum">Required Quorum (M): %1$d</string>
+    <string name="set_dkek_active">Active configuration: Any %1$d of the %2$d guardians can authorize recovery.</string>
+    <string name="set_dkek_save">Save Quorum</string>
+
+    <!-- Settings: backup chooser -->
+    <string name="set_backup_central_title">Backup and Recovery Center</string>
+    <string name="set_backup_central_desc">Choose the safe cryptographic protection and redundancy method:</string>
+    <string name="set_backup_opt1_title">Recovery Phrase (BIP-39)</string>
+    <string name="set_backup_opt1_desc">24 offline mnemonic words (256-bit entropy + checksum).</string>
+    <string name="set_backup_opt2_title">DKEK Guardians Quorum (N-of-M)</string>
+    <string name="set_backup_opt2_desc">Cryptographic split across N guardians with M signature threshold.</string>
+    <string name="set_backup_opt3_title">Shamir SLIP-39 Backup (2-of-3)</string>
+    <string name="set_backup_opt3_desc">High-security Shamir share generation for hardware redundancy.</string>
+
+    <!-- Shamir placeholders -->
+    <string name="shamir_share_hint_1">share-1-of-3: cricket dynamic acid...</string>
+    <string name="shamir_share_hint_2">share-2-of-3: cricket dynamic blast...</string>
+
+    <!-- Settings: language -->
+    <string name="lang_title">Language</string>
+    <string name="lang_desc">App language. Applies now.</string>
+    <string name="lang_system">System</string>
+    <string name="lang_en">English</string>
+    <string name="lang_pt">Português (Brasil)</string>
 </resources>

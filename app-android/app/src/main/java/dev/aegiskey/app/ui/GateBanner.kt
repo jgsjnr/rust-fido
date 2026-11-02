@@ -10,8 +10,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 
 /**
  * Gate banner for fail-closed hardware security state.
@@ -35,24 +37,24 @@ fun GateBanner(
     if (gate == VaultGate.READY) return
     val (title, body, action) = when (gate) {
         VaultGate.NO_BLE -> Triple(
-            "Connect hardware device first",
-            "BLE connection is offline. Connect device before operation.",
-            "OK",
+            stringResource(R.string.gate_noble_title),
+            stringResource(R.string.gate_noble_body),
+            stringResource(R.string.gate_ok),
         )
         VaultGate.NEED_BINDING -> Triple(
-            "Bind hardware device first",
-            "Hardware device has no owner. Complete initial pairing setup.",
-            "Bind device",
+            stringResource(R.string.gate_bind_title),
+            stringResource(R.string.gate_bind_body),
+            stringResource(R.string.gate_bind_action),
         )
         VaultGate.NEED_UP -> Triple(
-            "Press physical button",
-            "Hardware device requires User Presence (UP) verification.",
-            "OK",
+            stringResource(R.string.gate_up_title),
+            stringResource(R.string.gate_up_body),
+            stringResource(R.string.gate_ok),
         )
         VaultGate.NEED_PIN -> Triple(
-            "PIN authentication required",
-            "Hardware device requires PIN authentication.",
-            "OK",
+            stringResource(R.string.gate_pin_title),
+            stringResource(R.string.gate_pin_body),
+            stringResource(R.string.gate_ok),
         )
         VaultGate.READY -> Triple("", "", "")
     }

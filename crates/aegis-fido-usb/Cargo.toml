@@ -5,14 +5,27 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 log = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
-rand_core = { workspace = true, features = ["getrandom"] }
+rand_core = { workspace = true }
+# OS-backed RNG (`getrandom::SysRng`): optional so bare-metal/ESP32 targets can
+# build without an OS. Enabled by default via `std` (zero breakage); disable
+# with `--no-default-features`. Without it, `provision_pin` / credential
+# rewrites are unavailable (fail-closed `6F 00`) — seed explicitly via
+# `provision_pin_with_rng` or register a custom `getrandom` backend and enable
+# the `getrandom` feature.
+getrandom = { version = "0.4", features = ["sys_rng"], optional = true }
 
 [features]
+default = ["std"]
+# Hosted build: OS RNG available (`getrandom::SysRng` for PIV salt minting).
+std = ["getrandom"]
+# Just the OS RNG without the `std` umbrella (custom `getrandom` backends).
+getrandom = ["dep:getrandom"]
 # LAB-ONLY: habilita mocks PIV (FCI/CHUID/CCC) para testes de laboratorio.
 # Default-off; builds sem a feature retornam 6A 82 em GET DATA.
 lab-mocks = []

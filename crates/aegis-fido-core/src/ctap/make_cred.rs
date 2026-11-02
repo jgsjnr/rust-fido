@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 use crate::credential::non_resident::CredentialWrapper;
 use crate::credential::record::CredentialRecord;
@@ -25,7 +25,7 @@ impl MakeCredentialHandler {
     // CTAP2 MakeCredential requires full authenticator context (store, wrapper, PIN, config, UP, policy, payload, RNG).
     // Grouping into a struct would break the stable handler API; arity is inherent to the spec.
     #[allow(clippy::too_many_arguments)]
-    pub fn handle<S: CredentialStore, R: RngCore + CryptoRng>(
+    pub fn handle<S: CredentialStore, R: CryptoRng>(
         store: &mut S,
         wrapper: &CredentialWrapper,
         pin_state: &mut ClientPinState,

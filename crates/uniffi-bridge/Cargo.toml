@@ -5,7 +5,8 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "UniFFI bridge (cdylib) re-exporting aegis-fido-core for the Android app: CBOR/COSE parse-only, AEGN envelope AES-GCM seal/open, TOTP display-only verify. Never generates or stores keys/secrets."
+publish.workspace = true
+description = "Manual JNI/JNA C-ABI bridge (cdylib) re-exporting aegis-fido-core for the Android app: CBOR/COSE parse-only, AEGN envelope AES-GCM seal/open, TOTP display-only verify. Never generates or stores keys/secrets."
 
 [lib]
 name = "aegis_bridge"
@@ -14,8 +15,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 aegis-fido-core = { path = "../aegis-fido-core" }
 universal-device-sdk = { path = "../universal-device-sdk" }
-uniffi = { version = "0.28", features = ["build"] }
 zeroize = { workspace = true }
-
-[build-dependencies]
-uniffi = { version = "0.28", features = ["build"] }

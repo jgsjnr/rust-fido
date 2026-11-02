@@ -3,6 +3,7 @@ package dev.aegiskey.app.di
 import android.content.Context
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.data.local.ThemePreferencesStore
 import dev.aegiskey.app.data.repository.ConnectedKeysRepositoryImpl
 import dev.aegiskey.app.data.repository.KeyVaultRepositoryImpl
@@ -79,6 +80,7 @@ class AppContainer(val context: Context) {
     // --- Fontes Locais & Segurança ---
     val keysStore: EncryptedKeysStore by lazy { EncryptedKeysStore(context) }
     val themeStore: ThemePreferencesStore by lazy { ThemePreferencesStore(context) }
+    val localeStore: LocalePreferencesStore by lazy { LocalePreferencesStore(context) }
     val securityService: SystemSecurityService by lazy { SystemSecurityService(context) }
 
     // --- Transportes de Hardware & Simulação ---

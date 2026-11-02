@@ -17,7 +17,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 
 use super::address::address_for_public_key;
 use super::types::{CryptoNetwork, WalletRecord};
@@ -151,7 +151,7 @@ impl WalletStore {
 
     /// GEN (gate UP, inherited): generates an on-device key under the
     /// network's curve and returns its metadata record with derived address.
-    pub fn generate<R: RngCore + CryptoRng>(
+    pub fn generate<R: CryptoRng>(
         &mut self,
         network: CryptoNetwork,
         slot_id: u8,
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn should_generate_wallet_record_with_prefixed_label_and_address() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = btc_store();
         let rec = store
             .generate(CryptoNetwork::Bitcoin, 0, "savings", 1, true, &mut rng)
@@ -325,7 +325,7 @@ mod tests {
     fn should_never_touch_non_wallet_slots() {
         // B1: wallet owns a DEDICATED KeyManager; a foreign manager holding
         // FIDO2 slots must be bit-identical after wallet operations.
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut foreign = KeyManager::new();
         foreign
             .generate(
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn should_require_up_for_generate_sign_list_get_and_address() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         assert!(WalletStore::default().is_empty());
         let mut store = btc_store();
         assert_eq!(
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn should_require_up_and_pin_for_import_and_delete() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let vault = AegisVault::new([0x5Au8; 32]);
         let kp = KeyPair::generate(CoseAlgorithm::EdDSA, &mut rng).unwrap();
         let env = vault
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn should_import_envelope_and_reject_wrong_pin_and_tampered() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let vault = AegisVault::new([0x5Au8; 32]);
         let kp = KeyPair::generate(CoseAlgorithm::EdDSA, &mut rng).unwrap();
         let env = vault
@@ -528,7 +528,7 @@ mod tests {
 
     #[test]
     fn should_fail_slot_exhaustion_at_32() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = WalletStore::new();
         for id in 0..32u8 {
             store
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn should_sign_message_and_verify_with_derived_pubkey() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = WalletStore::new();
         store
             .generate(CryptoNetwork::EthereumEvm, 5, "sig", 0, true, &mut rng)
@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn should_delete_with_up_and_pin_and_free_the_slot() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = WalletStore::new();
         store
             .generate(CryptoNetwork::Solana, 9, "tmp", 0, true, &mut rng)
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn should_list_metadata_only_and_reject_overlong_label() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = WalletStore::new();
         store
             .generate(CryptoNetwork::Bitcoin, 0, "a", 0, true, &mut rng)
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn should_export_import_routing_roundtrip_sorted() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = btc_store();
         assert_eq!(store.export_routing(), alloc::vec::Vec::new());
         store

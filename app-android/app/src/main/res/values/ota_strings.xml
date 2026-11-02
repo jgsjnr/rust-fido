@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Offline firmware.bin OTA (ota2 engine). ASD-STE100: short text, one concept per string. No emoji. -->
+<resources>
+    <string name="ota2_title">Firmware update</string>
+    <string name="ota2_nav_title">Offline firmware update</string>
+    <string name="ota2_nav_desc">Send signed firmware.bin from storage. No COMMIT.</string>
+    <string name="ota2_pick">Choose firmware.bin</string>
+    <string name="ota2_send">Send to key</string>
+    <string name="ota2_abort">Abort</string>
+    <string name="ota2_retry">Retry</string>
+    <string name="ota2_sha">SHA-256: %1$s</string>
+    <string name="ota2_size">Size: %1$d bytes</string>
+    <string name="ota2_version">Version %1$d (key has %2$d)</string>
+    <string name="ota2_progress">Sent %1$d of %2$d bytes</string>
+    <string name="ota2_verified">Verified. Confirm commit on the key.</string>
+    <string name="ota2_paused">Link lost at %1$d bytes. Retry to resume.</string>
+    <string name="ota2_fail_gate">Update blocked by policy.</string>
+    <string name="ota2_fail_manifest">Bad update manifest.</string>
+    <string name="ota2_fail_oversize">File too large for the key.</string>
+    <string name="ota2_fail_empty">Empty file.</string>
+    <string name="ota2_fail_sig">Bad update signature.</string>
+    <string name="ota2_fail_downgrade">Version not newer than key.</string>
+    <string name="ota2_fail_sha">File digest mismatch.</string>
+    <string name="ota2_fail_transport">No answer from key.</string>
+    <string name="ota2_fail_rejected">Key rejected update.</string>
+    <string name="ota2_fail_need_up">Tap the key button, then retry.</string>
+    <string name="ota2_fail_aborted">Update aborted.</string>
+</resources>

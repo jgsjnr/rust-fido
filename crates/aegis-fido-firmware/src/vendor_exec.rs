@@ -261,7 +261,7 @@ pub fn exec_vendor_op<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
+    R: rand_core::CryptoRng,
 {
     // PIV ENROLL (0x39, F4): fora da faixa 0x20-0x27 de propósito —
     // `authorize_vendor_op` rejeitaria como InvalidOpcode. Gate próprio
@@ -381,7 +381,7 @@ fn exec_key_gen<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
+    R: rand_core::CryptoRng,
 {
     let records = match parse_tlv_records(payload) {
         Ok(r) => r,
@@ -450,7 +450,7 @@ fn exec_key_import_or_gen<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
+    R: rand_core::CryptoRng,
 {
     let records = match parse_tlv_records(payload) {
         Ok(r) => r,
@@ -591,7 +591,7 @@ mod tests {
     ) -> (u8, Vec<u8>) {
         let mut keys = KeyManager::new();
         let mut oath = OathApplet::new();
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         exec_vendor_op(
             &mut keys,
             &mut oath,
@@ -654,7 +654,7 @@ mod tests {
         let mut st = test_storage();
         let mut keys = KeyManager::new();
         let mut oath = OathApplet::new();
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         for slot in 0..8u8 {
             let mut payload = Vec::new();
             write_tlv(&mut payload, TAG_SLOT, &[slot]);
@@ -709,7 +709,7 @@ mod tests {
         use alloc::string::ToString;
         let mut st = test_storage();
         let mut keys = KeyManager::new();
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let label32 = "0123456789abcdef0123456789abcdef".to_string();
         assert_eq!(label32.len(), 32);
         for slot in 0..32u8 {
@@ -742,7 +742,7 @@ mod tests {
         let mut st = test_storage();
         let mut keys = KeyManager::new();
         let oath = OathApplet::new();
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         keys.generate(
             3,
             CoseAlgorithm::ES256,
@@ -782,7 +782,7 @@ mod tests {
         // Torn write: adultera o envelope cru; load nega fail-closed.
         let mut st = test_storage();
         let mut keys = KeyManager::new();
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         keys.generate(
             1,
             CoseAlgorithm::ES256,

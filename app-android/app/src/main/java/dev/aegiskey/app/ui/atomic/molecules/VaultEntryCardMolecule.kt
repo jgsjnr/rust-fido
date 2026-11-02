@@ -31,9 +31,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 import dev.aegiskey.app.ui.theme.AegisAddressMonospaceStyle
 
@@ -148,7 +150,7 @@ fun VaultEntryCardMolecule(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
-                            contentDescription = "Delete from vault",
+                            contentDescription = stringResource(R.string.cd_delete_vault),
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                             modifier = Modifier.size(16.dp),
                         )
@@ -186,14 +188,14 @@ fun VaultEntryCardMolecule(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        text = "Manage",
+                        text = stringResource(R.string.vault_card_manage),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Manage",
+                        contentDescription = stringResource(R.string.vault_card_manage),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(12.dp),
                     )
@@ -226,7 +228,7 @@ fun VaultEntryCardMolecule(
                         Spacer(modifier = Modifier.width(6.dp))
 
                         QuickActionPillButton(
-                            text = "Copy",
+                            text = stringResource(R.string.action_copy),
                             icon = Icons.Filled.ContentCopy,
                             onClick = { onCopy(identifierToCopy) },
                         )

@@ -9,6 +9,8 @@
 //! Compat: `crate::ccid` re-exports every public symbol defined here, so
 //! existing `crate::ccid::{CommandApdu, ...}` paths keep working.
 
+use alloc::vec::Vec;
+
 // ============================================================================
 // ISO 7816-4 Status Words (SW1 SW2)
 // ============================================================================

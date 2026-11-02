@@ -117,7 +117,7 @@ mod ota_wiring_tests {
     fn ota_unknown_opcode_ignored() {
         let mut storage = credentialed_storage();
         let mut ota = OtaState::new(OTA_CURRENT);
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
         let mut sink = FlashOtaSink::new(storage.backend_mut());
         for op in [0x20u8, 0x2D, 0x2F, 0x35, 0xFF] {
@@ -153,7 +153,7 @@ mod ota_wiring_tests {
         // F5: imagem de 20 KiB atravessa 3 chunks NVS e verifica ponta a ponta.
         let mut storage = credentialed_storage();
         let image: Vec<u8> = (0..20 * 1024).map(|i| (i % 251) as u8).collect();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let manifest = signed_manifest(OTA_NEXT, &image, &sk);
         let mut ota = OtaState::new(OTA_CURRENT);
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
@@ -197,7 +197,7 @@ mod ota_wiring_tests {
     fn ota_commit_without_up_rejected_session_preserved() {
         let mut storage = credentialed_storage();
         let image = ota_image();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let manifest = signed_manifest(OTA_NEXT, &image, &sk);
         let mut ota = OtaState::new(OTA_CURRENT);
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
@@ -224,7 +224,7 @@ mod ota_wiring_tests {
         let mut storage = credentialed_storage();
         let snap = snapshot_keys(storage.backend(), CRED_KEYS);
         let image = ota_image();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let manifest = signed_manifest(OTA_NEXT, &image, &sk);
         let mut ota = OtaState::new(OTA_CURRENT);
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
@@ -253,7 +253,7 @@ mod ota_wiring_tests {
         let mut storage = credentialed_storage();
         let snap = snapshot_keys(storage.backend(), CRED_KEYS);
         let image = ota_image();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let manifest = signed_manifest(OTA_NEXT, &image, &sk);
         let mut ota = OtaState::new(OTA_CURRENT);
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
@@ -317,7 +317,7 @@ mod ota_wiring_tests {
         let mut storage = credentialed_storage();
         let snap = snapshot_keys(storage.backend(), CRED_KEYS);
         let image = ota_image();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let manifest = signed_manifest(OTA_NEXT, &image, &sk);
         let mut ota = OtaState::new(OTA_CURRENT);
         let ctx = req_ctx(true, true, sk.verifying_key().to_bytes());
@@ -413,7 +413,7 @@ mod ota_wiring_tests {
         let mut storage = credentialed_storage();
         let snap = snapshot_keys(storage.backend(), CRED_KEYS);
         let image = ota_image();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let manifest = signed_manifest(OTA_NEXT, &image, &sk);
         let mut ota = OtaState::new(OTA_CURRENT);
         let real = req_ctx(true, true, sk.verifying_key().to_bytes());
@@ -484,7 +484,7 @@ mod ota_wiring_tests {
 
     #[test]
     fn ota_verify_signature_roundtrip() {
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let vk = sk.verifying_key().to_bytes();
         let msg = b"ota-release-40-bytes-padded.........";
         let sig = sk.sign(msg).to_bytes();

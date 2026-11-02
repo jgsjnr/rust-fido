@@ -31,7 +31,7 @@ A sua placa `ESP32-S3-DevKitC-1 (N16R8)` possui **duas portas USB-C físicas**, 
 
 ### Modo C — PC Windows / Linux via Bridge (`COM7` + App C# Flutuante)
 1. Conecte a porta **`UART`** da placa no PC (`COM7`).
-2. Abra o [Start-AegisKey.bat](file:///e:/projetos/fido/dist/Start-AegisKey.bat) (ou `AegisKeyTray.exe`).
+2. Abra o `Start-AegisKey.bat` (superseded by [app-tray/aegis_tray.py](../../app-tray/aegis_tray.py)) (ou `AegisKeyTray.exe`).
 3. O gerenciador flutuante (`380 × 660 px`) conecta automaticamente na `COM7` via `http://127.0.0.1:5678`, exibe o status do **Secure Guard**, **KeePassXC (`Slots 0x30/0x38`)**, **Proximidade Bluetooth** e abre o popup de PIN automaticamente quando o Windows/SSH/KeePassXC solicita a chave.
 
 ### Modo D — Wi-Fi Local / Rede (Bridge HTTP/TCP)
@@ -41,7 +41,7 @@ A sua placa `ESP32-S3-DevKitC-1 (N16R8)` possui **duas portas USB-C físicas**, 
 
 ## 3. O que o Botão Físico (`BOOT / GPIO 0`) Realmente Faz no Código?
 
-Mapeamento exato do código-fonte ([button.rs](file:///e:/projetos/fido/crates/aegis-fido-firmware/src/button.rs), [pairing.rs](file:///e:/projetos/fido/crates/aegis-fido-firmware/src/pairing.rs) e [freertos_route.rs](file:///e:/projetos/fido/crates/aegis-fido-firmware/src/freertos_route.rs)):
+Mapeamento exato do código-fonte ([button.rs](../../crates/aegis-fido-firmware/src/button.rs), [pairing.rs](../../crates/aegis-fido-firmware/src/pairing.rs) e [freertos_route.rs](../../crates/aegis-fido-firmware/src/freertos_route.rs)):
 
 1. **Pressionar e Segurar por 5 segundos (`Hold 5s`)**:
    - Dispara `PairingManager::on_button_hold_5s(now_ms)` no firmware.

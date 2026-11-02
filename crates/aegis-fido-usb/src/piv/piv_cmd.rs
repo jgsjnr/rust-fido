@@ -1,402 +1,21 @@
-//! PIV (NIST SP 800-73-4) applet — VERIFY/AUTH/PUT/GEN + PIN/PUK NVS (Wave 1 Step 1).
+//! PIV command surface (re-export shim; move-only split, no behavior change).
 //!
-//! `PivApplet` receives a parsed [`CommandApdu`] and returns a
-//! [`ResponseApdu`]. SELECT with AID `A0 00 00 03 08` selects the applet
-//! and returns a lab-mock FCI; GET DATA serves mock CHUID (`5F C1 02`)
-//! and CCC (`5F C1 07`) plus X.509 certs (`5F C1 05`) stored via PUT DATA.
-//! Unknown AID yields `6A 82`; any command while deselected yields `69 85`.
-//!
-//! PIN/PUK (sem PIN default — aparelho novo responde `6A 88` até provisionar):
-//! - PIN 6-8 bytes, 3 tentativas persistidas; zerou = bloqueado (`69 83`, exige PUK).
-//! - PUK exatamente 8 bytes, 3 tentativas persistidas; zerou = wipe total PIV.
-//! - Hash `SHA-256(salt 16B || pin)`, comparação em tempo constante, zeroize.
-//! - Provisionamento inicial SÓ via [`PivApplet::provision_pin`] (enrollment com UP
-//!   no firmware); nunca via APDU não autenticado.
-//!
-//! NVS (firmware pluga [`PivRecordStore`] no envelope AES-GCM AEGN v1; aqui só as chaves):
-//! `piv_pin_hash` (32B) / `piv_pin_salt` (16B) / `piv_pin_retries` (1B) /
-//! `piv_puk_hash` (32B) / `piv_puk_salt` (16B) / `piv_puk_retries` (1B) /
-//! `piv_cert_9a` / `piv_cert_9c` / `piv_cert_9d` / `piv_cert_9e` (DER, até 2048B).
-//!
-//! Desvios documentados do 800-73 puro (LAB, sem quebrar o fio padrão):
-//! - PUT DATA usa P2 = slot (`9A`/`9C`/`9D`/`9E`); dado `5C 03 5F C1 05 53 <len> <cert>`.
-//! - GET DATA `5F C1 05` serve o cert do último slot endereçado (default `9A`).
-//! - GENERATE/AUTH delegam a [`PivKeyBackend`] (firmware injeta; sem backend = `69 85`
-//!   fail-closed). Sem store (transporte puro) tudo sensível = fail-closed.
-//! - MSCP (visão Windows BaseCSP/minidriver): ver tabela em `ccid.rs` (parcial,
-//!   TODOs de Security Object/Discovery/SAN-UPN documentados lá).
-
+//! Concrete items live in `cmd`: `parse` (INS/P2, slots, consts, fixtures),
+//! `auth` (PIN/PUK validation + provisioning), `admin` (store/backend contracts).
+//! Every `piv_cmd::X` path keeps compiling via the re-exports below.
 #[cfg(test)]
 use crate::ccid::{
     CommandApdu, ResponseApdu, AID_PIV, SW_CONDITIONS_NOT_SATISFIED, SW_INS_NOT_SUPPORTED,
     SW_NOT_FOUND,
 };
-use rand_core::{CryptoRng, RngCore};
-use sha2::{Digest, Sha256};
-use zeroize::Zeroize;
 
-/// GET DATA instruction (ISO 7816-4 / NIST SP 800-73).
-pub(crate) const INS_GET_DATA: u8 = 0xCB;
-/// SELECT instruction.
-pub(crate) const INS_SELECT: u8 = 0xA4;
-/// VERIFY instruction (PIN).
-pub(crate) const INS_VERIFY: u8 = 0x20;
-/// CHANGE REFERENCE DATA instruction (troca PIN/PUK com o valor antigo).
-pub(crate) const INS_CHANGE: u8 = 0x24;
-/// RESET RETRY COUNTER instruction (desbloqueio com PUK + PIN novo).
-pub(crate) const INS_UNBLOCK: u8 = 0x2C;
-/// GENERAL AUTHENTICATE instruction (operações com o slot).
-pub(crate) const INS_GENERAL_AUTH: u8 = 0x87;
-/// PUT DATA instruction (grava cert do slot).
-pub(crate) const INS_PUT_DATA: u8 = 0xDB;
-/// GENERATE ASYMMETRIC KEY PAIR instruction.
-pub(crate) const INS_GENERATE: u8 = 0x47;
-
-/// Referência do PIN (P2 no VERIFY/CHANGE/UNBLOCK).
-pub(crate) const P2_PIN: u8 = 0x80;
-/// Referência do PUK (P2 no CHANGE).
-pub(crate) const P2_PUK: u8 = 0x81;
-
-/// Tamanho mínimo do PIN (bytes).
-pub const PIV_PIN_MIN_LEN: usize = 6;
-/// Tamanho máximo do PIN (bytes).
-pub const PIV_PIN_MAX_LEN: usize = 8;
-/// Tentativas do PIN (zerou = bloqueado, exige PUK).
-pub const PIV_PIN_MAX_RETRIES: u8 = 3;
-/// Tamanho exato do PUK (bytes).
-pub const PIV_PUK_LEN: usize = 8;
-/// Tentativas do PUK (zerou = wipe total PIV).
-pub const PIV_PUK_MAX_RETRIES: u8 = 3;
-/// Tamanho do salt (TRNG 16B, padrão `recovery.rs`).
-pub const PIV_SALT_LEN: usize = 16;
-/// Tamanho do hash `SHA-256(salt || pin)` (32B).
-pub const PIV_HASH_LEN: usize = 32;
-/// Teto do cert DER por slot (sem número mágico nos handlers).
-pub const MAX_PIV_CERT_BYTES: usize = 2048;
-
-/// Slot PIV Authentication.
-pub const PIV_SLOT_9A: u8 = 0x9A;
-/// Slot Digital Signature.
-pub const PIV_SLOT_9C: u8 = 0x9C;
-/// Slot Key Management.
-pub const PIV_SLOT_9D: u8 = 0x9D;
-/// Slot Card Authentication.
-pub const PIV_SLOT_9E: u8 = 0x9E;
-
-/// Chave NVS do hash do PIN.
-pub const PIV_NVS_PIN_HASH: &str = "piv_pin_hash";
-/// Chave NVS do salt do PIN.
-pub const PIV_NVS_PIN_SALT: &str = "piv_pin_salt";
-/// Chave NVS das tentativas restantes do PIN (1B).
-pub const PIV_NVS_PIN_RETRIES: &str = "piv_pin_retries";
-/// Chave NVS do hash do PUK.
-pub const PIV_NVS_PUK_HASH: &str = "piv_puk_hash";
-/// Chave NVS do salt do PUK.
-pub const PIV_NVS_PUK_SALT: &str = "piv_puk_salt";
-/// Chave NVS das tentativas restantes do PUK (1B).
-pub const PIV_NVS_PUK_RETRIES: &str = "piv_puk_retries";
-
-/// Slot de chave PIV (somente `9A`/`9C`/`9D`/`9E`; resto = `6B 00`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PivSlot {
-    /// `9A` PIV Authentication (default do `last_slot`).
-    Auth9A,
-    /// `9C` Digital Signature.
-    Sign9C,
-    /// `9D` Key Management.
-    Mgmt9D,
-    /// `9E` Card Authentication.
-    Card9E,
-}
-
-impl PivSlot {
-    /// Converte a referência de chave (P2) em slot; `None` = slot inválido.
-    pub fn from_key_ref(key_ref: u8) -> Option<Self> {
-        match key_ref {
-            PIV_SLOT_9A => Some(Self::Auth9A),
-            PIV_SLOT_9C => Some(Self::Sign9C),
-            PIV_SLOT_9D => Some(Self::Mgmt9D),
-            PIV_SLOT_9E => Some(Self::Card9E),
-            _ => None,
-        }
-    }
-
-    /// Referência de chave (byte P2) do slot.
-    pub fn key_ref(self) -> u8 {
-        match self {
-            Self::Auth9A => PIV_SLOT_9A,
-            Self::Sign9C => PIV_SLOT_9C,
-            Self::Mgmt9D => PIV_SLOT_9D,
-            Self::Card9E => PIV_SLOT_9E,
-        }
-    }
-
-    /// Chave NVS do cert (DER) deste slot.
-    pub fn cert_nvs_key(self) -> &'static str {
-        match self {
-            Self::Auth9A => "piv_cert_9a",
-            Self::Sign9C => "piv_cert_9c",
-            Self::Mgmt9D => "piv_cert_9d",
-            Self::Card9E => "piv_cert_9e",
-        }
-    }
-
-    /// Todos os slots (para wipe e iteração).
-    pub fn all() -> [Self; 4] {
-        [Self::Auth9A, Self::Sign9C, Self::Mgmt9D, Self::Card9E]
-    }
-}
-
-/// Erro tipado do store PIV (firmware mapeia do `StorageError`; sem panics).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PivStoreError {
-    /// Registro ausente (= não provisionado).
-    NotFound,
-    /// Registro parcial/corrompido.
-    Corrupted,
-    /// Falha de escrita/leitura.
-    Io,
-}
-
-/// Store byte-a-byte dos registros PIV.
-///
-/// O firmware implementa com `SecureStorage` (envelope AES-GCM AEGN v1 +
-/// retry de escrita); aqui só o contrato. Exemplo de adapter no firmware:
-/// `load_record(k)` = `secure.load(k).map_err(...)`, `store_record(k, v)` =
-/// `secure.store(k, v, &IGNORED)` (nonce TRNG interno).
-pub trait PivRecordStore {
-    /// Lê o registro `key`; `NotFound` = ausente.
-    fn load_record(&self, key: &str) -> Result<Vec<u8>, PivStoreError>;
-    /// Grava o registro `key` (sobrescreve).
-    fn store_record(&mut self, key: &str, value: &[u8]) -> Result<(), PivStoreError>;
-    /// Apaga o registro `key` (ausente = ok, idempotente).
-    fn delete_record(&mut self, key: &str) -> Result<(), PivStoreError>;
-}
-
-/// Erro tipado do provisionamento PIN/PUK (sem panics, sem stringly).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PivPinError {
-    /// PIN fora de 6-8 bytes.
-    BadPin,
-    /// PUK diferente de 8 bytes.
-    BadPuk,
-    /// Já provisionado (use CHANGE/UNBLOCK).
-    AlreadyProvisioned,
-    /// Falha de store.
-    Storage,
-    /// Verify-after-write divergiu (store não confiável; registros apagados).
-    VerifyFailed,
-}
-
-/// Erro tipado do backend cripto PIV.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PivCryptoError {
-    /// Operação indisponível (sem backend injetado).
-    Unavailable,
-    /// Algoritmo não suportado pelo backend.
-    BadAlg,
-    /// Falha na operação.
-    Failed,
-}
-
-/// Backend cripto dos slots (firmware injeta; chave/RNG/assinatura ficam no firmware).
-///
-/// `generate` retorna a chave pública (bytes do template `7F 49`);
-/// `authenticate` recebe o desafio (`7C` interno) e retorna a resposta (`82`).
-pub trait PivKeyBackend {
-    /// Gera par no `slot` para `alg` (byte `80` do template `AC`); retorna pública.
-    fn generate(&mut self, slot: PivSlot, alg: u8) -> Result<Vec<u8>, PivCryptoError>;
-    /// Opera com a privada do `slot` sobre `challenge`; retorna resposta.
-    fn authenticate(
-        &mut self,
-        slot: PivSlot,
-        alg: u8,
-        challenge: &[u8],
-    ) -> Result<Vec<u8>, PivCryptoError>;
-}
-
-/// Backend ausente: toda operação = `Unavailable` (vira `69 85` fail-closed).
-pub struct NoBackend;
-
-impl PivKeyBackend for NoBackend {
-    fn generate(&mut self, _slot: PivSlot, _alg: u8) -> Result<Vec<u8>, PivCryptoError> {
-        Err(PivCryptoError::Unavailable)
-    }
-
-    fn authenticate(
-        &mut self,
-        _slot: PivSlot,
-        _alg: u8,
-        _challenge: &[u8],
-    ) -> Result<Vec<u8>, PivCryptoError> {
-        Err(PivCryptoError::Unavailable)
-    }
-}
-
-/// Hash do PIN/PUK: `SHA-256(salt || pin)` (segredo nunca sai; padrão `recovery.rs`).
-pub(crate) fn hash_pin(salt: &[u8; PIV_SALT_LEN], pin: &[u8]) -> [u8; PIV_HASH_LEN] {
-    let mut h = Sha256::new();
-    h.update(salt);
-    h.update(pin);
-    let digest = h.finalize();
-    let mut out = [0u8; PIV_HASH_LEN];
-    out.copy_from_slice(&digest);
-    out
-}
-
-/// Compara 32B em tempo constante (sem oráculo de tempo; padrão `recovery.rs`).
-pub(crate) fn ct_eq_32(a: &[u8; PIV_HASH_LEN], b: &[u8; PIV_HASH_LEN]) -> bool {
-    let mut diff = 0u8;
-    let mut i = 0;
-    while i < PIV_HASH_LEN {
-        diff |= a[i] ^ b[i];
-        i += 1;
-    }
-    diff == 0
-}
-
-/// `true` quando o PIN tem 6-8 bytes (qualquer byte; o host conhece o formato).
-pub fn is_valid_piv_pin(pin: &[u8]) -> bool {
-    (PIV_PIN_MIN_LEN..=PIV_PIN_MAX_LEN).contains(&pin.len())
-}
-
-/// `true` quando o PUK tem exatamente 8 bytes.
-pub fn is_valid_piv_puk(puk: &[u8]) -> bool {
-    puk.len() == PIV_PUK_LEN
-}
-
-/// Grava um par salt+hash+retries com verify-after-write; zeroiza transitórios.
-pub(crate) fn write_credential<S: PivRecordStore>(
-    store: &mut S,
-    salt_key: &str,
-    hash_key: &str,
-    retries_key: &str,
-    secret: &[u8],
-    rng: &mut (impl RngCore + CryptoRng),
-    max_retries: u8,
-) -> Result<(), PivPinError> {
-    let mut salt = [0u8; PIV_SALT_LEN];
-    rng.fill_bytes(&mut salt);
-    let mut hash = hash_pin(&salt, secret);
-    let retries = [max_retries];
-    let res = (|| {
-        store
-            .store_record(salt_key, &salt)
-            .map_err(|_| PivPinError::Storage)?;
-        store
-            .store_record(hash_key, &hash)
-            .map_err(|_| PivPinError::Storage)?;
-        store
-            .store_record(retries_key, &retries)
-            .map_err(|_| PivPinError::Storage)?;
-        let back_hash = store
-            .load_record(hash_key)
-            .map_err(|_| PivPinError::Storage)?;
-        let back_salt = store
-            .load_record(salt_key)
-            .map_err(|_| PivPinError::Storage)?;
-        let back_ret = store
-            .load_record(retries_key)
-            .map_err(|_| PivPinError::Storage)?;
-        if back_hash.as_slice() != hash.as_slice()
-            || back_salt.as_slice() != salt.as_slice()
-            || back_ret.as_slice() != retries.as_slice()
-        {
-            return Err(PivPinError::VerifyFailed);
-        }
-        Ok(())
-    })();
-    salt.zeroize();
-    hash.zeroize();
-    res
-}
-
-/// Provisiona PIN+PUK iniciais: exige aparelho virgem, valida, grava com
-/// verify-after-write. Chamado no enrollment do firmware (gate UP); nunca via APDU.
-pub fn provision_pin<S: PivRecordStore>(
-    store: &mut S,
-    new_pin: &[u8],
-    new_puk: &[u8],
-) -> Result<(), PivPinError> {
-    let mut rng = rand_core::OsRng;
-    provision_pin_with_rng(store, &mut rng, new_pin, new_puk)
-}
-
-/// Variante com RNG injetável (testes determinísticos).
-pub fn provision_pin_with_rng<S: PivRecordStore, R: RngCore + CryptoRng>(
-    store: &mut S,
-    rng: &mut R,
-    new_pin: &[u8],
-    new_puk: &[u8],
-) -> Result<(), PivPinError> {
-    if !is_valid_piv_pin(new_pin) {
-        return Err(PivPinError::BadPin);
-    }
-    if !is_valid_piv_puk(new_puk) {
-        return Err(PivPinError::BadPuk);
-    }
-    if store.load_record(PIV_NVS_PIN_HASH).is_ok() || store.load_record(PIV_NVS_PUK_HASH).is_ok() {
-        return Err(PivPinError::AlreadyProvisioned);
-    }
-    if let Err(e) = write_credential(
-        store,
-        PIV_NVS_PIN_SALT,
-        PIV_NVS_PIN_HASH,
-        PIV_NVS_PIN_RETRIES,
-        new_pin,
-        rng,
-        PIV_PIN_MAX_RETRIES,
-    ) {
-        wipe_pin_records(store);
-        return Err(e);
-    }
-    if let Err(e) = write_credential(
-        store,
-        PIV_NVS_PUK_SALT,
-        PIV_NVS_PUK_HASH,
-        PIV_NVS_PUK_RETRIES,
-        new_puk,
-        rng,
-        PIV_PUK_MAX_RETRIES,
-    ) {
-        wipe_pin_records(store);
-        return Err(e);
-    }
-    Ok(())
-}
-
-/// Apaga os seis registros PIN/PUK (idempotente; base do wipe por PUK).
-pub(crate) fn wipe_pin_records<S: PivRecordStore>(store: &mut S) {
-    for key in [
-        PIV_NVS_PIN_HASH,
-        PIV_NVS_PIN_SALT,
-        PIV_NVS_PIN_RETRIES,
-        PIV_NVS_PUK_HASH,
-        PIV_NVS_PUK_SALT,
-        PIV_NVS_PUK_RETRIES,
-    ] {
-        let _ = store.delete_record(key);
-    }
-}
-
-/// LAB-ONLY mock FCI returned on PIV SELECT (matches legacy `ccid.rs` bytes).
-///
-/// Only compiled with `#[cfg(any(test, feature = "lab-mocks"))]`; production
-/// builds without `lab-mocks` return an empty `90 00` on SELECT.
-#[cfg(any(test, feature = "lab-mocks"))]
-pub(crate) const PIV_FCI: &[u8] = &[0x61, 0x05, 0x4F, 0x03, 0xA0, 0x00, 0x00];
-/// LAB-ONLY mock CHUID container bytes (no full cert allocated).
-#[cfg(any(test, feature = "lab-mocks"))]
-pub(crate) const CHUID_MOCK: &[u8] = &[0x5F, 0xC1, 0x02, 0x00];
-/// LAB-ONLY mock CCC container bytes (no full cert allocated).
-#[cfg(any(test, feature = "lab-mocks"))]
-pub(crate) const CCC_MOCK: &[u8] = &[0x5F, 0xC1, 0x07, 0x00];
-
-/// Re-export do applet (dono fino; definicao em `piv_applet.rs`).
+pub use super::cmd::*;
 pub use super::piv_applet::PivApplet;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     fn select_apdu(data: &[u8]) -> CommandApdu {
         CommandApdu {
@@ -563,11 +182,15 @@ mod tests {
 #[cfg(test)]
 mod secure_tests {
     use super::*;
+    #[cfg(not(feature = "getrandom"))]
+    use crate::ccid::SW_UNKNOWN_ERROR;
     use crate::ccid::{
         sw_retries_left, SW_AUTH_BLOCKED, SW_REFERENCED_DATA_NOT_FOUND,
         SW_SECURITY_STATUS_NOT_SATISFIED, SW_WRONG_DATA, SW_WRONG_P1P2,
     };
-    use std::collections::HashMap;
+    use alloc::collections::BTreeMap;
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
 
     const PIN: &[u8] = b"123456";
     const NEW_PIN: &[u8] = b"654321";
@@ -579,7 +202,7 @@ mod secure_tests {
     /// Store em RAM (contrato `PivRecordStore`; firmware pluga `SecureStorage`).
     #[derive(Default)]
     struct MemStore {
-        map: HashMap<String, Vec<u8>>,
+        map: BTreeMap<String, Vec<u8>>,
     }
 
     impl PivRecordStore for MemStore {
@@ -601,37 +224,35 @@ mod secure_tests {
     /// RNG determinístico (xorshift64*; só para testes).
     struct SeqRng(u64);
 
-    impl rand_core::RngCore for SeqRng {
-        fn next_u32(&mut self) -> u32 {
-            self.next_u64() as u32
+    impl rand_core::TryRng for SeqRng {
+        type Error = core::convert::Infallible;
+
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(self.try_next_u64().unwrap() as u32)
         }
 
-        fn next_u64(&mut self) -> u64 {
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
             let mut x = self.0;
             x ^= x >> 12;
             x ^= x << 25;
             x ^= x >> 27;
             self.0 = x;
-            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+            Ok(x.wrapping_mul(0x2545_F491_4F6C_DD1D))
         }
 
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
             let mut i = 0;
             while i < dest.len() {
-                let v = self.next_u64().to_le_bytes();
+                let v = self.try_next_u64().unwrap().to_le_bytes();
                 let n = (dest.len() - i).min(8);
                 dest[i..i + n].copy_from_slice(&v[..n]);
                 i += n;
             }
-        }
-
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-            self.fill_bytes(dest);
             Ok(())
         }
     }
 
-    impl rand_core::CryptoRng for SeqRng {}
+    impl rand_core::TryCryptoRng for SeqRng {}
 
     /// Backend cripto stub (chave/RNG ficam no firmware; aqui bytes enlatados).
     struct StubCrypto {
@@ -934,6 +555,36 @@ mod secure_tests {
         assert!(!h.applet.is_verified());
     }
 
+    /// Sem `getrandom` (bare-metal/ESP32 sem RNG de SO) CHANGE não cunha salt:
+    /// fail-closed `6F 00` após wipe (PIN volta a virgem = `6A 88`).
+    #[cfg(not(feature = "getrandom"))]
+    #[test]
+    fn should_change_without_os_rng_fail_closed_6f00() {
+        // Arrange
+        let mut h = Harness::new();
+        h.select();
+        h.provision();
+        let mut data = PIN.to_vec();
+        data.extend_from_slice(NEW_PIN);
+        let apdu = CommandApdu {
+            cla: 0x00,
+            ins: INS_CHANGE,
+            p1: 0x00,
+            p2: P2_PIN,
+            data,
+            le: None,
+        };
+
+        // Act
+        let resp = h.run(&apdu);
+
+        // Assert: 6F 00 fail-closed + registros apagados (virgem = 6A 88).
+        assert_eq!((resp.sw1, resp.sw2), SW_UNKNOWN_ERROR);
+        let no_pin = h.run(&verify_apdu(PIN));
+        assert_eq!((no_pin.sw1, no_pin.sw2), SW_REFERENCED_DATA_NOT_FOUND);
+    }
+
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_pin_with_old_ok() {
         // Arrange
@@ -984,6 +635,7 @@ mod secure_tests {
         assert_eq!((resp.sw1, resp.sw2), sw_retries_left(2));
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_puk_with_old_ok() {
         // Arrange
@@ -1008,6 +660,7 @@ mod secure_tests {
         assert_eq!((resp.sw1, resp.sw2), (0x90, 0x00));
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_unblock_with_puk_after_block() {
         // Arrange
@@ -1418,6 +1071,7 @@ mod secure_tests {
         assert_eq!((put.sw1, put.sw2), SW_SECURITY_STATUS_NOT_SATISFIED);
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_and_unblock_new_secrets_roundtrip() {
         // Arrange
@@ -1539,6 +1193,7 @@ mod secure_tests {
         assert_eq!(raw, vec![2]);
     }
 
+    #[cfg(feature = "getrandom")]
     #[test]
     fn should_change_pin_with_padded_old_ok() {
         // Arrange

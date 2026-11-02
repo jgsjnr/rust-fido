@@ -11,7 +11,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::credential::store::{KeySlot, MAX_KEY_SLOTS};
@@ -133,7 +133,7 @@ impl KeyManager {
     /// returns a metadata clone (never private).
     #[allow(clippy::too_many_arguments)]
     // Seven explicit delegation args kept visible at the call site.
-    pub fn generate<R: RngCore + CryptoRng>(
+    pub fn generate<R: CryptoRng>(
         &mut self,
         slot_id: u8,
         alg: CoseAlgorithm,
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn gen_all_five_curves_and_sign() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut mgr = KeyManager::new();
         assert!(mgr.is_empty());
         for (i, &alg) in five_curves().iter().enumerate() {
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn import_ok_and_fail_pin() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let vault = AegisVault::new([0x5Au8; 32]);
         let kp = KeyPair::generate(CoseAlgorithm::ES256, &mut rng).unwrap();
         let env = vault
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn delete_wipes_and_gates() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut mgr = KeyManager::new();
         mgr.generate(
             3,
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn list_returns_metadata_only_and_requires_up() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut mgr = KeyManager::new();
         assert_eq!(mgr.list(false).unwrap_err(), KeyManagerError::NeedUp);
         assert_eq!(

@@ -3,7 +3,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use rand_core::RngCore;
+use rand_core::Rng;
 use zeroize::Zeroize;
 
 use crate::crypto::hash::sha256;
@@ -190,7 +190,7 @@ impl OathApplet {
     }
 
     /// Process an incoming raw APDU command
-    pub fn handle_apdu<R: RngCore, P: PresenceVerifier>(
+    pub fn handle_apdu<R: Rng, P: PresenceVerifier>(
         &mut self,
         apdu: &[u8],
         rng: &mut R,
@@ -235,7 +235,7 @@ impl OathApplet {
     }
 
     /// Handle SELECT command (AID matching)
-    fn handle_select<R: RngCore>(&mut self, aid: &[u8], rng: &mut R) -> (Vec<u8>, u16) {
+    fn handle_select<R: Rng>(&mut self, aid: &[u8], rng: &mut R) -> (Vec<u8>, u16) {
         // Accept matching YKOATH AID or prefix
         if aid.len() >= 7 && aid[..7] == YKOATH_AID {
             let mut resp = Vec::new();

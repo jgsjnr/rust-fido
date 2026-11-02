@@ -84,7 +84,7 @@ mod tests {
             false,
             true,
             0,
-            &mut rand_core::OsRng,
+            &mut rand_core::UnwrapErr(getrandom::SysRng),
         );
         assert_eq!(st, 0x00);
     }

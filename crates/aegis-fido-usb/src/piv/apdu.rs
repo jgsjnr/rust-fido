@@ -5,6 +5,7 @@
 //! (`CommandApdu::parse`) mora no transporte (`crate::ccid`) e nao muda.
 
 use crate::ccid::PIV_TAG_X509_CERT;
+use alloc::vec::Vec;
 
 /// Lê `len` BER-TLV curta (`<128`), `81 XX` ou `82 XX XX` em `pos`.
 /// Retorna `(tamanho, bytes_do_campo_len)`; `None` = malformado.

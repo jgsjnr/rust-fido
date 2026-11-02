@@ -1,5 +1,18 @@
 //! AegisKey USB Protocol & Frame Handling
 //! 100% Native Rust Implementation for CTAPHID, CCID, Keyboard, WinUSB
+//!
+//! `no_std`-friendly: with default features (`std`) this crate links `std`
+//! like before (zero breakage). With `--no-default-features` it builds as
+//! `no_std` + `alloc` (heap types only: `Vec`, no OS, no I/O). The only
+//! OS-backed item is the PIV salt RNG (`getrandom::SysRng`, feature
+//! `getrandom`, on by default via `std`); bare-metal/ESP32 targets without
+//! an OS RNG must seed explicitly via `provision_pin_with_rng` (see the
+//! `getrandom` feature docs in `Cargo.toml`).
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[macro_use]
+extern crate alloc;
 
 pub mod ccid;
 pub mod ccid_parse;

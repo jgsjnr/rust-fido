@@ -12,12 +12,13 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
-use p256::{EncodedPoint as P256EncodedPoint, PublicKey as P256PublicKey};
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::{FromSec1Point, ToSec1Point};
+use p256::{PublicKey as P256PublicKey, Sec1Point as P256EncodedPoint};
 
 pub mod policy;
 pub mod secrets;
@@ -261,7 +262,7 @@ impl AegisVault {
     }
 
     /// Seals the entire vault storage to an encrypted blob using master key.
-    pub fn seal_to_blob<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Result<Vec<u8>, VaultError> {
+    pub fn seal_to_blob<R: CryptoRng>(&self, rng: &mut R) -> Result<Vec<u8>, VaultError> {
         let payload = VaultPayload {
             version: 1,
             export_timestamp: 0,
@@ -297,7 +298,7 @@ impl AegisVault {
     /// 4. Derives session encryption key: K_enc = HKDF-SHA256(salt = pin_token, IKM = Z, info = "Aegis-Vault-Export-v1", 32).
     /// 5. Encrypts CBOR serialized passkeys with AES-256-GCM using K_enc and random nonce.
     /// 6. Returns VaultExportPackage containing auth public key, nonce, and ciphertext+tag.
-    pub fn export_authenticated<R: RngCore + CryptoRng>(
+    pub fn export_authenticated<R: CryptoRng>(
         &self,
         client_pubkey_sec1: &[u8],
         pin_token: &[u8],
@@ -308,13 +309,13 @@ impl AegisVault {
         let client_point = P256EncodedPoint::from_bytes(client_pubkey_sec1)
             .map_err(|_| VaultError::InvalidPublicKey)?;
         let client_pub =
-            Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&client_point))
+            Option::<P256PublicKey>::from(P256PublicKey::from_sec1_point(&client_point))
                 .ok_or(VaultError::InvalidPublicKey)?;
 
         // Generate authenticator ephemeral P-256 key pair
-        let auth_secret = p256::ecdh::EphemeralSecret::random(rng);
+        let auth_secret = p256::ecdh::EphemeralSecret::generate_from_rng(rng);
         let auth_pub = auth_secret.public_key();
-        let auth_pub_bytes = auth_pub.to_encoded_point(false).as_bytes().to_vec();
+        let auth_pub_bytes = auth_pub.to_sec1_point(false).as_bytes().to_vec();
 
         // Perform ECDH key agreement
         let shared_secret = auth_secret.diffie_hellman(&client_pub);
@@ -376,7 +377,7 @@ impl AegisVault {
         let auth_point = P256EncodedPoint::from_bytes(&package.auth_ephemeral_pubkey)
             .map_err(|_| VaultError::InvalidPublicKey)?;
         let auth_pub =
-            Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&auth_point))
+            Option::<P256PublicKey>::from(P256PublicKey::from_sec1_point(&auth_point))
                 .ok_or(VaultError::InvalidPublicKey)?;
 
         // Compute ECDH shared secret
@@ -424,7 +425,7 @@ impl AegisVault {
     /// Derives K_enc = HKDF-SHA256(salt = pin_token, IKM = master_key,
     /// info = VAULT_ENVELOPE_INFO, 32) and seals plaintext with AES-256-GCM
     /// (AAD = VAULT_ENVELOPE_AAD). Session key is zeroized before return.
-    pub fn seal_envelope<R: RngCore + CryptoRng>(
+    pub fn seal_envelope<R: CryptoRng>(
         &self,
         plaintext: &[u8],
         pin_token: &[u8],
@@ -476,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_aegis_vault_full_lifecycle() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
 
         // 1. Initialize vault from 64-byte master seed
         let seed = [0xa5u8; 64];
@@ -545,9 +546,9 @@ mod tests {
 
         // 6. Test Authenticated ECDH / HKDF / AES-GCM Export & Import
         let pin_token = b"secure_user_pin_token_123456";
-        let client_secret = p256::ecdh::EphemeralSecret::random(&mut rng);
+        let client_secret = p256::ecdh::EphemeralSecret::generate_from_rng(&mut rng);
         let client_pub = client_secret.public_key();
-        let client_pub_sec1 = client_pub.to_encoded_point(false).as_bytes().to_vec();
+        let client_pub_sec1 = client_pub.to_sec1_point(false).as_bytes().to_vec();
 
         // Export from original vault
         let export_package = vault

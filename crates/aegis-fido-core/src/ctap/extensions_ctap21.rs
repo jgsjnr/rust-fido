@@ -7,7 +7,7 @@
 //!    truncated SHA-256 digest adhering strictly to CTAP 2.1 §6.6 and §7.1.
 
 use alloc::vec::Vec;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 use crate::crypto::hash::sha256;
@@ -97,7 +97,7 @@ impl Drop for CredRandomMaterial {
 
 impl CredRandomMaterial {
     /// Generates new random secrets using a cryptographically secure RNG.
-    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
+    pub fn generate<R: CryptoRng>(rng: &mut R) -> Self {
         let mut uv = [0u8; 32];
         let mut no_uv = [0u8; 32];
         rng.fill_bytes(&mut uv);

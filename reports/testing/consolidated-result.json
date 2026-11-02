@@ -1,0 +1,153 @@
+{
+  "generated_by": "tools/run_all.py",
+  "timestamp_utc": "2026-11-02T16:09:32Z",
+  "selector": "all",
+  "include_release": true,
+  "legs": [
+    {
+      "name": "test-debug",
+      "desc": "workspace tests (debug)",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 22.8,
+      "tail": "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_bridge\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests universal_device_sdk\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=22.8",
+      "commands": [
+        "cargo test --workspace"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "test-firmware-features",
+      "desc": "firmware tests with freertos,proximity features",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 8.5,
+      "tail": "     Running tests\\secure_guard_integration.rs (C:/t\\debug\\deps\\secure_guard_integration-0f24304cdbfecac5.exe)\n\nrunning 2 tests\ntest test_secure_guard_full_lifecycle_and_enforcement ... ok\ntest test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n   Doc-tests aegis_fido_firmware\n\nrunning 1 test\ntest crates\\aegis-fido-firmware\\src\\freertos.rs - freertos (line 57) ... ignored\n\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=8.5",
+      "commands": [
+        "cargo test -p aegis-fido-firmware --features freertos,proximity"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "clippy",
+      "desc": "clippy workspace deny warnings",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 4.1,
+      "tail": "$ cargo clippy --workspace --all-targets -- -D warnings\n   Compiling aegis-fido-firmware v1.0.0 (E:\\projetos\\standalone-architecture-worktree\\crates\\aegis-fido-firmware)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.84s\nexit=0 duration_s=4.1",
+      "commands": [
+        "cargo clippy --workspace --all-targets -- -D warnings"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "fmt",
+      "desc": "cargo fmt check (ADVISORY record-only)",
+      "advisory": true,
+      "status": "FAIL",
+      "exit": 1,
+      "duration_s": 1.4,
+      "tail": "     }\n }\nDiff in \\\\?\\E:\\projetos\\standalone-architecture-worktree\\crates\\universal-device-sdk\\src\\shamir.rs:82:\n             Value::Text(\"data\".into()),\n             Value::Bytes(share.data.to_vec()),\n         ),\n\u001b[31m-        (\n\u001b[0m\u001b[31m-            Value::Text(\"crc32\".into()),\n\u001b[0m\u001b[31m-            Value::from(share.crc32 as u64),\n\u001b[0m\u001b[31m-        ),\n\u001b[0m\u001b[32m+        (Value::Text(\"crc32\".into()), Value::from(share.crc32 as u64)),\n\u001b[0m     ];\n     Value::Map(map)\n }\nexit=1 duration_s=1.4",
+      "commands": [
+        "cargo fmt --all -- --check"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "deny",
+      "desc": "cargo deny licenses/advisories/bans/sources",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 12.9,
+      "tail": "      \u251c\u2500\u2500 rustix v1.1.5 (*)\n      \u251c\u2500\u2500 tempfile v3.27.0 (*)\n      \u2514\u2500\u2500 winapi-util v0.1.11\n          \u251c\u2500\u2500 ignore v0.4.33\n          \u2502   \u2514\u2500\u2500 globwalk v0.8.1\n          \u2502       \u2514\u2500\u2500 embuild v0.33.5 (*)\n          \u251c\u2500\u2500 same-file v1.0.6\n          \u2502   \u251c\u2500\u2500 ignore v0.4.33 (*)\n          \u2502   \u2514\u2500\u2500 walkdir v2.5.0\n          \u2502       \u251c\u2500\u2500 globwalk v0.8.1 (*)\n          \u2502       \u2514\u2500\u2500 ignore v0.4.33 (*)\n          \u2514\u2500\u2500 walkdir v2.5.0 (*)\n\nadvisories ok, bans ok, licenses ok, sources ok\nexit=0 duration_s=12.9",
+      "commands": [
+        "cargo deny check licenses advisories bans sources"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "dep-track",
+      "desc": "god-file trend gate",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 0.3,
+      "tail": "$ C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/dep_track.py --check\nwrote reports/refactoring/dep-track.json (230 files, 22 gods)\ncheck ok: no new god-files beyond 24 allowlisted\nexit=0 duration_s=0.3",
+      "commands": [
+        "C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/dep_track.py --check"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "docs",
+      "desc": "docs-lint (reports, docs) + reports/** path scan",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 0.2,
+      "tail": "STYLE-HINT: docs\\evaluation\\EVALUATION.md:250 (26 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:295 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:301 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:368 (27 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:376 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:413 (26 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:413 (31 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:421 (28 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:430 (34 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:431 (30 words)\nSTYLE-HINT: docs\\plans\\PLANS.md:45 (29 words)\nSTYLE-HINT: docs\\plans\\PLANS.md:48 (26 words)\nSTYLE-HINT: docs\\plans\\PLANS.md:50 (35 words)\nexit=0 duration_s=0.1\nREPORTS-SCAN: links checked=0 broken=0",
+      "commands": [
+        "C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/docs-lint/docs_lint.py --root reports",
+        "C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/docs-lint/docs_lint.py --root docs"
+      ],
+      "notes": "reports-scan checked=0 broken=0"
+    },
+    {
+      "name": "scripts",
+      "desc": "scripts/*.ps1 existence + pwsh ParseFile syntax check",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 9.8,
+      "tail": "$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\menu.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.4\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.4\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.5\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.5\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.4",
+      "commands": [
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\battery-serial.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\bench-freertos.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-android-so.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-esp32-ttgo.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-esp32s3-devkitc.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-esp32s3-tdisplay.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-freertos-s3-testmode.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-freertos-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\build-matrix.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\ci-grep-mocks.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\ci-guard-secureboot.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\common.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\diag.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\env-check.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\flash.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\menu.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
+        "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\standalone-architecture-worktree\\scripts\\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "test-release",
+      "desc": "workspace tests (release, opt-in)",
+      "advisory": false,
+      "status": "PASS",
+      "exit": 0,
+      "duration_s": 37.0,
+      "tail": "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_bridge\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests universal_device_sdk\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=37.0",
+      "commands": [
+        "cargo test --workspace --release"
+      ],
+      "notes": ""
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "advisory_failures": 1,
+    "skipped": 0,
+    "exit": 0
+  }
+}

@@ -14,6 +14,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import dev.aegiskey.app.data.local.LocaleHelper
+import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.ui.screens.FriendlyOnboardingWizardScreen
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -28,6 +30,7 @@ import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.ota2.Ota2Screen
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.atomic.templates.HubDestination
@@ -41,6 +44,16 @@ import dev.aegiskey.app.ui.screens.TotpDedicatedScreen
 class MainActivity : ComponentActivity() {
     private lateinit var container: AppContainer
     private lateinit var ble: AegisBleClient
+
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // Apply persisted in-app language before inflation (SharedPreferences convention).
+        val tag = runCatching {
+            val prefs = newBase.getSharedPreferences("aegis_locale_preferences", android.content.Context.MODE_PRIVATE)
+            prefs.getString("app_language_tag", LocalePreferencesStore.TAG_SYSTEM)
+                ?: LocalePreferencesStore.TAG_SYSTEM
+        }.getOrDefault(LocalePreferencesStore.TAG_SYSTEM)
+        super.attachBaseContext(LocaleHelper.wrap(newBase, tag))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -204,7 +217,19 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                             themeViewModel = themeViewModel,
                             keysViewModel = keysViewModel,
                             client = client,
-                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") }
+                            localeStore = container.localeStore,
+                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") },
+                            onNavigateToOta2 = { nav.navigate("ota2") }
+                        )
+                    }
+
+                    // Offline firmware update (ota2 engine, no COMMIT)
+                    composable("ota2") {
+                        val otaTransport =
+                            if (client.isReady()) container.bleTransport else container.usbTransport
+                        Ota2Screen(
+                            transport = otaTransport,
+                            currentVersion = activeKey?.firmwareRevision?.toLong() ?: 0L,
                         )
                     }
 

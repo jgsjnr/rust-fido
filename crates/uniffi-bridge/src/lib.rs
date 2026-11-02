@@ -1,5 +1,4 @@
-#![allow(clippy::empty_line_after_doc_comments)] // Uniffi-generated scaffolding in OUT_DIR (third-party, cannot edit); behavior identical.
-//! UniFFI bridge for the Android app (`aegis_bridge` cdylib).
+//! Manual JNI/JNA C-ABI bridge for the Android app (`aegis_bridge` cdylib).
 //!
 //! Strictly mirrors `docs/ble-protocol.md` (frozen) and re-exports
 //! `aegis-fido-core` in a phone-safe shape:
@@ -13,8 +12,6 @@
 use aegis_fido_core::crypto::aead::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 use aegis_fido_core::crypto::cose::CoseKey;
 use zeroize::Zeroize;
-
-uniffi::include_scaffolding!("aegis_bridge");
 
 /// GATT service UUID16 (frozen, see `firmware/src/ble_gatt.rs`).
 pub const BLE_SERVICE_UUID: u16 = 0xFFFD;
@@ -253,7 +250,7 @@ pub fn envelope_validate(envelope: Vec<u8>) -> Result<u32, BridgeError> {
 /// Seals `plaintext` into an `AEGN` envelope with an explicit nonce.
 ///
 /// `key` (32B) and `nonce` (12B) are transient caller buffers, zeroized
-/// before return. Deterministic nonce keeps UniFFI tests reproducible;
+/// before return. Deterministic nonce keeps Rust tests reproducible;
 /// the app must supply a fresh random nonce per seal (device TRNG guidance).
 /// All-zero nonces are rejected fail-closed (mirrors SDK `ZeroNonce`;
 /// device TRNG never emits zero). Replay windows stay device-side: this
@@ -366,7 +363,7 @@ pub fn totp_format_display(code: String) -> String {
     }
 }
 
-/// PBKDF2-SHA1 iterations for the app lock verifier (mirrors YKOATH set_password).
+/// PBKDF2-SHA1 iterations for the app lock verifier (mirrors OATH applet set-password behavior).
 pub const APP_LOCK_PBKDF2_ITERATIONS: u32 = 1000;
 /// Minimum app-lock salt length in bytes.
 pub const APP_LOCK_SALT_MIN_LEN: usize = 16;
@@ -750,9 +747,13 @@ pub fn secure_guard_encode_wipe(scope: u8, confirm_token: String) -> Result<Vec<
         .map_err(|_| BridgeError::SecureGuardError)
 }
 
+pub mod ffi;
+pub use ffi::*;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::ffi::{policy_json, status_of};
     use aegis_fido_core::crypto::cose::CoseKey;
 
     #[test]
@@ -1374,5 +1375,449 @@ mod tests {
         let wipe_bytes =
             secure_guard_encode_wipe(1, "CONFIRM_WIPE".to_string()).expect("encode wipe");
         assert!(!wipe_bytes.is_empty());
+    }
+
+    // ---- Manual C-ABI test drivers (same-crate `extern "C"` calls are
+    // safe; raw-pointer soundness lives in `input_bytes` / `emit_*`, which
+    // carry the SAFETY justifications) ----
+
+    /// Query-then-fill driver for C entries behind a single-input adapter.
+    fn c_roundtrip(
+        input: &[u8],
+        call: impl Fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32,
+    ) -> Result<Vec<u8>, i32> {
+        let mut need: usize = 0;
+        let reported =
+            { call(input.as_ptr(), input.len(), core::ptr::null_mut(), 0, &mut need) };
+        if reported < 0 {
+            return Err(reported);
+        }
+        assert_eq!(reported as usize, need);
+        let mut buf = vec![0u8; need];
+        let mut got: usize = 0;
+        let code = {
+            call(
+                input.as_ptr(),
+                input.len(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut got,
+            )
+        };
+        if code != 0 {
+            return Err(code);
+        }
+        assert_eq!(got, need);
+        Ok(buf)
+    }
+
+    /// Adapter for two-input byte entries.
+    fn c_roundtrip2(
+        first: &[u8],
+        second: &[u8],
+        call: impl Fn(*const u8, usize, *const u8, usize, *mut u8, usize, *mut usize) -> i32,
+    ) -> Result<Vec<u8>, i32> {
+        let mut need: usize = 0;
+        let reported = {
+            call(
+                first.as_ptr(),
+                first.len(),
+                second.as_ptr(),
+                second.len(),
+                core::ptr::null_mut(),
+                0,
+                &mut need,
+            )
+        };
+        if reported < 0 {
+            return Err(reported);
+        }
+        assert_eq!(reported as usize, need);
+        let mut buf = vec![0u8; need];
+        let mut got: usize = 0;
+        let code = {
+            call(
+                first.as_ptr(),
+                first.len(),
+                second.as_ptr(),
+                second.len(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut got,
+            )
+        };
+        if code != 0 {
+            return Err(code);
+        }
+        assert_eq!(got, need);
+        Ok(buf)
+    }
+
+    #[test]
+    fn ffi_version_and_status_codes() {
+        // `aegis_bridge_version` returns a 'static NUL-terminated string.
+        // SAFETY: read-only access through it is sound for 'static data.
+        let version = unsafe { core::ffi::CStr::from_ptr(aegis_bridge_version()) };
+        assert_eq!(version.to_bytes(), b"1.0.0");
+        assert_eq!(AEGIS_STATUS_OK, 0);
+        assert_eq!(status_of(BridgeError::InvalidOpcode), AEGIS_ERR_INVALID_OPCODE);
+        assert_eq!(status_of(BridgeError::Overflow), AEGIS_ERR_OVERFLOW);
+        assert_eq!(
+            status_of(BridgeError::SecureGuardError),
+            AEGIS_ERR_SECURE_GUARD
+        );
+    }
+
+    #[test]
+    fn ffi_ble_constants_and_fragments() {
+        let raw = c_roundtrip(&[], |p, n, o, c, l| {
+            let _ = (p, n);
+            aegis_ble_constants(o, c, l)
+        })
+        .unwrap();
+        let json = core::str::from_utf8(&raw).unwrap();
+        assert!(json.contains("\"service_uuid\":65533"));
+        assert!(json.contains("\"max_fragment_bytes\":244"));
+
+        let payload = vec![0xABu8; 300];
+        let mut need: usize = 0;
+        let reported = {
+            aegis_ble_split_fragments(
+                OP_MSG,
+                payload.as_ptr(),
+                payload.len(),
+                core::ptr::null_mut(),
+                0,
+                &mut need,
+            )
+        };
+        assert!(reported >= 0);
+        let mut buf = vec![0u8; need];
+        let mut got: usize = 0;
+        let code = {
+            aegis_ble_split_fragments(
+                OP_MSG,
+                payload.as_ptr(),
+                payload.len(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut got,
+            )
+        };
+        assert_eq!(code, AEGIS_STATUS_OK);
+        let json = core::str::from_utf8(&buf[..got]).unwrap();
+        assert!(json.starts_with("{\"count\":2,\"fragments\":["));
+
+        // Invalid opcode maps to the typed error code.
+        let mut small = [0u8; 8];
+        let mut got: usize = 0;
+        let code = {
+            aegis_ble_split_fragments(
+                0x2E,
+                payload.as_ptr(),
+                payload.len(),
+                small.as_mut_ptr(),
+                small.len(),
+                &mut got,
+            )
+        };
+        assert_eq!(code, AEGIS_ERR_INVALID_OPCODE);
+    }
+
+    #[test]
+    fn ffi_envelope_validate_seal_open() {
+        let key = [0x42u8; 32];
+        let nonce = [0x11u8; 12];
+        let aad = b"Aegis-Vault-Header-v1".to_vec();
+        let pt = b"oath-export-backup".to_vec();
+        let env = c_roundtrip(&pt, |p, n, o, c, l| {
+            {
+                aegis_envelope_seal(
+                    key.as_ptr(),
+                    key.len(),
+                    p,
+                    n,
+                    aad.as_ptr(),
+                    aad.len(),
+                    nonce.as_ptr(),
+                    nonce.len(),
+                    o,
+                    c,
+                    l,
+                )
+            }
+        })
+        .unwrap();
+        assert_eq!(&env[..5], &[0x41, 0x45, 0x47, 0x4E, 0x01]);
+
+        let mut ct_len: u32 = 0;
+        let code = { aegis_envelope_validate(env.as_ptr(), env.len(), &mut ct_len) };
+        assert_eq!(code, AEGIS_STATUS_OK);
+        assert_eq!(ct_len as usize, env.len() - 17);
+
+        let back = c_roundtrip(&env, |p, n, o, c, l| {
+            {
+                aegis_envelope_open(
+                    key.as_ptr(),
+                    key.len(),
+                    p,
+                    n,
+                    aad.as_ptr(),
+                    aad.len(),
+                    o,
+                    c,
+                    l,
+                )
+            }
+        })
+        .unwrap();
+        assert_eq!(back, pt);
+
+        // Tampered envelope surfaces the crypto error code.
+        let mut tampered = env.clone();
+        tampered[20] ^= 0x01;
+        let err = c_roundtrip(&tampered, |p, n, o, c, l| {
+            {
+                aegis_envelope_open(
+                    key.as_ptr(),
+                    key.len(),
+                    p,
+                    n,
+                    aad.as_ptr(),
+                    aad.len(),
+                    o,
+                    c,
+                    l,
+                )
+            }
+        });
+        assert_eq!(err, Err(AEGIS_ERR_CRYPTO));
+
+        // NULL envelope with nonzero length is rejected before parsing.
+        let mut ct_len: u32 = 0;
+        let code = { aegis_envelope_validate(core::ptr::null(), 33, &mut ct_len) };
+        assert_eq!(code, AEGIS_ERR_NULL_POINTER);
+    }
+
+    #[test]
+    fn ffi_small_buffer_reports_required_size() {
+        let payload = b"hello-ctap".to_vec();
+        let mut need: usize = 0;
+        let reported = {
+            aegis_ble_split_fragments(
+                OP_MSG,
+                payload.as_ptr(),
+                payload.len(),
+                core::ptr::null_mut(),
+                0,
+                &mut need,
+            )
+        };
+        assert!(reported > 1);
+        let mut tiny = vec![0u8; need - 1];
+        let mut got: usize = usize::MAX;
+        let code = {
+            aegis_ble_split_fragments(
+                OP_MSG,
+                payload.as_ptr(),
+                payload.len(),
+                tiny.as_mut_ptr(),
+                tiny.len(),
+                &mut got,
+            )
+        };
+        assert_eq!(code, AEGIS_ERR_BUFFER_TOO_SMALL);
+        assert_eq!(got, need);
+    }
+
+    #[test]
+    fn ffi_oath_parse_predicates_and_format() {
+        let json =
+            r#"{"account":"GitHub:alice","code":"287082","remaining_seconds":28}"#.as_bytes();
+        let raw = c_roundtrip(json, |p, n, o, c, l| {
+            aegis_oath_parse_response(p, n, o, c, l)
+        })
+        .unwrap();
+        let out = core::str::from_utf8(&raw).unwrap();
+        assert!(out.contains("\"account\":\"GitHub:alice\""));
+        assert!(out.contains("\"code\":\"287082\""));
+        assert!(out.contains("\"remaining_seconds\":28}"));
+
+        let mut valid: u8 = 0;
+        let code = { aegis_oath_code_valid(b"287082".as_ptr(), 6, &mut valid) };
+        assert_eq!(code, AEGIS_STATUS_OK);
+        assert_eq!(valid, 1);
+
+        let mut remaining: u32 = 0;
+        let code = { aegis_oath_remaining_seconds(59, &mut remaining) };
+        assert_eq!(code, AEGIS_STATUS_OK);
+        assert_eq!(remaining, 1);
+
+        let raw = c_roundtrip(b"123456", |p, n, o, c, l| {
+            aegis_totp_format_display(p, n, o, c, l)
+        })
+        .unwrap();
+        assert_eq!(raw, b"123 456");
+    }
+
+    #[test]
+    fn ffi_account_from_path_present_and_absent() {
+        let path = b"/oath/code?account=GitHub".to_vec();
+        let mut need: usize = 0;
+        let reported = {
+            aegis_oath_account_from_path(
+                path.as_ptr(),
+                path.len(),
+                core::ptr::null_mut(),
+                0,
+                &mut need,
+            )
+        };
+        // Query phase reports the required length (like every byte emitter);
+        // presence is signalled by the fill-phase `1` below.
+        assert_eq!(reported as usize, need);
+        assert_eq!(need, b"GitHub".len());
+        let mut buf = vec![0u8; need];
+        let mut got: usize = 0;
+        let present = {
+            aegis_oath_account_from_path(
+                path.as_ptr(),
+                path.len(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut got,
+            )
+        };
+        assert_eq!(present, 1);
+        assert_eq!(&buf[..got], b"GitHub");
+
+        let missing = b"/oath/code".to_vec();
+        let mut got: usize = usize::MAX;
+        let absent = {
+            aegis_oath_account_from_path(
+                missing.as_ptr(),
+                missing.len(),
+                core::ptr::null_mut(),
+                0,
+                &mut got,
+            )
+        };
+        assert_eq!(absent, 0);
+        assert_eq!(got, 0);
+    }
+
+    #[test]
+    fn ffi_app_lock_derive_and_wifi_hint() {
+        let password = b"correct-horse".to_vec();
+        let salt = vec![0x11u8; 16];
+        let verifier = c_roundtrip2(&password, &salt, |p, pn, s, sn, o, c, l| {
+            aegis_app_lock_derive(p, pn, s, sn, o, c, l)
+        })
+        .unwrap();
+        assert_eq!(verifier.len(), APP_LOCK_VERIFIER_LEN);
+
+        let mut valid: u8 = 0;
+        let pw = b"nova-senha-123".to_vec();
+        let code = { aegis_wifi_password_valid(pw.as_ptr(), pw.len(), &mut valid) };
+        assert_eq!(code, AEGIS_STATUS_OK);
+        assert_eq!(valid, 1);
+    }
+
+    #[test]
+    fn ffi_cose_wallet_otpauth() {
+        let cbor = CoseKey::p256(vec![1u8; 32], vec![2u8; 32]).to_cbor_bytes();
+        let raw = c_roundtrip(&cbor, |p, n, o, c, l| {
+            aegis_cose_key_info(p, n, o, c, l)
+        })
+        .unwrap();
+        assert_eq!(raw, b"kty=EC2 crv=1 alg=-7 x_len=32 y_len=32");
+
+        let network = b"bitcoin".to_vec();
+        let hex = b"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".to_vec();
+        let raw = c_roundtrip2(&network, &hex, |p, pn, s, sn, o, c, l| {
+            aegis_wallet_address(p, pn, s, sn, o, c, l)
+        })
+        .unwrap();
+        assert_eq!(raw, b"bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+
+        let uri = b"otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP".to_vec();
+        let raw = c_roundtrip(&uri, |p, n, o, c, l| {
+            aegis_otpauth_extract(p, n, o, c, l)
+        })
+        .unwrap();
+        let out = core::str::from_utf8(&raw).unwrap();
+        assert!(out.contains("\"issuer\":\"GitHub\""));
+        assert!(out.contains("\"secret_base32\":\"JBSWY3DPEHPK3PXP\""));
+    }
+
+    #[test]
+    fn ffi_secure_guard_encode_and_parse() {
+        let pin = b"1234".to_vec();
+        let unlock = c_roundtrip(&pin, |p, n, o, c, l| {
+            aegis_secure_guard_encode_unlock(p, n, o, c, l)
+        })
+        .unwrap();
+        assert!(!unlock.is_empty());
+
+        let lock = c_roundtrip(&[], |p, n, o, c, l| {
+            let _ = (p, n);
+            aegis_secure_guard_encode_lock(o, c, l)
+        });
+        // `c_roundtrip` passes a possibly-dangling empty input pointer with
+        // length 0, which lock ignores; the call must still succeed.
+        let lock = lock.unwrap();
+        assert!(!lock.is_empty());
+
+        // Minimal CBOR status map: {"state": 4, "unlocked": true}.
+        let payload: Vec<u8> = vec![
+            0xA2, 0x65, b's', b't', b'a', b't', b'e', 0x04, 0x68, b'u', b'n', b'l', b'o',
+            b'c', b'k', b'e', b'd', 0xF5,
+        ];
+        let raw = c_roundtrip(&payload, |p, n, o, c, l| {
+            aegis_secure_guard_parse_status(p, n, o, c, l)
+        })
+        .unwrap();
+        let out = core::str::from_utf8(&raw).unwrap();
+        assert!(out.contains("\"state\":4"));
+        assert!(out.contains("\"is_unlocked\":true"));
+        assert!(out.contains("\"state_name\":\"Unlocked\""));
+
+        // Policy JSON round-trips through config encoding (CBOR bytes out).
+        let policy = SecureGuardPolicyDto {
+            wipe_on_5_failures: true,
+            session_duration_ms: 60_000,
+            inactivity_timeout_ms: 30_000,
+            protect_keys_and_aegn: true,
+            protect_oath: true,
+            test_mode_non_destructive_wipe: true,
+        };
+        let policy_json = policy_json(&policy);
+        let cfg = c_roundtrip(policy_json.as_bytes(), |p, n, o, c, l| {
+            aegis_secure_guard_encode_config(p, n, o, c, l)
+        })
+        .unwrap();
+        assert!(!cfg.is_empty());
+
+        // Malformed policy JSON is invalid input, never a defaulted policy.
+        let bad = c_roundtrip(b"{\"wipe_on_5_failures\":true}", |p, n, o, c, l| {
+            aegis_secure_guard_encode_config(p, n, o, c, l)
+        });
+        assert_eq!(bad, Err(AEGIS_ERR_INVALID_JSON));
+    }
+
+    #[test]
+    fn ffi_rejects_null_out_len() {
+        let payload = b"hello".to_vec();
+        let code = {
+            aegis_ble_split_fragments(
+                OP_MSG,
+                payload.as_ptr(),
+                payload.len(),
+                core::ptr::null_mut(),
+                0,
+                core::ptr::null_mut(),
+            )
+        };
+        assert_eq!(code, AEGIS_ERR_NULL_POINTER);
     }
 }

@@ -38,6 +38,7 @@
 //! - R7 test-mode gated: no test hooks in this crate; device-side test
 //!   commands live behind `test-mode` in firmware only.
 
+use alloc::vec::Vec;
 use core::fmt;
 
 /// Standard CTAPHID packet size (64 bytes for USB Full/High Speed interrupt transfer).

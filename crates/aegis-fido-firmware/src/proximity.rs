@@ -11,7 +11,7 @@ use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 pub const PROXIMITY_BOND_NVS_KEY: &str = "prox_k";
 
 /// Gera um K_prox aleatorio de 128 b (TRNG do chamador; zeroize apos salvar).
-pub fn generate_proximity_key<R: rand_core::RngCore>(rng: &mut R) -> [u8; PROXIMITY_KEY_LEN] {
+pub fn generate_proximity_key<R: rand_core::Rng>(rng: &mut R) -> [u8; PROXIMITY_KEY_LEN] {
     let mut key = [0u8; PROXIMITY_KEY_LEN];
     rng.fill_bytes(&mut key);
     key
@@ -20,7 +20,7 @@ pub fn generate_proximity_key<R: rand_core::RngCore>(rng: &mut R) -> [u8; PROXIM
 /// Persiste o K_prox em NVS cifrada (envelope AEGN via SecureStorage).
 ///
 /// A copia em RAM continua com o chamador: zeroize apos o uso.
-pub fn save_proximity_key<B: FlashStorageBackend, R: rand_core::RngCore + rand_core::CryptoRng>(
+pub fn save_proximity_key<B: FlashStorageBackend, R: rand_core::CryptoRng>(
     storage: &mut SecureStorage<B>,
     key: &[u8; PROXIMITY_KEY_LEN],
     rng: &mut R,
@@ -50,7 +50,7 @@ pub fn delete_proximity_key<B: FlashStorageBackend>(
 
 /// Rekey: gera e persiste um K_prox novo (chamar em release, recovery e
 /// apos rollover; fiar apos BondOutcome::Paired no main.rs).
-pub fn rekey_proximity<B: FlashStorageBackend, R: rand_core::RngCore + rand_core::CryptoRng>(
+pub fn rekey_proximity<B: FlashStorageBackend, R: rand_core::CryptoRng>(
     storage: &mut SecureStorage<B>,
     rng: &mut R,
 ) -> Result<[u8; PROXIMITY_KEY_LEN], StorageError> {
@@ -590,7 +590,7 @@ mod proximity_freertos_tests {
     #[test]
     fn k_prox_queda_entre_delete_e_save_sem_adv() {
         let mut st = SecureStorage::new(MockFlashBackend::new(), &[0x55u8; 32], &[0xAAu8; 32]);
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let k = rekey_proximity(&mut st, &mut rng).expect("rekey ok");
         assert_eq!(load_proximity_key(&st).expect("load ok"), k);
         delete_proximity_key(&mut st).expect("delete ok");

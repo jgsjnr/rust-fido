@@ -1,0 +1,57 @@
+===== cargo-deny FINAL (post-migracao RUSTSEC-2026-0387) =====
+command: cargo-deny.exe check licenses advisories bans sources
+worktree: E:\projetos\standalone-architecture-worktree
+HEAD: 33df2ea (fix(security): migrate elliptic stack to 0.14 for RUSTSEC-2026-0387)
+date (UTC): 2026-11-02
+tool: cargo-deny 0.20.2 (C:\Users\junior\.cargo\bin\cargo-deny.exe)
+
+EXIT_CODE=0
+
+Result: PASS — licenses + advisories + bans + sources, exit 0.
+Only warnings: duplicate-version entries (e.g. digest 0.10.7/0.11.3,
+embedded-hal 0.2.7/1.0.0, heck 0.4.1/0.5.0, hkdf 0.12.4/0.13.0,
+hmac 0.12.1/0.13.0, linux-raw-sys, nb, rustix, sha2 0.10.9/0.11.1,
+shlex, syn x3, windows-sys x3). No errors, no vulnerabilities reported.
+
+RUSTSEC-2026-0387: RESOLVIDO via migracao p256/k256/p384/p521 0.13->0.14
+(+ecdsa 0.17, elliptic-curve 0.14, signature 3.0, ed25519-dalek 3.0,
+crypto-bigint 0.7.10). Wire-preserving (Sec1Point alias, mesmos bytes,
+try_sign propaga erro).
+
+Nota: `reports/compliance/cargo-deny-output.log` pertence a outro dono e
+NAO foi modificado. Este arquivo e o snapshot pos-migracao desta lane.
+Revisao juridica humana (23 crates) segue pendente — sem PASS legal.
+Full raw output capturado no log do shell do host (transitorio);
+este arquivo registra comando, HEAD, exit code e classe dos warnings.
+
+===== owner-approval re-check 2026-11-02 =====
+command: cargo-deny.exe check licenses
+EXIT_CODE=0
+Result: PASS -- licenses ok, no errors. 23 entries APPROVED-by-owner (owner-accepted technical acceptance; not a legal certification).
+
+===== uniffi-removal re-check 2026-11-02 (refactor(ffi): drop UniFFI runtime) =====
+command: cargo-deny.exe check licenses bans
+worktree: E:\projetos\standalone-architecture-worktree
+HEAD: aa7842a (docs(compliance): owner approves 23 pending licenses (MPL + others))
+tool: cargo-deny 0.20.2 (C:\Users\junior\.cargo\bin\cargo-deny.exe)
+policy: deny.toml without the MPL-2.0 allow entry (removed: only uniffi x9 used it)
+
+EXIT_CODE=0
+
+Result: PASS — licenses + bans, exit 0. Zero MPL-2.0 in the graph
+(`cargo tree -i uniffi`: no matching packages). Cargo.lock: 34 packages
+pruned, 0 added (uniffi x9 + 25 uniffi-only transitive: askama x4,
+basic-toml, bincode, bytes, cargo_metadata 0.15.4, fs-err, goblin,
+heck 0.5.0, mime, mime_guess, paste, plain, scroll x2, siphasher, smawk,
+static_assertions, textwrap, toml 0.5.11, unicase, unicode-width,
+weedle2). Notices/inventory/SBOM deltas are exactly those 34 rows;
+the 26 stale pre-0.14 elliptic rows still listed and the 36 unlisted
+0.14-stack packages both predate this lane (RUSTSEC-2026-0387) and are
+left untouched for their owning lane.
+Only warnings: duplicate-version entries (bitflags, block-buffer,
+cpufeatures, crypto-common, digest, embedded-hal, hkdf, hmac,
+linux-raw-sys, nb, rustix, sha2, shlex, syn x3, windows-sys x3) —
+heck 0.4.1/0.5.0 duplicate is gone with heck 0.5.0. No errors.
+Revisao juridica humana (14 crates restantes) segue pendente — sem PASS legal.
+Full raw output capturado no log do shell do host (transitorio);
+este arquivo registra comando, HEAD, exit code e classe dos warnings.

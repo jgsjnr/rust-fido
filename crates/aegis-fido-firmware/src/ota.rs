@@ -859,7 +859,7 @@ mod tests {
         use ed25519_dalek::SigningKey;
         use signature::Signer as _;
         let image = image_bytes();
-        let sk = SigningKey::generate(&mut rand_core::OsRng);
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
         let unsigned = manifest_for(NEXT, &image);
         let m = OtaManifest::parse(&unsigned).expect("parse");
         let sig = sk.sign(&m.signed_bytes());

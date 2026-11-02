@@ -107,8 +107,8 @@ pub fn run_authenticator() {
             // Gera chaves efemeras via TRNG (RAM, zeradas no reboot) e segue o boot
             // com comportamento identico ao modo dev anterior. NUNCA panic no boot.
             kprintln!("[WARN] eFuse nao provisionado ({e:?}); usando chaves efemeras TRNG (modo DEV, sem persistencia entre reboots). Rode tools/factory_provision.py para provisionar.");
-            use rand_core::RngCore;
-            let mut rng = rand_core::OsRng;
+            use rand_core::Rng;
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let mut master_key = [0u8; 32];
             let mut salt = [0u8; 32];
             rng.fill_bytes(&mut master_key);
@@ -134,12 +134,7 @@ pub fn run_authenticator() {
 
     // 3. Initialize Encrypted Flash / NVS Persistence
     kprintln!("[INIT] Initializing AES-256-GCM Encrypted Storage...");
-    let flash_backend = PlatformFlashBackend::new();
-    if flash_backend.is_persistent() {
-        kprintln!("[INIT] Flash NVS backend online (persiste entre reboots).");
-    } else {
-        kprintln!("[WARN] Flash NVS indisponivel; RAM volatil (sem persistencia).");
-    }
+    let flash_backend = common::init_flash_backend();
     let mut storage = SecureStorage::new(flash_backend, &master_key, &salt);
     // AUDIT-PREP: wiring na Wave4
 
@@ -298,6 +293,9 @@ pub fn run_authenticator() {
     let mut mdns_active = false;
     let mut wifi_radio_on = false;
     let mut last_sta_attempt_ms: Option<u64> = None;
+    // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
+    let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
+    let mut last_time_sync_attempt_ms: Option<u64> = None;
     // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
     // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
 
@@ -332,7 +330,7 @@ pub fn run_authenticator() {
             Err(_) => {
                 let bonded_now = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
                 if bonded_now {
-                    let mut rng = rand_core::OsRng;
+                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                     match crate::proximity::rekey_proximity(&mut storage, &mut rng) {
                         Ok(k) => {
                             prox_key = k;
@@ -400,6 +398,12 @@ pub fn run_authenticator() {
         // Phase8 UX-conex: alimenta PairingManager todo poll (corrige orfao).
         pairing_mgr.on_button_level(is_boot_pressed, now_ms);
         pairing_mgr.tick(now_ms);
+        // Bond BLE expira em 30d (`pairing::BLE_BOND_MAX_AGE_MS`): esquece
+        // em RAM + apaga o LTK do NimBLE; re-parear exige janela + UP + MITM.
+        if pairing_mgr.forget_stale_bond(now_ms) {
+            let _ = crate::ble_nimble::esp_ble_forget_bonds();
+            kprintln!("[BLE] bond expirado (>30d): removido; re-pareamento exigido.");
+        }
         let pairing_open_now = pairing_mgr.is_pairing_window_open(now_ms);
         // Borda da janela -> fw-log (0x38) do app.
         {
@@ -421,34 +425,13 @@ pub fn run_authenticator() {
             }
             pairing_open_prev = pairing_open_now;
         }
-        // B2: transicoes do hold fisico (visivel sem display/LCD).
-        {
-            use crate::pairing::PairingState;
-            match pairing_mgr.state() {
-                PairingState::Arming { start_ms } => {
-                    if !pairing_arming_prev {
-                        kprintln!("[PAIRING] segurando BOOT... (mantenha 5s p/ abrir a janela).");
-                        pairing_arming_prev = true;
-                        pairing_arming_sec = 0;
-                    }
-                    let held = now_ms.saturating_sub(start_ms) / 1000;
-                    if held > pairing_arming_sec && held < 60 {
-                        pairing_arming_sec = held;
-                        kprintln!("[PAIRING] segurando... {}s.", held);
-                    }
-                }
-                _ => {
-                    if pairing_arming_prev {
-                        pairing_arming_prev = false;
-                        // Saiu do Arming sem janela = soltou cedo (o caso de
-                        // sucesso passa pela borda da janela com EV_PAIR_OPEN).
-                        if !pairing_open_now {
-                            kprintln!("[PAIRING] solto cedo, sem janela (segure 5s).");
-                        }
-                    }
-                }
-            }
-        }
+        common::poll_pairing_hold_transitions(
+            &mut pairing_mgr,
+            &mut pairing_arming_prev,
+            &mut pairing_arming_sec,
+            pairing_open_now,
+            now_ms,
+        );
         // Exclusao mutua de radio (OOM BT+WiFi): BLE anuncia SOMENTE em
         // PairingBle; WiFi (AP/station/mDNS) fica desligado nesse estado.
         let ble_pairing_now = crate::ble_nimble::should_advertise(&pairing_mgr, now_ms);
@@ -540,99 +523,35 @@ pub fn run_authenticator() {
         }
         // Station: so fora de pareamento, com credenciais e backoff 60s.
         let has_creds = crate::wifi_station::has_station_credentials(&storage);
-        sta_mgr.update(pairing_open_now, has_creds, now_ms);
-        let mut sta_radio = crate::wifi_station::esp_sta_state();
-        if sta_radio == crate::wifi_station::STA_CONNECTED {
-            if !sta_mgr.is_up() {
-                sta_mgr.on_connected();
-                let ip = crate::wifi_station::esp_sta_ip();
-                kprintln!(
-                    "[WIFI] station conectada (DHCP {}.{}.{}.{}).",
-                    ip[0],
-                    ip[1],
-                    ip[2],
-                    ip[3]
-                );
-            }
-        } else if sta_radio == crate::wifi_station::STA_FAILED {
-            sta_mgr.on_failed();
-        }
-        if matches!(
-            sta_mgr.state(),
-            crate::wifi_station::WifiStationState::Connecting { .. }
-        ) && sta_radio == crate::wifi_station::STA_OFF
-            && !pairing_open_now
-            && !ble_pairing_now
-            && crate::wifi_station::sta_retry_due(now_ms, last_sta_attempt_ms)
-        {
-            let got = storage.load(crate::wifi_station::WIFI_STA_SSID_NVS_KEY);
-            let got_pass = storage.load(crate::wifi_station::WIFI_STA_PASS_NVS_KEY);
-            match (got, got_pass) {
-                (Ok(ssid_b), Ok(pass_b)) => {
-                    match (core::str::from_utf8(&ssid_b), core::str::from_utf8(&pass_b)) {
-                        (Ok(ssid), Ok(pass)) => {
-                            // Credenciais nunca vao para o log.
-                            let rc = crate::wifi_station::esp_sta_start(ssid, pass);
-                            last_sta_attempt_ms = Some(now_ms);
-                            if rc != 0 {
-                                kprintln!("[WIFI] station start rc={}.", rc);
-                                sta_mgr.on_failed();
-                            }
-                        }
-                        _ => sta_mgr.on_failed(),
-                    }
-                }
-                _ => sta_mgr.on_failed(),
-            }
-        }
-        if (pairing_open_now || ble_pairing_now || !has_creds)
-            && sta_radio != crate::wifi_station::STA_OFF
-        {
-            let _ = crate::wifi_station::esp_sta_stop();
-            sta_mgr.disconnect();
-            // Local cache update; refreshed via esp_sta_state() below. Retained for readability (no behavior change).
-            #[allow(unused_assignments)]
-            {
-                sta_radio = crate::wifi_station::STA_OFF;
-            }
-        }
-        mdns_mgr.update(pairing_open_now || ble_pairing_now, sta_mgr.is_up());
-        let mdns_want = mdns_mgr.is_active();
-        if mdns_want != mdns_active {
-            if mdns_want {
-                let host =
-                    crate::mdns::mdns_hostname_for_serial(usb_descriptors::SERIAL_NUMBER_STRING);
-                let bare = crate::mdns::mdns_bare_hostname(&host);
-                let rc = crate::mdns::esp_mdns_start(bare);
-                if rc == 0 {
-                    mdns_active = true;
-                    kprintln!("[WIFI] mDNS '{}' on.", host);
-                } else {
-                    kprintln!("[WIFI] mDNS start rc={}.", rc);
-                }
-            } else {
-                let _ = crate::mdns::esp_mdns_stop();
-                mdns_active = false;
-            }
-        }
-        // Bateria: radio totalmente off fora de uso (nem AP, nem station).
-        // Rele apos start/stop deste poll (evita off imediato).
-        sta_radio = crate::wifi_station::esp_sta_state();
-        let radio_in_use = wifi_ap_active || sta_radio != crate::wifi_station::STA_OFF;
-        if !radio_in_use && wifi_radio_on {
-            let _ = crate::wifi_ap::esp_wifi_off();
-            wifi_radio_on = false;
-            kprintln!("[WIFI] radio off (bateria).");
-        } else if radio_in_use {
-            wifi_radio_on = true;
-        }
+        common::poll_wifi_station_radio(
+            &storage,
+            &mut sta_mgr,
+            &mut mdns_mgr,
+            &mut mdns_active,
+            wifi_ap_active,
+            &mut wifi_radio_on,
+            &mut last_sta_attempt_ms,
+            pairing_open_now,
+            ble_pairing_now,
+            has_creds,
+            now_ms,
+        );
+        // TOTP sem bateria: SNTP quando a station esta up; ancora NVS
+        // sobrevive ao reboot (max() + fail-closed). Ver `time_sync`.
+        crate::time_sync::poll_time_sync(
+            &mut storage,
+            &mut time_state,
+            sta_mgr.is_up(),
+            now_ms,
+            &mut last_time_sync_attempt_ms,
+        );
         // Etapa B (BLE NimBLE real): advertising na janela de pareamento
         // (flag ligada) + reconexão de confiável sem janela SÓ com saúde
         // BLE provada (`ble_preinit_ok` do preinit de boot `rc=0`).
         // Fail-closed: sem preinit saudável, claimed + Idle fica mudo em
         // vez de chamar `esp_ble_start → nimble_port_init` (LoadProhibited).
         // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.
-        let trusted = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+        let trusted = pairing_mgr.is_bond_fresh(now_ms) || binding_mgr.is_claimed();
         let ble_want_adv = crate::ble_nimble::should_advertise(&pairing_mgr, now_ms)
             || (ble_preinit_ok
                 && crate::ble_nimble::should_advertise_reconnect(pairing_mgr.state(), trusted));
@@ -696,7 +615,7 @@ pub fn run_authenticator() {
             }
             // Rollover (ctr travou no MAX): rekey + ctr=0; sem rekey, mudo.
             if prox_beacon.is_rollover() && prox_key_present {
-                let mut rng = rand_core::OsRng;
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 match prox_mod::rekey_proximity(&mut storage, &mut rng) {
                     Ok(k) => {
                         prox_key = k;
@@ -790,7 +709,7 @@ pub fn run_authenticator() {
                             // zera o contador do beacon (ctr=0 no proximo adv).
                             #[cfg(feature = "proximity")]
                             {
-                                let mut rng = rand_core::OsRng;
+                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                 match crate::proximity::rekey_proximity(&mut storage, &mut rng) {
                                     Ok(k) => {
                                         prox_key = k;
@@ -808,14 +727,10 @@ pub fn run_authenticator() {
                             }
                         }
                         ble::BondOutcome::DeniedNoPresence => {
-                            ble_bond_pending = true;
-                            kprintln!("[BLE] link seguro sem UP: toque no BOOT para confirmar.");
-                            display_mgr.set_screen(UiScreen::UserPresencePrompt {
-                                rp_id: "Pareamento BLE".into(),
-                                user_name: "App AegisKey".into(),
-                                operation: "Confirmar pareamento".into(),
-                                remaining_seconds: 25,
-                            });
+                            common::note_bond_denied_no_presence(
+                                &mut ble_bond_pending,
+                                &mut display_mgr,
+                            );
                         }
                         ble::BondOutcome::DeniedNoWindow => {
                             kprintln!("[BLE] link seguro fora da janela: ignorado.");
@@ -823,9 +738,7 @@ pub fn run_authenticator() {
                     }
                 }
                 e if e == ble::BLE_EVT_DISCONNECTED => {
-                    kprintln!("[BLE] central desconectou.");
-                    ble_adv_active = false;
-                    ble_bond_pending = false;
+                    common::note_ble_disconnected(&mut ble_adv_active, &mut ble_bond_pending);
                 }
                 e if e == ble::BLE_EVT_CONNECTED => {
                     kprintln!("[BLE] central conectou (aguardando bonding).");
@@ -857,7 +770,7 @@ pub fn run_authenticator() {
                     // zera o contador do beacon (ctr=0 no proximo adv).
                     #[cfg(feature = "proximity")]
                     {
-                        let mut rng = rand_core::OsRng;
+                        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                         match crate::proximity::rekey_proximity(&mut storage, &mut rng) {
                             Ok(k) => {
                                 prox_key = k;
@@ -1421,7 +1334,7 @@ pub fn run_authenticator() {
 
                                     ctap_engine.set_user_presence(up_confirmed);
 
-                                    let mut rng = rand_core::OsRng;
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                     let ctap_res = ctap_engine.process_packet(
                                         &msg.payload,
                                         now_secs,
@@ -1724,7 +1637,7 @@ pub fn run_authenticator() {
                                         touch_latched,
                                         &mut binding_mgr,
                                         &mut storage,
-                                        &mut rand_core::OsRng,
+                                        &mut rand_core::UnwrapErr(getrandom::SysRng),
                                     );
                                     if st == 0x00 && serial_bind_mgmt_consumes_up(op) {
                                         touch_latched = false;
@@ -1755,6 +1668,61 @@ pub fn run_authenticator() {
                                     fw_log.record(fl::EV_OP_RESP, 0x00, now_ms);
                                     let mut resp = Vec::with_capacity(1 + body.len());
                                     resp.push(0x00);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && legacy_sg_dispatch::is_legacy_sg_op(msg.payload[0])
+                                {
+                                    // Secure Guard 0x3A-0x3E over serial: parity
+                                    // with the freertos dispatcher (same
+                                    // exec_secure_guard_op, same responses,
+                                    // same gates). Move-only reuse, no protocol.
+                                    let op = msg.payload[0];
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                    let (st, body, effects) =
+                                        legacy_sg_dispatch::dispatch_legacy_secure_guard_op(
+                                            &mut secure_guard,
+                                            &mut storage,
+                                            &mut wallet_store,
+                                            &mut key_mgr,
+                                            &mut oath_applet,
+                                            op,
+                                            &msg.payload[1..],
+                                            now_ms,
+                                            &mut rng,
+                                        );
+                                    if effects.did_unlock {
+                                        pairing_mgr.open_host_window(now_ms);
+                                        touch_latched = true;
+                                        touch_expire_tick = now_ms.saturating_add(10_000);
+                                        rescue_engine.set_user_presence(true);
+                                        if let Some(pin_bytes) = effects.verified_pin {
+                                            ctap_engine.pin_state.pin_hash =
+                                                Some(aegis_fido_core::crypto::pin_hash(&pin_bytes));
+                                            ctap_engine.pin_state.pin_retries = 8;
+                                            ctap_engine.pin_state.power_cycle_state = false;
+                                            let _ = crate::vendor_exec::save_pin_state(
+                                                &mut storage,
+                                                &ctap_engine.pin_state,
+                                            );
+                                            kprintln!(
+                                                "[SERIAL][SG] PIN synced to CTAP2 ClientPIN."
+                                            );
+                                        }
+                                    } else if effects.did_lock {
+                                        pairing_mgr.lock();
+                                        touch_latched = false;
+                                    }
+                                    kprintln!(
+                                        "[SERIAL][SG] op 0x{:02X} (status 0x{:02X}).",
+                                        op,
+                                        st
+                                    );
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
                                     resp.extend_from_slice(&body);
                                     for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
                                         serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
@@ -1800,7 +1768,7 @@ pub fn run_authenticator() {
                                             let (st, body) = if is_wallet_op(op) {
                                                 // Carteira Fase7: executa de verdade
                                                 // (gate pairing+UP já passou acima).
-                                                let mut rng = rand_core::OsRng;
+                                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                                 use crate::wallet_exec as w;
                                                 match op {
                                                     OP_WALLET_GEN => w::wallet_gen(
@@ -1824,7 +1792,7 @@ pub fn run_authenticator() {
                                                 // F2: executor real on-device
                                                 // (gate pairing+UP já passou;
                                                 // PIN via plumbing ClientPIN).
-                                                let mut rng = rand_core::OsRng;
+                                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                                 let (st, body) = crate::vendor_exec::exec_vendor_op(
                                                     &mut key_mgr,
                                                     &mut oath_applet,
@@ -2048,7 +2016,7 @@ pub fn run_authenticator() {
                                         up_ok = true;
                                     }
                                     ctap_engine.set_user_presence(up_ok);
-                                    let mut rng = rand_core::OsRng;
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                                     let res = ctap_engine.process_packet(
                                         &msg.payload,
                                         now_secs,

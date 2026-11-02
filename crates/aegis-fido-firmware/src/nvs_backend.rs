@@ -186,7 +186,7 @@ impl FlashStorageBackend for PlatformFlashBackend {
 #[cfg(all(target_os = "espidf", feature = "test-mode"))]
 pub fn load_or_create_dev_keys() -> Result<([u8; 32], [u8; 32]), StorageError> {
     use esp_idf_svc::nvs::EspNvs;
-    use rand_core::RngCore;
+    use rand_core::Rng;
 
     const NS: &str = "aegisdev";
     const K_MASTER: &str = "dev_master_key";
@@ -212,7 +212,7 @@ pub fn load_or_create_dev_keys() -> Result<([u8; 32], [u8; 32]), StorageError> {
     if let (Some(m), Some(s)) = (read_one(&nvs, K_MASTER), read_one(&nvs, K_SALT)) {
         return Ok((m, s));
     }
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
     let mut m = [0u8; 32];
     let mut s = [0u8; 32];
     rng.fill_bytes(&mut m);

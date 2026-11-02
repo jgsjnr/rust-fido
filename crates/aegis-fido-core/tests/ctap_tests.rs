@@ -11,7 +11,7 @@ use aegis_fido_core::ctap::cred_mgmt::*;
 use aegis_fido_core::ctap::status_code::*;
 use aegis_fido_core::ctap::*;
 use ciborium::value::Value;
-use rand::RngCore;
+use rand::Rng;
 
 fn test_engine() -> CtapEngine {
     let master_key = [0x42u8; 32];
@@ -21,7 +21,7 @@ fn test_engine() -> CtapEngine {
 #[test]
 fn test_get_info() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let res = engine.process_packet(&[CTAP_CMD_GET_INFO], 1001, &mut rng);
     assert_eq!(res[0], CTAP1_ERR_SUCCESS);
@@ -152,7 +152,7 @@ fn test_get_info() {
 #[test]
 fn test_client_pin_protocol_1_and_2() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // 1. Get PIN retries (initially 8)
     let req_retries = vec![
@@ -323,7 +323,7 @@ fn test_make_credential_and_get_assertion_all_algorithms() {
 
     for &alg in &algorithms {
         let mut engine = test_engine();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let client_data_hash = [0x11u8; 32];
 
@@ -445,7 +445,7 @@ fn test_make_credential_and_get_assertion_all_algorithms() {
 #[test]
 fn test_authenticator_reset() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // 1. Reset within 10 seconds with touch -> Success
     let res = engine.process_packet(&[CTAP_CMD_RESET], 1005, &mut rng);
@@ -464,7 +464,7 @@ fn test_authenticator_reset() {
 #[test]
 fn test_large_blobs_read_write() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Setup PIN & get LBW token
     let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
@@ -573,7 +573,7 @@ fn test_large_blobs_read_write() {
 #[test]
 fn test_credential_management_and_rk() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // 1. Setup PIN & get CM permission token
     let client_ecdh = EcdhKeyAgreement::generate(&mut rng);
@@ -733,7 +733,7 @@ fn test_credential_management_and_rk() {
 #[test]
 fn test_rk_deny_policy() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     engine.set_rk_deny_policy(true);
 
@@ -772,7 +772,7 @@ fn test_rk_deny_policy() {
 fn test_get_info_canonical_cbor_golden() {
     use aegis_fido_core::ctap::cbor::encode_canonical_cbor;
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let res = engine.process_packet(&[CTAP_CMD_GET_INFO], 1001, &mut rng);
     assert_eq!(res[0], CTAP1_ERR_SUCCESS);
@@ -905,7 +905,7 @@ fn test_get_info_canonical_cbor_golden() {
 #[test]
 fn test_authenticator_config() {
     let mut engine = test_engine();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Verify initially enterprise attestation is false
     assert!(!engine.info_config.enterprise_attestation);

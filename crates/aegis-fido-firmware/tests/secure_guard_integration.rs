@@ -296,7 +296,7 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
     let mut mgr_usb = CtapHidManager::new();
     let mut mgr_serial = CtapHidManager::new();
     let mut ctap_engine = CtapEngine::new([0x77; 32], 0);
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand::rng();
 
     // Popula 1 carteira Web3 no wallet store
     let _ = wallet.generate(CryptoNetwork::Bitcoin, 1, "test-btc", 1000, true, &mut rng);

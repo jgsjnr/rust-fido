@@ -189,7 +189,7 @@ pub fn dispatch_bind_claim<B: crate::persistence::FlashStorageBackend>(
 /// Claimed nas duas modalidades (sem bypass aqui).
 pub fn dispatch_bind_challenge<
     B: crate::persistence::FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
+    R: rand_core::CryptoRng,
 >(
     binding: &mut crate::binding::BindingManager,
     _storage: &crate::persistence::SecureStorage<B>,

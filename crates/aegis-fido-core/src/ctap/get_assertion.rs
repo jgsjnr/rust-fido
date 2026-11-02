@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use zeroize::Zeroize;
 
 use crate::credential::non_resident::CredentialWrapper;
@@ -31,7 +31,7 @@ pub struct GetAssertionState {
 pub struct GetAssertionHandler;
 
 impl GetAssertionHandler {
-    pub fn handle<S: CredentialStore, R: RngCore + CryptoRng>(
+    pub fn handle<S: CredentialStore, R: CryptoRng>(
         store: &mut S,
         wrapper: &CredentialWrapper,
         pin_state: &mut ClientPinState,
@@ -172,7 +172,7 @@ impl GetAssertionHandler {
         )
     }
 
-    pub fn handle_next<S: CredentialStore, R: RngCore + CryptoRng>(
+    pub fn handle_next<S: CredentialStore, R: CryptoRng>(
         store: &mut S,
         assertion_state: &mut GetAssertionState,
         rng: &mut R,
@@ -187,7 +187,7 @@ impl GetAssertionHandler {
         Self::format_assertion_response(store, None, assertion_state, &dummy_ext, total, rng)
     }
 
-    fn format_assertion_response<S: CredentialStore, R: RngCore + CryptoRng>(
+    fn format_assertion_response<S: CredentialStore, R: CryptoRng>(
         store: &mut S,
         pin_state: Option<&ClientPinState>,
         state: &mut GetAssertionState,
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn test_keepassxc_hmac_secret_client_e2e() {
         let mut engine = CtapEngine::new([0x42u8; 32], 1000);
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Step 1: Client calls authenticatorClientPIN(getKeyAgreement)
         let pin_req = vec![
@@ -581,7 +581,7 @@ mod tests {
     #[test]
     fn test_keepassxc_hmac_secret_64byte_salts() {
         let mut engine = CtapEngine::new([0x33u8; 32], 2000);
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // 1. Client calls getKeyAgreement
         let pin_req = vec![

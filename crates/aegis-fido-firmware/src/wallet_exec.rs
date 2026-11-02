@@ -11,7 +11,7 @@
 //! ao app (`VendorOps`) e ao `oath/tlv.rs`: tags `0x01` slot, `0x02`
 //! label, `0x07` address (resposta), `0x08` network (pedido GEN).
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use std::string::String;
 use std::vec::Vec;
 
@@ -68,7 +68,7 @@ fn record_body(slot_id: u8, label: &str, address: &str) -> Vec<u8> {
 ///
 /// `presence` vem do latch UP (uso único, consumido pelo chamador);
 /// `created` = unix secs do relógio do device.
-pub fn wallet_gen<R: RngCore + CryptoRng>(
+pub fn wallet_gen<R: CryptoRng>(
     store: &mut WalletStore,
     payload: &[u8],
     created: u64,
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn gen_list_addr_roundtrip_session() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = WalletStore::new();
         // Sem UP: nega NEED_UP (0x01).
         let (st, _) = wallet_gen(
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn malformed_requests_fail_closed() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand::rng();
         let mut store = WalletStore::new();
         // Rede desconhecida, slot ausente, label vazia, lixo binário.
         for bad in [

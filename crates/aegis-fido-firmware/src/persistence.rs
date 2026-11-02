@@ -11,7 +11,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use hmac::{Hmac, Mac};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha2::Sha256;
 use zeroize::Zeroize;
 
@@ -100,7 +100,7 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
         plaintext: &[u8],
         _nonce_bytes: &[u8; 12],
     ) -> Result<(), StorageError> {
-        let mut trng = rand_core::OsRng;
+        let mut trng = rand_core::UnwrapErr(getrandom::SysRng);
         self.store_with_rng(key, plaintext, &mut trng)
     }
 
@@ -109,7 +109,7 @@ impl<B: FlashStorageBackend> SecureStorage<B> {
     /// com stack crítica (~116 B livres no build com hang) e 545 B na stack
     /// aqui + AES/HKDF sem yield estourava em silêncio (TWDT). Heap move o
     /// custo p/ a DRAM; `zeroize` antes do drop preserva o segredo.
-    pub fn store_with_rng<R: RngCore + CryptoRng>(
+    pub fn store_with_rng<R: CryptoRng>(
         &mut self,
         key: &str,
         plaintext: &[u8],

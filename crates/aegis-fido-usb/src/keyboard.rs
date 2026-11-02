@@ -4,6 +4,8 @@
 //! USB HID Keyboard reports for automated keystroke injection into host systems.
 //! 100% Native Rust implementation.
 
+use alloc::vec::Vec;
+
 /// Standard 8-byte USB HID Boot Keyboard Report.
 pub type KeyboardReport = [u8; 8];
 

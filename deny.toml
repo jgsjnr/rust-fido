@@ -1,0 +1,82 @@
+# deny.toml -- license/advisory/ban/source policy for the AegisKey GPL-3.0-only workspace.
+# Factual/technical record only: entries below are a technical compatibility evaluation
+# for UNMODIFIED dependencies linked into a GPL-3.0-only work. No legal determination
+# is made here. Every non-permissive-class allow entry stays REVIEW-HUMANO-PENDENTE
+# until legal review clears it. Evidence: reports/compliance/cargo-deny-output.log
+# (cargo-deny 0.20.2, `cargo deny check licenses advisories bans sources`).
+# Schema note: this file targets cargo-deny 0.20. Older keys were migrated, see notes
+# in [licenses] and [advisories]. The installer log is reports/compliance/cargo-deny-install.log.
+
+[graph]
+all-features = false
+
+[licenses]
+# 0.20 schema migration: `unlicensed = "deny"` was removed; denying unlicensed crates
+# is now the default behavior, which preserves the old intent (no key needed).
+# `copyleft = "warn"` was removed; there is no copyleft lint anymore. Weak-copyleft
+# inputs (MPL-2.0) are controlled via the explicit allow list below and tracked per
+# crate as REVIEW-HUMANO-PENDENTE in license-inventory.json.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  # CC0-1.0: public-domain dedication. Technical evaluation: as an UNMODIFIED
+  # dependency of a GPL-3.0-only work it imposes fewer restrictions than GPL and
+  # is therefore treated as a compatible dependency input, NOT a relicensing of
+  # the work. REVIEW-HUMANO-PENDENTE (legal review required before release).
+  # Covers (manifest license field): bip39, bitcoin_hashes, hex-conservative.
+  "CC0-1.0",
+  # Unlicense: public-domain dedication (MIT alternative where dual-declared).
+  # Same technical evaluation as CC0-1.0 above. REVIEW-HUMANO-PENDENTE.
+  # Covers: aho-corasick, byteorder, globset, ignore, memchr, winapi-util,
+  # same-file, walkdir.
+  "Unlicense",
+  # Unicode-3.0: license covering Unicode data files. Technical evaluation: less
+  # restrictive than GPL for unmodified use; attribution preserved.
+  # REVIEW-HUMANO-PENDENTE.
+  # Covers (as ANDed alternative): unicode-ident, unicode-normalization.
+  "Unicode-3.0",
+  # BSL-1.0 (Boost Software License, permissive): appears only as an OR
+  # alternative (ryu: Apache-2.0 OR BSL-1.0); allowed explicitly for evidence
+  # completeness. REVIEW-HUMANO-PENDENTE.
+  "BSL-1.0",
+]
+exceptions = [
+  { name = "aegis-secure-guard", allow = ["GPL-3.0-only"] },
+  { name = "aegis-fido-core", allow = ["GPL-3.0-only"] },
+  { name = "aegis-fido-usb", allow = ["GPL-3.0-only"] },
+  { name = "aegis-fido-firmware", allow = ["GPL-3.0-only"] },
+  { name = "universal-device-sdk", allow = ["GPL-3.0-only"] },
+  { name = "uniffi-bridge", allow = ["GPL-3.0-only"] },
+]
+confidence-threshold = 0.8
+
+[advisories]
+# 0.20 schema migration: `vulnerability` removed (was "deny"); vulnerability
+# advisories now always emit errors, which preserves the old deny intent.
+# `notice` removed (was "warn"); notice advisories now always emit errors.
+# `unmaintained` changed from a lint level to a scope; "none" preserves the
+# previous non-blocking outcome (was "warn"). Revisit if RustSec unmaintained
+# advisories need tracking.
+unmaintained = "none"
+yanked = "deny"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Path-deps intra-workspace declaradas sem versao explicita: a versao e
+# fixada pelo proprio workspace ([workspace.package] version = "1.0.0").
+# allow-wildcard-paths suprime o lint `wildcard` para path-deps em crates
+# privados (nao publicados no crates.io), sem mascarar wildcards reais de
+# dependencias externas de registro.
+allow-wildcard-paths = true
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

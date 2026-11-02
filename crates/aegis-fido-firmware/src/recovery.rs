@@ -14,7 +14,7 @@
 
 extern crate alloc;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
@@ -151,12 +151,12 @@ pub fn set_recovery_pin<B: FlashStorageBackend>(
     pin: &str,
     presence_confirmed: bool,
 ) -> Result<(), RecoveryError> {
-    let mut rng = rand_core::OsRng;
+    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
     set_recovery_pin_with_rng(storage, pin, presence_confirmed, &mut rng)
 }
 
 /// Variante com TRNG injetavel (testes deterministicos).
-pub fn set_recovery_pin_with_rng<B: FlashStorageBackend, R: RngCore + CryptoRng>(
+pub fn set_recovery_pin_with_rng<B: FlashStorageBackend, R: CryptoRng>(
     storage: &mut SecureStorage<B>,
     pin: &str,
     presence_confirmed: bool,
@@ -359,7 +359,7 @@ mod tests {
         let mut st = test_storage();
         let sk_bytes = [0x11u8; 32];
         let sk = p256::ecdsa::SigningKey::from_slice(&sk_bytes).expect("scalar");
-        let pt = sk.verifying_key().to_encoded_point(false);
+        let pt = sk.verifying_key().to_sec1_point(false);
         let mut sec1 = [0u8; BIND_PUB_LEN];
         sec1.copy_from_slice(pt.as_bytes());
         let id = [0xABu8; BIND_ID_LEN];
@@ -377,7 +377,7 @@ mod tests {
         assert!(!m.is_claimed());
         assert!(!st.exists(crate::binding::BIND_PUB_NVS_KEY));
         let sk2 = p256::ecdsa::SigningKey::from_slice(&[0x22u8; 32]).expect("scalar");
-        let pt2 = sk2.verifying_key().to_encoded_point(false);
+        let pt2 = sk2.verifying_key().to_sec1_point(false);
         let mut sec1_b = [0u8; BIND_PUB_LEN];
         sec1_b.copy_from_slice(pt2.as_bytes());
         m.claim(&sec1_b, &[0x09u8; BIND_ID_LEN], true, true)

@@ -44,9 +44,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
 
@@ -59,67 +61,68 @@ data class KeyTypeOption(
     val defaultExtra: String
 )
 
-val KEY_TYPE_OPTIONS = listOf(
+@Composable
+fun keyTypeOptions(): List<KeyTypeOption> = listOf(
     KeyTypeOption(
         type = AccessKeyType.PASSKEY_FIDO,
-        title = "Passkey (FIDO2 / WebAuthn)",
-        description = "Passwordless login for Google, Apple, and GitHub",
+        title = stringResource(R.string.keytype_passkey),
+        description = stringResource(R.string.keytype_passkey_desc),
         icon = Icons.Filled.Fingerprint,
         defaultCurve = "ES256 (P-256)",
         defaultExtra = ""
     ),
     KeyTypeOption(
         type = AccessKeyType.VENDOR_SIGNING_KEY,
-        title = "Vendor Signing Key (SSH / Git)",
-        description = "Digital signatures for commits, code, and SSH",
+        title = stringResource(R.string.keytype_vendor),
+        description = stringResource(R.string.keytype_vendor_desc),
         icon = Icons.Filled.Key,
         defaultCurve = "Ed25519",
         defaultExtra = ""
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_BTC,
-        title = "Bitcoin Wallet (BIP84)",
-        description = "Native SegWit on-device security",
+        title = stringResource(R.string.keytype_btc),
+        description = stringResource(R.string.keytype_btc_desc),
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "secp256k1",
         defaultExtra = "m/84'/0'/0'/0/0"
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_ETH,
-        title = "Ethereum / EVM Wallet",
-        description = "Support for Ethereum, Polygon, and EVM chains",
+        title = stringResource(R.string.keytype_eth),
+        description = stringResource(R.string.keytype_eth_desc),
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "secp256k1",
         defaultExtra = "m/44'/60'/0'/0/0"
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_SOL,
-        title = "Solana Wallet",
-        description = "High-speed Solana key (Ed25519)",
+        title = stringResource(R.string.keytype_sol),
+        description = stringResource(R.string.keytype_sol_desc),
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "Ed25519",
         defaultExtra = "m/44'/501'/0'/0'"
     ),
     KeyTypeOption(
         type = AccessKeyType.CRYPTO_WALLET_DOT,
-        title = "Polkadot Wallet",
-        description = "Substrate SS58 address (Ed25519)",
+        title = stringResource(R.string.keytype_dot),
+        description = stringResource(R.string.keytype_dot_desc),
         icon = Icons.Filled.AccountBalanceWallet,
         defaultCurve = "Ed25519",
         defaultExtra = "m/44'/354'/0'/0'/0'"
     ),
     KeyTypeOption(
         type = AccessKeyType.PIV_SMARTCARD_SLOT,
-        title = "Corporate PIV Smartcard",
-        description = "NIST SP 800-73-4 for authentication and logon",
+        title = stringResource(R.string.keytype_piv),
+        description = stringResource(R.string.keytype_piv_desc),
         icon = Icons.Filled.VpnKey,
         defaultCurve = "ECCP256",
         defaultExtra = "9A"
     ),
     KeyTypeOption(
         type = AccessKeyType.ENCRYPTED_AEGN_ENVELOPE,
-        title = "AEGN Encrypted Envelope",
-        description = "Sealed secret vault with AES-256-GCM",
+        title = stringResource(R.string.keytype_aegn),
+        description = stringResource(R.string.keytype_aegn_desc),
         icon = Icons.Filled.Lock,
         defaultCurve = "AES-256-GCM",
         defaultExtra = "aegn_secret_payload_seed"
@@ -153,7 +156,8 @@ fun KeyGenerationDialogOrganism(
     modifier: Modifier = Modifier,
 ) {
     var accountName by remember { mutableStateOf("") }
-    var selectedOption by remember { mutableStateOf(KEY_TYPE_OPTIONS.first()) }
+    val keyOptions = keyTypeOptions()
+    var selectedOption by remember(keyOptions) { mutableStateOf(keyOptions.first()) }
     var chosenCurve by remember { mutableStateOf(selectedOption.defaultCurve) }
     var extraParam by remember { mutableStateOf(selectedOption.defaultExtra) }
 
@@ -169,7 +173,7 @@ fun KeyGenerationDialogOrganism(
         shape = RoundedCornerShape(18.dp),
         title = {
             Text(
-                text = "Generate Key in Security Key",
+                text = stringResource(R.string.keygen_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -184,7 +188,7 @@ fun KeyGenerationDialogOrganism(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "The cryptographic key is generated and stored exclusively on the security key.",
+                    text = stringResource(R.string.keygen_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -192,18 +196,18 @@ fun KeyGenerationDialogOrganism(
                 OutlinedTextField(
                     value = accountName,
                     onValueChange = { accountName = it },
-                    label = { Text("Key label") },
+                    label = { Text(stringResource(R.string.keygen_label)) },
                     placeholder = {
                         Text(
-                            when (selectedOption.type) {
-                                AccessKeyType.PASSKEY_FIDO -> "e.g. Google Account or GitHub"
-                                AccessKeyType.VENDOR_SIGNING_KEY -> "e.g. Laptop SSH Key"
-                                AccessKeyType.CRYPTO_WALLET_BTC -> "e.g. Bitcoin Savings Vault"
-                                AccessKeyType.CRYPTO_WALLET_ETH -> "e.g. Ethereum DeFi Wallet"
-                                AccessKeyType.CRYPTO_WALLET_SOL -> "e.g. Solana Mainnet"
-                                AccessKeyType.CRYPTO_WALLET_DOT -> "e.g. Polkadot Staking"
-                                AccessKeyType.PIV_SMARTCARD_SLOT -> "e.g. Corporate PIV Badge"
-                                AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> "e.g. Master Secret Seed"
+                            text = when (selectedOption.type) {
+                                AccessKeyType.PASSKEY_FIDO -> stringResource(R.string.keygen_hint_passkey)
+                                AccessKeyType.VENDOR_SIGNING_KEY -> stringResource(R.string.keygen_hint_ssh)
+                                AccessKeyType.CRYPTO_WALLET_BTC -> stringResource(R.string.keygen_hint_btc)
+                                AccessKeyType.CRYPTO_WALLET_ETH -> stringResource(R.string.keygen_hint_eth)
+                                AccessKeyType.CRYPTO_WALLET_SOL -> stringResource(R.string.keygen_hint_sol)
+                                AccessKeyType.CRYPTO_WALLET_DOT -> stringResource(R.string.keygen_hint_dot)
+                                AccessKeyType.PIV_SMARTCARD_SLOT -> stringResource(R.string.keygen_hint_piv)
+                                AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> stringResource(R.string.keygen_hint_aegn)
                             }
                         )
                     },
@@ -214,13 +218,13 @@ fun KeyGenerationDialogOrganism(
                 )
 
                 Text(
-                    text = "Select Key Type:",
+                    text = stringResource(R.string.keygen_type_title),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    KEY_TYPE_OPTIONS.forEach { opt ->
+                    keyOptions.forEach { opt ->
                         val isSelected = opt.type == selectedOption.type
                         val borderColor = if (isSelected) {
                             MaterialTheme.colorScheme.primary
@@ -299,7 +303,7 @@ fun KeyGenerationDialogOrganism(
                     AccessKeyType.PASSKEY_FIDO,
                     AccessKeyType.VENDOR_SIGNING_KEY -> {
                         Text(
-                            text = "Cryptographic Algorithm / Curve:",
+                            text = stringResource(R.string.keygen_curve_title),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -322,14 +326,14 @@ fun KeyGenerationDialogOrganism(
                     AccessKeyType.CRYPTO_WALLET_SOL,
                     AccessKeyType.CRYPTO_WALLET_DOT -> {
                         Text(
-                            text = "Hierarchical Derivation Path (HD Path):",
+                            text = stringResource(R.string.keygen_hd_title),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         OutlinedTextField(
                             value = extraParam,
                             onValueChange = { extraParam = it },
-                            label = { Text("HD Path (BIP32/44/84)") },
+                            label = { Text(stringResource(R.string.keygen_hd_hint)) },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -339,7 +343,7 @@ fun KeyGenerationDialogOrganism(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         ) {
                             Text(
-                                text = "Native curve: ${selectedOption.defaultCurve}",
+                                text = stringResource(R.string.keygen_native_curve, selectedOption.defaultCurve),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -348,7 +352,7 @@ fun KeyGenerationDialogOrganism(
                     }
                     AccessKeyType.PIV_SMARTCARD_SLOT -> {
                         Text(
-                            text = "Select PIV Slot (NIST SP 800-73-4):",
+                            text = stringResource(R.string.keygen_piv_title),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -367,15 +371,15 @@ fun KeyGenerationDialogOrganism(
                     }
                     AccessKeyType.ENCRYPTED_AEGN_ENVELOPE -> {
                         Text(
-                            text = "Secret Payload (Sealed with AES-256-GCM):",
+                            text = stringResource(R.string.keygen_secret_title),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         OutlinedTextField(
                             value = extraParam,
                             onValueChange = { extraParam = it },
-                            label = { Text("Secret or Seed") },
-                            placeholder = { Text("Enter confidential secret") },
+                            label = { Text(stringResource(R.string.keygen_secret_label)) },
+                            placeholder = { Text(stringResource(R.string.keygen_secret_hint)) },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -386,7 +390,7 @@ fun KeyGenerationDialogOrganism(
         },
         confirmButton = {
             PrimaryNextButton(
-                text = "Generate Key",
+                text = stringResource(R.string.keygen_confirm_btn),
                 enabled = isFormValid && !isLoading,
                 isLoading = isLoading,
                 onClick = {
@@ -402,7 +406,7 @@ fun KeyGenerationDialogOrganism(
                 enabled = !isLoading
             ) {
                 Text(
-                    text = "Cancel",
+                    text = stringResource(R.string.keygen_cancel_btn),
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1
                 )

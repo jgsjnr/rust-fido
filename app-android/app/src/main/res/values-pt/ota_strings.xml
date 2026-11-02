@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OTA offline de firmware.bin (motor ota2). ASD-STE100: texto curto, um conceito por string. Sem emoji. -->
+<resources>
+    <string name="ota2_title">Atualização de firmware</string>
+    <string name="ota2_nav_title">Atualização de firmware offline</string>
+    <string name="ota2_nav_desc">Envia firmware.bin assinado do armazenamento. Sem COMMIT.</string>
+    <string name="ota2_pick">Escolher firmware.bin</string>
+    <string name="ota2_send">Enviar para a chave</string>
+    <string name="ota2_abort">Anular</string>
+    <string name="ota2_retry">Tentar de novo</string>
+    <string name="ota2_sha">SHA-256: %1$s</string>
+    <string name="ota2_size">Tamanho: %1$d bytes</string>
+    <string name="ota2_version">Versão %1$d (chave tem %2$d)</string>
+    <string name="ota2_progress">Enviados %1$d de %2$d bytes</string>
+    <string name="ota2_verified">Verificado. Confirme na chave.</string>
+    <string name="ota2_paused">Link caiu em %1$d bytes. Tente de novo.</string>
+    <string name="ota2_fail_gate">Atualização bloqueada.</string>
+    <string name="ota2_fail_manifest">Manifesto inválido.</string>
+    <string name="ota2_fail_oversize">Arquivo grande demais.</string>
+    <string name="ota2_fail_empty">Arquivo vazio.</string>
+    <string name="ota2_fail_sig">Assinatura inválida.</string>
+    <string name="ota2_fail_downgrade">Versão não é mais nova.</string>
+    <string name="ota2_fail_sha">Digest diverge do arquivo.</string>
+    <string name="ota2_fail_transport">Chave sem resposta.</string>
+    <string name="ota2_fail_rejected">Chave recusou update.</string>
+    <string name="ota2_fail_need_up">Toque na chave e tente de novo.</string>
+    <string name="ota2_fail_aborted">Update anulado.</string>
+</resources>

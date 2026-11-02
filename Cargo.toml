@@ -16,6 +16,10 @@ edition = "2021"
 authors = ["Aegis Security <contact@aegiskey.dev>"]
 license = "GPL-3.0-only"
 repository = "https://github.com/jgsjnr/rust-fido.git"
+# Nunca publicado no crates.io (firmware/SDK GPL interno com path-deps):
+# marca os membros como crates privados para o cargo-deny
+# ([bans] allow-wildcard-paths so se aplica a crates privados).
+publish = false
 
 [workspace.dependencies]
 # Serialization & CBOR
@@ -24,11 +28,11 @@ serde = { version = "=1.0.217", default-features = false, features = ["derive", 
 serde_bytes = { version = "=0.11.16", default-features = false, features = ["alloc"] }
 
 # Cryptography
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
-p384 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
-p521 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
-ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic"] }
+p384 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic"] }
+p521 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic"] }
+k256 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic"] }
+ed25519-dalek = { version = "3.0", default-features = false, features = ["rand_core"] }
 sha2 = { version = "0.10", default-features = false }
 sha1 = { version = "0.10", default-features = false }
 hmac = { version = "0.12", default-features = false }
@@ -36,7 +40,7 @@ aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
 aes = { version = "0.8", default-features = false }
 bip39 = { version = "2.1", default-features = false }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "derive"] }
-rand_core = { version = "0.6", default-features = false }
+rand_core = { version = "0.10", default-features = false }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 # Wallet address derivation (wallet/* only; all no_std + alloc, see B3 probe).
 sha3 = { version = "0.10", default-features = false }

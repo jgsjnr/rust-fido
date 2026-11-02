@@ -34,10 +34,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.aegiskey.app.R
 
 /**
  * Prompt card for user presence via physical button on the security key.
@@ -45,7 +47,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun PhysicalButtonPromptCardMolecule(
     instruction: String,
-    title: String = "Security Key Confirmation",
+    title: String,
     isLongPress: Boolean = false,
     isSimulatedMode: Boolean = false,
     onSimulateTouch: (() -> Unit)? = null,
@@ -122,7 +124,7 @@ fun PhysicalButtonPromptCardMolecule(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
             ) {
                 Text(
-                    text = if (isLongPress) "Hold for 5 seconds until the LED flashes" else "Press once to confirm",
+                    text = if (isLongPress) stringResource(R.string.onb_hold_hint) else stringResource(R.string.onb_hold_once),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -153,7 +155,7 @@ fun PhysicalButtonPromptCardMolecule(
                             modifier = Modifier.size(16.dp),
                         )
                         Text(
-                            text = "Simulate button press",
+                            text = stringResource(R.string.onb_simulate),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,

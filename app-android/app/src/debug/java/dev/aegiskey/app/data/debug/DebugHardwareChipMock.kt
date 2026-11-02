@@ -115,7 +115,7 @@ object DebugHardwareChipMock {
             ),
             VaultKeyEntry(
                 slotId = 1,
-                label = "Google Conta Principal",
+                label = "Example Primary Account",
                 type = AccessKeyType.PASSKEY_FIDO,
                 publicSummary = "FIDO2 ES256 (P-256) • Residente no Chip • Slot #02",
                 createdAtEpochMs = System.currentTimeMillis() - 86400000L * 3
@@ -149,10 +149,10 @@ object DebugHardwareChipMock {
         val rem = 30 - (nowSecs % 30).toInt()
 
         val totpSecrets = listOf(
-            Triple("GitHub", "junior@aegiskey.dev", "JBSWY3DPEHPK3PXP"),
-            Triple("Google", "junior.fido@gmail.com", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"),
-            Triple("AWS Cloud", "admin@aegiskey.cloud", "MFRGGZDFMZTWQ2LK"),
-            Triple("Microsoft", "junior@outlook.com", "KRSXG5CTMVRXEZLU")
+            Triple("Example Hosting", "junior@aegiskey.dev", "JBSWY3DPEHPK3PXP"),
+            Triple("Example Mail", "junior.fido@example.com", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"),
+            Triple("Example Cloud", "admin@aegiskey.cloud", "MFRGGZDFMZTWQ2LK"),
+            Triple("Example Workspace", "junior@example.com", "KRSXG5CTMVRXEZLU")
         )
 
         val sampleTotp = totpSecrets.map { (issuer, account, secret) ->
