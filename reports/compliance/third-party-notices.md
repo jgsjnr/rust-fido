@@ -493,4 +493,10 @@ zeroize 1.9.1 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR MIT
 zeroize_derive 1.5.0 -- origin crates.io -- holder UNKNOWN -- license Apache-2.0 OR MIT (VERIFIED-manifest)
   sha256 3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328 -- duty: preserve the crate license text and its notices
 
-End of notices. 239 registry packages listed; 6 workspace members excluded (own code under workspace GPL-3.0-only, see license-inventory.json). No holders were invented. No secret values were read or echoed.
+Gradle/Maven amendment 2026-11-02 (merge fd/finalizacao-linux): 1 direct + 1 build-time transitive Android artifact for QR scanning (commit cd440c2).
+com.journeyapps:zxing-android-embedded 4.3.0 -- origin Maven Central -- holder UNKNOWN -- license Apache-2.0 (VERIFIED-manifest: Maven POM license field)
+  coordinates com.journeyapps:zxing-android-embedded:4.3.0 (declared in app-android/app/build.gradle.kts) -- duty: preserve the artifact license text and its notices
+com.google.zxing:core (build-time transitive of zxing-android-embedded; version Gradle-resolved, unpinned in repo) -- origin Maven Central -- holder UNKNOWN -- license Apache-2.0 (VERIFIED-manifest: Maven POM license field)
+  coordinates com.google.zxing:core -- duty: preserve the artifact license text and its notices
+
+End of notices. 239 registry packages listed + 1 direct Gradle artifact (+1 build-time transitive) above; 6 workspace members excluded (own code under workspace GPL-3.0-only, see license-inventory.json). No holders were invented. No secret values were read or echoed.

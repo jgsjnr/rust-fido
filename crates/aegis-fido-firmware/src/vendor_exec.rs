@@ -450,7 +450,7 @@ fn exec_key_import_or_gen<B, R>(
 ) -> (u8, Vec<u8>)
 where
     B: FlashStorageBackend,
-    R: rand_core::RngCore + rand_core::CryptoRng,
+    R: rand_core::CryptoRng,
 {
     let records = match parse_tlv_records(payload) {
         Ok(r) => r,

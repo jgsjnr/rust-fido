@@ -2460,6 +2460,26 @@
       "checksum_sha256": "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
+    },
+    {
+      "name": "com.journeyapps:zxing-android-embedded",
+      "version": "4.3.0",
+      "origin": "Maven Central",
+      "license": "Apache-2.0",
+      "license_source": "Maven POM license field (Gradle-declared dep, app-android/app/build.gradle.kts; added by fd/finalizacao-linux QR scanning)",
+      "checksum_sha256": null,
+      "status": "VERIFIED-manifest",
+      "note": "Duty: preserve the artifact license text and its notices."
+    },
+    {
+      "name": "com.google.zxing:core",
+      "version": "Gradle-resolved (unpinned in repo)",
+      "origin": "Maven Central",
+      "license": "Apache-2.0",
+      "license_source": "Maven POM license field (build-time transitive of zxing-android-embedded)",
+      "checksum_sha256": null,
+      "status": "VERIFIED-manifest",
+      "note": "Duty: preserve the artifact license text and its notices."
     }
   ],
   "scope_note": "Full Cargo.lock registry coverage (239 packages). No transitive crate is out of scope; any Cargo.lock change requires re-running the generator (C:\\Temp\\gen-compliance.ps1) and cargo deny.",

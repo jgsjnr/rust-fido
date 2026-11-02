@@ -1739,7 +1739,7 @@ mod tests {
             ..Default::default()
         };
         let mut engine = SecureGuardEngine::new(policy.clone());
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
 
         // 1. PIN 000000 is accepted
         let prov_zeros = vec![
@@ -1848,7 +1848,7 @@ mod tests {
             wipe_on_5_failures: false,
             ..Default::default()
         });
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
 
         // Provision PIN "849201"
         let prov = vec![
