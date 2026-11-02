@@ -50,6 +50,13 @@ object BleContract {
     // Enrollment PIV / smartcard (0x39, F4).
     const val OP_PIV_ENROLL = 0x39
 
+    // Secure Guard (0x3A-0x3E: STATUS, AUTH/PROVISION/UNLOCK, LOCK, CONFIG, WIPE).
+    const val OP_SG_STATUS = 0x3A
+    const val OP_SG_AUTH = 0x3B
+    const val OP_SG_LOCK = 0x3C
+    const val OP_SG_CONFIG = 0x3D
+    const val OP_SG_WIPE = 0x3E
+
     // OTA estagiado (0x30/0x31/0x32/0x34): BEGIN + CHUNKs + FINISH + ABORT.
     // Espelha net/OtaApi.kt (fonte do wire 104 B + stage budget); aqui vivem
     // so os opcodes p/ a allowlist BLE. 0x33 (COMMIT) NAO tem constante aqui
@@ -86,7 +93,7 @@ object BleContract {
     }
 
     fun isVendorOp(op: Int): Boolean =
-        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_PIV_ENROLL || isOtaOp(op)
+        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_SG_WIPE || isOtaOp(op)
 
     /**
      * Allowlist OTA via BLE (fail-closed): 0x30 BEGIN, 0x31 CHUNK, 0x32
@@ -112,6 +119,11 @@ object BleContract {
         OP_WALLET_ADDR -> "0x37 wallet-addr"
         OP_FW_LOG -> "0x38 fw-log"
         OP_PIV_ENROLL -> "0x39 piv-enroll"
+        OP_SG_STATUS -> "0x3A sg-status"
+        OP_SG_AUTH -> "0x3B sg-auth"
+        OP_SG_LOCK -> "0x3C sg-lock"
+        OP_SG_CONFIG -> "0x3D sg-config"
+        OP_SG_WIPE -> "0x3E sg-wipe"
         OP_OTA_BEGIN -> "0x30 ota-begin"
         OP_OTA_CHUNK -> "0x31 ota-chunk"
         OP_OTA_FINISH -> "0x32 ota-finish"

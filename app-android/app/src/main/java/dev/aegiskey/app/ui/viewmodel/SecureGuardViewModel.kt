@@ -54,6 +54,47 @@ class SecureGuardViewModel(
         refreshStatus()
     }
 
+    private fun sanitizeErrorMessage(t: Throwable?): String {
+        if (t == null) return "Erro desconhecido ao comunicar com o cofre."
+        val raw = t.message ?: t.javaClass.simpleName ?: ""
+
+        // Proteção contra vazamento de detalhes internos ou classes JNA / JNI
+        if (raw.contains("jna", ignoreCase = true) ||
+            raw.contains("native", ignoreCase = true) ||
+            raw.contains("UnsatisfiedLinkError", ignoreCase = true) ||
+            raw.contains("NoClassDefFoundError", ignoreCase = true) ||
+            raw.contains("ClassNotFoundException", ignoreCase = true) ||
+            raw.contains("NullPointerException", ignoreCase = true)) {
+            return "Falha na comunicação com o hardware. Verifique a conexão USB ou BLE."
+        }
+
+        // Se for erro de PIN ou autenticação
+        if (t is SecurityException || raw.contains("pin", ignoreCase = true) || raw.contains("senha", ignoreCase = true)) {
+            if (raw.contains("restam", ignoreCase = true) || raw.contains("tentativas", ignoreCase = true)) {
+                return raw
+            }
+            if (raw.contains("bloqueado", ignoreCase = true) || raw.contains("limit", ignoreCase = true)) {
+                return "Muitas tentativas incorretas. Aguarde o tempo de espera do cofre."
+            }
+            return "PIN incorreto. Tente novamente."
+        }
+
+        // Se for hardware indisponível / desconexão
+        if (raw.contains("indisponível", ignoreCase = true) || raw.contains("unavailable", ignoreCase = true) ||
+            raw.contains("desconectad", ignoreCase = true) || raw.contains("connection", ignoreCase = true) ||
+            raw.contains("timeout", ignoreCase = true)) {
+            return "Dispositivo indisponível. Conecte sua chave Aegis via USB ou BLE."
+        }
+
+        // Se for validação de tamanho de PIN
+        if (raw.contains("mínimo", ignoreCase = true) || raw.contains("caracteres", ignoreCase = true) || raw.contains("dígitos", ignoreCase = true)) {
+            return raw
+        }
+
+        val firstLine = raw.lines().firstOrNull()?.trim() ?: "Erro ao processar solicitação"
+        return if (firstLine.length > 80) firstLine.take(80) + "..." else firstLine
+    }
+
     private fun startCountdownTickerIfNeeded() {
         countdownJob?.cancel()
         val current = _uiState.value.status
@@ -115,7 +156,7 @@ class SecureGuardViewModel(
                     startCountdownTickerIfNeeded()
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }
@@ -136,7 +177,7 @@ class SecureGuardViewModel(
                     refreshStatus()
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }
@@ -157,7 +198,7 @@ class SecureGuardViewModel(
                     startCountdownTickerIfNeeded()
                 }
                 .onFailure { t ->
-                    val err = t.message ?: "PIN incorreto"
+                    val err = sanitizeErrorMessage(t)
                     getSecureGuardStatusUseCase().onSuccess { st ->
                         _uiState.update {
                             it.copy(
@@ -194,7 +235,7 @@ class SecureGuardViewModel(
                     refreshStatus()
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }
@@ -214,7 +255,7 @@ class SecureGuardViewModel(
                     refreshStatus()
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }
@@ -236,7 +277,7 @@ class SecureGuardViewModel(
                     refreshStatus()
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }
@@ -255,7 +296,7 @@ class SecureGuardViewModel(
                     }
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }
@@ -275,7 +316,7 @@ class SecureGuardViewModel(
                     refreshStatus()
                 }
                 .onFailure { t ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = t.message) }
+                    _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
     }

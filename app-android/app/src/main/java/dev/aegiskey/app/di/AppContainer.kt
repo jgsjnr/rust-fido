@@ -136,7 +136,11 @@ class AppContainer(val context: Context) {
     }
 
     val secureGuardRepository: SecureGuardRepository by lazy {
-        SecureGuardRepositoryImpl(hostUsbUartBridgeClient, usbCtaphid)
+        SecureGuardRepositoryImpl(
+            hostBridgeClient = hostUsbUartBridgeClient,
+            usbCtaphid = usbCtaphid,
+            bleKeyTransport = bleTransport
+        )
     }
 
     // --- Casos de Uso: Secure Guard (Zero-Trust On-Device Authority) ---
