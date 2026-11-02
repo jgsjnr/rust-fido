@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -60,6 +62,14 @@ class SecureGuardRepositoryImpl(
                 runCatching { getStatus() }
             }
         }
+        bleKeyTransport?.client?.state?.onEach { bleState ->
+            if (bleState.connection != AegisBleClient.Connection.READY) {
+                val isUsbPresent = usbCtaphid?.isUsbPhysicallyPresent() ?: false
+                if (!isUsbPresent) {
+                    onHardwareDetached()
+                }
+            }
+        }?.launchIn(CoroutineScope(Dispatchers.IO))
     }
 
     override fun onHardwareDetached() {
@@ -152,6 +162,10 @@ class SecureGuardRepositoryImpl(
                     if (parsed != null) {
                         tryAutoPairBle(frame.cborPayload)
                         val safe = sanitizeStatus(parsed)
+                        if (!safe.isUnlocked) {
+                            lastVerifiedSessionPin = null
+                            clearSessionPin()
+                        }
                         _statusFlow.value = safe
                         return@runCatching safe
                     }
@@ -167,6 +181,10 @@ class SecureGuardRepositoryImpl(
                     val parsed = SecureGuardCbor.parseStatus(frame.cborPayload)
                     if (parsed != null) {
                         val safe = sanitizeStatus(parsed)
+                        if (!safe.isUnlocked) {
+                            lastVerifiedSessionPin = null
+                            clearSessionPin()
+                        }
                         _statusFlow.value = safe
                         return@runCatching safe
                     }
@@ -178,6 +196,10 @@ class SecureGuardRepositoryImpl(
             if (json != null && (json.optBoolean("ok", true) || json.has("state") || json.has("state_name"))) {
                 val parsed = parseStatusFromJson(json)
                 val safe = sanitizeStatus(parsed)
+                if (!safe.isUnlocked) {
+                    lastVerifiedSessionPin = null
+                    clearSessionPin()
+                }
                 _statusFlow.value = safe
                 return@runCatching safe
             }
@@ -193,28 +215,26 @@ class SecureGuardRepositoryImpl(
                         tryAutoPairBle(frame.cborPayload)
                     }
                     val safe = sanitizeStatus(parsed)
+                    if (!safe.isUnlocked) {
+                        lastVerifiedSessionPin = null
+                        clearSessionPin()
+                    }
                     _statusFlow.value = safe
                     return@runCatching safe
                 }
             }
 
-            val current = _statusFlow.value
-            if (current.isUnlocked && current.sessionRemainingMs > 0 && (isUsbPresent || isBleConnected || usb == null)) {
-                return@runCatching current
-            }
-            if (usb != null && !isUsbPresent && !isBleConnected) {
-                lastVerifiedSessionPin = null
-                val forcedLocked = current.copy(
-                    state = SecureGuardStateEnum.LOCKED,
-                    isUnlocked = false,
-                    sessionRemainingMs = 0L,
-                    failedAttempts = 0,
-                    rateLimitRemainingMs = 0L
-                )
-                _statusFlow.value = forcedLocked
-                return@runCatching forcedLocked
-            }
-            _statusFlow.value
+            // Se nenhum hardware respondeu, a chave está inacessível/desconectada: encerra sessão imediatamente!
+            lastVerifiedSessionPin = null
+            clearSessionPin()
+            val forcedLocked = _statusFlow.value.copy(
+                state = SecureGuardStateEnum.LOCKED,
+                isUnlocked = false,
+                sessionRemainingMs = 0L,
+                rateLimitRemainingMs = 0L
+            )
+            _statusFlow.value = forcedLocked
+            forcedLocked
         }
     }
 
@@ -411,6 +431,7 @@ class SecureGuardRepositoryImpl(
     override suspend fun lock(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             lastVerifiedSessionPin = null
+            clearSessionPin()
             hostBridgeClient.lockSecureGuard()
             val encReq = SecureGuardCbor.encodeLockRequest()
             val usb = usbCtaphid

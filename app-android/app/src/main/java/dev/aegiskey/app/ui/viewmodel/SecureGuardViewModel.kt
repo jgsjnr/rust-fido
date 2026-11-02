@@ -175,6 +175,12 @@ class SecureGuardViewModel(
                 if (newState == SecureGuardStateEnum.LOCKED || (newRate == 0L && newSess == 0L)) {
                     countdownJob?.cancel()
                     countdownJob = null
+                    if (st.state == SecureGuardStateEnum.UNLOCKED && newSess == 0L) {
+                        actualRepo.onHardwareDetached()
+                        viewModelScope.launch {
+                            runCatching { actualRepo.lock() }
+                        }
+                    }
                     break
                 }
             }
@@ -284,6 +290,17 @@ class SecureGuardViewModel(
     fun lock() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            countdownJob?.cancel()
+            countdownJob = null
+            _uiState.update { current ->
+                current.copy(
+                    status = current.status.copy(
+                        isUnlocked = false,
+                        state = SecureGuardStateEnum.LOCKED,
+                        sessionRemainingMs = 0L
+                    )
+                )
+            }
             lockSecureGuardUseCase()
                 .onSuccess {
                     countdownJob?.cancel()
