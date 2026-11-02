@@ -1,0 +1,25 @@
+===== cargo-deny FINAL (post-migracao RUSTSEC-2026-0387) =====
+command: cargo-deny.exe check licenses advisories bans sources
+worktree: E:\projetos\standalone-architecture-worktree
+HEAD: 33df2ea (fix(security): migrate elliptic stack to 0.14 for RUSTSEC-2026-0387)
+date (UTC): 2026-11-02
+tool: cargo-deny 0.20.2 (C:\Users\junior\.cargo\bin\cargo-deny.exe)
+
+EXIT_CODE=0
+
+Result: PASS — licenses + advisories + bans + sources, exit 0.
+Only warnings: duplicate-version entries (e.g. digest 0.10.7/0.11.3,
+embedded-hal 0.2.7/1.0.0, heck 0.4.1/0.5.0, hkdf 0.12.4/0.13.0,
+hmac 0.12.1/0.13.0, linux-raw-sys, nb, rustix, sha2 0.10.9/0.11.1,
+shlex, syn x3, windows-sys x3). No errors, no vulnerabilities reported.
+
+RUSTSEC-2026-0387: RESOLVIDO via migracao p256/k256/p384/p521 0.13->0.14
+(+ecdsa 0.17, elliptic-curve 0.14, signature 3.0, ed25519-dalek 3.0,
+crypto-bigint 0.7.10). Wire-preserving (Sec1Point alias, mesmos bytes,
+try_sign propaga erro).
+
+Nota: `reports/compliance/cargo-deny-output.log` pertence a outro dono e
+NAO foi modificado. Este arquivo e o snapshot pos-migracao desta lane.
+Revisao juridica humana (23 crates) segue pendente — sem PASS legal.
+Full raw output capturado no log do shell do host (transitorio);
+este arquivo registra comando, HEAD, exit code e classe dos warnings.

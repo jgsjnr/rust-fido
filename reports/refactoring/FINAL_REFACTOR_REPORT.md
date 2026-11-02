@@ -2,10 +2,13 @@
 
 - Worktree: `E:\projetos\standalone-architecture-worktree`
 - Branch: `refactor/standalone-architecture-cleanup`
-- HEAD: `e683979`
+- HEAD: `33df2ea`
 - Date (UTC): 2026-11-02
 - Mode: preservation-first. Zero file moves executed. Scheduler fix `e683979`
-  re-validated (post-fix full workspace run: 927 passed / 0 failed).
+  re-validated (post-fix full workspace run: 927 passed / 0 failed) +
+  migracao de seguranca `33df2ea` (RUSTSEC-2026-0387, elliptic 0.14)
+  incorporada (gates usados verbatim do dono do codigo; deny exit 0
+  confirmado nesta lane + SHAs via `git log`).
 - Scope: host-only Windows x86_64. No hardware acceptance.
 - Status: **NOT merged to original repo. Never pushed. Never merged to
   `fd/finalizacao-linux`.** Integration commits exist only in this worktree.
@@ -19,8 +22,8 @@
 | P2 | RELOCATE (plan only) | PLAN ONLY. `migration-plan.json`: KEEP verdicts + 3 PROPOSED items, `moves_executed: 0`. No RELOCATE executed. |
 | P3 | DECOUPLE | NOT EXECUTED. No decoupling performed; envelope triplication, SecureGuard quad, and BLE opcode contract risks recorded as-is. |
 | P4 | Analyzer built | DONE. `tools/architecture-analyzer/` (real `cargo_metadata` + `syn` parsing, no mocks): `cargo check` exit 0. |
-| P5 | Compliance baseline | DONE. `reports/compliance/` (6 files): license inventory (all REVIEW), compatibility audit, SBOM SPDX, trademark audit, documentation audit, third-party notices source. `deny.toml` + `THIRD_PARTY_NOTICES.md` at root. |
-| P6 | Validation (post-fix) | DONE. `reports/testing/BASELINE.md` (pre-fix baseline) + `FINAL_TEST_REPORT.md` (post-fix section 2026-11-02, HEAD `e683979`): check PASS, clippy PASS (exit 0, re-verified), test PASS (927 passed / 0 failed; pre-existing `freertos_sched` fail FIXED by `e683979` without weakened assertions). External standalone consumer (SDK + secure-guard + usb, `$env:TEMP`): 4/4 PASS desktop-only, with usb root re-export gap + `no_std` caveat noted. `cargo deny` BLOCKED (binary absent). fmt still BLOCKED (28 files pre-existing). |
+| P5 | Compliance baseline | DONE. `reports/compliance/` (7 files): license inventory (all REVIEW), compatibility audit, SBOM SPDX, trademark audit, documentation audit, third-party notices source + `cargo-deny-final.log` (novo snapshot pos-migracao `33df2ea`, exit 0). `deny.toml` + `THIRD_PARTY_NOTICES.md` at root. `cargo-deny-output.log` preservado do dono anterior (NAO modificado). Revisao juridica humana (23 crates) segue pendente — sem PASS legal. |
+| P6 | Validation (post-migracao) | DONE. `reports/testing/BASELINE.md` (pre-fix baseline) + `FINAL_TEST_REPORT.md` (secao pos-migracao 2026-11-02 UTC, HEAD `33df2ea`): check PASS (workspace + `--all-targets`, exit 0), clippy PASS (exit 0), test PASS (927 passed / 0 failed; fail `freertos_sched` segue FIXADO por `e683979` sem assercao enfraquecida). RUSTSEC-2026-0387 RESOLVIDO (p256/k256/p384/p521 0.13->0.14 + ecdsa 0.17, elliptic-curve 0.14, signature 3.0, ed25519-dalek 3.0, crypto-bigint 0.7.10; wire-preserving). External standalone consumer (SDK + secure-guard + usb, `$env:TEMP`): 4/4 PASS desktop-only, com usb root re-export gap + `no_std` caveat noted. `cargo deny check licenses advisories bans sources`: PASS (exit 0, so warnings duplicate). fmt segue BLOCKED (28 arquivos pre-existente). |
 | P7 | Docs heuristic | HEURISTIC ONLY. `documentation-audit.md`: coherence by inspection; ASD-STE100 style observed, NOT certified (no controlled-language tool run). |
 
 ## Acceptance criteria per file
@@ -37,15 +40,15 @@
 | `reports/refactoring/migration-plan.json` | VERIFIED (parses; KEEP + 3 PROPOSED, none executed) |
 | `reports/refactoring/SCRIPT_TEST_MIGRATION_REPORT.md` | VERIFIED |
 | `reports/refactoring/esp-idf-version-inventory.md` | PARTIALLY (pinned v5.3.1 recorded; on-device UNVERIFIED) |
-| `reports/refactoring/regression-report.md` | VERIFIED (this batch; PASS verdict post-fix `e683979`, not BLOCKED) |
+| `reports/refactoring/regression-report.md` | VERIFIED (this batch; PASS verdict post-migracao `33df2ea`, com ressalvas fmt/ESP-IDF/juridico) |
 | `reports/refactoring/FINAL_REFACTOR_REPORT.md` | VERIFIED (this file) |
 | `reports/refactoring/ESP_IDF_MIGRATION_REPORT.md` | PARTIALLY (no migration executed; v6.1 target UNVALIDATED, BLOCKED) |
 | `reports/refactoring/ESP_IDF_WINDOWS_CLEANUP.md` | PARTIALLY (host state recorded; NO removal performed, BLOCKED) |
-| `reports/compliance/` (6 files) | VERIFIED as baseline (audits recorded; REVIEW items open) |
-| `reports/testing/BASELINE.md` + `FINAL_TEST_REPORT.md` | VERIFIED (pre-fix baseline + post-fix full validation section) |
+| `reports/compliance/` (7 files) | VERIFIED as baseline (audits recorded; REVIEW items open; `cargo-deny-final.log` novo PASS exit 0; revisao humana pendente, sem PASS legal) |
+| `reports/testing/BASELINE.md` + `FINAL_TEST_REPORT.md` | VERIFIED (pre-fix baseline + post-migracao section `33df2ea`: RUSTSEC-2026-0387 RESOLVIDO, deny all-ok) |
 | `tools/architecture-analyzer/` | VERIFIED (`cargo check` exit 0) |
 | `tools/docs-lint/` | PARTIALLY (heuristic stub that runs; NOT certified) |
-| `deny.toml`, `THIRD_PARTY_NOTICES.md` | VERIFIED present (deny verdict BLOCKED: `cargo deny` binary absent; CC0/MPL/Unlicense not allow-listed) |
+| `deny.toml`, `THIRD_PARTY_NOTICES.md` | VERIFIED present (deny PASS: `cargo deny check licenses advisories bans sources` exit 0 pos-migracao `33df2ea`, so warnings duplicate; sem declaracao de PASS legal — revisao humana pendente) |
 
 ## Explicit non-goals (not done, by design)
 
@@ -56,19 +59,23 @@
 - Nothing merged to the original repo `E:\projetos\fido`.
 - Nothing pushed, nothing merged to `fd/finalizacao-linux`.
 
-## Remaining BLOCKED items
+## Remaining BLOCKED items (atualizada pos-migracao `33df2ea` — so fmt, ESP-IDF fisico, revisao humana)
 
 1. ~~`cargo test --workspace`: 1 pre-existing failure~~ — FIXED by `e683979`
-   (927 passed / 0 failed, exit 0, re-verified 2026-11-02).
-2. `cargo fmt --check`: 28 files pre-existing failure.
-3. ESP-IDF v6.1 target: UNVALIDATED, BLOCKED until on-device validation.
-4. v6.0.3 / `esp-idf-sys` 0.36 compat: UNVALIDATED.
-5. License inventory: all third-party entries REVIEW (needs `cargo deny` evidence for PASS;
-   `cargo deny` binary absent; CC0-1.0/MPL-2.0/Unlicense not in `deny.toml` allow-list).
-6. Trademark: 3 medium REVIEW rows (compatibility wording, namespace, cert claims).
-7. Docs: ASD-STE100 NOT certified; `tools/docs-lint` is heuristic only.
-8. Standalone reuse caveats: usb root re-export gap recorded; usb is std-only
-   (no `no_std`); bare-metal/ESP reuse of all three crates UNVALIDATED
-   (desktop std host evidence only).
-9. Full PR gate (fmt clean, full + external-consumer presets): external-consumer
-   preset now evidenced desktop-only (4/4); fmt + on-device still pending.
+   (927 passed / 0 failed, exit 0); suite verde mantida apos migracao `33df2ea`.
+2. ~~RUSTSEC-2026-0387~~ — RESOLVIDO por `33df2ea` (p256/k256/p384/p521
+   0.13->0.14 + ecdsa 0.17, elliptic-curve 0.14, signature 3.0,
+   ed25519-dalek 3.0, crypto-bigint 0.7.10; wire-preserving).
+   `cargo deny check licenses advisories bans sources`: exit 0 (so warnings
+   de duplicate versions).
+3. `cargo fmt --check`: 28 arquivos, BLOCKED pre-existente (unico gate
+   tecnico ainda vermelho no host).
+4. ESP-IDF fisico / on-device: v5.3.1 pinado; v6.1 target UNVALIDATED,
+   BLOCKED ate validacao fisica; v6.0.3 / `esp-idf-sys` 0.36 compat
+   UNVALIDATED; 2 instalacoes host mantidas (nenhuma remocao executada).
+5. Revisao juridica humana (23 crates, inclui trademark 3 medium REVIEW +
+   docs ASD-STE100 nao certificado + license inventory REVIEW): PENDENTE —
+   nao se declara PASS legal. `tools/docs-lint` segue heuristico.
+6. Standalone reuse caveats (informativo, nao BLOCKED): usb root re-export
+   gap registrado; usb e std-only (sem `no_std`); bare-metal/ESP reuse dos
+   tres crates UNVALIDATED (evidencia desktop std host-only, 4/4).

@@ -69,24 +69,38 @@ weakening any assertion: the demo now waits for the `EVT_TICK_10MS` bit
     desktop std host-only; no embedded/ESP target build was run in this lane —
     bare-metal reuse remains UNVALIDATED.
 
-### License / `cargo deny` evidence — BLOCKED (tool absent)
+### License / `cargo deny` evidence — PASS (exit 0, pos-migracao `33df2ea`)
 
-- `cargo deny` binary: ABSENT on host (`Get-Command cargo-deny` → not found).
-  No `cargo deny check` run exists in this lane → deny verdict BLOCKED.
+- `cargo deny` binary: PRESENT on host (`cargo-deny 0.20.2` em `$env:USERPROFILE\.cargo\bin`).
+  No `cargo deny check` run exists in this lane: SUPERSEDED — deny agora PASS (exit 0).
 - Per repo `deny.toml` `[licenses]`: allow-list is MIT, Apache-2.0,
   BSD-2-Clause, BSD-3-Clause, ISC, Zlib (+ per-crate GPL-3.0-only exceptions).
-  CC0-1.0 / MPL-2.0 / Unlicense are NOT allow-listed → any dependency under
-  those licenses would be denied (BLOCKED pending a real `cargo deny` run).
-- First-party crates are all `GPL-3.0-only` (covered by exceptions);
-  `reports/compliance/license-inventory.json` shows no CC0/MPL/Unlicense
-  entries, but without the tool run this is UNVERIFIED.
+  CC0-1.0 / MPL-2.0 / Unlicense: policy atualizada cobre explicitamente via
+  `deny.toml` (0.20 schema migration); deny PASS com exit 0 nesta lane.
+- First-party crates are all `GPL-3.0-only` (covered by exceptions).
+  `cargo deny check licenses advisories bans sources`: exit 0 (so warnings
+  de duplicate versions), verificado nesta lane. RUSTSEC-2026-0387 RESOLVIDO
+  via migracao p256/k256/p384/p521 0.13->0.14 (+ecdsa 0.17, elliptic-curve
+  0.14, signature 3.0, ed25519-dalek 3.0, crypto-bigint 0.7.10), commit
+  `33df2ea`. Wire-preserving (Sec1Point alias, mesmos bytes, try_sign
+  propaga erro). Evidencia completa em `reports/compliance/cargo-deny-output.log`
+  (dono anterior, NAO modificado) + snapshot `reports/compliance/cargo-deny-final.log`.
+  Revisao juridica humana (23 crates) segue pendente — nao se declara PASS legal.
 
-### Updated verdict
+### Updated verdict (pos-migracao `33df2ea`)
 
-- `cargo check --workspace`: PASS (baseline, unchanged).
-- `cargo clippy --workspace --all-targets -- -D warnings`: PASS (exit 0, re-verified).
-- `cargo test --workspace`: **PASS (exit 0, 927 passed / 0 failed) — pre-existing fail FIXED by `e683979`.**
+- `cargo check --workspace` (+ `--all-targets`): PASS (exit 0).
+- `cargo clippy --workspace --all-targets -- -D warnings`: PASS (exit 0).
+- `cargo test --workspace`: **PASS (exit 0, 927 passed / 0 failed)** — pre-existing fail FIXED by `e683979`; suite verde mantida apos migracao `33df2ea`.
 - Standalone consumer (SDK/secure-guard/usb): VERIFIED desktop-only, 4/4.
-- `cargo deny`: BLOCKED (binary absent).
-- `cargo fmt --check`: still BLOCKED (28 files pre-existing; not re-run in this lane, parent-noted).
-- Physical-device acceptance: not performed (out of scope, all lanes).
+- `cargo deny check licenses advisories bans sources`: PASS (exit 0, so warnings de duplicate versions). RUSTSEC-2026-0387 RESOLVIDO.
+- Revisao juridica humana (23 crates): PENDENTE — sem PASS legal.
+- `cargo fmt --check`: ainda BLOCKED (28 arquivos, pre-existente).
+- ESP-IDF: v5.3.1 pinado; v6.1/v6.0.3-compat nao validados; 2 instalacoes host mantidas.
+- Physical-device acceptance: nao realizado (fora de escopo, todas as lanes). Builds, mocked traffic, ports, screenshots, emuladores e handshakes nao sao aceitacao de dispositivo fisico.
+
+### Pos-migracao RUSTSEC-2026-0387 (HEAD `33df2ea`, 2026-11-02 UTC)
+
+- `git log --oneline -6`: `33df2ea` / `ab1dfcd` / `c48038b` / `d33cf41` / `e683979` / `6a3fd53`.
+- Migracao: p256/k256/p384/p521 0.13->0.14 (+ecdsa 0.17, elliptic-curve 0.14, signature 3.0, ed25519-dalek 3.0, crypto-bigint 0.7.10). Wire-preserving (Sec1Point alias, mesmos bytes, try_sign propaga erro).
+- Escopo desta lane: somente `cargo deny check licenses advisories bans sources` (exit 0) + `git log --oneline -6` para SHAs; demais gates usados verbatim do dono do codigo, sem re-validacao.
