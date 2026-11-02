@@ -45,6 +45,8 @@ object VendorOps {
     const val STATUS_NO_SLOT: Int = 0x03
     const val STATUS_BAD_ENVELOPE: Int = 0x04
     const val STATUS_NEED_BINDING: Int = 0x05
+    const val STATUS_OPERATION_DENIED: Int = 0x27
+    const val STATUS_SECURE_GUARD_PIN_REQUIRED: Int = 0x36
 
     const val TAG_SLOT: Int = 0x01
     const val TAG_LABEL: Int = 0x02
@@ -75,7 +77,9 @@ object VendorOps {
         STATUS_NO_SLOT -> "slot/nome inexistente"
         STATUS_BAD_ENVELOPE -> "dados invalidos"
         STATUS_NEED_BINDING -> "vincule o dispositivo primeiro"
-        else -> "erro desconhecido"
+        STATUS_OPERATION_DENIED -> "Sessão de pareamento fechada (toque na chave ou reconecte)"
+        STATUS_SECURE_GUARD_PIN_REQUIRED -> "Cofre Secure Guard bloqueado (desbloqueie a sessão com seu PIN)"
+        else -> "Erro de comunicação com a chave (código 0x%02X)".format(status and 0xFF)
     }
 
     /** Uma curva por entrada: 5 curvas do Rust (curves.rs) com nome amigavel. */

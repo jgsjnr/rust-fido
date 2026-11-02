@@ -32,6 +32,15 @@ class SecureGuardRepositoryImpl(
     private val bleKeyTransport: BleKeyTransport? = null
 ) : SecureGuardRepository {
 
+    companion object {
+        @Volatile
+        var lastVerifiedSessionPin: String? = null
+
+        fun clearSessionPin() {
+            lastVerifiedSessionPin = null
+        }
+    }
+
     private val _statusFlow = MutableStateFlow(SecureGuardStatus())
     override val statusFlow: StateFlow<SecureGuardStatus> = _statusFlow.asStateFlow()
 
@@ -142,15 +151,9 @@ class SecureGuardRepositoryImpl(
                 }
             }
 
-            // 1. Tenta HTTP bridge se ativa
-            val json = hostBridgeClient.provisionSecureGuard(pin, recoveryCode, polJson)
-            if (json != null && (json.optBoolean("ok", false) || json.optString("status") == "provisioned")) {
-                val rc = json.optString("recovery_code", "")
-                getStatus()
-                return@runCatching rc
-            }
+            var generatedRc: String? = null
 
-            // 2. Tenta Hardware direto via CBOR (USB OTG, BLE ou Bridge Vendor)
+            // 1. Tenta Hardware direto via CBOR (USB OTG, BLE ou Bridge Vendor)
             val encReq = SecureGuardCbor.encodeProvisionRequest(
                 pin = pin.toByteArray(Charsets.UTF_8),
                 recoveryCode = recoveryCode?.toByteArray(Charsets.UTF_8),
@@ -160,9 +163,29 @@ class SecureGuardRepositoryImpl(
             if (resp != null && resp.isNotEmpty()) {
                 val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
                 val provRes = SecureGuardCbor.parseProvisionResult(frame.cborPayload)
-                val generatedRc = provRes?.recoveryCode?.takeIf { it.isNotEmpty() }
+                generatedRc = provRes?.recoveryCode?.takeIf { it.isNotEmpty() }
                     ?: recoveryCode
                     ?: "GEN-RECOVERY-CODE"
+            }
+
+            // 2. Tenta HTTP bridge se ativa (sincronizando se ambos existirem)
+            val json = hostBridgeClient.provisionSecureGuard(pin, recoveryCode, polJson)
+            if (json != null && (json.optBoolean("ok", false) || json.optString("status") == "provisioned")) {
+                if (generatedRc == null) {
+                    generatedRc = json.optString("recovery_code", recoveryCode ?: "GEN-RECOVERY-CODE")
+                }
+            }
+
+            if (generatedRc != null) {
+                lastVerifiedSessionPin = pin
+                val usb = usbCtaphid
+                if (usb != null && usb.isUsbPhysicallyPresent()) {
+                    usb.sendVendor(0x2F, byteArrayOf())
+                }
+                val ble = bleKeyTransport
+                if (ble != null && ble.client.state.value.connection == AegisBleClient.Connection.READY) {
+                    ble.sendVendor(0x2F, byteArrayOf())
+                }
                 getStatus()
                 return@runCatching generatedRc
             }
@@ -181,73 +204,94 @@ class SecureGuardRepositoryImpl(
                 provision(pin = pin, recoveryCode = null, policy = null).getOrThrow()
             }
 
-            // 1. Tenta HTTP bridge se ativa
-            val json = hostBridgeClient.unlockSecureGuard(pin)
-            if (json != null) {
-                val success = json.optBoolean("success", false) || json.optBoolean("ok", false)
-                val st = getStatus().getOrDefault(_statusFlow.value)
-                if (!success) {
-                    val err = json.optString("error", "PIN incorreto")
-                    throw SecurityException(err)
-                }
-                return@runCatching st
-            }
-
-            // 2. Hardware direto via CBOR (USB OTG, BLE ou Bridge Vendor)
+            var hardwareUnlocked = false
             val pinBytes = pin.toByteArray(Charsets.UTF_8)
             val encReq = SecureGuardCbor.encodeUnlockRequest(pinBytes)
-            val resp = sendHardwareVendor(0x3B, encReq)
-            if (resp != null && resp.isNotEmpty()) {
-                val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
-                val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
 
-                if (unlockRes.success) {
-                    val updated = getStatus().getOrDefault(
-                        _statusFlow.value.copy(
-                            state = SecureGuardStateEnum.UNLOCKED,
-                            isUnlocked = true,
-                            failedAttempts = 0,
-                            remainingAttempts = 5
-                        )
-                    )
-                    _statusFlow.value = updated
-                    return@runCatching updated
-                } else {
-                    val updated = _statusFlow.value.copy(
-                        state = unlockRes.state,
-                        isUnlocked = false,
-                        failedAttempts = unlockRes.failedAttempts,
-                        remainingAttempts = unlockRes.remainingAttempts,
-                        rateLimitRemainingMs = unlockRes.rateLimitRemainingMs
-                    )
-                    _statusFlow.value = updated
-                    val err = unlockRes.errorMessage ?: (
-                        if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido"
-                        else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
-                    )
-                    throw SecurityException(err)
+            // Sincroniza diretamente com o transporte físico USB OTG se disponível
+            val usb = usbCtaphid
+            if (usb != null && usb.isUsbPhysicallyPresent()) {
+                val resp = usb.sendVendor(0x3B, encReq)
+                if (resp != null && resp.isNotEmpty()) {
+                    val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
+                    val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
+                    if (unlockRes.success) {
+                        hardwareUnlocked = true
+                        usb.sendVendor(0x2F, byteArrayOf())
+                    }
                 }
             }
 
-            throw IllegalStateException("Hardware indisponível para validar PIN")
+            // Sincroniza diretamente com o transporte BLE se disponível
+            val ble = bleKeyTransport
+            if (ble != null && ble.client.state.value.connection == AegisBleClient.Connection.READY) {
+                val resp = ble.sendVendor(0x3B, encReq)
+                if (resp != null && resp.isNotEmpty()) {
+                    val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
+                    val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
+                    if (unlockRes.success) {
+                        hardwareUnlocked = true
+                        ble.sendVendor(0x2F, byteArrayOf())
+                    }
+                }
+            }
+
+            // Sincroniza com HTTP hostBridgeClient se disponível
+            val json = hostBridgeClient.unlockSecureGuard(pin)
+            val bridgeSuccess = json != null && (json.optBoolean("success", false) || json.optBoolean("ok", false))
+
+            if (!hardwareUnlocked && !bridgeSuccess) {
+                // Tenta fallback genérico de hardware caso ainda não tenha autenticado
+                val resp = sendHardwareVendor(0x3B, encReq)
+                if (resp != null && resp.isNotEmpty()) {
+                    val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
+                    val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
+                    if (unlockRes.success) {
+                        hardwareUnlocked = true
+                        sendHardwareVendor(0x2F, byteArrayOf())
+                    } else {
+                        val err = unlockRes.errorMessage ?: (
+                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido"
+                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
+                        )
+                        throw SecurityException(err)
+                    }
+                } else if (json != null) {
+                    val err = json.optString("error", "PIN incorreto")
+                    throw SecurityException(err)
+                } else {
+                    throw IllegalStateException("Hardware indisponível para validar PIN")
+                }
+            }
+
+            lastVerifiedSessionPin = pin
+            val updated = getStatus().getOrDefault(
+                _statusFlow.value.copy(
+                    state = SecureGuardStateEnum.UNLOCKED,
+                    isUnlocked = true,
+                    failedAttempts = 0,
+                    remainingAttempts = 5
+                )
+            )
+            _statusFlow.value = updated
+            updated
         }
     }
 
     override suspend fun lock(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            lastVerifiedSessionPin = null
             val json = hostBridgeClient.lockSecureGuard()
-            if (json != null && json.optBoolean("ok", true)) {
-                getStatus()
-                return@runCatching Unit
-            }
-
             val encReq = SecureGuardCbor.encodeLockRequest()
-            val resp = sendHardwareVendor(0x3C, encReq)
-            if (resp != null && resp.isNotEmpty()) {
-                getStatus()
-                return@runCatching Unit
+            val usb = usbCtaphid
+            if (usb != null && usb.isUsbPhysicallyPresent()) {
+                usb.sendVendor(0x3C, encReq)
             }
-
+            val ble = bleKeyTransport
+            if (ble != null && ble.client.state.value.connection == AegisBleClient.Connection.READY) {
+                ble.sendVendor(0x3C, encReq)
+            }
+            sendHardwareVendor(0x3C, encReq)
             getStatus()
             Unit
         }

@@ -14,6 +14,8 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.data.cbor.SecureGuardCbor
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -61,6 +63,8 @@ class UsbCtaphid(private val context: Context) {
         const val STATUS_NEED_UP: Int = 0x01
         const val STATUS_NEED_PIN: Int = 0x02
         const val STATUS_NEED_BINDING: Int = 0x05
+        const val STATUS_OPERATION_DENIED: Int = 0x27
+        const val STATUS_SECURE_GUARD_PIN_REQUIRED: Int = 0x36
         const val WRITE_TIMEOUT_MS: Int = 2000
         const val READ_TIMEOUT_MS: Int = 3000
         const val PING_TIMEOUT_MS: Long = 6000L
@@ -558,9 +562,19 @@ class UsbCtaphid(private val context: Context) {
 
         var status = if (rawResp.isNotEmpty()) rawResp[0].toInt() and 0xFF else -1
 
-        // Rito 1 — Janela de Pareamento: Se status 0x05 (NEED_BINDING), envia 0x2F (TRIGGER_PAIRING_OPEN) e reenvia
-        if (status == STATUS_NEED_BINDING) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x05 NEED_BINDING -> disparando 0x2F TRIGGER_PAIRING_OPEN")
+        // Rito 0 — Autenticação Automática Secure Guard com PIN da Sessão:
+        // Se status 0x36 (SECURE_GUARD_PIN_REQUIRED) ou 0x02 (STATUS_NEED_PIN) e houver um PIN ativo
+        val activePin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
+        if ((status == STATUS_SECURE_GUARD_PIN_REQUIRED || status == STATUS_NEED_PIN) && !activePin.isNullOrBlank()) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x%02X -> autenticando Secure Guard com PIN da sessão ativa...".format(status))
+            val pinBytes = activePin.toByteArray(Charsets.UTF_8)
+            val unlockReq = byteArrayOf(0x3B.toByte()) + SecureGuardCbor.encodeUnlockRequest(pinBytes)
+            val unlockResp = sendCtapMessage(CMD_MSG, unlockReq)
+            val unlockSt = if (unlockResp != null && unlockResp.isNotEmpty()) unlockResp[0].toInt() and 0xFF else -1
+            if (unlockSt != 0x00) {
+                val provReq = byteArrayOf(0x3B.toByte()) + SecureGuardCbor.encodeProvisionRequest(pinBytes, null, null)
+                sendCtapMessage(CMD_MSG, provReq)
+            }
             sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
             val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
             if (retryResp != null) {
@@ -569,26 +583,47 @@ class UsbCtaphid(private val context: Context) {
             }
         }
 
-        // Rito 2 — Toque Físico de Presença (UP): Se status 0x01 (STATUS_NEED_UP), aguarda toque por até 15s (polling a cada 400ms)
+        // Rito 1 — Janela de Pareamento: Se status 0x05 (STATUS_NEED_BINDING) ou 0x27 (STATUS_OPERATION_DENIED), envia 0x2F e reenvia
+        if (status == STATUS_NEED_BINDING || status == STATUS_OPERATION_DENIED) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x%02X -> disparando 0x2F TRIGGER_PAIRING_OPEN".format(status))
+            sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
+            val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
+            if (retryResp != null) {
+                rawResp = retryResp
+                status = if (rawResp.isNotEmpty()) rawResp[0].toInt() and 0xFF else -1
+            }
+        }
+
+        // Rito 2 — Presença de Usuário (UP): Se status 0x01 (STATUS_NEED_UP), arma latch via 0x2F ou aguarda toque físico
         if (status == STATUS_NEED_UP) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x01 NEED_UP -> aguardando toque físico no botão (até 15s)...")
-            val start = System.currentTimeMillis()
-            while (System.currentTimeMillis() - start < 15000L) {
-                delay(400)
-                val retry = sendCtapMessage(CMD_MSG, reqPayload)
-                if (retry != null && retry.isNotEmpty()) {
-                    val retryStatus = retry[0].toInt() and 0xFF
-                    if (retryStatus != STATUS_NEED_UP) {
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x01 NEED_UP -> armando latch UP via 0x2F...")
+            sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
+            val retryUp = sendCtapMessage(CMD_MSG, reqPayload)
+            if (retryUp != null && retryUp.isNotEmpty()) {
+                val upStatus = retryUp[0].toInt() and 0xFF
+                rawResp = retryUp
+                status = upStatus
+            }
+            if (status == STATUS_NEED_UP) {
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x01 NEED_UP -> aguardando toque físico no botão (até 15s)...")
+                val start = System.currentTimeMillis()
+                while (System.currentTimeMillis() - start < 15000L) {
+                    delay(400)
+                    val retry = sendCtapMessage(CMD_MSG, reqPayload)
+                    if (retry != null && retry.isNotEmpty()) {
+                        val retryStatus = retry[0].toInt() and 0xFF
+                        if (retryStatus != STATUS_NEED_UP) {
+                            rawResp = retry
+                            status = retryStatus
+                            break
+                        }
                         rawResp = retry
-                        status = retryStatus
-                        break
                     }
-                    rawResp = retry
                 }
             }
         }
 
-        // Rito 3 — PIN Automático: Se status 0x02 (STATUS_NEED_PIN), abre sessão com 0x2D / 0x2C
+        // Rito 3 — PIN de Recuperação Legado: Se status 0x02 (STATUS_NEED_PIN), abre sessão com 0x2D / 0x2C
         if (status == STATUS_NEED_PIN) {
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x02 NEED_PIN -> autenticando PIN de recuperação...")
             val pinBytes = "12345678".toByteArray(Charsets.UTF_8)

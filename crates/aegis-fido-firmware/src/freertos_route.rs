@@ -203,6 +203,16 @@ pub fn dispatch_serial_vendor_msg(
                 ctx.now_ms,
                 &mut rng,
             );
+            if st == 0x00 && sg.is_unlocked() {
+                ctx.pin_verified = true;
+                ctx.pairing.open_host_window(ctx.now_ms);
+                ctx.pairing_open = true;
+                ctx.arm_up = true;
+            } else if st == 0x00 && op == crate::ble_gatt::OP_SECURE_GUARD_LOCK {
+                ctx.pin_verified = false;
+                ctx.pairing_open = false;
+                ctx.pairing.lock();
+            }
             let mut resp = Vec::with_capacity(1 + body.len());
             resp.push(st);
             resp.extend_from_slice(&body);
@@ -221,6 +231,11 @@ pub fn dispatch_serial_vendor_msg(
     // Vendor keys/OATH + carteira + PIV enroll: UP do latch (como o BLE);
     // negação carrega o wire status.
     if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
+        let sg_unlocked = ctx
+            .secure_guard
+            .as_ref()
+            .map(|sg| sg.is_unlocked())
+            .unwrap_or(false);
         // Barreira de Autorização Obrigatória (Enforcement) Secure Guard:
         // Exige que o Secure Guard esteja Unlocked para todas as operações protegidas de chaves/carteiras.
         if let Some(ref mut sg) = ctx.secure_guard {
@@ -241,7 +256,9 @@ pub fn dispatch_serial_vendor_msg(
                 ));
             }
         }
-        match authorize_serial(msg.cmd, payload, ctx.pairing_open, ctx.up_latched) {
+        let pairing_open_effective = ctx.pairing_open || sg_unlocked;
+        let up_effective = ctx.up_latched || sg_unlocked;
+        match authorize_serial(msg.cmd, payload, pairing_open_effective, up_effective) {
             SerialGate::NeedPairing => {
                 return Some((deny_response(msg), false));
             }
@@ -253,8 +270,11 @@ pub fn dispatch_serial_vendor_msg(
             }
             SerialGate::Ok => {
                 let mut rng = rand_core::OsRng;
+                let binding_claimed_effective =
+                    ctx.binding.is_claimed() || sg_unlocked || ctx.pairing_open;
                 let pin_effective = ctx.pin_uv_session
                     || ctx.pin_verified
+                    || sg_unlocked
                     || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
                 let (st, body) = if is_wallet_op(op) {
                     use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
@@ -274,7 +294,7 @@ pub fn dispatch_serial_vendor_msg(
                         ctx.storage,
                         op,
                         &payload[1..],
-                        ctx.binding.is_claimed(),
+                        binding_claimed_effective,
                         pin_effective,
                         true,
                         ctx.now_secs,
@@ -285,7 +305,8 @@ pub fn dispatch_serial_vendor_msg(
                 let mut resp = Vec::with_capacity(1 + body.len());
                 resp.push(st);
                 resp.extend_from_slice(&body);
-                return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), true));
+                let consumed = !sg_unlocked;
+                return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), consumed));
             }
         }
     }
@@ -295,6 +316,7 @@ pub fn dispatch_serial_vendor_msg(
         ctx.pairing.open_host_window(ctx.now_ms);
         ctx.arm_up = true;
         ctx.pin_verified = true;
+        ctx.pairing_open = true;
         return Some((
             CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x00]),
             false,
