@@ -69,7 +69,7 @@
     "severity": "info",
     "remediation": "None. Re-check on any future vendoring event."
   },
-  "method": "Cargo.lock parsed for name+version+checksum (273 registry packages). License per crate is the license manifest field via cargo metadata --all-features (offline, locked graph). Holder is UNKNOWN for all third-party entries; holders are not invented. Origin: registry+https://github.com/rust-lang/crates.io-index (crates.io). VERIFIED-manifest = mechanically read manifest field (not a legal determination); REVIEW-HUMANO-PENDENTE = needs human legal review. No secret values were read or echoed.",
+  "method": "Cargo.lock parsed for name+version+checksum (239 registry packages). License per crate is the license manifest field via cargo metadata --all-features (offline, locked graph). Holder is UNKNOWN for all third-party entries; holders are not invented. Origin: registry+https://github.com/rust-lang/crates.io-index (crates.io). VERIFIED-manifest = mechanically read manifest field (not a legal determination); REVIEW-HUMANO-PENDENTE = needs human legal review. No secret values were read or echoed.",
   "third_party": [
     {
       "name": "aead",
@@ -162,46 +162,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "askama",
-      "version": "0.12.1",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "b79091df18a97caea757e28cd2d5fda49c6cd4bd01ddffd7ff01ace0c0ad2c28",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "askama_derive",
-      "version": "0.12.5",
-      "origin": "crates.io",
-      "license": "MIT/Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "19fe8d6cb13c4714962c072ea496f3392015f0989b1a2847bb4b2d9effd71d83",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "askama_escape",
-      "version": "0.10.3",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "619743e34b5ba4e9703bba34deac3427c72507c7159f5fd030aea8cac0cfe341",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "askama_parser",
-      "version": "0.2.1",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "acb1161c6b64d1c3d83108213c2a2533a342ac225aabd0bda218278c2ddb00c0",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "atomic-waker",
       "version": "1.1.2",
       "origin": "crates.io",
@@ -242,32 +202,12 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "basic-toml",
-      "version": "0.1.10",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "bech32",
       "version": "0.11.1",
       "origin": "crates.io",
       "license": "MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "bincode",
-      "version": "1.3.3",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -382,32 +322,12 @@
       "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
-      "name": "bytes",
-      "version": "1.12.1",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "camino",
       "version": "1.1.12",
       "origin": "crates.io",
       "license": "MIT OR Apache-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "dd0b03af37dad7a14518b7691d81acb0f8222604ad3d1b02f6b4bed5188c0cd5",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "cargo_metadata",
-      "version": "0.15.4",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "eee4243f1f26fc7a42710e7439c149e2b10b05472f88090acce52632f231a73a",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -1122,16 +1042,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "fs-err",
-      "version": "2.11.0",
-      "origin": "crates.io",
-      "license": "MIT/Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "88a41f105fe1d5b6b34b2055e3dc59bb79b46b48b2040b9e6c7b4b5de097aa41",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "futures-core",
       "version": "0.3.34",
       "origin": "crates.io",
@@ -1242,16 +1152,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "goblin",
-      "version": "0.8.2",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "1b363a30c165f666402fe6a3024d3bec7ebc898f96a4a23bd1c99f8dbf3f4f47",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "group",
       "version": "0.13.0",
       "origin": "crates.io",
@@ -1298,16 +1198,6 @@
       "license": "MIT OR Apache-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "heck",
-      "version": "0.5.0",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -1552,26 +1442,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "mime",
-      "version": "0.3.17",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "mime_guess",
-      "version": "2.0.5",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "minimal-lexical",
       "version": "0.2.1",
       "origin": "crates.io",
@@ -1712,32 +1582,12 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "paste",
-      "version": "1.0.15",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "pin-project-lite",
       "version": "0.2.17",
       "origin": "crates.io",
       "license": "Apache-2.0 OR MIT",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "plain",
-      "version": "0.2.3",
-      "origin": "crates.io",
-      "license": "MIT/Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -1972,26 +1822,6 @@
       "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unlicense public-domain dedication with MIT alternative, used as UNMODIFIED dependency; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
-      "name": "scroll",
-      "version": "0.12.0",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "scroll_derive",
-      "version": "0.12.1",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "1783eabc414609e28a5ba76aee5ddd52199f7107a0b24c2e9746a1ecc34a683d",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "sec1",
       "version": "0.7.3",
       "origin": "crates.io",
@@ -2112,16 +1942,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "siphasher",
-      "version": "0.3.11",
-      "origin": "crates.io",
-      "license": "MIT/Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "slab",
       "version": "0.4.12",
       "origin": "crates.io",
@@ -2132,32 +1952,12 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "smawk",
-      "version": "0.3.3",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "stable_deref_trait",
       "version": "1.2.1",
       "origin": "crates.io",
       "license": "MIT OR Apache-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "static_assertions",
-      "version": "1.1.0",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -2232,16 +2032,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "textwrap",
-      "version": "0.16.4",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "6ecfad6c3abc80a577f2b91c1e412ee57e7a060d430b553c1b0c940974ebcd49",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "thiserror",
       "version": "1.0.69",
       "origin": "crates.io",
@@ -2292,16 +2082,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     },
     {
-      "name": "toml",
-      "version": "0.5.11",
-      "origin": "crates.io",
-      "license": "MIT/Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "typenum",
       "version": "1.20.1",
       "origin": "crates.io",
@@ -2318,16 +2098,6 @@
       "license": "MIT OR Apache-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "unicase",
-      "version": "2.10.0",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -2352,16 +2122,6 @@
       "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: Unicode-3.0 data license ANDed with MIT/Apache-2.0; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
-      "name": "unicode-width",
-      "version": "0.2.2",
-      "origin": "crates.io",
-      "license": "MIT OR Apache-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
       "name": "unicode-xid",
       "version": "0.2.6",
       "origin": "crates.io",
@@ -2370,96 +2130,6 @@
       "checksum_sha256": "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "uniffi",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "4cb08c58c7ed7033150132febe696bef553f891b1ede57424b40d87a89e3c170",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_bindgen",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "cade167af943e189a55020eda2c314681e223f1e42aca7c4e52614c2b627698f",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_build",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "4c7cf32576e08104b7dc2a6a5d815f37616e66c6866c2a639fe16e6d2286b75b",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_checksum_derive",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "802d2051a700e3ec894c79f80d2705b69d85844dafbbe5d1a92776f8f48b563a",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_core",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "bc7687007d2546c454d8ae609b105daceb88175477dac280707ad6d95bcd6f1f",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_macros",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "12c65a5b12ec544ef136693af8759fb9d11aefce740fb76916721e876639033b",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_meta",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "4a74ed96c26882dac1ca9b93ca23c827e284bacbd7ec23c6f0b0372f747d59e4",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_testing",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "6a6f984f0781f892cc864a62c3a5c60361b1ccbd68e538e6c9fbced5d82268ac",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
-    },
-    {
-      "name": "uniffi_udl",
-      "version": "0.28.3",
-      "origin": "crates.io",
-      "license": "MPL-2.0",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "037820a4cfc4422db1eaa82f291a3863c92c7d1789dc513489c36223f9b4cdfc",
-      "status": "APPROVED-by-owner 2026-11-02",
-      "note": "Duty: preserve the crate license text and its notices; REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; Owner approval 2026-11-02 (owner-accepted technical acceptance; not a legal certification). Owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\"."
     },
     {
       "name": "universal-hash",
@@ -2548,16 +2218,6 @@
       "license": "MIT OR Apache-2.0",
       "license_source": "cargo-metadata manifest license field",
       "checksum_sha256": "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6",
-      "status": "VERIFIED-manifest",
-      "note": "Duty: preserve the crate license text and its notices."
-    },
-    {
-      "name": "weedle2",
-      "version": "5.0.0",
-      "origin": "crates.io",
-      "license": "MIT",
-      "license_source": "cargo-metadata manifest license field",
-      "checksum_sha256": "998d2c24ec099a87daf9467808859f9d82b61f1d9c9701251aea037f514eae0e",
       "status": "VERIFIED-manifest",
       "note": "Duty: preserve the crate license text and its notices."
     },
@@ -2802,6 +2462,6 @@
       "note": "Duty: preserve the crate license text and its notices."
     }
   ],
-  "scope_note": "Full Cargo.lock registry coverage (273 packages). No transitive crate is out of scope; any Cargo.lock change requires re-running the generator (C:\\Temp\\gen-compliance.ps1) and cargo deny.",
-  "overall": "REVIEW: all third-party licenses are manifest-declared facts (VERIFIED-manifest); 23 entries APPROVED-by-owner 2026-11-02 per owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\" (owner-accepted technical acceptance; not a legal certification); do not claim legal certification; cargo-deny evidence in cargo-deny-final.log."
+  "scope_note": "Full Cargo.lock registry coverage (239 packages). No transitive crate is out of scope; any Cargo.lock change requires re-running the generator (C:\\Temp\\gen-compliance.ps1) and cargo deny.",
+  "overall": "REVIEW: all third-party licenses are manifest-declared facts (VERIFIED-manifest); 14 entries APPROVED-by-owner 2026-11-02 per owner decision (verbatim): \"as MPL pode permitir, e as demais se não impactar o fechamento do projeto pode permitir\" (owner-accepted technical acceptance; not a legal certification); MPL-2.0 x9 uniffi crates removed 2026-11-02, zero MPL remains; do not claim legal certification; cargo-deny evidence in cargo-deny-final.log."
 }

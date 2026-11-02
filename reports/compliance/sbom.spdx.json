@@ -253,78 +253,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-askama-0.12.1",
-      "name": "askama",
-      "versionInfo": "0.12.1",
-      "downloadLocation": "https://crates.io/api/v1/crates/askama/0.12.1/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "b79091df18a97caea757e28cd2d5fda49c6cd4bd01ddffd7ff01ace0c0ad2c28"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-askama-derive-0.12.5",
-      "name": "askama_derive",
-      "versionInfo": "0.12.5",
-      "downloadLocation": "https://crates.io/api/v1/crates/askama_derive/0.12.5/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT/Apache-2.0",
-      "licenseDeclared": "MIT/Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "19fe8d6cb13c4714962c072ea496f3392015f0989b1a2847bb4b2d9effd71d83"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-askama-escape-0.10.3",
-      "name": "askama_escape",
-      "versionInfo": "0.10.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/askama_escape/0.10.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "619743e34b5ba4e9703bba34deac3427c72507c7159f5fd030aea8cac0cfe341"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-askama-parser-0.2.1",
-      "name": "askama_parser",
-      "versionInfo": "0.2.1",
-      "downloadLocation": "https://crates.io/api/v1/crates/askama_parser/0.2.1/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "acb1161c6b64d1c3d83108213c2a2533a342ac225aabd0bda218278c2ddb00c0"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-atomic-waker-1.1.2",
       "name": "atomic-waker",
       "versionInfo": "1.1.2",
@@ -397,24 +325,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-basic-toml-0.1.10",
-      "name": "basic-toml",
-      "versionInfo": "0.1.10",
-      "downloadLocation": "https://crates.io/api/v1/crates/basic-toml/0.1.10/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-bech32-0.11.1",
       "name": "bech32",
       "versionInfo": "0.11.1",
@@ -429,24 +339,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-bincode-1.3.3",
-      "name": "bincode",
-      "versionInfo": "1.3.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/bincode/1.3.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
         }
       ]
     },
@@ -649,24 +541,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-bytes-1.12.1",
-      "name": "bytes",
-      "versionInfo": "1.12.1",
-      "downloadLocation": "https://crates.io/api/v1/crates/bytes/1.12.1/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-camino-1.1.12",
       "name": "camino",
       "versionInfo": "1.1.12",
@@ -681,24 +555,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "dd0b03af37dad7a14518b7691d81acb0f8222604ad3d1b02f6b4bed5188c0cd5"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-cargo-metadata-0.15.4",
-      "name": "cargo_metadata",
-      "versionInfo": "0.15.4",
-      "downloadLocation": "https://crates.io/api/v1/crates/cargo_metadata/0.15.4/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "eee4243f1f26fc7a42710e7439c149e2b10b05472f88090acce52632f231a73a"
         }
       ]
     },
@@ -1981,24 +1837,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-fs-err-2.11.0",
-      "name": "fs-err",
-      "versionInfo": "2.11.0",
-      "downloadLocation": "https://crates.io/api/v1/crates/fs-err/2.11.0/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT/Apache-2.0",
-      "licenseDeclared": "MIT/Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "88a41f105fe1d5b6b34b2055e3dc59bb79b46b48b2040b9e6c7b4b5de097aa41"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-futures-core-0.3.34",
       "name": "futures-core",
       "versionInfo": "0.3.34",
@@ -2197,24 +2035,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-goblin-0.8.2",
-      "name": "goblin",
-      "versionInfo": "0.8.2",
-      "downloadLocation": "https://crates.io/api/v1/crates/goblin/0.8.2/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "1b363a30c165f666402fe6a3024d3bec7ebc898f96a4a23bd1c99f8dbf3f4f47"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-group-0.13.0",
       "name": "group",
       "versionInfo": "0.13.0",
@@ -2301,24 +2121,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-heck-0.5.0",
-      "name": "heck",
-      "versionInfo": "0.5.0",
-      "downloadLocation": "https://crates.io/api/v1/crates/heck/0.5.0/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
         }
       ]
     },
@@ -2755,42 +2557,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-mime-0.3.17",
-      "name": "mime",
-      "versionInfo": "0.3.17",
-      "downloadLocation": "https://crates.io/api/v1/crates/mime/0.3.17/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-mime-guess-2.0.5",
-      "name": "mime_guess",
-      "versionInfo": "2.0.5",
-      "downloadLocation": "https://crates.io/api/v1/crates/mime_guess/2.0.5/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-minimal-lexical-0.2.1",
       "name": "minimal-lexical",
       "versionInfo": "0.2.1",
@@ -3043,24 +2809,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-paste-1.0.15",
-      "name": "paste",
-      "versionInfo": "1.0.15",
-      "downloadLocation": "https://crates.io/api/v1/crates/paste/1.0.15/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-pin-project-lite-0.2.17",
       "name": "pin-project-lite",
       "versionInfo": "0.2.17",
@@ -3075,24 +2823,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-plain-0.2.3",
-      "name": "plain",
-      "versionInfo": "0.2.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/plain/0.2.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT/Apache-2.0",
-      "licenseDeclared": "MIT/Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
         }
       ]
     },
@@ -3511,42 +3241,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-scroll-0.12.0",
-      "name": "scroll",
-      "versionInfo": "0.12.0",
-      "downloadLocation": "https://crates.io/api/v1/crates/scroll/0.12.0/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-scroll-derive-0.12.1",
-      "name": "scroll_derive",
-      "versionInfo": "0.12.1",
-      "downloadLocation": "https://crates.io/api/v1/crates/scroll_derive/0.12.1/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "1783eabc414609e28a5ba76aee5ddd52199f7107a0b24c2e9746a1ecc34a683d"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-sec1-0.7.3",
       "name": "sec1",
       "versionInfo": "0.7.3",
@@ -3763,24 +3457,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-siphasher-0.3.11",
-      "name": "siphasher",
-      "versionInfo": "0.3.11",
-      "downloadLocation": "https://crates.io/api/v1/crates/siphasher/0.3.11/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT/Apache-2.0",
-      "licenseDeclared": "MIT/Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-slab-0.4.12",
       "name": "slab",
       "versionInfo": "0.4.12",
@@ -3799,24 +3475,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-smawk-0.3.3",
-      "name": "smawk",
-      "versionInfo": "0.3.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/smawk/0.3.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-stable-deref-trait-1.2.1",
       "name": "stable_deref_trait",
       "versionInfo": "1.2.1",
@@ -3831,24 +3489,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-static-assertions-1.1.0",
-      "name": "static_assertions",
-      "versionInfo": "1.1.0",
-      "downloadLocation": "https://crates.io/api/v1/crates/static_assertions/1.1.0/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
         }
       ]
     },
@@ -3979,24 +3619,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-textwrap-0.16.4",
-      "name": "textwrap",
-      "versionInfo": "0.16.4",
-      "downloadLocation": "https://crates.io/api/v1/crates/textwrap/0.16.4/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "6ecfad6c3abc80a577f2b91c1e412ee57e7a060d430b553c1b0c940974ebcd49"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-thiserror-1.0.69",
       "name": "thiserror",
       "versionInfo": "1.0.69",
@@ -4087,24 +3709,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-toml-0.5.11",
-      "name": "toml",
-      "versionInfo": "0.5.11",
-      "downloadLocation": "https://crates.io/api/v1/crates/toml/0.5.11/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT/Apache-2.0",
-      "licenseDeclared": "MIT/Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-typenum-1.20.1",
       "name": "typenum",
       "versionInfo": "1.20.1",
@@ -4137,24 +3741,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-unicase-2.10.0",
-      "name": "unicase",
-      "versionInfo": "2.10.0",
-      "downloadLocation": "https://crates.io/api/v1/crates/unicase/2.10.0/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
         }
       ]
     },
@@ -4195,24 +3781,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-unicode-width-0.2.2",
-      "name": "unicode-width",
-      "versionInfo": "0.2.2",
-      "downloadLocation": "https://crates.io/api/v1/crates/unicode-width/0.2.2/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT OR Apache-2.0",
-      "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-Package-unicode-xid-0.2.6",
       "name": "unicode-xid",
       "versionInfo": "0.2.6",
@@ -4227,168 +3795,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-0.28.3",
-      "name": "uniffi",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "4cb08c58c7ed7033150132febe696bef553f891b1ede57424b40d87a89e3c170"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-bindgen-0.28.3",
-      "name": "uniffi_bindgen",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_bindgen/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "cade167af943e189a55020eda2c314681e223f1e42aca7c4e52614c2b627698f"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-build-0.28.3",
-      "name": "uniffi_build",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_build/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "4c7cf32576e08104b7dc2a6a5d815f37616e66c6866c2a639fe16e6d2286b75b"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-checksum-derive-0.28.3",
-      "name": "uniffi_checksum_derive",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_checksum_derive/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "802d2051a700e3ec894c79f80d2705b69d85844dafbbe5d1a92776f8f48b563a"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-core-0.28.3",
-      "name": "uniffi_core",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_core/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "bc7687007d2546c454d8ae609b105daceb88175477dac280707ad6d95bcd6f1f"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-macros-0.28.3",
-      "name": "uniffi_macros",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_macros/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "12c65a5b12ec544ef136693af8759fb9d11aefce740fb76916721e876639033b"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-meta-0.28.3",
-      "name": "uniffi_meta",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_meta/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "4a74ed96c26882dac1ca9b93ca23c827e284bacbd7ec23c6f0b0372f747d59e4"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-testing-0.28.3",
-      "name": "uniffi_testing",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_testing/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "6a6f984f0781f892cc864a62c3a5c60361b1ccbd68e538e6c9fbced5d82268ac"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-uniffi-udl-0.28.3",
-      "name": "uniffi_udl",
-      "versionInfo": "0.28.3",
-      "downloadLocation": "https://crates.io/api/v1/crates/uniffi_udl/0.28.3/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MPL-2.0",
-      "licenseDeclared": "MPL-2.0",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata. REVIEW-HUMANO-PENDENTE: weak per-file copyleft, used as UNMODIFIED library via uniffi-bridge; technical evaluation only, pending legal review",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "037820a4cfc4422db1eaa82f291a3863c92c7d1789dc513489c36223f9b4cdfc"
         }
       ]
     },
@@ -4551,24 +3957,6 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-Package-weedle2-5.0.0",
-      "name": "weedle2",
-      "versionInfo": "5.0.0",
-      "downloadLocation": "https://crates.io/api/v1/crates/weedle2/5.0.0/download",
-      "filesAnalyzed": false,
-      "supplier": "NOASSERTION",
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "comment": "VERIFIED-manifest: license is the crate manifest field via cargo metadata.",
-      "checksums": [
-        {
-          "algorithm": "SHA256",
-          "checksumValue": "998d2c24ec099a87daf9467808859f9d82b61f1d9c9701251aea037f514eae0e"
         }
       ]
     },
@@ -5088,26 +4476,6 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-askama-0.12.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-askama-derive-0.12.5",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-askama-escape-0.10.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-askama-parser-0.2.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-atomic-waker-1.1.2",
       "relationshipType": "CONTAINS"
     },
@@ -5128,17 +4496,7 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-basic-toml-0.1.10",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-bech32-0.11.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-bincode-1.3.3",
       "relationshipType": "CONTAINS"
     },
     {
@@ -5198,17 +4556,7 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-bytes-1.12.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-camino-1.1.12",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-cargo-metadata-0.15.4",
       "relationshipType": "CONTAINS"
     },
     {
@@ -5568,11 +4916,6 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-fs-err-2.11.0",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-futures-core-0.3.34",
       "relationshipType": "CONTAINS"
     },
@@ -5628,11 +4971,6 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-goblin-0.8.2",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-group-0.13.0",
       "relationshipType": "CONTAINS"
     },
@@ -5654,11 +4992,6 @@
     {
       "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-heck-0.4.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-heck-0.5.0",
       "relationshipType": "CONTAINS"
     },
     {
@@ -5783,16 +5116,6 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-mime-0.3.17",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-mime-guess-2.0.5",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-minimal-lexical-0.2.1",
       "relationshipType": "CONTAINS"
     },
@@ -5863,17 +5186,7 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-paste-1.0.15",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-pin-project-lite-0.2.17",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-plain-0.2.3",
       "relationshipType": "CONTAINS"
     },
     {
@@ -5993,16 +5306,6 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-scroll-0.12.0",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-scroll-derive-0.12.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-sec1-0.7.3",
       "relationshipType": "CONTAINS"
     },
@@ -6063,27 +5366,12 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-siphasher-0.3.11",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-slab-0.4.12",
       "relationshipType": "CONTAINS"
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-smawk-0.3.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-stable-deref-trait-1.2.1",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-static-assertions-1.1.0",
       "relationshipType": "CONTAINS"
     },
     {
@@ -6123,11 +5411,6 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-textwrap-0.16.4",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-thiserror-1.0.69",
       "relationshipType": "CONTAINS"
     },
@@ -6153,22 +5436,12 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-toml-0.5.11",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-typenum-1.20.1",
       "relationshipType": "CONTAINS"
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-uncased-0.9.10",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-unicase-2.10.0",
       "relationshipType": "CONTAINS"
     },
     {
@@ -6183,57 +5456,7 @@
     },
     {
       "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-unicode-width-0.2.2",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-unicode-xid-0.2.6",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-bindgen-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-build-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-checksum-derive-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-core-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-macros-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-meta-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-testing-0.28.3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-uniffi-udl-0.28.3",
       "relationshipType": "CONTAINS"
     },
     {
@@ -6279,11 +5502,6 @@
     {
       "spdxElementId": "SPDXRef-Workspace",
       "relatedSpdxElement": "SPDXRef-Package-wasm-bindgen-shared-0.2.129",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-Workspace",
-      "relatedSpdxElement": "SPDXRef-Package-weedle2-5.0.0",
       "relationshipType": "CONTAINS"
     },
     {

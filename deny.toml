@@ -34,14 +34,6 @@ allow = [
   # Covers: aho-corasick, byteorder, globset, ignore, memchr, winapi-util,
   # same-file, walkdir.
   "Unlicense",
-  # MPL-2.0: weak (per-file) copyleft. Technical evaluation: used as UNMODIFIED
-  # libraries via uniffi-bridge; file-level copyleft duties are subsumed by the
-  # GPL-3.0-only terms already applying to the combined work, provided the MPL
-  # license texts and notices are preserved. REVIEW-HUMANO-PENDENTE.
-  # Covers: uniffi family x9 (uniffi, uniffi_bindgen, uniffi_build,
-  # uniffi_checksum_derive, uniffi_core, uniffi_macros, uniffi_meta,
-  # uniffi_testing, uniffi_udl).
-  "MPL-2.0",
   # Unicode-3.0: license covering Unicode data files. Technical evaluation: less
   # restrictive than GPL for unmodified use; attribution preserved.
   # REVIEW-HUMANO-PENDENTE.
