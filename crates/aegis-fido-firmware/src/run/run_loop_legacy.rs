@@ -1674,6 +1674,61 @@ pub fn run_authenticator() {
                                     }
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
+                                    && legacy_sg_dispatch::is_legacy_sg_op(msg.payload[0])
+                                {
+                                    // Secure Guard 0x3A-0x3E over serial: parity
+                                    // with the freertos dispatcher (same
+                                    // exec_secure_guard_op, same responses,
+                                    // same gates). Move-only reuse, no protocol.
+                                    let op = msg.payload[0];
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                    let (st, body, effects) =
+                                        legacy_sg_dispatch::dispatch_legacy_secure_guard_op(
+                                            &mut secure_guard,
+                                            &mut storage,
+                                            &mut wallet_store,
+                                            &mut key_mgr,
+                                            &mut oath_applet,
+                                            op,
+                                            &msg.payload[1..],
+                                            now_ms,
+                                            &mut rng,
+                                        );
+                                    if effects.did_unlock {
+                                        pairing_mgr.open_host_window(now_ms);
+                                        touch_latched = true;
+                                        touch_expire_tick = now_ms.saturating_add(10_000);
+                                        rescue_engine.set_user_presence(true);
+                                        if let Some(pin_bytes) = effects.verified_pin {
+                                            ctap_engine.pin_state.pin_hash =
+                                                Some(aegis_fido_core::crypto::pin_hash(&pin_bytes));
+                                            ctap_engine.pin_state.pin_retries = 8;
+                                            ctap_engine.pin_state.power_cycle_state = false;
+                                            let _ = crate::vendor_exec::save_pin_state(
+                                                &mut storage,
+                                                &ctap_engine.pin_state,
+                                            );
+                                            kprintln!(
+                                                "[SERIAL][SG] PIN synced to CTAP2 ClientPIN."
+                                            );
+                                        }
+                                    } else if effects.did_lock {
+                                        pairing_mgr.lock();
+                                        touch_latched = false;
+                                    }
+                                    kprintln!(
+                                        "[SERIAL][SG] op 0x{:02X} (status 0x{:02X}).",
+                                        op,
+                                        st
+                                    );
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
                                     && (is_vendor_keys_oath_op(msg.payload[0])
                                         || is_wallet_op(msg.payload[0])
                                         || is_piv_enroll_op(msg.payload[0]))
