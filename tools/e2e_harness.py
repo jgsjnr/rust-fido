@@ -875,7 +875,7 @@ class SecureGuardEngine:
         self.policy = {
             "wipe_on_5_failures": False,
             "session_duration_ms": 300000,
-            "inactivity_timeout_ms": 120000,
+            "inactivity_timeout_ms": 300000,
             "protect_keys_and_aegn": True,
             "protect_oath": False,
             "test_mode_non_destructive_wipe": False,
@@ -891,7 +891,7 @@ class SecureGuardEngine:
             if now >= self.rate_limit_until:
                 self.state = STATE_LOCKED
         elif self.state == STATE_UNLOCKED:
-            inactivity_sec = self.policy.get("inactivity_timeout_ms", 120000) / 1000.0
+            inactivity_sec = self.policy.get("inactivity_timeout_ms", 300000) / 1000.0
             if now >= self.session_expires_at or (now - self.last_activity_time) >= inactivity_sec:
                 self.state = STATE_LOCKED
 
@@ -913,7 +913,7 @@ class SecureGuardEngine:
                 "session_remaining_ms": rem_sess,
                 "wipe_on_5_failures": bool(self.policy.get("wipe_on_5_failures", False)),
                 "session_duration_ms": int(self.policy.get("session_duration_ms", 300000)),
-                "inactivity_timeout_ms": int(self.policy.get("inactivity_timeout_ms", 120000)),
+                "inactivity_timeout_ms": int(self.policy.get("inactivity_timeout_ms", 300000)),
                 "protect_keys_and_aegn": bool(self.policy.get("protect_keys_and_aegn", True)),
                 "protect_oath": bool(self.policy.get("protect_oath", False)),
                 "test_mode_non_destructive_wipe": bool(self.policy.get("test_mode_non_destructive_wipe", False)),

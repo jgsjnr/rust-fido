@@ -69,7 +69,7 @@ impl Default for SecureGuardPolicyDto {
         Self {
             wipe_on_5_failures: false,
             session_duration_ms: 300_000,
-            inactivity_timeout_ms: 120_000,
+            inactivity_timeout_ms: 300_000,
             protect_keys_and_aegn: true,
             protect_oath: false,
             test_mode_non_destructive_wipe: false,
@@ -235,7 +235,7 @@ pub fn decode_secure_guard_status_response(
     let policy = SecureGuardPolicyDto {
         wipe_on_5_failures: get_bool(&entries, "wipe_on_5_failures", false),
         session_duration_ms: get_u64(&entries, "session_duration_ms", 300_000),
-        inactivity_timeout_ms: get_u64(&entries, "inactivity_timeout_ms", 120_000),
+        inactivity_timeout_ms: get_u64(&entries, "inactivity_timeout_ms", 300_000),
         protect_keys_and_aegn: get_bool(&entries, "protect_keys_and_aegn", true),
         protect_oath: get_bool(&entries, "protect_oath", false),
         test_mode_non_destructive_wipe: get_bool(&entries, "test_mode_non_destructive_wipe", false),
@@ -525,7 +525,7 @@ pub fn decode_secure_guard_config_response(
     Ok(SecureGuardPolicyDto {
         wipe_on_5_failures: get_bool(&entries, "wipe_on_5_failures", false),
         session_duration_ms: get_u64(&entries, "session_duration_ms", 300_000),
-        inactivity_timeout_ms: get_u64(&entries, "inactivity_timeout_ms", 120_000),
+        inactivity_timeout_ms: get_u64(&entries, "inactivity_timeout_ms", 300_000),
         protect_keys_and_aegn: get_bool(&entries, "protect_keys_and_aegn", true),
         protect_oath: get_bool(&entries, "protect_oath", false),
         test_mode_non_destructive_wipe: get_bool(&entries, "test_mode_non_destructive_wipe", false),
@@ -633,7 +633,7 @@ mod tests {
         let policy = SecureGuardPolicyDto::default();
         assert!(!policy.wipe_on_5_failures);
         assert_eq!(policy.session_duration_ms, 300_000);
-        assert_eq!(policy.inactivity_timeout_ms, 120_000);
+        assert_eq!(policy.inactivity_timeout_ms, 300_000);
         assert!(policy.protect_keys_and_aegn);
         assert!(!policy.protect_oath);
         assert!(!policy.test_mode_non_destructive_wipe);

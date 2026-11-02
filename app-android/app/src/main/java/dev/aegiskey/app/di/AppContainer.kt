@@ -83,7 +83,14 @@ class AppContainer(val context: Context) {
 
     // --- Transportes de Hardware & Simulação ---
     val bleClient: AegisBleClient by lazy { AegisBleClient(context) }
-    val usbCtaphid: UsbCtaphid by lazy { UsbCtaphid(context) }
+    val usbCtaphid: UsbCtaphid by lazy {
+        UsbCtaphid(context).apply {
+            onHardwareDetachedListener = {
+                (secureGuardRepository as? SecureGuardRepositoryImpl)?.onHardwareDetached()
+                keyVaultRepository.clearMemoryVault()
+            }
+        }
+    }
     val simulatedRenodeTransport: SimulatedRenodeTransport by lazy { SimulatedRenodeTransport() }
     val hostUsbUartBridgeClient: HostUsbUartBridgeClient by lazy { HostUsbUartBridgeClient() }
 
@@ -111,14 +118,31 @@ class AppContainer(val context: Context) {
         )
     }
 
+    val secureGuardRepository: SecureGuardRepository by lazy {
+        SecureGuardRepositoryImpl(
+            hostBridgeClient = hostUsbUartBridgeClient,
+            usbCtaphid = usbCtaphid,
+            bleKeyTransport = bleTransport
+        ).also { repo ->
+            usbCtaphid.addOnHardwareDetachedListener {
+                repo.onHardwareDetached()
+            }
+        }
+    }
+
     val keyVaultRepository: KeyVaultRepository by lazy {
         KeyVaultRepositoryImpl(
             keysStore = keysStore,
             usbKeyTransport = usbTransport,
             bleKeyTransport = bleTransport,
             simulatedRenodeTransport = simulatedRenodeTransport,
-            connectedKeysRepository = connectedKeysRepository
-        )
+            connectedKeysRepository = connectedKeysRepository,
+            secureGuardRepository = secureGuardRepository
+        ).also { repo ->
+            usbCtaphid.addOnHardwareDetachedListener {
+                repo.clearMemoryVault()
+            }
+        }
     }
 
     val totpRepository: TotpRepository by lazy {
@@ -133,14 +157,6 @@ class AppContainer(val context: Context) {
 
     val themeRepository: ThemeRepository by lazy {
         ThemeRepositoryImpl(themeStore)
-    }
-
-    val secureGuardRepository: SecureGuardRepository by lazy {
-        SecureGuardRepositoryImpl(
-            hostBridgeClient = hostUsbUartBridgeClient,
-            usbCtaphid = usbCtaphid,
-            bleKeyTransport = bleTransport
-        )
     }
 
     // --- Casos de Uso: Secure Guard (Zero-Trust On-Device Authority) ---

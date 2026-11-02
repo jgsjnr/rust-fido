@@ -47,6 +47,24 @@ class SecureGuardRepositoryImpl(
     private val _statusFlow = MutableStateFlow(SecureGuardStatus())
     override val statusFlow: StateFlow<SecureGuardStatus> = _statusFlow.asStateFlow()
 
+    init {
+        usbCtaphid?.addOnHardwareDetachedListener {
+            onHardwareDetached()
+        }
+    }
+
+    override fun onHardwareDetached() {
+        clearSessionPin()
+        val lockedStatus = _statusFlow.value.copy(
+            state = SecureGuardStateEnum.LOCKED,
+            isUnlocked = false,
+            sessionRemainingMs = 0L,
+            failedAttempts = 0,
+            rateLimitRemainingMs = 0L
+        )
+        _statusFlow.value = lockedStatus
+    }
+
     private suspend fun sendHardwareVendor(opcode: Int, payload: ByteArray): ByteArray? {
         // 1. Tenta USB OTG se conectado fisicamente
         val usb = usbCtaphid
@@ -95,9 +113,27 @@ class SecureGuardRepositoryImpl(
 
     override suspend fun getStatus(): Result<SecureGuardStatus> = withContext(Dispatchers.IO) {
         runCatching {
-            // 1. Tenta USB OTG se fisicamente presente
             val usb = usbCtaphid
-            if (usb != null && usb.isUsbPhysicallyPresent()) {
+            val isUsbPresent = usb?.isUsbPhysicallyPresent() ?: false
+            val ble = bleKeyTransport
+            val isBleConnected = ble?.client?.state?.value?.connection == AegisBleClient.Connection.READY
+
+            // Se o USB não estiver fisicamente presente e o BLE não estiver conectado, força LOCKED imediatamente
+            if (usb != null && !isUsbPresent && !isBleConnected) {
+                lastVerifiedSessionPin = null
+                val forcedLocked = _statusFlow.value.copy(
+                    state = SecureGuardStateEnum.LOCKED,
+                    isUnlocked = false,
+                    sessionRemainingMs = 0L,
+                    failedAttempts = 0,
+                    rateLimitRemainingMs = 0L
+                )
+                _statusFlow.value = forcedLocked
+                return@runCatching forcedLocked
+            }
+
+            // 1. Tenta USB OTG se fisicamente presente
+            if (usb != null && isUsbPresent) {
                 val req = SecureGuardCbor.encodeStatusRequest()
                 val resp = usb.sendVendor(0x3A, req)
                 if (resp != null && resp.isNotEmpty()) {
@@ -112,7 +148,6 @@ class SecureGuardRepositoryImpl(
             }
 
             // 2. Tenta BLE se conectado
-            val ble = bleKeyTransport
             if (ble != null && ble.client.state.value.connection == AegisBleClient.Connection.READY) {
                 val req = SecureGuardCbor.encodeStatusRequest()
                 val resp = ble.sendVendor(0x3A, req)
@@ -150,8 +185,20 @@ class SecureGuardRepositoryImpl(
             }
 
             val current = _statusFlow.value
-            if (current.isUnlocked && current.sessionRemainingMs > 0) {
+            if (current.isUnlocked && current.sessionRemainingMs > 0 && (isUsbPresent || isBleConnected || usb == null)) {
                 return@runCatching current
+            }
+            if (usb != null && !isUsbPresent && !isBleConnected) {
+                lastVerifiedSessionPin = null
+                val forcedLocked = current.copy(
+                    state = SecureGuardStateEnum.LOCKED,
+                    isUnlocked = false,
+                    sessionRemainingMs = 0L,
+                    failedAttempts = 0,
+                    rateLimitRemainingMs = 0L
+                )
+                _statusFlow.value = forcedLocked
+                return@runCatching forcedLocked
             }
             _statusFlow.value
         }
@@ -528,7 +575,7 @@ class SecureGuardRepositoryImpl(
         val policy = SecureGuardPolicy(
             wipeOn5Failures = json.optBoolean("wipe_on_5_failures", false),
             sessionDurationMs = json.optLong("session_duration_ms", 300_000L),
-            inactivityTimeoutMs = json.optLong("inactivity_timeout_ms", 120_000L),
+            inactivityTimeoutMs = json.optLong("inactivity_timeout_ms", 300_000L),
             protectKeysAndAegn = json.optBoolean("protect_keys_and_aegn", true),
             protectOath = json.optBoolean("protect_oath", false),
             testModeNonDestructiveWipe = json.optBoolean("test_mode_non_destructive_wipe", false)

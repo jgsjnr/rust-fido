@@ -22,7 +22,7 @@ public record SecureGuardStatus(
     [property: JsonPropertyName("max_attempts")] int MaxAttempts = 5,
     [property: JsonPropertyName("session_remaining_ms")] int SessionRemainingMs = 0,
     [property: JsonPropertyName("rate_limit_remaining_ms")] int RateLimitRemainingMs = 0,
-    [property: JsonPropertyName("inactivity_timeout_ms")] int InactivityTimeoutMs = 120000,
+    [property: JsonPropertyName("inactivity_timeout_ms")] int InactivityTimeoutMs = 300000,
     [property: JsonPropertyName("paired_ble_mac")] string PairedBleMac = "",
     [property: JsonPropertyName("paired_ble_name")] string PairedBleName = "",
     [property: JsonPropertyName("ble_proximity_registered")] bool BleProximityRegistered = false,

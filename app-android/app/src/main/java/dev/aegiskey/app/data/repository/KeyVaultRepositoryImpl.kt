@@ -15,6 +15,7 @@ import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.KeyVaultRepository
+import dev.aegiskey.app.domain.repository.SecureGuardRepository
 import dev.aegiskey.app.ui.RescueOps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ class KeyVaultRepositoryImpl(
     private val bleKeyTransport: BleKeyTransport? = null,
     private val simulatedRenodeTransport: SimulatedRenodeTransport,
     private val connectedKeysRepository: ConnectedKeysRepository,
+    private val secureGuardRepository: SecureGuardRepository? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : KeyVaultRepository {
 
@@ -44,6 +46,7 @@ class KeyVaultRepositoryImpl(
         hostBridgeClient: HostUsbUartBridgeClient = HostUsbUartBridgeClient(),
         simulatedRenodeTransport: SimulatedRenodeTransport,
         connectedKeysRepository: ConnectedKeysRepository,
+        secureGuardRepository: SecureGuardRepository? = null,
         scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
     ) : this(
         keysStore = keysStore,
@@ -51,23 +54,67 @@ class KeyVaultRepositoryImpl(
         bleKeyTransport = if (bleClient != null) BleKeyTransport(bleClient, scope) else null,
         simulatedRenodeTransport = simulatedRenodeTransport,
         connectedKeysRepository = connectedKeysRepository,
+        secureGuardRepository = secureGuardRepository,
         scope = scope
     )
 
     private val _vaultEntries = MutableStateFlow<List<VaultKeyEntry>>(emptyList())
     override val vaultEntries: StateFlow<List<VaultKeyEntry>> = _vaultEntries.asStateFlow()
 
+    fun isSecureGuardUnlocked(): Boolean {
+        val sg = secureGuardRepository
+        if (sg != null) {
+            val status = sg.statusFlow.value
+            return status.isUnlocked && !SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()
+        }
+        return true
+    }
+
+    override fun clearMemoryVault() {
+        _vaultEntries.value = emptyList()
+    }
+
+    private fun loadCachedEntries(keyId: String): List<VaultKeyEntry> {
+        val binding = connectedKeysRepository.activeKey.value?.bindingIdHex
+        return keysStore.loadVaultEntries(keyId, binding)
+    }
+
+    private fun saveCachedEntries(keyId: String, entries: List<VaultKeyEntry>) {
+        val binding = connectedKeysRepository.activeKey.value?.bindingIdHex
+        keysStore.saveVaultEntries(keyId, entries, binding)
+    }
+
     init {
+        // Cascata automática de desconexão física USB
+        usbKeyTransport?.usb?.addOnHardwareDetachedListener {
+            clearMemoryVault()
+        }
+
+        // Monitora transições do Secure Guard: bloqueio zera chaves em memória, desbloqueio carrega o cache selado
+        secureGuardRepository?.statusFlow?.onEach { status ->
+            if (!status.isUnlocked || SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()) {
+                clearMemoryVault()
+            } else {
+                val activeKey = connectedKeysRepository.activeKey.value
+                if (activeKey != null && _vaultEntries.value.isEmpty()) {
+                    val loaded = loadCachedEntries(activeKey.id)
+                    if (loaded.isNotEmpty()) {
+                        _vaultEntries.value = loaded
+                    }
+                }
+            }
+        }?.launchIn(scope)
+
         val initialKey = connectedKeysRepository.activeKey.value
-        if (initialKey != null) {
-            _vaultEntries.value = keysStore.loadVaultEntries(initialKey.id)
+        if (initialKey != null && isSecureGuardUnlocked()) {
+            _vaultEntries.value = loadCachedEntries(initialKey.id)
         } else {
             _vaultEntries.value = emptyList()
         }
 
         connectedKeysRepository.activeKey.onEach { key ->
-            if (key != null) {
-                _vaultEntries.value = keysStore.loadVaultEntries(key.id)
+            if (key != null && isSecureGuardUnlocked()) {
+                _vaultEntries.value = loadCachedEntries(key.id)
             } else {
                 _vaultEntries.value = emptyList()
             }
@@ -153,7 +200,7 @@ class KeyVaultRepositoryImpl(
         runCatching {
             val rawKeyList = sendVendor(VendorOps.OP_KEY_LIST, ByteArray(0))
             val rawWalletList = sendVendor(VendorOps.OP_WALLET_LIST, ByteArray(0))
-            val currentCached = keysStore.loadVaultEntries(keyId).associateBy { it.slotId }
+            val currentCached = loadCachedEntries(keyId).associateBy { it.slotId }
 
             val mergedEntries = mutableListOf<VaultKeyEntry>()
 
@@ -220,12 +267,28 @@ class KeyVaultRepositoryImpl(
                 (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK)
 
             if (hasHardwareResponse) {
-                keysStore.saveVaultEntries(keyId, mergedEntries)
+                saveCachedEntries(keyId, mergedEntries)
                 _vaultEntries.value = mergedEntries
                 mergedEntries
             } else {
-                _vaultEntries.value = emptyList()
-                emptyList()
+                val unlocked = isSecureGuardUnlocked()
+                if (unlocked) {
+                    val currentMem = _vaultEntries.value
+                    if (currentMem.isNotEmpty()) {
+                        currentMem
+                    } else {
+                        val cached = loadCachedEntries(keyId)
+                        if (cached.isNotEmpty()) {
+                            _vaultEntries.value = cached
+                            cached
+                        } else {
+                            emptyList()
+                        }
+                    }
+                } else {
+                    clearMemoryVault()
+                    emptyList()
+                }
             }
         }
     }
@@ -313,7 +376,7 @@ class KeyVaultRepositoryImpl(
         extraParam: String
     ): Result<VaultKeyEntry> = withContext(Dispatchers.IO) {
         runCatching {
-            val current = keysStore.loadVaultEntries(keyId)
+            val current = loadCachedEntries(keyId)
             val nextSlot = (current.maxOfOrNull { it.slotId } ?: -1) + 1
             var actualSlot = nextSlot
 
@@ -547,7 +610,7 @@ class KeyVaultRepositoryImpl(
             )
 
             val updated = current + newEntry
-            keysStore.saveVaultEntries(keyId, updated)
+            saveCachedEntries(keyId, updated)
             _vaultEntries.value = updated
             newEntry
         }
@@ -564,7 +627,7 @@ class KeyVaultRepositoryImpl(
 
             _vaultEntries.update { list ->
                 val filtered = list.filterNot { it.slotId == slotId }
-                keysStore.saveVaultEntries(keyId, filtered)
+                saveCachedEntries(keyId, filtered)
                 filtered
             }
         }
@@ -613,7 +676,7 @@ class KeyVaultRepositoryImpl(
             sendVendor(0x2B, ByteArray(0))
 
             // 5. Limpa caches locais de chaves e OATH no keysStore
-            keysStore.saveVaultEntries(keyId, emptyList())
+            saveCachedEntries(keyId, emptyList())
             keysStore.saveTotpAccounts(keyId, emptyList())
             _vaultEntries.value = emptyList()
 
@@ -654,7 +717,7 @@ class KeyVaultRepositoryImpl(
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             require(messageOrTx.isNotBlank()) { "Mensagem ou transação para assinatura não pode estar vazia" }
-            val current = keysStore.loadVaultEntries(keyId)
+            val current = loadCachedEntries(keyId)
             require(current.any { it.slotId == slotId }) { "Slot #$slotId não encontrado no cofre" }
 
             val msgBytes = messageOrTx.toByteArray(Charsets.UTF_8)
@@ -677,7 +740,7 @@ class KeyVaultRepositoryImpl(
 
     override suspend fun exportKeyEnvelopeAegn(keyId: String, slotId: Int): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val current = keysStore.loadVaultEntries(keyId)
+            val current = loadCachedEntries(keyId)
             val entry = current.firstOrNull { it.slotId == slotId }
                 ?: throw IllegalArgumentException("Slot #$slotId não encontrado")
 
@@ -741,7 +804,7 @@ class KeyVaultRepositoryImpl(
             val healthText = runCatching { runQuickHealthCheck(keyId).getOrThrow() }
                 .getOrDefault("Hardware Conectado · Verificação Básica OK")
 
-            val currentEntries = keysStore.loadVaultEntries(keyId)
+            val currentEntries = loadCachedEntries(keyId)
             val totalItems = currentEntries.size
             val freeSlots = (32 - totalItems).coerceAtLeast(0)
 

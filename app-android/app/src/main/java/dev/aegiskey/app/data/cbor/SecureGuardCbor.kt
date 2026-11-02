@@ -270,7 +270,7 @@ object SecureGuardCbor {
         val policy = SecureGuardPolicy(
             wipeOn5Failures = decoded["wipe_on_5_failures"] as? Boolean ?: false,
             sessionDurationMs = (decoded["session_duration_ms"] as? Number)?.toLong() ?: 300_000L,
-            inactivityTimeoutMs = (decoded["inactivity_timeout_ms"] as? Number)?.toLong() ?: 120_000L,
+            inactivityTimeoutMs = (decoded["inactivity_timeout_ms"] as? Number)?.toLong() ?: 300_000L,
             protectKeysAndAegn = decoded["protect_keys_and_aegn"] as? Boolean ?: true,
             protectOath = decoded["protect_oath"] as? Boolean ?: false,
             testModeNonDestructiveWipe = decoded["test_mode_non_destructive_wipe"] as? Boolean ?: false

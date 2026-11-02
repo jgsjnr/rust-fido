@@ -1124,7 +1124,7 @@ object AegisBridge {
                 val pol = uniffi.aegis_bridge.SecureGuardPolicyDto(
                     wipeOn5Failures = (map["wipe_on_5_failures"] as? Boolean) ?: false,
                     sessionDurationMs = ((map["session_duration_ms"] as? Number)?.toLong() ?: 300000L).toULong(),
-                    inactivityTimeoutMs = ((map["inactivity_timeout_ms"] as? Number)?.toLong() ?: 120000L).toULong(),
+                    inactivityTimeoutMs = ((map["inactivity_timeout_ms"] as? Number)?.toLong() ?: 300000L).toULong(),
                     protectKeysAndAegn = (map["protect_keys_and_aegn"] as? Boolean) ?: true,
                     protectOath = (map["protect_oath"] as? Boolean) ?: false,
                     testModeNonDestructiveWipe = (map["test_mode_non_destructive_wipe"] as? Boolean) ?: false
@@ -1170,7 +1170,7 @@ object AegisBridge {
             policy = uniffi.aegis_bridge.SecureGuardPolicyDto(
                 wipeOn5Failures = false,
                 sessionDurationMs = 300000uL,
-                inactivityTimeoutMs = 120000uL,
+                inactivityTimeoutMs = 300000uL,
                 protectKeysAndAegn = true,
                 protectOath = false,
                 testModeNonDestructiveWipe = false
@@ -1225,7 +1225,7 @@ object AegisBridge {
         MiniCbor.encodeText("session_duration_ms", out)
         MiniCbor.encodeUint(300000L, out)
         MiniCbor.encodeText("inactivity_timeout_ms", out)
-        MiniCbor.encodeUint(120000L, out)
+        MiniCbor.encodeUint(300000L, out)
         return out.toByteArray()
     }
 

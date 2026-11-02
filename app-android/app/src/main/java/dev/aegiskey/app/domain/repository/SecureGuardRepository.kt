@@ -23,4 +23,5 @@ interface SecureGuardRepository {
     suspend fun recover(recoveryCode: String, newPin: String): Result<String?>
     suspend fun updatePolicy(policy: SecureGuardPolicy): Result<SecureGuardPolicy>
     suspend fun wipeSelective(scope: Int = 0, confirmationToken: String): Result<Boolean>
+    fun onHardwareDetached() {}
 }

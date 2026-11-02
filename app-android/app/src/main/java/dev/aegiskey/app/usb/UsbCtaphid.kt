@@ -35,7 +35,7 @@ import java.security.SecureRandom
  * Permissao via UsbManager.requestPermission (runtime, dialogo sistema).
  * Sem Log com PII: so status/tamanhos (nunca nome/serial/payload).
  */
-class UsbCtaphid(private val context: Context) {
+class UsbCtaphid(private val context: Context? = null) {
 
     enum class State { IDLE, SEARCHING, PERMISSION_NEEDED, CONNECTED, ERROR }
 
@@ -82,10 +82,28 @@ class UsbCtaphid(private val context: Context) {
         get() = connection != null && epIn != null && epOut != null
 
     private val usb: UsbManager? =
-        try { context.getSystemService(Context.USB_SERVICE) as? UsbManager } catch (_: Throwable) { null }
+        try { context?.getSystemService(Context.USB_SERVICE) as? UsbManager } catch (_: Throwable) { null }
 
     private val _isHardwareAttached = MutableStateFlow(findDevice() != null)
     val isHardwareAttached: StateFlow<Boolean> = _isHardwareAttached.asStateFlow()
+
+    var onHardwareDetachedListener: (() -> Unit)? = null
+    private val hardwareDetachedListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addOnHardwareDetachedListener(listener: () -> Unit) {
+        hardwareDetachedListeners.add(listener)
+    }
+
+    fun removeOnHardwareDetachedListener(listener: () -> Unit) {
+        hardwareDetachedListeners.remove(listener)
+    }
+
+    fun notifyHardwareDetached() {
+        onHardwareDetachedListener?.invoke()
+        for (listener in hardwareDetachedListeners) {
+            runCatching { listener.invoke() }
+        }
+    }
 
     fun isUsbPhysicallyPresent(): Boolean = findAegisDevice() != null
 
@@ -169,6 +187,7 @@ class UsbCtaphid(private val context: Context) {
                             _isHardwareAttached.value = false
                             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB detached")
                             close()
+                            notifyHardwareDetached()
                         }
                     }
                 }
@@ -179,25 +198,29 @@ class UsbCtaphid(private val context: Context) {
     }
 
     init {
-        runCatching {
-            val filter = IntentFilter().apply {
-                addAction(ACTION_USB_PERMISSION)
-                addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-                addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        context?.let { ctx ->
+            runCatching {
+                val filter = IntentFilter().apply {
+                    addAction(ACTION_USB_PERMISSION)
+                    addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+                }
+                ContextCompat.registerReceiver(
+                    ctx,
+                    usbReceiver,
+                    filter,
+                    ContextCompat.RECEIVER_NOT_EXPORTED,
+                )
+            }.onFailure {
+                _ui.value = UiState(State.ERROR, "receiver USB falhou", "Reinicie o app e tente de novo, ou use BLE.")
             }
-            ContextCompat.registerReceiver(
-                context,
-                usbReceiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-        }.onFailure {
-            _ui.value = UiState(State.ERROR, "receiver USB falhou", "Reinicie o app e tente de novo, ou use BLE.")
         }
     }
 
     fun release() {
-        runCatching { context.unregisterReceiver(usbReceiver) }
+        context?.let { ctx ->
+            runCatching { ctx.unregisterReceiver(usbReceiver) }
+        }
         close()
     }
 
@@ -219,6 +242,7 @@ class UsbCtaphid(private val context: Context) {
     }
 
     fun requestPermission(device: UsbDevice) {
+        val ctx = context ?: return
         runCatching {
             val u = usb ?: return
             if (u.hasPermission(device)) {
@@ -231,8 +255,8 @@ class UsbCtaphid(private val context: Context) {
             } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
-            val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
-            val pi = PendingIntent.getBroadcast(context, 0, intent, flags)
+            val intent = Intent(ACTION_USB_PERMISSION).setPackage(ctx.packageName)
+            val pi = PendingIntent.getBroadcast(ctx, 0, intent, flags)
             u.requestPermission(device, pi)
             _ui.value = UiState(State.PERMISSION_NEEDED, "confirme no dialogo do sistema")
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB permission requested")
@@ -623,19 +647,19 @@ class UsbCtaphid(private val context: Context) {
             }
         }
 
-        // Rito 3 — PIN de Recuperação: Só autentica se houver PIN da sessão ativo, evitando lockouts desnecessários
-        if (status == STATUS_NEED_PIN) {
-            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
-            if (!sessionPin.isNullOrBlank()) {
-                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x02 NEED_PIN -> autenticando PIN da sessão ativa...")
-                val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
-                val verifyResp = sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
-                val verifyStatus = if (verifyResp != null && verifyResp.isNotEmpty()) verifyResp[0].toInt() and 0xFF else -1
-                if (verifyStatus == 0x00) {
-                    val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
-                    if (retryResp != null) {
-                        rawResp = retryResp
-                    }
+        // Rito 3 — Autenticação Secure Guard: Se status ainda for STATUS_NEED_PIN (0x02) ou STATUS_SECURE_GUARD_PIN_REQUIRED (0x36) e houver sessionPin ativo
+        if ((status == STATUS_NEED_PIN || status == STATUS_SECURE_GUARD_PIN_REQUIRED) && !SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()) {
+            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin!!
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x%02X -> autenticando com protocolo Secure Guard (0x3B)...".format(status))
+            val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
+            val unlockReq = byteArrayOf(0x3B.toByte()) + SecureGuardCbor.encodeUnlockRequest(pinBytes)
+            val unlockResp = sendCtapMessage(CMD_MSG, unlockReq)
+            val unlockStatus = if (unlockResp != null && unlockResp.isNotEmpty()) unlockResp[0].toInt() and 0xFF else -1
+            if (unlockStatus == 0x00) {
+                sendCtapMessage(CMD_MSG, byteArrayOf(OP_TRIGGER_PAIRING_OPEN.toByte()))
+                val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
+                if (retryResp != null) {
+                    rawResp = retryResp
                 }
             }
         }

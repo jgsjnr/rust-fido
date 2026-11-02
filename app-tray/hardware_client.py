@@ -43,7 +43,7 @@ class SecureGuardStatus:
     max_attempts: int = 5
     session_remaining_ms: int = 0
     rate_limit_remaining_ms: int = 0
-    inactivity_timeout_ms: int = 120000
+    inactivity_timeout_ms: int = 300000
     protect_keys_and_aegn: bool = True
     protect_oath: bool = False
 
@@ -211,7 +211,7 @@ class AegisHardwareClient:
             max_attempts=int(resp.get("max_attempts", 5)),
             session_remaining_ms=int(resp.get("session_remaining_ms", 0)),
             rate_limit_remaining_ms=int(resp.get("rate_limit_remaining_ms", 0)),
-            inactivity_timeout_ms=int(resp.get("inactivity_timeout_ms", 120000)),
+            inactivity_timeout_ms=int(resp.get("inactivity_timeout_ms", 300000)),
             protect_keys_and_aegn=bool(resp.get("protect_keys_and_aegn", True)),
             protect_oath=bool(resp.get("protect_oath", False)),
         )
