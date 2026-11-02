@@ -526,7 +526,6 @@ fun KeyVaultHubScreen(
                 onConfirmPin = { pin, _ ->
                     secureGuardViewModel.dismissUnlockPrompt()
                     secureGuardViewModel.unlock(pin)
-                    viewModel.refreshVault()
                 }
             )
         }

@@ -42,11 +42,13 @@ class KeyVaultLockCascadeAndCacheTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = false
         SecureGuardRepositoryImpl.clearSessionPin()
     }
 
     @After
     fun tearDown() {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = false
         SecureGuardRepositoryImpl.clearSessionPin()
         Dispatchers.resetMain()
     }

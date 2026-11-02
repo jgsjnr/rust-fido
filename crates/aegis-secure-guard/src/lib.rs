@@ -649,4 +649,21 @@ mod tests {
         assert!(engine.unlock_with_pin(TEST_PIN, 2600).is_ok());
         assert_eq!(engine.state(), SecureGuardState::Unlocked);
     }
+
+    #[test]
+    fn test_unregistered_ble_proximity_never_locks_unlocked_session() {
+        let (mut engine, _) = create_test_engine();
+        assert!(!engine.ble_proximity_registered());
+
+        // Desbloqueia com PIN
+        assert!(engine.unlock_with_pin(TEST_PIN, 1000).is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // Dispara evento de proximidade "Away" sem estar registrado (ex.: chave conectada via USB)
+        let dummy_mac = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let locked = engine.on_ble_proximity_update(&dummy_mac, -90, true, 1100).unwrap();
+        assert!(!locked, "Não deve trancar se proximidade BLE não estiver registrada");
+        assert_eq!(engine.state(), SecureGuardState::Unlocked, "Sessão deve permanecer Unlocked");
+        assert!(!engine.ble_proximity_away());
+    }
 }

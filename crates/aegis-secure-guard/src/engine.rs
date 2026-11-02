@@ -258,8 +258,14 @@ impl SecureGuardEngine {
         is_away: bool,
         now_ms: u64,
     ) -> Result<bool, SecureGuardError> {
+        // Se a proximidade BLE não estiver registrada/ativada, ignora qualquer evento e nunca tranca
+        if !self.ble_proximity_registered {
+            self.ble_proximity_away = false;
+            return Ok(false);
+        }
+
         // If registered, match MAC or accept if wildcard [0; 6]
-        if self.ble_proximity_registered && self.paired_ble_mac != [0u8; 6] && self.paired_ble_mac != *mac {
+        if self.paired_ble_mac != [0u8; 6] && self.paired_ble_mac != *mac {
             return Ok(false);
         }
 

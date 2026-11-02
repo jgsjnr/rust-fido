@@ -79,6 +79,7 @@ class CleanJourneyArchitectureTest {
 
     @After
     fun tearDown() {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = false
         Dispatchers.resetMain()
     }
 
@@ -217,6 +218,7 @@ class CleanJourneyArchitectureTest {
 
     @Test
     fun testKeyVaultGenerationAndTotpCountdownFlow() = runTest {
+        dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = true
         // Prepara uma chave conectada no modo simulador
         val simKey = ConnectedKeyDevice(
             id = "sim-key-001",
