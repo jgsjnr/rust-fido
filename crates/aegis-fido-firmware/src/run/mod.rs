@@ -21,7 +21,7 @@ use crate::{
     display::{DisplayManager, UiScreen},
     efuse::{EfuseManager, RamEfuseStorage},
     led::{EspWs2812Output, Ws2812Controller},
-    persistence::{PlatformFlashBackend, SecureStorage},
+    persistence::{SecureStorage},
     provision::load_device_keys,
     totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_SHOW_TICKS},
     usb_descriptors,
@@ -110,6 +110,7 @@ macro_rules! kprintln {
 }
 
 pub(crate) mod ble_dispatch;
+pub(crate) mod common;
 #[cfg(target_os = "espidf")]
 pub(crate) mod serial_io;
 #[cfg(all(target_os = "espidf", feature = "test-mode"))]

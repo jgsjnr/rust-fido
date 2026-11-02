@@ -281,12 +281,7 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     let mut storage = {
         kprintln!("[INIT] Encrypted Storage (FreeRTOS)...");
-        let flash_backend = PlatformFlashBackend::new();
-        if flash_backend.is_persistent() {
-            kprintln!("[INIT] Flash NVS backend online (persiste entre reboots).");
-        } else {
-            kprintln!("[WARN] Flash NVS indisponivel; RAM volatil (sem persistencia).");
-        }
+        let flash_backend = common::init_flash_backend();
         // Boot health-check `boot_state` NÃO roda aqui: AES/NVS na main
         // pré-yield estourou a stack (~116 B livres → TWDT silencioso).
         // `SecureStorage::new` (HKDF) é barato e fica; o `store` foi
@@ -727,14 +722,10 @@ pub fn run_authenticator_freertos() {
                             prox.note_paired(freertos_now_ms);
                         }
                         ble::BondOutcome::DeniedNoPresence => {
-                            ble_bond_pending = true;
-                            kprintln!("[BLE] link seguro sem UP: toque no BOOT para confirmar.");
-                            display_mgr.set_screen(UiScreen::UserPresencePrompt {
-                                rp_id: "Pareamento BLE".into(),
-                                user_name: "App AegisKey".into(),
-                                operation: "Confirmar pareamento".into(),
-                                remaining_seconds: 25,
-                            });
+                            common::note_bond_denied_no_presence(
+                                &mut ble_bond_pending,
+                                &mut display_mgr,
+                            );
                         }
                         ble::BondOutcome::DeniedNoWindow => {
                             kprintln!("[BLE] link seguro fora da janela: ignorado.");
@@ -742,9 +733,7 @@ pub fn run_authenticator_freertos() {
                     }
                 }
                 e if e == ble::BLE_EVT_DISCONNECTED => {
-                    kprintln!("[BLE] central desconectou.");
-                    ble_adv_active = false;
-                    ble_bond_pending = false;
+                    common::note_ble_disconnected(&mut ble_adv_active, &mut ble_bond_pending);
                 }
                 e if e == ble::BLE_EVT_CONNECTED => {
                     kprintln!("[BLE] central conectou (aguardando bonding).");
@@ -1060,34 +1049,13 @@ pub fn run_authenticator_freertos() {
                         }
                     }
                     pairing_open_prev = pairing_open_now;
-                    // B2: transicoes do hold fisico (visivel sem display/LCD).
-                    {
-                        use crate::pairing::PairingState;
-                        match pairing_mgr.state() {
-                            PairingState::Arming { start_ms } => {
-                                if !pairing_arming_prev {
-                                    kprintln!("[PAIRING] segurando BOOT... (mantenha 5s p/ abrir a janela).");
-                                    pairing_arming_prev = true;
-                                    pairing_arming_sec = 0;
-                                }
-                                let held = freertos_now_ms.saturating_sub(start_ms) / 1000;
-                                if held > pairing_arming_sec && held < 60 {
-                                    pairing_arming_sec = held;
-                                    kprintln!("[PAIRING] segurando... {}s.", held);
-                                }
-                            }
-                            _ => {
-                                if pairing_arming_prev {
-                                    pairing_arming_prev = false;
-                                    // Saiu do Arming sem janela = soltou cedo (o
-                                    // caso de sucesso passa pela borda da janela).
-                                    if !pairing_open_now {
-                                        kprintln!("[PAIRING] solto cedo, sem janela (segure 5s).");
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    common::poll_pairing_hold_transitions(
+                        &mut pairing_mgr,
+                        &mut pairing_arming_prev,
+                        &mut pairing_arming_sec,
+                        pairing_open_now,
+                        freertos_now_ms,
+                    );
                 }
                 binding_mgr.tick(freertos_now_ms);
                 let _ = binding_mgr.is_claimed();
@@ -1175,90 +1143,19 @@ pub fn run_authenticator_freertos() {
                         crate::wifi_ap::ApPollAction::None => {}
                     }
                     let has_creds = crate::wifi_station::has_station_credentials(&storage);
-                    sta_mgr.update(pairing_open_now, has_creds, freertos_now_ms);
-                    let mut sta_radio = crate::wifi_station::esp_sta_state();
-                    if sta_radio == crate::wifi_station::STA_CONNECTED {
-                        if !sta_mgr.is_up() {
-                            sta_mgr.on_connected();
-                            let ip = crate::wifi_station::esp_sta_ip();
-                            kprintln!(
-                                "[WIFI] station conectada (DHCP {}.{}.{}.{}).",
-                                ip[0],
-                                ip[1],
-                                ip[2],
-                                ip[3]
-                            );
-                        }
-                    } else if sta_radio == crate::wifi_station::STA_FAILED {
-                        sta_mgr.on_failed();
-                    }
-                    if matches!(
-                        sta_mgr.state(),
-                        crate::wifi_station::WifiStationState::Connecting { .. }
-                    ) && sta_radio == crate::wifi_station::STA_OFF
-                        && !pairing_open_now
-                        && !ble_pairing_now
-                        && crate::wifi_station::sta_retry_due(freertos_now_ms, last_sta_attempt_ms)
-                    {
-                        let got = storage.load(crate::wifi_station::WIFI_STA_SSID_NVS_KEY);
-                        let got_pass = storage.load(crate::wifi_station::WIFI_STA_PASS_NVS_KEY);
-                        match (got, got_pass) {
-                            (Ok(ssid_b), Ok(pass_b)) => {
-                                match (core::str::from_utf8(&ssid_b), core::str::from_utf8(&pass_b))
-                                {
-                                    (Ok(ssid), Ok(pass)) => {
-                                        let rc = crate::wifi_station::esp_sta_start(ssid, pass);
-                                        last_sta_attempt_ms = Some(freertos_now_ms);
-                                        if rc != 0 {
-                                            kprintln!("[WIFI] station start rc={}.", rc);
-                                            sta_mgr.on_failed();
-                                        }
-                                    }
-                                    _ => sta_mgr.on_failed(),
-                                }
-                            }
-                            _ => sta_mgr.on_failed(),
-                        }
-                    }
-                    if (pairing_open_now || ble_pairing_now || !has_creds)
-                        && sta_radio != crate::wifi_station::STA_OFF
-                    {
-                        let _ = crate::wifi_station::esp_sta_stop();
-                        sta_mgr.disconnect();
-                        #[allow(unused_assignments)]
-                        {
-                            sta_radio = crate::wifi_station::STA_OFF;
-                        }
-                    }
-                    mdns_mgr.update(pairing_open_now || ble_pairing_now, sta_mgr.is_up());
-                    let mdns_want = mdns_mgr.is_active();
-                    if mdns_want != mdns_active {
-                        if mdns_want {
-                            let host = crate::mdns::mdns_hostname_for_serial(
-                                usb_descriptors::SERIAL_NUMBER_STRING,
-                            );
-                            let bare = crate::mdns::mdns_bare_hostname(&host);
-                            let rc = crate::mdns::esp_mdns_start(bare);
-                            if rc == 0 {
-                                mdns_active = true;
-                                kprintln!("[WIFI] mDNS '{}' on.", host);
-                            } else {
-                                kprintln!("[WIFI] mDNS start rc={}.", rc);
-                            }
-                        } else {
-                            let _ = crate::mdns::esp_mdns_stop();
-                            mdns_active = false;
-                        }
-                    }
-                    sta_radio = crate::wifi_station::esp_sta_state();
-                    let radio_in_use = wifi_ap_active || sta_radio != crate::wifi_station::STA_OFF;
-                    if !radio_in_use && wifi_radio_on {
-                        let _ = crate::wifi_ap::esp_wifi_off();
-                        wifi_radio_on = false;
-                        kprintln!("[WIFI] radio off (bateria).");
-                    } else if radio_in_use {
-                        wifi_radio_on = true;
-                    }
+                    common::poll_wifi_station_radio(
+                        &storage,
+                        &mut sta_mgr,
+                        &mut mdns_mgr,
+                        &mut mdns_active,
+                        wifi_ap_active,
+                        &mut wifi_radio_on,
+                        &mut last_sta_attempt_ms,
+                        pairing_open_now,
+                        ble_pairing_now,
+                        has_creds,
+                        freertos_now_ms,
+                    );
                     // BLE real: adv na janela de pareamento; reconexão de
                     // confiável sem janela SÓ com saúde BLE provada
                     // (`ble_preinit_ok` via TEST_BLE_PREINIT rc=0).
