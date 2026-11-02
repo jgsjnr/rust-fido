@@ -1,0 +1,44 @@
+# DRAFT TEMPLATE — NOT EFFECTIVE — NOT LEGAL ADVICE
+#
+# This file is a TEMPLATE for discussion only. It grants nothing, changes
+# no license, and takes effect only if all steps in
+# reports/refactoring/CLOSED_MODEL_PLAN.md are executed under an explicit
+# owner order plus `orquestrador` identity confirmation. This template is
+# not legal advice; have counsel review before any use.
+
+PROPRIETARY LICENSE — [COMPANY]
+
+Copyright (c) [YEAR] [COMPANY]. All rights reserved.
+
+1. Grant. [COMPANY] grants the recipient a limited, non-exclusive,
+non-transferable license to use the accompanying software solely as
+distributed by [COMPANY] and solely for its intended purpose. No other
+rights are granted.
+
+2. Restrictions. Except as expressly permitted by applicable law, the
+recipient shall not copy, redistribute, sublicense, publish, lend,
+lease, decompile, disassemble, or reverse engineer the software, in
+whole or in part, nor permit any third party to do so.
+
+3. Ownership. The software is licensed, not sold. [COMPANY] retains all
+right, title, and interest in and to the software, including all
+intellectual property rights therein.
+
+4. Third-party software. Portions of the software may include third-party
+components subject to their own licenses. The notices and license texts
+applicable to those components are set out in THIRD_PARTY_NOTICES.md,
+which is incorporated into this license by reference; the recipient
+shall comply with those third-party terms where they apply.
+
+5. Warranty disclaimer. TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE
+SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK
+AS TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH THE
+RECIPIENT.
+
+6. Limitation of liability. TO THE EXTENT PERMITTED BY APPLICABLE LAW,
+IN NO EVENT SHALL [COMPANY] BE LIABLE FOR ANY GENERAL, SPECIAL,
+INCIDENTAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR
+INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
