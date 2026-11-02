@@ -1,0 +1,804 @@
+===== cargo-deny BASELINE (pre-policy-update) =====
+command: cargo deny check licenses advisories bans sources
+policy: deny.toml at d33cf41 (unmodified)
+tool: cargo-deny 0.20.2
+
+error[unexpected-value]: expected '["all", "workspace", "transitive", "none"]'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree\deny.toml:27:17
+   Ôöé
+27 Ôöé unmaintained = "warn"
+   Ôöé                 ÔöüÔöüÔöüÔöü unexpected value
+
+2026-11-02 01:02:17 [ERROR] failed to deserialize config from 'E:\projetos\standalone-architecture-worktree\deny.toml'
+BASELINE_EXIT_CODE=1
+
+===== cargo-deny FINAL (post-policy-update) =====
+command: cargo deny check licenses advisories bans sources
+policy: deny.toml at d33cf41 (updated: 0.20 schema migration + explicit CC0-1.0/Unlicense/MPL-2.0/Unicode-3.0/BSL-1.0 allows)
+tool: cargo-deny 0.20.2
+
+error[wildcard]: found 1 wildcard dependency for crate 'aegis-fido-core'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree\crates\aegis-fido-core\Cargo.toml:10:22
+   Ôöé
+10 Ôöé aegis-secure-guard = { path = "../aegis-secure-guard" }
+   Ôöé                      ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü wildcard dependency
+   Ôöé
+   Ôö£ aegis-fido-core v1.0.0
+     Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+     ÔööÔöÇÔöÇ uniffi-bridge v1.0.0
+
+error[wildcard]: found 3 wildcard dependencies for crate 'aegis-fido-firmware'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree\crates\aegis-fido-firmware\Cargo.toml:29:22
+   Ôöé
+29 Ôöé aegis-secure-guard = { path = "../aegis-secure-guard" }
+   Ôöé                      ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü wildcard dependency
+30 Ôöé aegis-fido-core = { path = "../aegis-fido-core" }
+   Ôöé                   ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü wildcard dependency
+31 Ôöé aegis-fido-usb = { path = "../aegis-fido-usb" }
+   Ôöé                  ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü wildcard dependency
+   Ôöé
+   Ôö£ aegis-fido-firmware v1.0.0
+
+warning[duplicate]: found 2 duplicate entries for crate 'bitflags'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:27:1
+   Ôöé  
+27 Ôöé Ôò¡ bitflags 1.3.2 registry+https://github.com/rust-lang/crates.io-index
+28 Ôöé Ôöé bitflags 2.13.2 registry+https://github.com/rust-lang/crates.io-index
+   Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+   Ôöé  
+   Ôö£ bitflags v1.3.2
+     Ôö£ÔöÇÔöÇ embuild v0.33.5
+     Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+     Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+     Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+     Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+     Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+     Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+     ÔööÔöÇÔöÇ globwalk v0.8.1
+         ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+   Ôö£ bitflags v2.13.2
+     Ôö£ÔöÇÔöÇ bindgen v0.71.1
+     Ôöé   ÔööÔöÇÔöÇ embuild v0.33.5
+     Ôöé       Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+     Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+     Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé       Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+     Ôöé       Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+     Ôöé       ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+     Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé           ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+     Ôö£ÔöÇÔöÇ nix v0.29.0
+     Ôöé   ÔööÔöÇÔöÇ fs_at v0.2.1
+     Ôöé       ÔööÔöÇÔöÇ remove_dir_all v0.8.4
+     Ôöé           ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+     Ôö£ÔöÇÔöÇ rustix v0.38.44
+     Ôöé   ÔööÔöÇÔöÇ which v4.4.2
+     Ôöé       Ôö£ÔöÇÔöÇ embuild v0.33.5 (*)
+     Ôöé       ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+     ÔööÔöÇÔöÇ rustix v1.1.5
+         ÔööÔöÇÔöÇ tempfile v3.27.0
+             ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'cargo_metadata'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:38:1
+   Ôöé  
+38 Ôöé Ôò¡ cargo_metadata 0.15.4 registry+https://github.com/rust-lang/crates.io-index
+39 Ôöé Ôöé cargo_metadata 0.18.1 registry+https://github.com/rust-lang/crates.io-index
+   Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+   Ôöé  
+   Ôö£ cargo_metadata v0.15.4
+     Ôö£ÔöÇÔöÇ uniffi v0.28.3
+     Ôöé   ÔööÔöÇÔöÇ (build) uniffi-bridge v1.0.0
+     ÔööÔöÇÔöÇ uniffi_testing v0.28.3
+         ÔööÔöÇÔöÇ uniffi_udl v0.28.3
+             ÔööÔöÇÔöÇ uniffi_bindgen v0.28.3
+                 ÔööÔöÇÔöÇ uniffi_build v0.28.3
+                     ÔööÔöÇÔöÇ uniffi v0.28.3 (*)
+   Ôö£ cargo_metadata v0.18.1
+     ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+         Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+         ÔööÔöÇÔöÇ esp-idf-hal v0.45.2
+             Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+             ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+                 ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'embedded-hal'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:80:1
+   Ôöé  
+80 Ôöé Ôò¡ embedded-hal 0.2.7 registry+https://github.com/rust-lang/crates.io-index
+81 Ôöé Ôöé embedded-hal 1.0.0 registry+https://github.com/rust-lang/crates.io-index
+   Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+   Ôöé  
+   Ôö£ embedded-hal v0.2.7
+     ÔööÔöÇÔöÇ esp-idf-hal v0.45.2
+         Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+         ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+             ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+   Ôö£ embedded-hal v1.0.0
+     Ôö£ÔöÇÔöÇ embedded-hal-async v1.0.0
+     Ôöé   Ôö£ÔöÇÔöÇ esp-idf-hal v0.45.2
+     Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+     Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+     Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+     Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1 (*)
+     Ôö£ÔöÇÔöÇ embedded-hal-nb v1.0.0
+     Ôöé   ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+     ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'getrandom'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:108:1
+    Ôöé  
+108 Ôöé Ôò¡ getrandom 0.2.17 registry+https://github.com/rust-lang/crates.io-index
+109 Ôöé Ôöé getrandom 0.4.3 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ getrandom v0.2.17
+      ÔööÔöÇÔöÇ rand_core v0.6.4
+          Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0
+          Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+          Ôöé   ÔööÔöÇÔöÇ uniffi-bridge v1.0.0
+          Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôö£ÔöÇÔöÇ aegis-fido-usb v1.0.0
+          Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôö£ÔöÇÔöÇ aegis-secure-guard v1.0.0
+          Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+          Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôö£ÔöÇÔöÇ crypto-bigint v0.5.5
+          Ôöé   ÔööÔöÇÔöÇ elliptic-curve v0.13.8
+          Ôöé       Ôö£ÔöÇÔöÇ ecdsa v0.16.9
+          Ôöé       Ôöé   Ôö£ÔöÇÔöÇ k256 v0.13.4
+          Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+          Ôöé       Ôöé   Ôö£ÔöÇÔöÇ p256 v0.13.2
+          Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+          Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-secure-guard v1.0.0 (*)
+          Ôöé       Ôöé   Ôö£ÔöÇÔöÇ p384 v0.13.1
+          Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+          Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé       Ôöé   ÔööÔöÇÔöÇ p521 v0.13.3
+          Ôöé       Ôöé       ÔööÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+          Ôöé       Ôö£ÔöÇÔöÇ k256 v0.13.4 (*)
+          Ôöé       Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+          Ôöé       Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+          Ôöé       Ôö£ÔöÇÔöÇ p521 v0.13.3 (*)
+          Ôöé       ÔööÔöÇÔöÇ primeorder v0.13.6
+          Ôöé           Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+          Ôöé           Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+          Ôöé           ÔööÔöÇÔöÇ p521 v0.13.3 (*)
+          Ôö£ÔöÇÔöÇ ed25519-dalek v2.2.0
+          Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+          Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôö£ÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+          Ôö£ÔöÇÔöÇ ff v0.13.1
+          Ôöé   Ôö£ÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+          Ôöé   ÔööÔöÇÔöÇ group v0.13.0
+          Ôöé       ÔööÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+          Ôö£ÔöÇÔöÇ group v0.13.0 (*)
+          Ôö£ÔöÇÔöÇ p521 v0.13.3 (*)
+          Ôö£ÔöÇÔöÇ rand v0.8.8
+          Ôöé   Ôö£ÔöÇÔöÇ (dev) aegis-fido-core v1.0.0 (*)
+          Ôöé   Ôö£ÔöÇÔöÇ (dev) aegis-fido-firmware v1.0.0 (*)
+          Ôöé   ÔööÔöÇÔöÇ (dev) aegis-secure-guard v1.0.0 (*)
+          Ôö£ÔöÇÔöÇ rand_chacha v0.3.1
+          Ôöé   ÔööÔöÇÔöÇ rand v0.8.8 (*)
+          ÔööÔöÇÔöÇ signature v2.2.0
+              Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ ecdsa v0.16.9 (*)
+              ÔööÔöÇÔöÇ ed25519 v2.2.3
+                  ÔööÔöÇÔöÇ ed25519-dalek v2.2.0 (*)
+    Ôö£ getrandom v0.4.3
+      ÔööÔöÇÔöÇ tempfile v3.27.0
+          ÔööÔöÇÔöÇ embuild v0.33.5
+              Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+              Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+              Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+              Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+              ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+                  Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'heck'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:119:1
+    Ôöé  
+119 Ôöé Ôò¡ heck 0.4.1 registry+https://github.com/rust-lang/crates.io-index
+120 Ôöé Ôöé heck 0.5.0 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ heck v0.4.1
+      ÔööÔöÇÔöÇ strum_macros v0.24.3
+          ÔööÔöÇÔöÇ strum v0.24.1
+              Ôö£ÔöÇÔöÇ embuild v0.33.5
+              Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+              Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+              Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+              Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+              Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+              Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+              ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+    Ôö£ heck v0.5.0
+      ÔööÔöÇÔöÇ uniffi_bindgen v0.28.3
+          ÔööÔöÇÔöÇ uniffi_build v0.28.3
+              ÔööÔöÇÔöÇ uniffi v0.28.3
+                  ÔööÔöÇÔöÇ (build) uniffi-bridge v1.0.0
+
+warning[duplicate]: found 2 duplicate entries for crate 'linux-raw-sys'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:140:1
+    Ôöé  
+140 Ôöé Ôò¡ linux-raw-sys 0.4.15 registry+https://github.com/rust-lang/crates.io-index
+141 Ôöé Ôöé linux-raw-sys 0.12.1 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ linux-raw-sys v0.4.15
+      ÔööÔöÇÔöÇ rustix v0.38.44
+          ÔööÔöÇÔöÇ which v4.4.2
+              Ôö£ÔöÇÔöÇ embuild v0.33.5
+              Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+              Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+              Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+              Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+              Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+              Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+              ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+    Ôö£ linux-raw-sys v0.12.1
+      ÔööÔöÇÔöÇ rustix v1.1.5
+          ÔööÔöÇÔöÇ tempfile v3.27.0
+              ÔööÔöÇÔöÇ embuild v0.33.5
+                  Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+                  Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+                  Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+                  Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+                  ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+                      Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                      ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'nb'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:147:1
+    Ôöé  
+147 Ôöé Ôò¡ nb 0.1.3 registry+https://github.com/rust-lang/crates.io-index
+148 Ôöé Ôöé nb 1.1.0 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ nb v0.1.3
+      ÔööÔöÇÔöÇ embedded-hal v0.2.7
+          ÔööÔöÇÔöÇ esp-idf-hal v0.45.2
+              Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+              ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+                  ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+    Ôö£ nb v1.1.0
+      Ôö£ÔöÇÔöÇ embedded-can v0.4.1
+      Ôöé   ÔööÔöÇÔöÇ esp-idf-hal v0.45.2
+      Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+      Ôöé       ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+      Ôöé           ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôö£ÔöÇÔöÇ embedded-hal-nb v1.0.0
+      Ôöé   ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      Ôö£ÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      ÔööÔöÇÔöÇ nb v0.1.3
+          ÔööÔöÇÔöÇ embedded-hal v0.2.7
+              ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'rustix'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:181:1
+    Ôöé  
+181 Ôöé Ôò¡ rustix 0.38.44 registry+https://github.com/rust-lang/crates.io-index
+182 Ôöé Ôöé rustix 1.1.5 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ rustix v0.38.44
+      ÔööÔöÇÔöÇ which v4.4.2
+          Ôö£ÔöÇÔöÇ embuild v0.33.5
+          Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+          Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+          Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+          Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+          Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+          Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+          ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+    Ôö£ rustix v1.1.5
+      ÔööÔöÇÔöÇ tempfile v3.27.0
+          ÔööÔöÇÔöÇ embuild v0.33.5
+              Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+              Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+              Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+              Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+              ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+                  Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'shlex'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:197:1
+    Ôöé  
+197 Ôöé Ôò¡ shlex 1.3.0 registry+https://github.com/rust-lang/crates.io-index
+198 Ôöé Ôöé shlex 2.0.1 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ shlex v1.3.0
+      Ôö£ÔöÇÔöÇ bindgen v0.71.1
+      Ôöé   ÔööÔöÇÔöÇ embuild v0.33.5
+      Ôöé       Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+      Ôöé       ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+      Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé           ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+    Ôö£ shlex v2.0.1
+      ÔööÔöÇÔöÇ cc v1.8.0
+          Ôö£ÔöÇÔöÇ cmake v0.1.58
+          Ôöé   Ôö£ÔöÇÔöÇ embuild v0.33.5
+          Ôöé   Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+          Ôöé   Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+          Ôöé   Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé   Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+          Ôöé   Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé   Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+          Ôöé   Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+          Ôöé   Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+          Ôöé   Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+          Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+          ÔööÔöÇÔöÇ (build) iana-time-zone-haiku v0.1.2
+              ÔööÔöÇÔöÇ iana-time-zone v0.1.65
+                  ÔööÔöÇÔöÇ chrono v0.4.45
+                      ÔööÔöÇÔöÇ build-time v0.1.3
+                          ÔööÔöÇÔöÇ esp-idf-sys v0.36.1 (*)
+
+warning[duplicate]: found 3 duplicate entries for crate 'syn'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:208:1
+    Ôöé  
+208 Ôöé Ôò¡ syn 1.0.109 registry+https://github.com/rust-lang/crates.io-index
+209 Ôöé Ôöé syn 2.0.119 registry+https://github.com/rust-lang/crates.io-index
+210 Ôöé Ôöé syn 3.0.9 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ syn v1.0.109
+      ÔööÔöÇÔöÇ strum_macros v0.24.3
+          ÔööÔöÇÔöÇ strum v0.24.1
+              Ôö£ÔöÇÔöÇ embuild v0.33.5
+              Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+              Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+              Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+              Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+              Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+              Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+              ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+    Ôö£ syn v2.0.119
+      Ôö£ÔöÇÔöÇ askama_derive v0.12.5
+      Ôöé   ÔööÔöÇÔöÇ askama v0.12.1
+      Ôöé       ÔööÔöÇÔöÇ uniffi_bindgen v0.28.3
+      Ôöé           ÔööÔöÇÔöÇ uniffi_build v0.28.3
+      Ôöé               ÔööÔöÇÔöÇ uniffi v0.28.3
+      Ôöé                   ÔööÔöÇÔöÇ (build) uniffi-bridge v1.0.0
+      Ôö£ÔöÇÔöÇ bindgen v0.71.1
+      Ôöé   ÔööÔöÇÔöÇ embuild v0.33.5
+      Ôöé       Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+      Ôöé       ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+      Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé           ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      Ôö£ÔöÇÔöÇ build-time v0.1.3
+      Ôöé   ÔööÔöÇÔöÇ esp-idf-sys v0.36.1 (*)
+      Ôö£ÔöÇÔöÇ curve25519-dalek-derive v0.1.1
+      Ôöé   ÔööÔöÇÔöÇ curve25519-dalek v4.1.3
+      Ôöé       ÔööÔöÇÔöÇ ed25519-dalek v2.2.0
+      Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0
+      Ôöé           Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé           Ôöé   ÔööÔöÇÔöÇ uniffi-bridge v1.0.0 (*)
+      Ôöé           ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôö£ÔöÇÔöÇ darling_core v0.21.3
+      Ôöé   Ôö£ÔöÇÔöÇ darling v0.21.3
+      Ôöé   Ôöé   ÔööÔöÇÔöÇ enumset_derive v0.15.0
+      Ôöé   Ôöé       ÔööÔöÇÔöÇ enumset v1.1.14
+      Ôöé   Ôöé           Ôö£ÔöÇÔöÇ embedded-svc v0.28.1
+      Ôöé   Ôöé           Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1 (*)
+      Ôöé   Ôöé           Ôö£ÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      Ôöé   Ôöé           ÔööÔöÇÔöÇ esp-idf-svc v0.50.1 (*)
+      Ôöé   ÔööÔöÇÔöÇ darling_macro v0.21.3
+      Ôöé       ÔööÔöÇÔöÇ darling v0.21.3 (*)
+      Ôö£ÔöÇÔöÇ darling_macro v0.21.3 (*)
+      Ôö£ÔöÇÔöÇ enumset_derive v0.15.0 (*)
+      Ôö£ÔöÇÔöÇ num_enum_derive v0.7.6
+      Ôöé   ÔööÔöÇÔöÇ num_enum v0.7.6
+      Ôöé       Ôö£ÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      Ôöé       ÔööÔöÇÔöÇ esp-idf-svc v0.50.1 (*)
+      Ôö£ÔöÇÔöÇ prettyplease v0.2.37
+      Ôöé   ÔööÔöÇÔöÇ bindgen v0.71.1 (*)
+      Ôö£ÔöÇÔöÇ scroll_derive v0.12.1
+      Ôöé   ÔööÔöÇÔöÇ scroll v0.12.0
+      Ôöé       ÔööÔöÇÔöÇ goblin v0.8.2
+      Ôöé           ÔööÔöÇÔöÇ uniffi_bindgen v0.28.3 (*)
+      Ôö£ÔöÇÔöÇ serde_derive v1.0.217
+      Ôöé   ÔööÔöÇÔöÇ serde v1.0.217
+      Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ askama_derive v0.12.5 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ basic-toml v0.1.10
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ askama_derive v0.12.5 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ bincode v1.3.3
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ uniffi_macros v0.28.3
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ uniffi v0.28.3 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ camino v1.1.12
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.15.4
+      Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ uniffi v0.28.3 (*)
+      Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ uniffi_testing v0.28.3
+      Ôöé       Ôöé   Ôöé       ÔööÔöÇÔöÇ uniffi_udl v0.28.3
+      Ôöé       Ôöé   Ôöé           ÔööÔöÇÔöÇ uniffi_bindgen v0.28.3 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.18.1
+      Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ uniffi_bindgen v0.28.3 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ uniffi_build v0.28.3 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ uniffi_macros v0.28.3 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ uniffi_testing v0.28.3 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ cargo-platform v0.1.9
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.15.4 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ cargo_metadata v0.18.1 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ cargo_metadata v0.15.4 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ cargo_metadata v0.18.1 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ ciborium v0.2.2
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ universal-device-sdk v1.0.0
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ uniffi-bridge v1.0.0 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ embedded-svc v0.28.1 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ embuild v0.33.5 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ envy v0.4.2
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ semver v1.0.26
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.15.4 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.18.1 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ rustc_version v0.4.1
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ (build) curve25519-dalek v4.1.3 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ serde_bytes v0.11.16
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ universal-device-sdk v1.0.0 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ serde_json v1.0.143
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.15.4 (*)
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ cargo_metadata v0.18.1 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ toml v0.5.11
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ uniffi_bindgen v0.28.3 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ uniffi_macros v0.28.3 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ uniffi_bindgen v0.28.3 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ uniffi_macros v0.28.3 (*)
+      Ôöé       ÔööÔöÇÔöÇ universal-device-sdk v1.0.0 (*)
+      Ôö£ÔöÇÔöÇ thiserror-impl v1.0.69
+      Ôöé   ÔööÔöÇÔöÇ thiserror v1.0.69
+      Ôöé       Ôö£ÔöÇÔöÇ cargo_metadata v0.15.4 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ cargo_metadata v0.18.1 (*)
+      Ôöé       ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+      Ôö£ÔöÇÔöÇ uniffi_checksum_derive v0.28.3
+      Ôöé   ÔööÔöÇÔöÇ uniffi_meta v0.28.3
+      Ôöé       Ôö£ÔöÇÔöÇ uniffi_bindgen v0.28.3 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ uniffi_macros v0.28.3 (*)
+      Ôöé       ÔööÔöÇÔöÇ uniffi_udl v0.28.3 (*)
+      Ôö£ÔöÇÔöÇ uniffi_macros v0.28.3 (*)
+      Ôö£ÔöÇÔöÇ windows-implement v0.60.2
+      Ôöé   ÔööÔöÇÔöÇ windows-core v0.62.2
+      Ôöé       ÔööÔöÇÔöÇ iana-time-zone v0.1.65
+      Ôöé           ÔööÔöÇÔöÇ chrono v0.4.45
+      Ôöé               ÔööÔöÇÔöÇ build-time v0.1.3 (*)
+      Ôö£ÔöÇÔöÇ windows-interface v0.59.3
+      Ôöé   ÔööÔöÇÔöÇ windows-core v0.62.2 (*)
+      Ôö£ÔöÇÔöÇ zerocopy-derive v0.8.63
+      Ôöé   ÔööÔöÇÔöÇ zerocopy v0.8.63
+      Ôöé       Ôö£ÔöÇÔöÇ half v2.7.1
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ ciborium-ll v0.2.2
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ ciborium v0.2.2 (*)
+      Ôöé       ÔööÔöÇÔöÇ ppv-lite86 v0.2.21
+      Ôöé           ÔööÔöÇÔöÇ rand_chacha v0.3.1
+      Ôöé               ÔööÔöÇÔöÇ rand v0.8.8
+      Ôöé                   Ôö£ÔöÇÔöÇ (dev) aegis-fido-core v1.0.0 (*)
+      Ôöé                   Ôö£ÔöÇÔöÇ (dev) aegis-fido-firmware v1.0.0 (*)
+      Ôöé                   ÔööÔöÇÔöÇ (dev) aegis-secure-guard v1.0.0
+      Ôöé                       Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+      Ôöé                       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      ÔööÔöÇÔöÇ zeroize_derive v1.5.0
+          ÔööÔöÇÔöÇ zeroize v1.9.1
+              Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ aegis-fido-usb v1.0.0
+              Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ aegis-secure-guard v1.0.0 (*)
+              Ôö£ÔöÇÔöÇ crypto-bigint v0.5.5
+              Ôöé   ÔööÔöÇÔöÇ elliptic-curve v0.13.8
+              Ôöé       Ôö£ÔöÇÔöÇ ecdsa v0.16.9
+              Ôöé       Ôöé   Ôö£ÔöÇÔöÇ k256 v0.13.4
+              Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé       Ôöé   Ôö£ÔöÇÔöÇ p256 v0.13.2
+              Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-secure-guard v1.0.0 (*)
+              Ôöé       Ôöé   Ôö£ÔöÇÔöÇ p384 v0.13.1
+              Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé       Ôöé   ÔööÔöÇÔöÇ p521 v0.13.3
+              Ôöé       Ôöé       ÔööÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé       Ôö£ÔöÇÔöÇ k256 v0.13.4 (*)
+              Ôöé       Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+              Ôöé       Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+              Ôöé       Ôö£ÔöÇÔöÇ p521 v0.13.3 (*)
+              Ôöé       ÔööÔöÇÔöÇ primeorder v0.13.6
+              Ôöé           Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+              Ôöé           Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+              Ôöé           ÔööÔöÇÔöÇ p521 v0.13.3 (*)
+              Ôö£ÔöÇÔöÇ der v0.7.10
+              Ôöé   Ôö£ÔöÇÔöÇ ecdsa v0.16.9 (*)
+              Ôöé   ÔööÔöÇÔöÇ sec1 v0.7.3
+              Ôöé       ÔööÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+              Ôö£ÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+              Ôö£ÔöÇÔöÇ generic-array v0.14.9
+              Ôöé   Ôö£ÔöÇÔöÇ aead v0.5.2
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ aes-gcm v0.10.3
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ block-buffer v0.10.4
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ digest v0.10.7
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ curve25519-dalek v4.1.3 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ ecdsa v0.16.9 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ hmac v0.12.1
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-secure-guard v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ hkdf v0.12.4
+              Ôöé   Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-secure-guard v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+              Ôöé   Ôöé       Ôöé   ÔööÔöÇÔöÇ rfc6979 v0.4.0
+              Ôöé   Ôöé       Ôöé       ÔööÔöÇÔöÇ ecdsa v0.16.9 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ ripemd v0.1.3
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   ÔööÔöÇÔöÇ universal-device-sdk v1.0.0 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ sha1 v0.10.7
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ sha2 v0.10.9
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-usb v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-secure-guard v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ ed25519-dalek v2.2.0 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ k256 v0.13.4 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+              Ôöé   Ôöé       Ôöé   ÔööÔöÇÔöÇ p521 v0.13.3 (*)
+              Ôöé   Ôöé       Ôö£ÔöÇÔöÇ sha3 v0.10.9
+              Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé       Ôöé   ÔööÔöÇÔöÇ universal-device-sdk v1.0.0 (*)
+              Ôöé   Ôöé       ÔööÔöÇÔöÇ signature v2.2.0
+              Ôöé   Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé           Ôö£ÔöÇÔöÇ ecdsa v0.16.9 (*)
+              Ôöé   Ôöé           ÔööÔöÇÔöÇ ed25519 v2.2.3
+              Ôöé   Ôöé               ÔööÔöÇÔöÇ ed25519-dalek v2.2.0 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ crypto-bigint v0.5.5 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ crypto-common v0.1.6
+              Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aead v0.5.2 (*)
+              Ôöé   Ôöé   Ôö£ÔöÇÔöÇ cipher v0.4.4
+              Ôöé   Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aes v0.8.4
+              Ôöé   Ôöé   Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+              Ôöé   Ôöé   Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+              Ôöé   Ôöé   Ôöé   Ôöé   ÔööÔöÇÔöÇ aes-gcm v0.10.3 (*)
+              Ôöé   Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aes-gcm v0.10.3 (*)
+              Ôöé   Ôöé   Ôöé   ÔööÔöÇÔöÇ ctr v0.9.2
+              Ôöé   Ôöé   Ôöé       ÔööÔöÇÔöÇ aes-gcm v0.10.3 (*)
+              Ôöé   Ôöé   Ôö£ÔöÇÔöÇ digest v0.10.7 (*)
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ universal-hash v0.5.1
+              Ôöé   Ôöé       ÔööÔöÇÔöÇ polyval v0.6.2
+              Ôöé   Ôöé           ÔööÔöÇÔöÇ ghash v0.5.1
+              Ôöé   Ôöé               ÔööÔöÇÔöÇ aes-gcm v0.10.3 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ elliptic-curve v0.13.8 (*)
+              Ôöé   Ôö£ÔöÇÔöÇ inout v0.1.4
+              Ôöé   Ôöé   ÔööÔöÇÔöÇ cipher v0.4.4 (*)
+              Ôöé   ÔööÔöÇÔöÇ sec1 v0.7.3 (*)
+              Ôö£ÔöÇÔöÇ sec1 v0.7.3 (*)
+              ÔööÔöÇÔöÇ uniffi-bridge v1.0.0 (*)
+    Ôö£ syn v3.0.9
+      ÔööÔöÇÔöÇ wasm-bindgen-macro-support v0.2.129
+          ÔööÔöÇÔöÇ wasm-bindgen-macro v0.2.129
+              ÔööÔöÇÔöÇ wasm-bindgen v0.2.129
+                  Ôö£ÔöÇÔöÇ iana-time-zone v0.1.65
+                  Ôöé   ÔööÔöÇÔöÇ chrono v0.4.45
+                  Ôöé       ÔööÔöÇÔöÇ build-time v0.1.3
+                  Ôöé           ÔööÔöÇÔöÇ esp-idf-sys v0.36.1
+                  Ôöé               Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+                  Ôöé               ÔööÔöÇÔöÇ esp-idf-hal v0.45.2
+                  Ôöé                   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  Ôöé                   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+                  Ôöé                       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  ÔööÔöÇÔöÇ js-sys v0.3.106
+                      ÔööÔöÇÔöÇ iana-time-zone v0.1.65 (*)
+
+error[wildcard]: found 2 wildcard dependencies for crate 'uniffi-bridge'
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree\crates\uniffi-bridge\Cargo.toml:15:19
+   Ôöé
+15 Ôöé aegis-fido-core = { path = "../aegis-fido-core" }
+   Ôöé                   ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü wildcard dependency
+16 Ôöé universal-device-sdk = { path = "../universal-device-sdk" }
+   Ôöé                        ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü wildcard dependency
+   Ôöé
+   Ôö£ uniffi-bridge v1.0.0
+
+warning[duplicate]: found 3 duplicate entries for crate 'windows-sys'
+    ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:252:1
+    Ôöé  
+252 Ôöé Ôò¡ windows-sys 0.52.0 registry+https://github.com/rust-lang/crates.io-index
+253 Ôöé Ôöé windows-sys 0.59.0 registry+https://github.com/rust-lang/crates.io-index
+254 Ôöé Ôöé windows-sys 0.61.2 registry+https://github.com/rust-lang/crates.io-index
+    Ôöé Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÿ lock entries
+    Ôöé  
+    Ôö£ windows-sys v0.52.0
+      ÔööÔöÇÔöÇ fs_at v0.2.1
+          ÔööÔöÇÔöÇ remove_dir_all v0.8.4
+              ÔööÔöÇÔöÇ embuild v0.33.5
+                  Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+                  Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+                  Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+                  Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                  Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+                  ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+                      Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+                      ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+    Ôö£ windows-sys v0.59.0
+      Ôö£ÔöÇÔöÇ remove_dir_all v0.8.4
+      Ôöé   ÔööÔöÇÔöÇ embuild v0.33.5
+      Ôöé       Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+      Ôöé       Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+      Ôöé       Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé       Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+      Ôöé       ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+      Ôöé           Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé           ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      ÔööÔöÇÔöÇ rustix v0.38.44
+          ÔööÔöÇÔöÇ which v4.4.2
+              Ôö£ÔöÇÔöÇ embuild v0.33.5 (*)
+              ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+    Ôö£ windows-sys v0.61.2
+      Ôö£ÔöÇÔöÇ errno v0.3.14
+      Ôöé   Ôö£ÔöÇÔöÇ rustix v0.38.44
+      Ôöé   Ôöé   ÔööÔöÇÔöÇ which v4.4.2
+      Ôöé   Ôöé       Ôö£ÔöÇÔöÇ embuild v0.33.5
+      Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ (build) aegis-fido-firmware v1.0.0
+      Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-hal v0.45.2
+      Ôöé   Ôöé       Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé   Ôöé       Ôöé   Ôöé   ÔööÔöÇÔöÇ esp-idf-svc v0.50.1
+      Ôöé   Ôöé       Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé   Ôöé       Ôöé   Ôö£ÔöÇÔöÇ (build) esp-idf-svc v0.50.1 (*)
+      Ôöé   Ôöé       Ôöé   ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1
+      Ôöé   Ôöé       Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+      Ôöé   Ôöé       Ôöé       ÔööÔöÇÔöÇ esp-idf-hal v0.45.2 (*)
+      Ôöé   Ôöé       ÔööÔöÇÔöÇ (build) esp-idf-sys v0.36.1 (*)
+      Ôöé   ÔööÔöÇÔöÇ rustix v1.1.5
+      Ôöé       ÔööÔöÇÔöÇ tempfile v3.27.0
+      Ôöé           ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+      Ôö£ÔöÇÔöÇ home v0.5.12
+      Ôöé   Ôö£ÔöÇÔöÇ embuild v0.33.5 (*)
+      Ôöé   ÔööÔöÇÔöÇ which v4.4.2 (*)
+      Ôö£ÔöÇÔöÇ normpath v1.5.2
+      Ôöé   ÔööÔöÇÔöÇ remove_dir_all v0.8.4
+      Ôöé       ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+      Ôö£ÔöÇÔöÇ rustix v1.1.5 (*)
+      Ôö£ÔöÇÔöÇ tempfile v3.27.0 (*)
+      ÔööÔöÇÔöÇ winapi-util v0.1.11
+          Ôö£ÔöÇÔöÇ ignore v0.4.33
+          Ôöé   ÔööÔöÇÔöÇ globwalk v0.8.1
+          Ôöé       ÔööÔöÇÔöÇ embuild v0.33.5 (*)
+          Ôö£ÔöÇÔöÇ same-file v1.0.6
+          Ôöé   Ôö£ÔöÇÔöÇ ignore v0.4.33 (*)
+          Ôöé   ÔööÔöÇÔöÇ walkdir v2.5.0
+          Ôöé       Ôö£ÔöÇÔöÇ globwalk v0.8.1 (*)
+          Ôöé       ÔööÔöÇÔöÇ ignore v0.4.33 (*)
+          ÔööÔöÇÔöÇ walkdir v2.5.0 (*)
+
+error[vulnerability]: Multiple timing variability issues in operations intended to be constant-time
+   ÔöîÔöÇ E:\projetos\standalone-architecture-worktree/Cargo.lock:61:1
+   Ôöé
+61 Ôöé crypto-bigint 0.5.5 registry+https://github.com/rust-lang/crates.io-index
+   Ôöé ÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöüÔöü security vulnerability detected
+   Ôöé
+   Ôö£ ID: RUSTSEC-2026-0387
+   Ôö£ Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0387
+   Ôö£ ## Summary
+     
+     Several operations intended to be constant-time could execute secret-dependent
+     branches, depending on the compiler and target CPU. These include subtraction,
+     zero counting, division, and Montgomery multiplication.
+     
+     Additionally, `UintRef` equality could terminate at the first unequal limb,
+     and `BoxedMontyForm::invert` branched on whether an inverse exists.
+     
+     ## Impact
+     
+     Applications using affected operations on secret integers may leak information
+     through timing or microarchitectural side channels. This includes information
+     about intermediate arithmetic values, matching limbs, and invertibility.
+     
+     Such leakage could potentially enable recovery of cryptographic secrets.
+     Practical exploitability depends on the downstream algorithm, compiler, target
+     CPU, and an attacker's ability to observe the side channel.
+     
+     ## Resolution
+     
+     Upgrade to v0.7.6, which removes the identified branches, updates `ctutils` to
+     include its constant-time fixes, and adds BINSEC-based regression checks using
+     `cargo checkct` for arithmetic on multiple targets.
+   Ôö£ Announcement: https://github.com/RustCrypto/crypto-bigint/pull/1365
+   Ôö£ Solution: Upgrade to >=0.7.6 (try `cargo update -p crypto-bigint`)
+   Ôö£ crypto-bigint v0.5.5
+     ÔööÔöÇÔöÇ elliptic-curve v0.13.8
+         Ôö£ÔöÇÔöÇ ecdsa v0.16.9
+         Ôöé   Ôö£ÔöÇÔöÇ k256 v0.13.4
+         Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-fido-core v1.0.0
+         Ôöé   Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0
+         Ôöé   Ôöé       ÔööÔöÇÔöÇ uniffi-bridge v1.0.0
+         Ôöé   Ôö£ÔöÇÔöÇ p256 v0.13.2
+         Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+         Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+         Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-secure-guard v1.0.0
+         Ôöé   Ôöé       Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+         Ôöé   Ôöé       ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+         Ôöé   Ôö£ÔöÇÔöÇ p384 v0.13.1
+         Ôöé   Ôöé   Ôö£ÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+         Ôöé   Ôöé   ÔööÔöÇÔöÇ aegis-fido-firmware v1.0.0 (*)
+         Ôöé   ÔööÔöÇÔöÇ p521 v0.13.3
+         Ôöé       ÔööÔöÇÔöÇ aegis-fido-core v1.0.0 (*)
+         Ôö£ÔöÇÔöÇ k256 v0.13.4 (*)
+         Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+         Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+         Ôö£ÔöÇÔöÇ p521 v0.13.3 (*)
+         ÔööÔöÇÔöÇ primeorder v0.13.6
+             Ôö£ÔöÇÔöÇ p256 v0.13.2 (*)
+             Ôö£ÔöÇÔöÇ p384 v0.13.1 (*)
+             ÔööÔöÇÔöÇ p521 v0.13.3 (*)
+
+advisories FAILED, bans FAILED, licenses ok, sources ok
+FINAL_EXIT_CODE=3
+
+===== cargo-deny FINAL addendum: licenses --all-features (covers optional has-display/embedded-graphics deps) =====
+command: cargo deny check licenses --all-features
+
+error: unexpected argument '--all-features' found
+
+  tip: to pass '--all-features' as a value, use '-- --all-features'
+
+Usage: cargo-deny.exe check <WHICH>...
+
+For more information, try '--help'.
+ALLFEATURES_LICENSES_EXIT_CODE=2
+
+===== CORRECTION: licenses --all-features (flag is global, precedes subcommand) =====
+command: cargo deny --all-features check licenses
+
+licenses ok
+ALLFEATURES_LICENSES_EXIT_CODE=0
