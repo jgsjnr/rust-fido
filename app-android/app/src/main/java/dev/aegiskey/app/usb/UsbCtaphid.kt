@@ -623,19 +623,21 @@ class UsbCtaphid(private val context: Context) {
             }
         }
 
-        // Rito 3 — PIN de Recuperação Legado: Se status 0x02 (STATUS_NEED_PIN), abre sessão com 0x2D / 0x2C
+        // Rito 3 — PIN de Recuperação: Só autentica se houver PIN da sessão ativo, evitando lockouts desnecessários
         if (status == STATUS_NEED_PIN) {
-            DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x02 NEED_PIN -> autenticando PIN de recuperação...")
-            val pinBytes = "12345678".toByteArray(Charsets.UTF_8)
-            val verifyResp = sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
-            val verifyStatus = if (verifyResp != null && verifyResp.isNotEmpty()) verifyResp[0].toInt() and 0xFF else -1
-            if (verifyStatus != 0x00) {
-                sendCtapMessage(CMD_MSG, byteArrayOf(0x2C.toByte()) + pinBytes)
-                sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
-            }
-            val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
-            if (retryResp != null) {
-                rawResp = retryResp
+            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
+            if (!sessionPin.isNullOrBlank()) {
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "USB status 0x02 NEED_PIN -> autenticando PIN da sessão ativa...")
+                val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
+                val verifyResp = sendCtapMessage(CMD_MSG, byteArrayOf(0x2D.toByte()) + pinBytes)
+                val verifyStatus = if (verifyResp != null && verifyResp.isNotEmpty()) verifyResp[0].toInt() and 0xFF else -1
+                if (verifyStatus == 0x00) {
+                    val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
+                    if (retryResp != null) {
+                        rawResp = retryResp
+                        status = if (rawResp.isNotEmpty()) rawResp[0].toInt() and 0xFF else -1
+                    }
+                }
             }
         }
 

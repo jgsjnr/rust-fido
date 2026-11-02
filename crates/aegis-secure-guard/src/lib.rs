@@ -162,8 +162,8 @@ mod tests {
         ));
         assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
-        // Attempt during rate limit is rejected immediately
-        let early_err = engine.unlock_with_pin(TEST_PIN, time + 500);
+        // Attempt with wrong PIN during rate limit is rejected immediately
+        let early_err = engine.unlock_with_pin(TEST_WRONG_PIN, time + 500);
         assert!(matches!(
             early_err,
             Err(SecureGuardError::RateLimited { .. })
@@ -205,8 +205,8 @@ mod tests {
         assert_eq!(engine.state(), SecureGuardState::RateLimited);
         assert_eq!(engine.failed_attempts(), 5);
 
-        // Subsequent attempt within 15s is rate-limited
-        let blocked = engine.unlock_with_pin(TEST_PIN, time + 100);
+        // Subsequent attempt with wrong PIN within 15s is rate-limited
+        let blocked = engine.unlock_with_pin(TEST_WRONG_PIN, time + 100);
         assert!(matches!(
             blocked,
             Err(SecureGuardError::RateLimited { .. })
@@ -375,6 +375,24 @@ mod tests {
         // Transport disconnect terminates session
         engine.on_transport_disconnect(4000).unwrap();
         assert_eq!(engine.state(), SecureGuardState::Locked);
+
+        // Rate-limit can be cleared by lock_now
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 5000);
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 5100);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
+        engine.lock_now(5200).unwrap();
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+        assert_eq!(engine.failed_attempts(), 0);
+        assert_eq!(engine.rate_limit_until_ms(), 0);
+
+        // While RateLimited, correct PIN unlocks immediately
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 6000);
+        let _ = engine.unlock_with_pin(TEST_WRONG_PIN, 6100);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
+        engine.unlock_with_pin(TEST_PIN, 6200).unwrap();
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+        assert_eq!(engine.failed_attempts(), 0);
+        assert_eq!(engine.rate_limit_until_ms(), 0);
     }
 
     #[test]

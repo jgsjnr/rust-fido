@@ -945,9 +945,15 @@ mod tests {
         assert_eq!(out_prov.responses[0][7], 0x00); // Sucesso provisionamento!
         assert_eq!(
             vendor.secure_guard.as_ref().unwrap().state(),
+            SecureGuardState::Unlocked
+        );
+        assert!(vendor.secure_guard.as_ref().unwrap().is_unlocked());
+        assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
+        vendor.secure_guard.as_mut().unwrap().lock_now(1001).unwrap();
+        assert_eq!(
+            vendor.secure_guard.as_ref().unwrap().state(),
             SecureGuardState::Locked
         );
-        assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
 
         // 2. Tenta OP_WALLET_LIST (0x36) com Secure Guard LOCKED -> Deve ser BLOQUEADO pela barreira (0x36 PIN_REQUIRED)!
         let raw_wallet = init_raw(0x1122_3344, CMD_MSG, &[OP_WALLET_LIST]);

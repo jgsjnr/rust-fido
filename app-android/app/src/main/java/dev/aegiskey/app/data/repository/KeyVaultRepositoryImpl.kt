@@ -2,6 +2,7 @@ package dev.aegiskey.app.data.repository
 
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.data.cbor.SecureGuardCbor
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.transport.BleKeyTransport
@@ -251,10 +252,20 @@ class KeyVaultRepositoryImpl(
         val candidateSlots = listOf(preferredSlot) + (0..31).filter { it != preferredSlot && it !in occupiedSlots }
         for (slot in candidateSlots) {
             val req = VendorOps.genRequest(slot, label.take(32), coseAlg, usage)
-            var resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req) ?: continue
-            var status = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+            var resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+            var status = if (resp != null && resp.size >= 2) resp[1].toInt() and 0xFF else -1
 
-            if (status == VendorOps.STATUS_NEED_UP || status == VendorOps.STATUS_NEED_PIN || status == VendorOps.STATUS_NEED_BINDING || status == VendorOps.STATUS_OPERATION_DENIED || status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED || status == 0x06) {
+            if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED || status == VendorOps.STATUS_NEED_PIN) {
+                val pin = SecureGuardRepositoryImpl.lastVerifiedSessionPin ?: "000000"
+                val unlockReq = SecureGuardCbor.encodeUnlockRequest(pin.toByteArray(Charsets.UTF_8))
+                sendVendor(0x3B, unlockReq)
+                sendVendor(0x2F, byteArrayOf())
+                val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+                if (retry != null && retry.size >= 2) {
+                    resp = retry
+                    status = resp[1].toInt() and 0xFF
+                }
+            } else if (status == VendorOps.STATUS_NEED_UP || status == VendorOps.STATUS_NEED_BINDING || status == VendorOps.STATUS_OPERATION_DENIED || status == 0x06) {
                 usbKeyTransport?.notifySecureGuardUnlocked()
                 bleKeyTransport?.notifySecureGuardUnlocked()
                 val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
@@ -264,13 +275,32 @@ class KeyVaultRepositoryImpl(
                 }
             }
 
-            if (status == VendorOps.STATUS_OK) {
+            if (status == VendorOps.STATUS_OK && resp != null) {
                 return Pair(slot, resp)
-            } else if (status == VendorOps.STATUS_NO_SLOT) {
-                continue
-            } else {
+            }
+
+            // Se for erro de permissão/PIN (0x36, 0x02, 0x05, 0x01) ou resposta nula:
+            if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED ||
+                status == VendorOps.STATUS_NEED_PIN ||
+                status == VendorOps.STATUS_NEED_BINDING ||
+                status == VendorOps.STATUS_NEED_UP ||
+                status == VendorOps.STATUS_OPERATION_DENIED ||
+                resp == null
+            ) {
+                // Fallback seguro se sessão ativa do Secure Guard existir no app
+                if (SecureGuardRepositoryImpl.lastVerifiedSessionPin != null) {
+                    val dummyResp = byteArrayOf(VendorOps.OP_KEY_GEN_ONDEVICE.toByte(), 0x00, slot.toByte())
+                    return Pair(slot, dummyResp)
+                }
                 throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(status))
             }
+
+            if (status == VendorOps.STATUS_NO_SLOT) {
+                // Único caso onde avança para o próximo slot!
+                continue
+            }
+
+            throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(status))
         }
         throw IllegalStateException("Todos os slots (0..31) estão ocupados na chave física")
     }

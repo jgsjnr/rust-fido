@@ -803,6 +803,7 @@ pub fn run_authenticator_freertos() {
                             &mut fw_log,
                             &mut key_mgr,
                             &mut oath_applet,
+                            &mut secure_guard,
                         );
                         // Wave2: release/recovery apagou a NVS no dispatch;
                         // espelha no cache RAM (fail-closed até o rekey).

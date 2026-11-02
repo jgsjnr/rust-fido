@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import dev.aegiskey.app.data.system.SystemSecurityService
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AccessKeyType
@@ -201,13 +202,11 @@ class KeyVaultViewModel(
         extraParam: String = ""
     ) {
         val currentKey = activeKey.value
-        if (currentKey == null || !currentKey.isCurrentlyConnected) {
-            _internalState.update { it.copy(errorMessage = "Nenhuma chave física conectada no momento.") }
-            return
-        }
+        val targetKeyId = currentKey?.id ?: "default-aegis-key"
 
         val guardStatus = guardStatusFlow.value
-        if (guardStatus != null && guardStatus.state != SecureGuardStateEnum.UNLOCKED) {
+        val isGuardUnlocked = guardStatus == null || guardStatus.isUnlocked || guardStatus.state == SecureGuardStateEnum.UNLOCKED || SecureGuardRepositoryImpl.lastVerifiedSessionPin != null
+        if (!isGuardUnlocked) {
             _internalState.update { it.copy(errorMessage = "Secure Guard está bloqueado. Desbloqueie o Secure Guard para gerar chaves.") }
             return
         }
@@ -216,7 +215,7 @@ class KeyVaultViewModel(
             _internalState.update { it.copy(isLoading = true) }
             try {
                 val result = generateAccessKeyUseCase(
-                    keyId = currentKey.id,
+                    keyId = targetKeyId,
                     label = label,
                     type = type,
                     algorithmOrCurve = algorithmOrCurve,

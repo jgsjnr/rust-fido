@@ -78,7 +78,6 @@ class UsbKeyTransport(
     suspend fun notifySecureGuardUnlocked() {
         runCatching {
             sendVendor(0x2F, byteArrayOf())
-            sendVendor(0x2D, byteArrayOf())
         }
     }
 

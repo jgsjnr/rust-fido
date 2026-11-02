@@ -1,6 +1,7 @@
 package dev.aegiskey.app.data.transport
 
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -124,21 +125,17 @@ class BleKeyTransport(
             }
         }
 
-        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica PIN de recuperação "12345678"
+        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica se houver PIN da sessão ativo
         if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x02) {
-            val pinBytes = "12345678".toByteArray(Charsets.UTF_8)
-            val verifyResp = if (bleReady) client.sendVendor(0x2D, pinBytes) else hostBridgeClient.sendVendor(0x2D, pinBytes)
-            val verifyStatus = if (verifyResp != null && verifyResp.size >= 2) verifyResp[1].toInt() and 0xFF else -1
-            if (verifyStatus != 0x00) {
-                if (bleReady) {
-                    client.sendVendor(0x2C, pinBytes)
-                    client.sendVendor(0x2D, pinBytes)
-                } else {
-                    hostBridgeClient.sendVendor(0x2C, pinBytes)
-                    hostBridgeClient.sendVendor(0x2D, pinBytes)
+            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
+            if (!sessionPin.isNullOrBlank()) {
+                val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
+                val verifyResp = if (bleReady) client.sendVendor(0x2D, pinBytes) else hostBridgeClient.sendVendor(0x2D, pinBytes)
+                val verifyStatus = if (verifyResp != null && verifyResp.size >= 2) verifyResp[1].toInt() and 0xFF else -1
+                if (verifyStatus == 0x00) {
+                    resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
                 }
             }
-            resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
         }
 
         return resp
@@ -175,7 +172,6 @@ class BleKeyTransport(
     suspend fun notifySecureGuardUnlocked() {
         runCatching {
             sendVendor(0x2F, byteArrayOf())
-            sendVendor(0x2D, byteArrayOf())
         }
     }
 

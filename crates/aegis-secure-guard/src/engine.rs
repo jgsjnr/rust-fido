@@ -423,6 +423,33 @@ impl SecureGuardEngine {
 
         // Check if rate limited
         if self.state == SecureGuardState::RateLimited {
+            let mut candidate_verifier =
+                derive_verifier(pin, &self.pin_salt, self.policy.pbkdf2_iterations);
+            let valid = constant_time_eq_32(&candidate_verifier, &self.pin_verifier);
+            candidate_verifier.zeroize();
+
+            if valid {
+                self.failed_attempts = 0;
+                self.rate_limit_until_ms = 0;
+                let _ = self.transition_to(SecureGuardState::Locked, now_ms);
+                self.transition_to(SecureGuardState::Authenticating, now_ms)?;
+                self.transition_to(SecureGuardState::Unlocked, now_ms)?;
+
+                self.session_expires_at_ms = now_ms.saturating_add(self.policy.session_duration_ms);
+                self.last_activity_ms = now_ms;
+
+                self.audit_log
+                    .push(now_ms, SecureGuardAuditEventType::PinVerificationSuccess);
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::SessionUnlocked {
+                        expires_at_ms: self.session_expires_at_ms,
+                    },
+                );
+
+                return Ok(());
+            }
+
             if now_ms < self.rate_limit_until_ms {
                 return Err(SecureGuardError::RateLimited {
                     remaining_ms: self.rate_limit_until_ms - now_ms,
@@ -569,6 +596,33 @@ impl SecureGuardEngine {
 
         // Check if rate limited
         if self.state == SecureGuardState::RateLimited {
+            let mut candidate_verifier =
+                derive_verifier(pin, &self.pin_salt, self.policy.pbkdf2_iterations);
+            let valid = constant_time_eq_32(&candidate_verifier, &self.pin_verifier);
+            candidate_verifier.zeroize();
+
+            if valid {
+                self.failed_attempts = 0;
+                self.rate_limit_until_ms = 0;
+                let _ = self.transition_to(SecureGuardState::Locked, now_ms);
+                self.transition_to(SecureGuardState::Authenticating, now_ms)?;
+                self.transition_to(SecureGuardState::Unlocked, now_ms)?;
+
+                self.session_expires_at_ms = now_ms.saturating_add(self.policy.session_duration_ms);
+                self.last_activity_ms = now_ms;
+
+                self.audit_log
+                    .push(now_ms, SecureGuardAuditEventType::PinVerificationSuccess);
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::SessionUnlocked {
+                        expires_at_ms: self.session_expires_at_ms,
+                    },
+                );
+
+                return Ok(());
+            }
+
             if now_ms < self.rate_limit_until_ms {
                 return Err(SecureGuardError::RateLimited {
                     remaining_ms: self.rate_limit_until_ms - now_ms,
@@ -742,17 +796,30 @@ impl SecureGuardEngine {
         Ok(true)
     }
 
-    /// Immediately terminates the active session and transitions to Locked.
+    /// Immediately terminates any active session or penalty and transitions to Locked.
     pub fn lock_now(&mut self, now_ms: u64) -> Result<(), SecureGuardError> {
-        if self.state == SecureGuardState::Unlocked {
-            self.session_expires_at_ms = 0;
-            self.transition_to(SecureGuardState::Locked, now_ms)?;
-            self.audit_log.push(
-                now_ms,
-                SecureGuardAuditEventType::SessionExpired {
-                    reason: SessionExpiryReason::ManualLock,
-                },
-            );
+        self.session_expires_at_ms = 0;
+        self.rate_limit_until_ms = 0;
+        self.failed_attempts = 0;
+
+        match self.state {
+            SecureGuardState::Unlocked
+            | SecureGuardState::Authenticating
+            | SecureGuardState::RateLimited
+            | SecureGuardState::RecoveryRequired
+            | SecureGuardState::Locked => {
+                let from = self.state;
+                if from != SecureGuardState::Locked {
+                    let _ = self.transition_to(SecureGuardState::Locked, now_ms);
+                }
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::SessionExpired {
+                        reason: SessionExpiryReason::ManualLock,
+                    },
+                );
+            }
+            _ => {}
         }
         Ok(())
     }

@@ -461,9 +461,7 @@ class PairingWizardRepositoryImpl(
             runCatching {
                 usbCtaphid?.open()
                 usbCtaphid?.sendVendor(0x2F, byteArrayOf())
-                usbCtaphid?.sendVendor(0x2D, byteArrayOf())
                 hostBridgeClient.sendVendor(0x2F, byteArrayOf())
-                hostBridgeClient.sendVendor(0x2D, byteArrayOf())
             }
 
             connectedKeysRepository.addOrUpdateKey(device)
