@@ -301,7 +301,6 @@ class SecureGuardRepositoryImpl(
                         val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
                         if (unlockRes.success) {
                             sendHardwareVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
-                            hardwareUnlocked = true
                         } else {
                             val err = unlockRes.errorMessage ?: (
                                 if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido"
@@ -313,8 +312,7 @@ class SecureGuardRepositoryImpl(
                         val err = json.optString("error", "PIN incorreto")
                         throw SecurityException(err)
                     } else {
-                        // Se o hardware não respondeu no momento, desbloqueia localmente
-                        hardwareUnlocked = true
+                        // Se o hardware não respondeu no momento, prossegue com o desbloqueio local da sessão
                     }
                 }
             }

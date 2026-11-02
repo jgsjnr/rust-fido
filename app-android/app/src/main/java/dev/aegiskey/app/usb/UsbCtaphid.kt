@@ -635,7 +635,6 @@ class UsbCtaphid(private val context: Context) {
                     val retryResp = sendCtapMessage(CMD_MSG, reqPayload)
                     if (retryResp != null) {
                         rawResp = retryResp
-                        status = if (rawResp.isNotEmpty()) rawResp[0].toInt() and 0xFF else -1
                     }
                 }
             }
