@@ -1,5 +1,5 @@
 # Etapa B - BLE real via NimBLE no S3 (BLE-only; Bluedroid OFF p/ RAM).
-# Lido pelo esp-idf-sys a partir do workspace root. Padrao oficial IDF v5.3.1
+# Lido pelo esp-idf-sys a partir do workspace root. Padrao oficial IDF v6.0.3 (EIM C:\esp\v6.0.3\esp-idf; legado v5.3.1 preservado em C:\.embuild).
 # examples/bluetooth/nimble/bleprph_wifi_coex.
 # Defesa em profundidade contra estouro de stack da main no boot: o health-check
 # AES/NVS saiu da main pré-yield e o envelope foi p/ heap, mas a main segue

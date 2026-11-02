@@ -48,9 +48,9 @@ zeroize = { workspace = true }
 hex = { workspace = true }
 
 [target.'cfg(target_os = "espidf")'.dependencies]
-esp-idf-sys = { version = "0.36", default-features = false, features = ["binstart"] }
-esp-idf-svc = { version = "0.50", default-features = false, features = ["binstart", "alloc"] }
-esp-idf-hal = { version = "0.45", default-features = false }
+esp-idf-sys = { version = "0.38", default-features = false, features = ["binstart"] }
+esp-idf-svc = { version = "0.53", default-features = false, features = ["binstart", "alloc"] }
+esp-idf-hal = { version = "0.47", default-features = false }
 
 [build-dependencies]
 embuild = { version = "0.33", features = ["espidf"] }
@@ -59,9 +59,18 @@ embuild = { version = "0.33", features = ["espidf"] }
 rand = "0.10"
 
 [package.metadata.esp-idf-sys]
-esp_idf_component_manager = false
-extra_components = [
-    { component_dirs = [ "components/aegis_usb", "components/aegis_ble", "components/aegis_wifi" ] }
-]
+esp_idf_component_manager = true
+
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = [ "components/aegis_usb", "components/aegis_ble", "components/aegis_wifi" ]
+
+# IDF v6.0: esp_tinyusb moved out-of-tree (managed component; EIM local storage
+# C:\Espressif\tools\components\espressif\esp_tinyusb\2.4.0, targets esp32s3).
+# Requires the component manager ON (flipped above). NOTE: aegis_usb CMakeLists
+# still PRIV_REQUIRES the v5 in-tree names `tinyusb`/`usb` -> cmake configure
+# BLOCKED there (product-component change, follow-up lane). This entry only
+# resolves `espressif__esp_tinyusb`.
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_tinyusb", version = "2.*" }
 
 

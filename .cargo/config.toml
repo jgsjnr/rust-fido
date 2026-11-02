@@ -19,9 +19,17 @@ rustflags = [
 
 [env]
 LIBCLANG_PATH = "C:\\Users\\junior\\.rustup\\toolchains\\esp\\xtensa-esp32-elf-clang\\esp-clang\\bin\\libclang.dll"
-ESP_IDF_VERSION = "v5.3.1"
-IDF_PATH = "C:\\.embuild\\espressif\\esp-idf\\v5.3.1"
-IDF_TOOLS_PATH = "C:\\.embuild\\espressif"
+# Pinned IDF v6.0.3 via EIM (ESP-IDF Install Manager). eim_idf.json:
+#   C:\Espressif\tools\eim_idf.json -> idfInstalled[0]: path C:\esp\v6.0.3\esp-idf,
+#   idfToolsPath C:\Espressif\tools, python C:\Espressif\tools\python\v6.0.3\venv\Scripts\python.exe
+ESP_IDF_VERSION = "v6.0.3"
+IDF_PATH = "C:\\esp\\v6.0.3\\esp-idf"
+IDF_TOOLS_PATH = "C:\\Espressif\\tools"
+IDF_PYTHON_ENV_PATH = "C:\\Espressif\\tools\\python\\v6.0.3\\venv"
+# Fallback legado (instalacao preservada, NAO remover): v5.3.1 em C:\.embuild
+# ESP_IDF_VERSION = "v5.3.1"
+# IDF_PATH = "C:\\.embuild\\espressif\\esp-idf\\v5.3.1"
+# IDF_TOOLS_PATH = "C:\\.embuild\\espressif"
 ESP_IDF_SYS_ROOT_CRATE = "aegis-fido-firmware"
 ESP_IDF_TOOLS_INSTALL_DIR = "fromenv"
 CARGO_WORKSPACE_DIR = { value = "", relative = true }

@@ -24,11 +24,18 @@ function Initialize-EspEnvironment {
         New-Item -ItemType Directory -Path $global:TargetDir -Force | Out-Null
     }
 
-    $preferredIdf = "C:\.embuild\espressif\esp-idf\v5.3.1"
+    # Pinned IDF v6.0.3 via EIM (eim_idf.json: C:\Espressif\tools\eim_idf.json).
+    $preferredIdf = "C:\esp\v6.0.3\esp-idf"
     if (Test-Path $preferredIdf) {
         $env:IDF_PATH = $preferredIdf
-        $env:ESP_IDF_VERSION = "v5.3.1"
-        $env:IDF_TOOLS_PATH = "C:\.embuild\espressif"
+        $env:ESP_IDF_VERSION = "v6.0.3"
+        $env:IDF_TOOLS_PATH = "C:\Espressif\tools"
+        $env:IDF_PYTHON_ENV_PATH = "C:\Espressif\tools\python\v6.0.3\venv"
+    # Fallback legado (instalacao preservada, NAO remover): v5.3.1 em C:\.embuild
+    #} elseif (Test-Path "C:\.embuild\espressif\esp-idf\v5.3.1") {
+    #    $env:IDF_PATH = "C:\.embuild\espressif\esp-idf\v5.3.1"
+    #    $env:ESP_IDF_VERSION = "v5.3.1"
+    #    $env:IDF_TOOLS_PATH = "C:\.embuild\espressif"
     } elseif ($env:IDF_PATH) {
         Write-Warn "Usando IDF_PATH existente: $env:IDF_PATH"
     } else {
@@ -48,13 +55,14 @@ function Initialize-EspEnvironment {
         Write-Success "export-esp.ps1 aplicado."
         $c = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".cargo\bin"
         if (Test-Path $c) { $env:PATH = "$c;$env:PATH" }
-        $py = "C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts"
+        # EIM v6.0.3 venv/tools (eim_idf.json). Legado preservado: C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts
+        $py = "C:\Espressif\tools\python\v6.0.3\venv\Scripts"
         if (Test-Path $py) { $env:PATH = "$py;$env:PATH" }
-        $cm = (Get-ChildItem "C:\.embuild\espressif\tools\cmake\*\bin" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        $cm = (Get-ChildItem "C:\Espressif\tools\cmake\*\bin" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
         if ($cm) { $env:PATH = "$cm;$env:PATH" }
-        $nj = (Get-ChildItem "C:\.embuild\espressif\tools\ninja\*" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        $nj = (Get-ChildItem "C:\Espressif\tools\ninja\*" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
         if ($nj) { $env:PATH = "$nj;$env:PATH" }
-        $gcc = (Get-ChildItem "C:\.embuild\espressif\tools\xtensa-esp-elf\*\xtensa-esp-elf\bin" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        $gcc = (Get-ChildItem "C:\Espressif\tools\xtensa-esp-elf\*\xtensa-esp-elf\bin" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
         if ($gcc) { $env:PATH = "$gcc;$env:PATH" }
         $tools = Join-Path $env:IDF_PATH "tools"
         if (Test-Path $tools) { $env:PATH = "$tools;$env:PATH" }
@@ -64,6 +72,7 @@ function Initialize-EspEnvironment {
 
     $global:EsptoolExe = $null
     $candidates = @(
+        "C:\Espressif\tools\python\v6.0.3\venv\Scripts\esptool.exe",
         "C:\.embuild\espressif\python_env\idf5.3_py3.12_env\Scripts\esptool.exe",
         "C:\.embuild\espressif\python_env\idf5.2_py3.12_env\Scripts\esptool.exe",
         (Get-Command esptool.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
