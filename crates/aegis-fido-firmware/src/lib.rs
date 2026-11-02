@@ -84,6 +84,7 @@ pub mod stores;
 pub mod test_hooks;
 pub mod totp;
 pub mod totp_view;
+pub mod time_sync;
 pub mod trust_facade;
 pub mod trust_gap;
 pub mod ui_journey;

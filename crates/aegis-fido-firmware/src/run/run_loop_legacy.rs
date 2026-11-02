@@ -293,6 +293,9 @@ pub fn run_authenticator() {
     let mut mdns_active = false;
     let mut wifi_radio_on = false;
     let mut last_sta_attempt_ms: Option<u64> = None;
+    // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
+    let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
+    let mut last_time_sync_attempt_ms: Option<u64> = None;
     // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
     // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
 
@@ -526,6 +529,15 @@ pub fn run_authenticator() {
             ble_pairing_now,
             has_creds,
             now_ms,
+        );
+        // TOTP sem bateria: SNTP quando a station esta up; ancora NVS
+        // sobrevive ao reboot (max() + fail-closed). Ver `time_sync`.
+        crate::time_sync::poll_time_sync(
+            &mut storage,
+            &mut time_state,
+            sta_mgr.is_up(),
+            now_ms,
+            &mut last_time_sync_attempt_ms,
         );
         // Etapa B (BLE NimBLE real): advertising na janela de pareamento
         // (flag ligada) + reconexão de confiável sem janela SÓ com saúde

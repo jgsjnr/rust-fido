@@ -400,6 +400,12 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     let mut last_sta_attempt_ms: Option<u64> = None;
     #[cfg(target_os = "espidf")]
+    // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
+    #[cfg(target_os = "espidf")]
+    let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
+    #[cfg(target_os = "espidf")]
+    let mut last_time_sync_attempt_ms: Option<u64> = None;
+    #[cfg(target_os = "espidf")]
     let mut ccid_transport = aegis_fido_usb::ccid::CcidTransport::new();
     // CI-GREP: TEST-HOOK (test-mode only; absent in release).
     // Latch de cor solida p/ diagnostico LED (TEST_LED_*).
@@ -1166,6 +1172,15 @@ pub fn run_authenticator_freertos() {
                         ble_pairing_now,
                         has_creds,
                         freertos_now_ms,
+                    );
+                    // TOTP sem bateria: SNTP quando a station esta up (ver `time_sync`).
+                    #[cfg(target_os = "espidf")]
+                    crate::time_sync::poll_time_sync(
+                        &mut storage,
+                        &mut time_state,
+                        sta_mgr.is_up(),
+                        freertos_now_ms,
+                        &mut last_time_sync_attempt_ms,
                     );
                     // BLE real: adv na janela de pareamento; reconexão de
                     // confiável sem janela SÓ com saúde BLE provada
