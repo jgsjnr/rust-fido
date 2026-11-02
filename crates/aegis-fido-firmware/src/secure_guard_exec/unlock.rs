@@ -7,7 +7,6 @@ use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::secure_guard::{MAX_ATTEMPTS, SecureGuardEngine, SecureGuardState};
 use aegis_fido_core::wallet::WalletStore;
 use ciborium::value::Value;
-use core::sync::atomic::{AtomicU64, Ordering};
 use rand_core::CryptoRng;
 use std::format;
 use std::vec::Vec;
@@ -22,21 +21,39 @@ use crate::secure_guard_storage::save_secure_guard_record;
 /// a janela propria aqui espelha o atraso da MESMA `compute_backoff_ms` do unlock
 /// (sem segunda tabela). Limpa no sucesso; reboot zera (a janela do engine,
 /// persistida em NVS, segue valendo via pre-gate).
-static CHANGE_PIN_BACKOFF_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+/// Portabilidade Xtensa LX7: `core::sync::atomic::AtomicU64` nao existe nesse
+/// core (sem atomicas de 64 bits), entao o deadline vive num `std::sync::Mutex`.
+/// `critical-section` foi considerada e rejeitada: ela so consta no Cargo.lock
+/// via `esp-idf-hal -> embassy-sync` sob `cfg(target_os = "espidf")` - fora da
+/// arvore de deps diretas do crate e indisponivel no host -, de modo que
+/// adota-la seria dependencia nova. O `Mutex` nao adiciona deps (`std` ja e
+/// usado neste arquivo), preserva a semantica exata de `u64` em ms (sem o teto
+/// de ~49,7 dias de um `AtomicU32` e sem perda de precisao em 24 h+) e mantem
+/// os mesmos valores no host.
+static CHANGE_PIN_BACKOFF_UNTIL_MS: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
 
 /// Le a janela propria do change_pin (0 = sem backoff armado).
 pub(crate) fn change_pin_backoff_until_ms() -> u64 {
-    CHANGE_PIN_BACKOFF_UNTIL_MS.load(Ordering::Relaxed)
+    CHANGE_PIN_BACKOFF_UNTIL_MS
+        .lock()
+        .map(|guard| *guard)
+        .unwrap_or_else(|poisoned| *poisoned.into_inner())
 }
 
 /// Arma a janela propria do change_pin.
 pub(crate) fn arm_change_pin_backoff(until_ms: u64) {
-    CHANGE_PIN_BACKOFF_UNTIL_MS.store(until_ms, Ordering::Relaxed);
+    let mut guard = CHANGE_PIN_BACKOFF_UNTIL_MS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = until_ms;
 }
 
 /// Limpa a janela propria (sucesso troca o PIN e zera o contador).
 pub(crate) fn clear_change_pin_backoff() {
-    CHANGE_PIN_BACKOFF_UNTIL_MS.store(0, Ordering::Relaxed);
+    let mut guard = CHANGE_PIN_BACKOFF_UNTIL_MS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = 0;
 }
 
 /// Corpo CBOR do change_pin negado por backoff (mesmo formato do unlock em

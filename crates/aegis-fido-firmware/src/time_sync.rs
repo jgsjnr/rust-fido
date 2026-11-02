@@ -40,6 +40,38 @@ use crate::persistence::{FlashStorageBackend, SecureStorage, StorageError};
 use crate::totp::TotpClock;
 use crate::wifi_station::sta_retry_due;
 
+/// `kprintln!` local: mesmo caminho de log que `run::kprintln` usa
+/// (`StaticBuf` sem alloc -> `esp_rom_printf` no device, `println!` no host).
+///
+/// `run::kprintln` e um `macro_rules!` textual escopado ao modulo `run` (os
+/// filhos o enxergam, mas `crate::kprintln!` nao resolve fora dele); este
+/// espelho local mantem o texto das mensagens e os gates `cfg` identicos.
+///
+/// So existe onde e usada (device): os 3 pontos de chamada vivem num bloco
+/// `cfg(target_os = "espidf")`, entao o gate identico evita macro morta no host.
+#[cfg(target_os = "espidf")]
+macro_rules! kprintln {
+    () => {
+        kprintln!("");
+    };
+    ($($arg:tt)*) => {{
+        let mut raw: [u8; 256] = [0u8; 256];
+        let mut w = crate::watchdog::StaticBuf::new(&mut raw);
+        let _ = core::fmt::Write::write_fmt(&mut w, format_args!($($arg)*));
+        let s = w.as_str();
+        #[cfg(target_os = "espidf")]
+        #[allow(unused_unsafe)]
+        unsafe {
+            for b in s.as_bytes() {
+                esp_idf_sys::esp_rom_printf(b"%c\0".as_ptr() as *const _, *b as core::ffi::c_int);
+            }
+            esp_idf_sys::esp_rom_printf(b"\r\n\0".as_ptr() as *const _);
+        }
+        #[cfg(not(target_os = "espidf"))]
+        println!("{}", s);
+    }};
+}
+
 /// Tamanho do pacote NTP (RFC 5905, cabecalho 48 B).
 pub const NTP_PACKET_LEN: usize = 48;
 /// Porta UDP do SNTP.
@@ -289,14 +321,14 @@ pub fn poll_time_sync<B: FlashStorageBackend>(
             Ok(unix) => {
                 if state.note_sync(unix, now_ms) {
                     let _ = state.save(storage);
-                    crate::kprintln!("[TIME] SNTP sync unix={} (ancora NVS).", unix);
+                    kprintln!("[TIME] SNTP sync unix={} (ancora NVS).", unix);
                     return TimeSyncPoll::Synced(unix);
                 }
-                crate::kprintln!("[TIME] SNTP fora da faixa (ignorado).");
+                kprintln!("[TIME] SNTP fora da faixa (ignorado).");
                 TimeSyncPoll::Failed
             }
             Err(_) => {
-                crate::kprintln!("[TIME] SNTP falhou (retry 60s).");
+                kprintln!("[TIME] SNTP falhou (retry 60s).");
                 TimeSyncPoll::Failed
             }
         }

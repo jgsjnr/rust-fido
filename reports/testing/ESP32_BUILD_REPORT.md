@@ -128,3 +128,35 @@ this report is the single new file).
    (software TEST_DOWNLOAD reboot; physical BOOT/RST buttons are the fallback).
 4. Current status maps to `REAL_IMPLEMENTED_NOT_RUN` for the on-device side: firmware ELF is
    built and verified, but no flash/serial measurement has been performed.
+
+## 7. Target-only defect fixes (this change) - GREEN
+
+- **Commit scope (this change only):**
+  `crates/aegis-fido-firmware/src/secure_guard_exec/unlock.rs`,
+  `crates/aegis-fido-firmware/src/time_sync.rs`, this report. No eFuse/flash paths touched.
+- **Defect 1 - `unlock.rs` `AtomicU64` (Xtensa LX7 has no 64-bit atomics, lines 10/25):**
+  `CHANGE_PIN_BACKOFF_UNTIL_MS` moved from `AtomicU64` to `std::sync::Mutex<u64>`
+  (same `u64` ms F-05 backoff deadline, same accessor values on host).
+  `critical-section` was checked in `Cargo.lock` first: it only arrives via
+  `esp-idf-hal -> embassy-sync` under `cfg(target_os = "espidf")` - outside the
+  direct deps of this crate and unavailable on host - so adopting it would be a
+  new dependency; `std` is already used in this file. No `AtomicU32` truncation
+  (keeps full ms precision, no ~49.7-day ceiling).
+- **Defect 2 - `time_sync.rs` `crate::kprintln!` (textually scoped to `run`, lines 292/295/299):**
+  added a local `#[cfg(target_os = "espidf")]`-gated `kprintln!` mirroring the exact
+  body `run` uses (`StaticBuf`, no alloc -> `esp_rom_printf`; `println!` on host);
+  3 call sites rerouted, message text and `cfg` gating unchanged. `#[macro_export]`
+  would have required editing `run/mod.rs` (outside this task file scope); the
+  `ltrace!` precedent (`#[macro_export]` + `crate::` path) was confirmed but not usable here.
+- **Host:** `cargo test -p aegis-fido-firmware --features freertos,proximity` - exit 0,
+  642 passed / 0 failed (574 + 12 + 2 + 3 + 14 + 16 + 8 + 11 + 2), identical totals to
+  the pre-change baseline (verified via stash: same 642/0). No behavior change on host.
+- **Clippy:** `cargo clippy -p aegis-fido-firmware --features freertos,proximity --all-targets` -
+  exit 0; 2 warnings, both pre-existing in `run/run_loop_freertos.rs:454` (untouched file).
+- **Target check (repo-canonical, shell-local v5.3.1 env, `+esp`, `-Zbuild-std=std,panic_abort`):**
+  `cargo +esp check -p aegis-fido-firmware --target xtensa-esp32s3-espidf --no-default-features --features board-devkitc` - exit 0.
+- **Target release:** same shape with `build --release` - exit 0 (`Finished release in 1m 35s`).
+- **ELF:** `C:\t\xtensa-esp32s3-espidf\release\aegis-fido-firmware`, 2,000,088 bytes,
+  header `7F 45 4C 46`, class 32-bit, `e_machine = 0x5E` (94 = Xtensa). Verified from header bytes.
+- **Forbidden commands:** none run (no flash, no serial, no `elf2image`). On-device status
+  stays `REAL_IMPLEMENTED_NOT_RUN`: ELF built + verified, no hardware touched.
