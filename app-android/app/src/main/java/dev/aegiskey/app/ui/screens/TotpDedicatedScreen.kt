@@ -1,5 +1,6 @@
 package dev.aegiskey.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LockClock
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -25,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -34,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,6 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.ui.atomic.molecules.TotpCodeCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.AddTotpAccountDialogOrganism
@@ -62,6 +69,36 @@ fun TotpDedicatedScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<TotpAccountItem?>(null) }
+
+    var scannedIssuer by remember { mutableStateOf("") }
+    var scannedAccount by remember { mutableStateOf("") }
+    var scannedSecret by remember { mutableStateOf("") }
+    var scannedDigits by remember { mutableIntStateOf(6) }
+    var scannedPeriodSeconds by remember { mutableIntStateOf(30) }
+    var scannedIsHotp by remember { mutableStateOf(false) }
+
+    val qrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val content = result.contents
+        if (!content.isNullOrBlank()) {
+            val parsed = AegisBridge.parseOtpInput(content)
+            if (parsed != null) {
+                scannedIssuer = parsed.issuer
+                scannedAccount = parsed.accountName
+                scannedSecret = parsed.secretBase32
+                scannedDigits = parsed.digits
+                scannedPeriodSeconds = parsed.periodSeconds
+                scannedIsHotp = parsed.isHotp
+            } else {
+                scannedIssuer = ""
+                scannedAccount = ""
+                scannedSecret = content.trim()
+                scannedDigits = 6
+                scannedPeriodSeconds = 30
+                scannedIsHotp = false
+            }
+            showAddDialog = true
+        }
+    }
 
     LaunchedEffect(uiState.feedbackMessage) {
         uiState.feedbackMessage?.let {
@@ -84,29 +121,69 @@ fun TotpDedicatedScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Primary Add Code Button
+            // Primary Add Code and Scan QR Code Buttons
             item {
-                Button(
-                    onClick = { showAddDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Add Code (TOTP / HOTP)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    Button(
+                        onClick = {
+                            scannedIssuer = ""
+                            scannedAccount = ""
+                            scannedSecret = ""
+                            scannedDigits = 6
+                            scannedPeriodSeconds = 30
+                            scannedIsHotp = false
+                            showAddDialog = true
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Add Code",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val options = ScanOptions().apply {
+                                setPrompt("Posicione o QR Code do TOTP")
+                                setBeepEnabled(false)
+                                setOrientationLocked(false)
+                            }
+                            qrLauncher.launch(options)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Scan QR Code",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -239,6 +316,12 @@ fun TotpDedicatedScreen(
                 showAddDialog = false
             },
             isLoading = uiState.isAddingAccount,
+            initialIssuer = scannedIssuer,
+            initialAccountName = scannedAccount,
+            initialSecretOrUri = scannedSecret,
+            initialDigits = scannedDigits,
+            initialPeriodSeconds = scannedPeriodSeconds,
+            initialIsHotp = scannedIsHotp,
         )
     }
 

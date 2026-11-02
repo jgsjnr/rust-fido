@@ -332,6 +332,32 @@ pub fn handle_status(engine: &mut SecureGuardEngine, now_ms: u64) -> (u8, Vec<u8
         Value::Bool(engine.auto_lock_on_ble_away()),
     ));
 
+    let device_ble_mac = {
+        #[cfg(target_os = "espidf")]
+        {
+            let mut mac = [0u8; 6];
+            let _ = unsafe {
+                esp_idf_sys::esp_read_mac(
+                    mac.as_mut_ptr(),
+                    esp_idf_sys::esp_mac_type_t_ESP_MAC_BT,
+                )
+            };
+            mac
+        }
+        #[cfg(not(target_os = "espidf"))]
+        {
+            [0x3C, 0x84, 0x27, 0xC7, 0x17, 0x78]
+        }
+    };
+    map.push((
+        Value::Text("device_ble_mac".into()),
+        Value::Bytes(device_ble_mac.to_vec()),
+    ));
+    map.push((
+        Value::Text("device_ble_name".into()),
+        Value::Text("AegisKey".into()),
+    ));
+
     (0x00, to_cbor_bytes(&Value::Map(map)))
 }
 
@@ -2122,6 +2148,8 @@ mod tests {
         let st_val: Value = ciborium::from_reader(&resp_st[..]).unwrap();
         assert_eq!(get_field(st_val.as_map().unwrap(), "ble_proximity_registered"), Some(&Value::Bool(true)));
         assert_eq!(get_field(st_val.as_map().unwrap(), "paired_ble_name"), Some(&Value::Text("Galaxy S24".into())));
+        assert_eq!(get_field(st_val.as_map().unwrap(), "device_ble_mac"), Some(&Value::Bytes(vec![0x3C, 0x84, 0x27, 0xC7, 0x17, 0x78])));
+        assert_eq!(get_field(st_val.as_map().unwrap(), "device_ble_name"), Some(&Value::Text("AegisKey".into())));
 
         // 4. Update RSSI: away -> Locks session immediately!
         let away_payload = vec![

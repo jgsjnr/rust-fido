@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
+import dev.aegiskey.app.domain.repository.SecureGuardRepository
 import dev.aegiskey.app.domain.usecase.ChangeSecureGuardPinUseCase
 import dev.aegiskey.app.domain.usecase.GetSecureGuardStatusUseCase
 import dev.aegiskey.app.domain.usecase.LockSecureGuardUseCase
@@ -43,7 +44,11 @@ class SecureGuardViewModel(
     private val recoverSecureGuardUseCase: RecoverSecureGuardUseCase,
     private val updateSecureGuardPolicyUseCase: UpdateSecureGuardPolicyUseCase,
     private val triggerSelectiveWipeTestUseCase: TriggerSelectiveWipeTestUseCase,
+    private val repository: SecureGuardRepository? = null,
 ) : ViewModel() {
+
+    private val actualRepo: SecureGuardRepository
+        get() = repository ?: getSecureGuardStatusUseCase.repo
 
     private val _uiState = MutableStateFlow(SecureGuardUiState())
     val uiState: StateFlow<SecureGuardUiState> = _uiState.asStateFlow()
@@ -51,6 +56,27 @@ class SecureGuardViewModel(
     private var countdownJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            actualRepo.statusFlow.collect { status ->
+                if (!status.isUnlocked || status.state == SecureGuardStateEnum.LOCKED) {
+                    countdownJob?.cancel()
+                    countdownJob = null
+                    _uiState.update { current ->
+                        current.copy(
+                            status = status.copy(
+                                isUnlocked = false,
+                                sessionRemainingMs = 0L
+                            )
+                        )
+                    }
+                } else {
+                    _uiState.update { current ->
+                        current.copy(status = status)
+                    }
+                    startCountdownTickerIfNeeded()
+                }
+            }
+        }
         refreshStatus()
     }
 
@@ -97,45 +123,59 @@ class SecureGuardViewModel(
 
     private fun startCountdownTickerIfNeeded() {
         countdownJob?.cancel()
+        countdownJob = null
         val current = _uiState.value.status
+        if (!current.isUnlocked || (current.state != SecureGuardStateEnum.UNLOCKED && current.state != SecureGuardStateEnum.RATE_LIMITED)) {
+            return
+        }
+
         val needsTicker = (current.state == SecureGuardStateEnum.RATE_LIMITED && current.rateLimitRemainingMs > 0) ||
                 (current.state == SecureGuardStateEnum.UNLOCKED && current.sessionRemainingMs > 0)
 
-        if (needsTicker) {
-            countdownJob = viewModelScope.launch {
-                while (isActive) {
-                    delay(1000L)
-                    val st = _uiState.value.status
-                    var newRate = st.rateLimitRemainingMs
-                    var newSess = st.sessionRemainingMs
-                    var newState = st.state
+        if (!needsTicker) {
+            return
+        }
 
-                    if (st.state == SecureGuardStateEnum.RATE_LIMITED && newRate > 0) {
-                        newRate = (newRate - 1000L).coerceAtLeast(0L)
-                        if (newRate == 0L) {
-                            newState = SecureGuardStateEnum.LOCKED
-                        }
-                    } else if (st.state == SecureGuardStateEnum.UNLOCKED && newSess > 0) {
-                        newSess = (newSess - 1000L).coerceAtLeast(0L)
-                        if (newSess == 0L) {
-                            newState = SecureGuardStateEnum.LOCKED
-                        }
+        countdownJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000L)
+                val st = _uiState.value.status
+                if (!st.isUnlocked && st.state != SecureGuardStateEnum.RATE_LIMITED) {
+                    countdownJob?.cancel()
+                    countdownJob = null
+                    break
+                }
+                var newRate = st.rateLimitRemainingMs
+                var newSess = st.sessionRemainingMs
+                var newState = st.state
+
+                if (st.state == SecureGuardStateEnum.RATE_LIMITED && newRate > 0) {
+                    newRate = (newRate - 1000L).coerceAtLeast(0L)
+                    if (newRate == 0L) {
+                        newState = SecureGuardStateEnum.LOCKED
                     }
+                } else if (st.state == SecureGuardStateEnum.UNLOCKED && newSess > 0) {
+                    newSess = (newSess - 1000L).coerceAtLeast(0L)
+                    if (newSess == 0L) {
+                        newState = SecureGuardStateEnum.LOCKED
+                    }
+                }
 
-                    _uiState.update { state ->
-                        state.copy(
-                            status = state.status.copy(
-                                state = newState,
-                                rateLimitRemainingMs = newRate,
-                                sessionRemainingMs = newSess,
-                                isUnlocked = newState == SecureGuardStateEnum.UNLOCKED
-                            )
+                _uiState.update { state ->
+                    state.copy(
+                        status = state.status.copy(
+                            state = newState,
+                            rateLimitRemainingMs = newRate,
+                            sessionRemainingMs = newSess,
+                            isUnlocked = newState == SecureGuardStateEnum.UNLOCKED
                         )
-                    }
+                    )
+                }
 
-                    if (newState == SecureGuardStateEnum.LOCKED || (newRate == 0L && newSess == 0L)) {
-                        break
-                    }
+                if (newState == SecureGuardStateEnum.LOCKED || (newRate == 0L && newSess == 0L)) {
+                    countdownJob?.cancel()
+                    countdownJob = null
+                    break
                 }
             }
         }
@@ -153,7 +193,12 @@ class SecureGuardViewModel(
                             generatedRecoveryCode = status.lastGeneratedRecoveryCode
                         )
                     }
-                    startCountdownTickerIfNeeded()
+                    if (!status.isUnlocked || status.state == SecureGuardStateEnum.LOCKED) {
+                        countdownJob?.cancel()
+                        countdownJob = null
+                    } else {
+                        startCountdownTickerIfNeeded()
+                    }
                 }
                 .onFailure { t ->
                     _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }

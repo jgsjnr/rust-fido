@@ -373,6 +373,8 @@ pub fn run_authenticator_freertos() {
         }
     }
     #[cfg(target_os = "espidf")]
+    let mut was_usb_mounted = unsafe { aegis_usb_is_mounted() };
+    #[cfg(target_os = "espidf")]
     stack_mark("binding+managers");
     #[cfg(target_os = "espidf")]
     let mut wifi_ap_mgr = crate::wifi_ap::WifiApManager::new();
@@ -1000,6 +1002,16 @@ pub fn run_authenticator_freertos() {
                 }
                 // Relógio do roteamento + expiração do latch UP (1,5 s).
                 freertos_now_ms = t.saturating_mul(10);
+                let usb_active = unsafe { aegis_usb_is_mounted() };
+                if was_usb_mounted && !usb_active {
+                    let _ = secure_guard.on_transport_disconnect(freertos_now_ms);
+                    crate::hmac_cr_compat_layer::set_secure_guard_unlocked(false);
+                    kprintln!("[SECURE_GUARD] Sessão trancada por desconexão USB.");
+                    if let Some(ref mut led) = display_mgr.led_controller {
+                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                    }
+                }
+                was_usb_mounted = usb_active;
                 if touch_latched && freertos_now_ms >= touch_expire_ms {
                     touch_latched = false;
                     rescue_engine.set_user_presence(false);

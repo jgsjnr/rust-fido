@@ -292,6 +292,37 @@ class EncryptedKeysStore(private val context: Context?) {
         putString(KEY_TOTP_PREFIX + keyId, array.toString())
     }
 
+    // --- DKEK Guardians Quorum per Key ---
+
+    data class DkekQuorumConfig(
+        val totalGuardians: Int = 3,
+        val threshold: Int = 2,
+        val lastUpdatedEpochMs: Long = System.currentTimeMillis()
+    )
+
+    fun loadDkekQuorum(keyId: String): DkekQuorumConfig? {
+        val raw = getString(KEY_DKEK_PREFIX + keyId) ?: return null
+        return try {
+            val obj = JSONObject(raw)
+            DkekQuorumConfig(
+                totalGuardians = obj.optInt("totalGuardians", 3),
+                threshold = obj.optInt("threshold", 2),
+                lastUpdatedEpochMs = obj.optLong("lastUpdatedEpochMs", 0L)
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun saveDkekQuorum(keyId: String, config: DkekQuorumConfig) {
+        val obj = JSONObject().apply {
+            put("totalGuardians", config.totalGuardians)
+            put("threshold", config.threshold)
+            put("lastUpdatedEpochMs", config.lastUpdatedEpochMs)
+        }
+        putString(KEY_DKEK_PREFIX + keyId, obj.toString())
+    }
+
     fun clearAll() {
         inMemoryFallback.clear()
         prefs?.edit()?.clear()?.apply()
@@ -303,6 +334,7 @@ class EncryptedKeysStore(private val context: Context?) {
         private const val KEY_ACTIVE_KEY_ID = "active_key_id"
         private const val KEY_VAULT_PREFIX = "vault_entries_"
         private const val KEY_TOTP_PREFIX = "totp_accounts_"
+        private const val KEY_DKEK_PREFIX = "dkek_quorum_"
         private const val AEGN_HEX_PREFIX = "AEGN_HEX:"
     }
 }

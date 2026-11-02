@@ -276,6 +276,15 @@ object SecureGuardCbor {
             testModeNonDestructiveWipe = decoded["test_mode_non_destructive_wipe"] as? Boolean ?: false
         )
 
+        val rawDeviceMac = decoded["device_ble_mac"]
+        val deviceMacBytes = when (rawDeviceMac) {
+            is ByteArray -> rawDeviceMac
+            is List<*> -> rawDeviceMac.mapNotNull { (it as? Number)?.toByte() }.toByteArray()
+            else -> null
+        }
+        val deviceBleMac = deviceMacBytes?.takeIf { it.size == 6 }?.joinToString(":") { "%02X".format(it) }
+        val deviceBleName = decoded["device_ble_name"] as? String
+
         return SecureGuardStatus(
             state = stateEnum,
             isProvisioned = decoded["provisioned"] as? Boolean ?: (stateEnum != SecureGuardStateEnum.UNPROVISIONED),
@@ -288,7 +297,9 @@ object SecureGuardCbor {
             policy = policy,
             lastWipeSimulated = decoded["last_wipe_simulated"] as? Boolean ?: false,
             auditCount = (decoded["audit_count"] as? Number)?.toLong() ?: 0L,
-            lastGeneratedRecoveryCode = decoded["recovery_code"] as? String ?: decoded["new_recovery_code"] as? String
+            lastGeneratedRecoveryCode = decoded["recovery_code"] as? String ?: decoded["new_recovery_code"] as? String,
+            deviceBleMac = deviceBleMac,
+            deviceBleName = deviceBleName
         )
     }
 

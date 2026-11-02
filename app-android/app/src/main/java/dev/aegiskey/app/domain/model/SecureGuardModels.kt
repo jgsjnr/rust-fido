@@ -53,5 +53,7 @@ data class SecureGuardStatus(
     val policy: SecureGuardPolicy = SecureGuardPolicy(),
     val lastWipeSimulated: Boolean = false,
     val auditCount: Long = 0L,
-    val lastGeneratedRecoveryCode: String? = null
+    val lastGeneratedRecoveryCode: String? = null,
+    val deviceBleMac: String? = null,
+    val deviceBleName: String? = null
 )

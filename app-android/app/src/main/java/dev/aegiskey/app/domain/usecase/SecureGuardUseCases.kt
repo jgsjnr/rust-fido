@@ -4,7 +4,8 @@ import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStatus
 import dev.aegiskey.app.domain.repository.SecureGuardRepository
 
-class GetSecureGuardStatusUseCase(private val repo: SecureGuardRepository) {
+class GetSecureGuardStatusUseCase(val repo: SecureGuardRepository) {
+    val statusFlow get() = repo.statusFlow
     suspend operator fun invoke(): Result<SecureGuardStatus> = repo.getStatus()
 }
 

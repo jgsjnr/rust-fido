@@ -122,7 +122,8 @@ class AppContainer(val context: Context) {
         SecureGuardRepositoryImpl(
             hostBridgeClient = hostUsbUartBridgeClient,
             usbCtaphid = usbCtaphid,
-            bleKeyTransport = bleTransport
+            bleKeyTransport = bleTransport,
+            connectedKeysRepository = connectedKeysRepository
         ).also { repo ->
             usbCtaphid.addOnHardwareDetachedListener {
                 repo.onHardwareDetached()
@@ -371,6 +372,7 @@ class AppContainer(val context: Context) {
             recoverSecureGuardUseCase = recoverSecureGuardUseCase,
             updateSecureGuardPolicyUseCase = updateSecureGuardPolicyUseCase,
             triggerSelectiveWipeTestUseCase = triggerSelectiveWipeTestUseCase,
+            repository = secureGuardRepository
         )
     }
 

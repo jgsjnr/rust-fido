@@ -105,6 +105,24 @@ class UsbCtaphid(private val context: Context? = null) {
         }
     }
 
+    var onHardwareAttachedListener: (() -> Unit)? = null
+    private val hardwareAttachedListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addOnHardwareAttachedListener(listener: () -> Unit) {
+        hardwareAttachedListeners.add(listener)
+    }
+
+    fun removeOnHardwareAttachedListener(listener: () -> Unit) {
+        hardwareAttachedListeners.remove(listener)
+    }
+
+    fun notifyHardwareAttached() {
+        onHardwareAttachedListener?.invoke()
+        for (listener in hardwareAttachedListeners) {
+            runCatching { listener.invoke() }
+        }
+    }
+
     fun isUsbPhysicallyPresent(): Boolean = findAegisDevice() != null
 
     fun findAegisDevice(): UsbDevice? = findDevice()
@@ -167,6 +185,7 @@ class UsbCtaphid(private val context: Context? = null) {
                         if (isMatchingDevice(device) && device != null) {
                             _isHardwareAttached.value = true
                             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB attached")
+                            notifyHardwareAttached()
                             val u = usb
                             if (u != null && u.hasPermission(device)) {
                                 openDevice(device)
@@ -360,6 +379,7 @@ class UsbCtaphid(private val context: Context? = null) {
             _isHardwareAttached.value = true
             _ui.value = UiState(State.CONNECTED, "conectado via USB (CTAPHID 64B)")
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB connected CTAPHID 64B")
+            notifyHardwareAttached()
         }.onFailure { t ->
             DeviceLog.append(DeviceLog.Category.SYSTEM, "USB openDevice falhou com excecao: ${t.message}")
             _ui.value = UiState(State.ERROR, "falha ao conectar USB", t.localizedMessage)

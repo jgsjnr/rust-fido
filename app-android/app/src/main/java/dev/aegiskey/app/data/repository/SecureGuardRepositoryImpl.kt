@@ -7,12 +7,15 @@ import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
+import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.SecureGuardRepository
 import dev.aegiskey.app.usb.UsbCtaphid
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -29,7 +32,8 @@ import org.json.JSONObject
 class SecureGuardRepositoryImpl(
     private val hostBridgeClient: HostUsbUartBridgeClient,
     private val usbCtaphid: UsbCtaphid? = null,
-    private val bleKeyTransport: BleKeyTransport? = null
+    private val bleKeyTransport: BleKeyTransport? = null,
+    private val connectedKeysRepository: ConnectedKeysRepository? = null
 ) : SecureGuardRepository {
 
     companion object {
@@ -51,9 +55,15 @@ class SecureGuardRepositoryImpl(
         usbCtaphid?.addOnHardwareDetachedListener {
             onHardwareDetached()
         }
+        usbCtaphid?.addOnHardwareAttachedListener {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { getStatus() }
+            }
+        }
     }
 
     override fun onHardwareDetached() {
+        lastVerifiedSessionPin = null
         clearSessionPin()
         val lockedStatus = _statusFlow.value.copy(
             state = SecureGuardStateEnum.LOCKED,
@@ -140,6 +150,7 @@ class SecureGuardRepositoryImpl(
                     val frame = SecureGuardCbor.parseTransportFrame(0x3A, resp)
                     val parsed = SecureGuardCbor.parseStatus(frame.cborPayload)
                     if (parsed != null) {
+                        tryAutoPairBle(frame.cborPayload)
                         val safe = sanitizeStatus(parsed)
                         _statusFlow.value = safe
                         return@runCatching safe
@@ -178,6 +189,9 @@ class SecureGuardRepositoryImpl(
                 val frame = SecureGuardCbor.parseTransportFrame(0x3A, resp)
                 val parsed = SecureGuardCbor.parseStatus(frame.cborPayload)
                 if (parsed != null) {
+                    if (isUsbPresent) {
+                        tryAutoPairBle(frame.cborPayload)
+                    }
                     val safe = sanitizeStatus(parsed)
                     _statusFlow.value = safe
                     return@runCatching safe
@@ -595,5 +609,22 @@ class SecureGuardRepositoryImpl(
             auditCount = json.optLong("audit_count", 0L),
             lastGeneratedRecoveryCode = if (json.has("last_generated_recovery_code")) json.optString("last_generated_recovery_code") else null
         )
+    }
+
+    private suspend fun tryAutoPairBle(cborPayload: ByteArray) {
+        val decoded = SecureGuardCbor.decode(cborPayload) as? Map<*, *> ?: return
+        val rawMac = decoded["device_ble_mac"]
+        val macBytes = when (rawMac) {
+            is ByteArray -> rawMac
+            is List<*> -> rawMac.mapNotNull { (it as? Number)?.toByte() }.toByteArray()
+            else -> null
+        }
+        val macStr = macBytes?.takeIf { it.size == 6 }?.joinToString(":") { "%02X".format(it) }
+        val nameStr = decoded["device_ble_name"] as? String ?: "AegisKey"
+        if (!macStr.isNullOrBlank()) {
+            runCatching {
+                connectedKeysRepository?.autoPairBleDevice(macStr, nameStr)
+            }
+        }
     }
 }

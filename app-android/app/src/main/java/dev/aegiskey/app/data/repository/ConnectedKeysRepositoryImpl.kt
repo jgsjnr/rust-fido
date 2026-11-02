@@ -154,4 +154,42 @@ class ConnectedKeysRepositoryImpl(
             keysStore.saveActiveKeyId(nextActive?.id)
         }
     }
+
+    override suspend fun autoPairBleDevice(bleMac: String, bleName: String) = withContext(Dispatchers.IO) {
+        val trimmedMac = bleMac.trim().uppercase()
+        if (trimmedMac.isBlank()) return@withContext
+
+        val currentKeys = _connectedKeys.value
+        val existing = currentKeys.firstOrNull {
+            it.hardwareAddressOrId.equals(trimmedMac, ignoreCase = true)
+        } ?: _activeKey.value ?: currentKeys.firstOrNull()
+
+        val updated = if (existing != null) {
+            existing.copy(
+                displayName = if (existing.displayName.contains("USB", ignoreCase = true) || existing.displayName.isBlank()) {
+                    bleName.ifBlank { "AegisKey" }
+                } else {
+                    existing.displayName
+                },
+                hardwareAddressOrId = trimmedMac,
+                transportType = ConnectionTransportType.BLE,
+                isCurrentlyConnected = true,
+                lastConnectedEpochMs = System.currentTimeMillis()
+            )
+        } else {
+            ConnectedKeyDevice(
+                id = java.util.UUID.randomUUID().toString(),
+                displayName = bleName.ifBlank { "AegisKey" },
+                hardwareAddressOrId = trimmedMac,
+                bindingIdHex = "0102030405060708090a0b0c0d0e0f10",
+                transportType = ConnectionTransportType.BLE,
+                isCurrentlyConnected = true,
+                firmwareRevision = 1,
+                lastConnectedEpochMs = System.currentTimeMillis()
+            )
+        }
+
+        addOrUpdateKey(updated)
+        selectActiveKey(updated.id)
+    }
 }

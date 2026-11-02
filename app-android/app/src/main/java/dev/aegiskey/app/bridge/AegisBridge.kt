@@ -31,8 +31,11 @@ object AegisBridge {
         val accountName: String,
         val secretBase32: String,
         val digits: Int,
-        val period: Int
-    )
+        val period: Int,
+        val isHotp: Boolean = false,
+    ) {
+        val periodSeconds: Int get() = period
+    }
 
     private const val OP_PING = 0x81
     private const val OP_MSG = 0x83
@@ -202,6 +205,7 @@ object AegisBridge {
      * Usa o bridge nativo UniFFI se carregado, com fallback seguro e puro em Kotlin.
      */
     fun parseOtpInput(raw: String): ParsedOtpInput? {
+        val isHotp = raw.trim().startsWith("otpauth://hotp", ignoreCase = true)
         if (nativeLoaded) {
             try {
                 val p = uniffi.aegis_bridge.otpauthExtractLabelAndSecret(raw)
@@ -210,7 +214,8 @@ object AegisBridge {
                     accountName = p.accountName,
                     secretBase32 = p.secretBase32,
                     digits = p.digits.toInt(),
-                    period = p.period.toInt()
+                    period = p.period.toInt(),
+                    isHotp = isHotp
                 )
             } catch (_: Throwable) {}
         }
@@ -270,12 +275,14 @@ object AegisBridge {
 
             val secretBase32 = cleanBase32(rawSecret) ?: return null
             val issuer = if (queryIssuer.isNotEmpty()) queryIssuer else lblIssuer
+            val isHotp = type == "hotp"
             return ParsedOtpInput(
                 issuer = issuer,
                 accountName = lblAccount,
                 secretBase32 = secretBase32,
                 digits = digits,
-                period = period
+                period = period,
+                isHotp = isHotp
             )
         } else {
             val secretBase32 = cleanBase32(trimmed) ?: return null
