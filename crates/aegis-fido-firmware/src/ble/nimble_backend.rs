@@ -384,6 +384,7 @@ extern "C" {
     fn aegis_ble_start(pairing_flag: i32, coex_slow: i32) -> i32;
     fn aegis_ble_preinit() -> i32;
     fn aegis_ble_stop() -> i32;
+    fn aegis_ble_forget_bonds() -> i32;
     fn aegis_ble_poll_event() -> i32;
     fn aegis_ble_fetch_rx(out_buf: *mut u8, max_len: i32) -> i32;
     fn aegis_ble_notify(data: *const u8, len: i32) -> i32;
@@ -420,6 +421,18 @@ pub fn esp_ble_preinit() -> i32 {
 pub fn esp_ble_stop() -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "ble-adv");
     unsafe { aegis_ble_stop() }
+}
+
+/// Apaga todos os bonds do NimBLE (`ble_store_clear` no C).
+///
+/// Chamado apos `PairingManager::forget_stale_bond` (bond > 30d): remove
+/// o LTK do NVS para o peer velho nao reencriptar; re-parear exige
+/// janela + UP + MITM. Sem stack = no-op 0; rc != 0 = falha do store
+/// (politica ja derrubou o flag em RAM; radio segue sem o vinculo).
+#[cfg(target_os = "espidf")]
+pub fn esp_ble_forget_bonds() -> i32 {
+    crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "ble-forget");
+    unsafe { aegis_ble_forget_bonds() }
 }
 
 /// Consome 1 evento pendente do backend (`BLE_EVT_*`; `NONE` = sem evento).
@@ -478,6 +491,12 @@ pub fn esp_ble_start(_pairing_open: bool, _wifi_active: bool) -> i32 {
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_stop() -> i32 {
     -1
+}
+
+/// Shim host: sem bonds no host; esquecer e no-op ok (0).
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_ble_forget_bonds() -> i32 {
+    0
 }
 #[cfg(not(target_os = "espidf"))]
 pub fn esp_ble_poll_event() -> i32 {

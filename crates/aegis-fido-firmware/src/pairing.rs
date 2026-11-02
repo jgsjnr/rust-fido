@@ -13,6 +13,22 @@ use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 /// Debounce minimo antes de considerar borda estavel (ms).
 pub const PAIRING_DEBOUNCE_MS: u64 = DEBOUNCE_TIME_MS;
 
+/// Validade maxima de um bond BLE sem re-pareamento (30 dias, conservador).
+///
+/// Passou disso: `forget_stale_bond` derruba o flag em RAM e o chamador
+/// apaga o LTK do NimBLE (`esp_ble_forget_bonds`); o dono re-pareia com
+/// janela + UP + MITM. RAM-only de proposito: reboot ja zera `bonded`
+/// (fail-closed sem NVS extra); este teto cobre sessoes longas ligadas.
+pub const BLE_BOND_MAX_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/// `true` quando o bond completado em `bonded_at_ms` expirou em `now_ms`.
+///
+/// Relogio monotonico: regressao nunca marca expirado por skew
+/// (`saturating_sub`); reboot zera o flag em RAM de todo modo.
+pub fn ble_bond_expired(bonded_at_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(bonded_at_ms) >= BLE_BOND_MAX_AGE_MS
+}
+
 /// Estados da jornada de pareamento.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PairingState {
@@ -43,6 +59,8 @@ pub struct PairingManager {
     state: PairingState,
     /// `true` apos bonding completo (uso unico por sessao).
     bonded: bool,
+    /// Instante do bonding (ms monotonicos); `None` = sem timestamp.
+    bonded_at_ms: Option<u64>,
 }
 
 impl PairingManager {
@@ -51,6 +69,7 @@ impl PairingManager {
         Self {
             state: PairingState::Idle,
             bonded: false,
+            bonded_at_ms: None,
         }
     }
 
@@ -62,6 +81,40 @@ impl PairingManager {
     /// `true` apos pareamento completo nesta sessao.
     pub fn is_bonded(&self) -> bool {
         self.bonded
+    }
+
+    /// `true` com bond valido e dentro da validade (fresco).
+    ///
+    /// Porta de reconexao sem janela (`should_advertise_reconnect`) e
+    /// expiracao periodica (`forget_stale_bond`) usam esta porta, nao
+    /// `is_bonded` cru: bond velho nao reconecta sozinho.
+    pub fn is_bond_fresh(&self, now_ms: u64) -> bool {
+        self.bonded && !self.bond_expired(now_ms)
+    }
+
+    /// `true` quando o bond existe mas passou da validade (ou esta sem
+    /// timestamp: fail-closed, exige re-pareamento). Sem bond = `false`.
+    pub fn bond_expired(&self, now_ms: u64) -> bool {
+        if !self.bonded {
+            return false;
+        }
+        match self.bonded_at_ms {
+            Some(t) => ble_bond_expired(t, now_ms),
+            None => true,
+        }
+    }
+
+    /// Esquece bond expirado (RAM); `true` = limpou (o chamador remove o
+    /// LTK do NimBLE via `esp_ble_forget_bonds`). Fresco/ausente = `false`.
+    pub fn forget_stale_bond(&mut self, now_ms: u64) -> bool {
+        if self.bond_expired(now_ms) {
+            self.bonded = false;
+            self.bonded_at_ms = None;
+            crate::ltrace!(LtCat::Pairing, LtEvt::PairingTimeout, now_ms);
+            true
+        } else {
+            false
+        }
     }
 
     /// Bonding e sempre obrigatorio (JustWorks+bonding+UP).
@@ -163,6 +216,7 @@ impl PairingManager {
         }
         crate::ltrace!(LtCat::Pairing, LtEvt::PairingPaired, now_ms);
         self.bonded = true;
+        self.bonded_at_ms = Some(now_ms);
         self.state = PairingState::Idle;
         true
     }
@@ -486,5 +540,65 @@ mod pairing_trust_tests {
         assert!(pairing_gate_for_trust(&m, 1000 + PAIRING_WINDOW_MS - 1));
         m.tick(1000 + PAIRING_WINDOW_MS);
         assert!(!pairing_gate_for_trust(&m, 1000 + PAIRING_WINDOW_MS));
+    }
+}
+
+#[cfg(test)]
+mod bond_expiry_tests {
+    use super::*;
+    use crate::config::{LONG_PRESS_MS, PAIRING_WINDOW_MS};
+
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+    fn bonded_at(t: u64) -> PairingManager {
+        let mut m = PairingManager::new();
+        m.on_button_level(true, 0);
+        m.on_button_level(true, LONG_PRESS_MS);
+        assert!(m.complete_pairing(true, t));
+        m
+    }
+
+    #[test]
+    fn teto_conservador_30_dias() {
+        assert_eq!(BLE_BOND_MAX_AGE_MS, 30 * DAY_MS);
+        assert!(!ble_bond_expired(1_000, 1_000 + BLE_BOND_MAX_AGE_MS - 1));
+        assert!(ble_bond_expired(1_000, 1_000 + BLE_BOND_MAX_AGE_MS));
+        assert!(ble_bond_expired(0, u64::MAX));
+        // Skew (now < bonded_at): nunca expira por skew.
+        assert!(!ble_bond_expired(9_000, 1_000));
+    }
+
+    #[test]
+    fn par_fresco_expira_e_esquece() {
+        let mut m = bonded_at(LONG_PRESS_MS + 10);
+        let t0 = LONG_PRESS_MS + 10;
+        assert!(m.is_bonded());
+        assert!(m.is_bond_fresh(t0));
+        assert!(!m.bond_expired(t0));
+        assert!(!m.forget_stale_bond(t0));
+        assert!(m.is_bonded());
+        // 29 dias: fresco; 30 dias: expirado.
+        assert!(m.is_bond_fresh(t0 + 29 * DAY_MS));
+        assert!(!m.is_bond_fresh(t0 + 30 * DAY_MS));
+        assert!(m.bond_expired(t0 + 30 * DAY_MS));
+        assert!(m.forget_stale_bond(t0 + 30 * DAY_MS));
+        assert!(!m.is_bonded());
+        assert!(!m.is_bond_fresh(t0 + 30 * DAY_MS));
+        // Re-parear re-arma o timestamp.
+        m.on_button_level(true, t0 + 30 * DAY_MS + 1);
+        m.on_button_level(true, t0 + 30 * DAY_MS + 1 + LONG_PRESS_MS);
+        assert!(m.complete_pairing(true, t0 + 30 * DAY_MS + 1 + LONG_PRESS_MS + 5));
+        assert!(m.is_bond_fresh(t0 + 30 * DAY_MS + 1 + LONG_PRESS_MS + 5));
+    }
+
+    #[test]
+    fn janela_60s_intacta_com_expiracao() {
+        // A validade do bond nao altera a janela de pareamento.
+        let mut m = PairingManager::new();
+        m.on_button_level(true, 0);
+        m.on_button_level(true, LONG_PRESS_MS);
+        assert!(m.is_pairing_window_open(LONG_PRESS_MS + 1));
+        m.tick(LONG_PRESS_MS + PAIRING_WINDOW_MS);
+        assert!(!m.is_pairing_window_open(LONG_PRESS_MS + PAIRING_WINDOW_MS));
     }
 }

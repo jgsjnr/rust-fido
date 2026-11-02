@@ -1041,6 +1041,12 @@ pub fn run_authenticator_freertos() {
                 }
                 // Pairing: alimenta nível + tick; borda da janela no fw-log.
                 pairing_mgr.tick(freertos_now_ms);
+                // Bond BLE expira em 30d (`pairing::BLE_BOND_MAX_AGE_MS`): esquece
+                // em RAM + apaga o LTK do NimBLE; re-parear exige janela + UP + MITM.
+                if pairing_mgr.forget_stale_bond(freertos_now_ms) {
+                    let _ = crate::ble_nimble::esp_ble_forget_bonds();
+                    kprintln!("[BLE] bond expirado (>30d): removido; re-pareamento exigido.");
+                }
                 {
                     use crate::fw_log as fl;
                     #[cfg(feature = "test-mode")]
@@ -1188,7 +1194,7 @@ pub fn run_authenticator_freertos() {
                     // Fail-closed: sem preinit saudável, o Tick pós-claim
                     // (claimed + Idle) fica mudo em vez de chamar
                     // `esp_ble_start → nimble_port_init` (LoadProhibited).
-                    let trusted = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+                    let trusted = pairing_mgr.is_bond_fresh(freertos_now_ms) || binding_mgr.is_claimed();
                     // Mesmo gate vivo do AP/BLE acima: janela TEST
                     // (`freertos_test`) também pede adv; sem isto o Tick
                     // pós-`TEST_PAIRING_OPEN` ficava mudo (sem EV_ADV_START).

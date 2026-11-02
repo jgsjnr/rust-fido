@@ -398,6 +398,12 @@ pub fn run_authenticator() {
         // Phase8 UX-conex: alimenta PairingManager todo poll (corrige orfao).
         pairing_mgr.on_button_level(is_boot_pressed, now_ms);
         pairing_mgr.tick(now_ms);
+        // Bond BLE expira em 30d (`pairing::BLE_BOND_MAX_AGE_MS`): esquece
+        // em RAM + apaga o LTK do NimBLE; re-parear exige janela + UP + MITM.
+        if pairing_mgr.forget_stale_bond(now_ms) {
+            let _ = crate::ble_nimble::esp_ble_forget_bonds();
+            kprintln!("[BLE] bond expirado (>30d): removido; re-pareamento exigido.");
+        }
         let pairing_open_now = pairing_mgr.is_pairing_window_open(now_ms);
         // Borda da janela -> fw-log (0x38) do app.
         {
@@ -545,7 +551,7 @@ pub fn run_authenticator() {
         // Fail-closed: sem preinit saudável, claimed + Idle fica mudo em
         // vez de chamar `esp_ble_start → nimble_port_init` (LoadProhibited).
         // Coexistencia USB > WiFi > BLE: com WiFi ativo o intervalo e lento.
-        let trusted = pairing_mgr.is_bonded() || binding_mgr.is_claimed();
+        let trusted = pairing_mgr.is_bond_fresh(now_ms) || binding_mgr.is_claimed();
         let ble_want_adv = crate::ble_nimble::should_advertise(&pairing_mgr, now_ms)
             || (ble_preinit_ok
                 && crate::ble_nimble::should_advertise_reconnect(pairing_mgr.state(), trusted));

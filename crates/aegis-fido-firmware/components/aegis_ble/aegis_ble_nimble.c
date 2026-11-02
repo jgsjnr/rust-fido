@@ -72,6 +72,7 @@ static const char *TAG = "aegis_ble";
 #define AEGIS_EVT_CONNECTED    3
 
 void ble_store_config_init(void);
+int ble_store_clear(void);
 
 static uint8_t s_inited = 0;
 static uint8_t s_synced = 0;
@@ -648,6 +649,19 @@ int aegis_ble_stop(void)
     ble_gap_adv_stop();
     s_advertising = 0;
     return 0;
+}
+
+/* F-01/BOND-EXPIRY (2026-11-02): apaga todos os bonds BLE (30d, Rust
+ * `forget_stale_bond`). `ble_store_clear` limpa LTKs/IRKs do NVS; o peer
+ * precisa re-parear (janela + UP + MITM). Sem stack = sem bonds (no-op 0).
+ * rc != 0 = falha do store (o Rust ignora: a politica ja derrubou o flag
+ * em RAM; o radio segue fail-closed sem o vinculo). */
+int aegis_ble_forget_bonds(void)
+{
+    if (!s_inited) {
+        return 0;
+    }
+    return ble_store_clear();
 }
 
 int aegis_ble_poll_event(void)
