@@ -96,8 +96,10 @@ impl SecureGuardEngine {
         } else if record.failed_attempts >= MAX_ATTEMPTS {
             if record.policy.wipe_on_5_failures {
                 engine.state = SecureGuardState::WipePending;
+            } else if record.rate_limit_until_ms > now_ms {
+                engine.state = SecureGuardState::RateLimited;
             } else {
-                engine.state = SecureGuardState::RecoveryRequired;
+                engine.state = SecureGuardState::Locked;
             }
         } else if record.rate_limit_until_ms > now_ms {
             engine.state = SecureGuardState::RateLimited;
@@ -401,7 +403,13 @@ impl SecureGuardEngine {
         }
 
         if self.state == SecureGuardState::RecoveryRequired {
-            return Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired);
+            if now_ms < self.rate_limit_until_ms {
+                return Err(SecureGuardError::RateLimited {
+                    remaining_ms: self.rate_limit_until_ms - now_ms,
+                });
+            }
+            // Cooldown passed: transition to Locked and allow trying PIN again
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
         }
 
         if matches!(
@@ -483,8 +491,19 @@ impl SecureGuardEngine {
                         simulated: self.last_wipe_simulated,
                     })
                 } else {
-                    self.transition_to(SecureGuardState::RecoveryRequired, now_ms)?;
-                    Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+                    let delay_ms = 15_000;
+                    self.rate_limit_until_ms = now_ms.saturating_add(delay_ms);
+                    self.transition_to(SecureGuardState::RateLimited, now_ms)?;
+                    self.audit_log.push(
+                        now_ms,
+                        SecureGuardAuditEventType::RateLimitStarted {
+                            delay_ms,
+                            until_ms: self.rate_limit_until_ms,
+                        },
+                    );
+                    Err(SecureGuardError::RateLimited {
+                        remaining_ms: delay_ms,
+                    })
                 }
             } else {
                 let delay_ms = self.policy.compute_backoff_ms(failed);
@@ -530,7 +549,13 @@ impl SecureGuardEngine {
         }
 
         if self.state == SecureGuardState::RecoveryRequired {
-            return Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired);
+            if now_ms < self.rate_limit_until_ms {
+                return Err(SecureGuardError::RateLimited {
+                    remaining_ms: self.rate_limit_until_ms - now_ms,
+                });
+            }
+            // Cooldown passed: transition to Locked and allow trying PIN again
+            self.transition_to(SecureGuardState::Locked, now_ms)?;
         }
 
         if matches!(
@@ -603,8 +628,19 @@ impl SecureGuardEngine {
                         simulated: self.last_wipe_simulated,
                     })
                 } else {
-                    self.transition_to(SecureGuardState::RecoveryRequired, now_ms)?;
-                    Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+                    let delay_ms = 15_000;
+                    self.rate_limit_until_ms = now_ms.saturating_add(delay_ms);
+                    self.transition_to(SecureGuardState::RateLimited, now_ms)?;
+                    self.audit_log.push(
+                        now_ms,
+                        SecureGuardAuditEventType::RateLimitStarted {
+                            delay_ms,
+                            until_ms: self.rate_limit_until_ms,
+                        },
+                    );
+                    Err(SecureGuardError::RateLimited {
+                        remaining_ms: delay_ms,
+                    })
                 }
             } else {
                 let delay_ms = self.policy.compute_backoff_ms(failed);
@@ -905,6 +941,33 @@ impl SecureGuardEngine {
 
         self.transition_to(SecureGuardState::Unprovisioned, now_ms)?;
         Ok(SecureGuardWipeScope::ProtectedResourcesOnly)
+    }
+
+    /// Unconditionally resets the engine back to factory fresh Unprovisioned state.
+    ///
+    /// Clears all credentials, salts, verifiers, rate limits, session timers,
+    /// failed attempt counters, and paired BLE proximity devices.
+    pub fn reset_to_factory(&mut self) {
+        self.pin_salt.zeroize();
+        self.pin_verifier.zeroize();
+        self.recovery_salt.zeroize();
+        self.recovery_verifier.zeroize();
+        self.is_provisioned = false;
+        self.failed_attempts = 0;
+        self.rate_limit_until_ms = 0;
+        self.session_expires_at_ms = 0;
+        self.last_activity_ms = 0;
+        self.last_wipe_simulated = false;
+        self.last_rotated_recovery_code = None;
+        self.paired_ble_mac = [0u8; 6];
+        self.paired_ble_name = [0u8; 24];
+        self.ble_proximity_registered = false;
+        self.ble_proximity_away = false;
+        self.state = SecureGuardState::Unprovisioned;
+        self.audit_log.push(
+            0,
+            SecureGuardAuditEventType::WipeCompleted { simulated: false },
+        );
     }
 
     // --- Authorization Barriers ---

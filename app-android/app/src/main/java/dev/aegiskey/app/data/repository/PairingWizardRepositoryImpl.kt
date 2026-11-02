@@ -47,6 +47,8 @@ class PairingWizardRepositoryImpl(
     private val _buttonHoldSimulatedOrDetected = MutableStateFlow(false)
     override val buttonHoldSimulatedOrDetected: StateFlow<Boolean> = _buttonHoldSimulatedOrDetected.asStateFlow()
 
+    override val isUsbDetected: StateFlow<Boolean> = usbCtaphid?.isHardwareAttached ?: MutableStateFlow(false)
+
     private var activeScanTransport: ConnectionTransportType? = null
     private var currentCandidate: DiscoveredKeyCandidate? = null
 
@@ -379,6 +381,93 @@ class PairingWizardRepositoryImpl(
             }
 
             connectedKeysRepository.addOrUpdateKey(device)
+            device
+        }
+    }
+
+    override suspend fun autoValidatePresence(
+        candidate: DiscoveredKeyCandidate?,
+        transport: ConnectionTransportType
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            _buttonHoldSimulatedOrDetected.value = true
+            if (DebugHardwareChipMock.IS_MOCK_ENABLED && candidate != null && DebugHardwareChipMock.isMockCandidate(candidate.id)) {
+                return@runCatching
+            }
+            when (transport) {
+                ConnectionTransportType.USB -> {
+                    usbCtaphid?.open()
+                    usbCtaphid?.sendVendor(0x2F, byteArrayOf())
+                    runCatching { hostBridgeClient.sendVendor(0x2F, byteArrayOf()) }
+                }
+                ConnectionTransportType.BLE -> {
+                    val client = bleClient
+                    if (client != null && client.state.value.connection == AegisBleClient.Connection.READY) {
+                        client.sendVendor(0x2F, byteArrayOf())
+                    }
+                    runCatching { hostBridgeClient.sendVendor(0x2F, byteArrayOf()) }
+                }
+                ConnectionTransportType.WIFI -> {
+                    runCatching { hostBridgeClient.sendVendor(0x2F, byteArrayOf()) }
+                }
+                ConnectionTransportType.SIMULATOR -> {
+                    simulatedRenodeTransport.sendVendor(0x2F, byteArrayOf())
+                }
+            }
+            Unit
+        }
+    }
+
+    override suspend fun registerConfiguredKeyOrSkip(): Result<ConnectedKeyDevice> = withContext(Dispatchers.IO) {
+        runCatching {
+            val existing = connectedKeysRepository.connectedKeys.value.firstOrNull()
+            if (existing != null) {
+                connectedKeysRepository.selectActiveKey(existing.id)
+                return@runCatching existing
+            }
+
+            val device = ConnectedKeyDevice(
+                id = UUID.randomUUID().toString(),
+                displayName = "Minha Chave Aegis",
+                hardwareAddressOrId = "CONFIGURED-VAULT",
+                bindingIdHex = "0000000000000000",
+                transportType = ConnectionTransportType.BLE,
+                isCurrentlyConnected = true,
+                firmwareRevision = 1,
+                lastConnectedEpochMs = System.currentTimeMillis()
+            )
+            connectedKeysRepository.addOrUpdateKey(device)
+            connectedKeysRepository.selectActiveKey(device.id)
+            device
+        }
+    }
+
+    override suspend fun connectUsbDeviceAndRegister(): Result<ConnectedKeyDevice> = withContext(Dispatchers.IO) {
+        runCatching {
+            val directUsbDevice = runCatching { usbCtaphid?.findDevice() }.getOrNull()
+            val deviceId = directUsbDevice?.let { "usb:${it.vendorId}:${it.productId}" } ?: "usb:303a:ae61"
+
+            val device = ConnectedKeyDevice(
+                id = UUID.randomUUID().toString(),
+                displayName = "AegisKey USB Hardware",
+                hardwareAddressOrId = deviceId,
+                bindingIdHex = "0102030405060708090a0b0c0d0e0f10",
+                transportType = ConnectionTransportType.USB,
+                isCurrentlyConnected = true,
+                firmwareRevision = 1,
+                lastConnectedEpochMs = System.currentTimeMillis()
+            )
+
+            runCatching {
+                usbCtaphid?.open()
+                usbCtaphid?.sendVendor(0x2F, byteArrayOf())
+                usbCtaphid?.sendVendor(0x2D, byteArrayOf())
+                hostBridgeClient.sendVendor(0x2F, byteArrayOf())
+                hostBridgeClient.sendVendor(0x2D, byteArrayOf())
+            }
+
+            connectedKeysRepository.addOrUpdateKey(device)
+            connectedKeysRepository.selectActiveKey(device.id)
             device
         }
     }

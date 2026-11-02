@@ -1003,7 +1003,34 @@ fn handle_wipe_selective<B: FlashStorageBackend>(
 
     let pin_opt = get_field(&entries, "pin").and_then(extract_bytes);
 
-    if engine.is_provisioned() {
+    // Validação de confirmação de Wipe Full / Factory Reset de emergência:
+    // Permite reset para Unprovisioned mesmo se a chave estiver Locked, RateLimited ou RecoveryRequired!
+    let confirm_bool = get_field(&entries, "confirm") == Some(&Value::Bool(true));
+    let confirm_str = get_field(&entries, "confirmation")
+        .and_then(|v| match v {
+            Value::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .map(|s| s.eq_ignore_ascii_case("WIPE-CONFIRMED") || !s.is_empty())
+        .unwrap_or(false);
+
+    let scope_full = get_field(&entries, "scope")
+        .map(|v| match v {
+            Value::Integer(i) => {
+                let val = i64::try_from(*i).unwrap_or(0);
+                val == 0xFF || val == 0x07
+            }
+            Value::Text(s) => {
+                s == "0xFF" || s == "0x07" || s == "full" || s == "all" || s == "factory_reset"
+            }
+            _ => false,
+        })
+        .unwrap_or(false);
+
+    let is_emergency_wipe = confirm_bool || confirm_str || scope_full;
+
+    // Se NÃO for Wipe Full / Emergency Wipe, exige autorização com PIN ou sessão ativa
+    if !is_emergency_wipe && engine.is_provisioned() {
         if let Some(pin) = pin_opt {
             if let Err(e) = engine.verify_pin_for_critical_action(&pin, now_ms) {
                 let _ = save_secure_guard_record(storage, engine);
@@ -1025,17 +1052,9 @@ fn handle_wipe_selective<B: FlashStorageBackend>(
     }
 
     // Valida confirmação explícita
-    let mut confirmed = false;
-    if let Some(Value::Bool(b)) = get_field(&entries, "confirm") {
-        confirmed = *b;
-    }
+    let mut confirmed = is_emergency_wipe;
     if let Some(Value::Text(s)) = get_field(&entries, "scope") {
         if s == "protected_resources" {
-            confirmed = true;
-        }
-    }
-    if let Some(Value::Text(s)) = get_field(&entries, "confirmation") {
-        if !s.is_empty() {
             confirmed = true;
         }
     }
@@ -1044,10 +1063,14 @@ fn handle_wipe_selective<B: FlashStorageBackend>(
         return (0x04, to_cbor_bytes(&cbor_err("CONFIRMATION_REQUIRED")));
     }
 
-    let _ = engine.execute_wipe(now_ms);
+    if is_emergency_wipe {
+        engine.reset_to_factory();
+    } else {
+        let _ = engine.execute_wipe(now_ms);
+    }
 
     if !engine.last_wipe_simulated() {
-        log::info!("[SECURE_GUARD] Wipe seletivo: limpando carteiras e chaves protegidas");
+        log::info!("[SECURE_GUARD] Wipe full/seletivo: limpando carteiras e chaves protegidas");
         *wallet = WalletStore::new();
         *key_mgr = KeyManager::new();
         *oath = OathApplet::new();
@@ -1056,6 +1079,7 @@ fn handle_wipe_selective<B: FlashStorageBackend>(
         log::info!("[SECURE_GUARD] Wipe simulado em modo de teste (chaves físicas mantidas)");
     }
 
+    crate::hmac_cr_compat_layer::set_secure_guard_unlocked(false);
     let _ = save_secure_guard_record(storage, engine);
 
     let out_map = vec![
@@ -1585,10 +1609,8 @@ mod tests {
         assert_eq!(st, 0x00);
         assert_eq!(engine.state(), SecureGuardState::Locked);
 
-        // 1. Wipe without PIN while Locked -> Rejects with CTAP2_ERR_PIN_REQUIRED (0x36)
-        let wipe_no_pin = vec![
-            (Value::Text("confirm".into()), Value::Bool(true)),
-        ];
+        // 1. Wipe without confirmation or PIN while Locked -> Rejects with CTAP2_ERR_PIN_REQUIRED (0x36)
+        let wipe_no_confirm = vec![];
         let (st, _) = exec_secure_guard_op(
             &mut engine,
             &mut storage,
@@ -1596,16 +1618,16 @@ mod tests {
             &mut key_mgr,
             &mut oath,
             OP_SECURE_GUARD_WIPE_SELECTIVE,
-            &to_cbor_bytes(&Value::Map(wipe_no_pin)),
+            &to_cbor_bytes(&Value::Map(wipe_no_confirm)),
             1100,
             &mut rng,
         );
         assert_eq!(st, CTAP2_ERR_PIN_REQUIRED);
 
-        // 2. Wipe with WRONG PIN -> Rejects with CTAP2_ERR_PIN_AUTH_INVALID (0x33)
-        let wipe_bad_pin = vec![
+        // 2. Wipe Full confirmed without PIN -> Succeeds (0x00) and executes Wipe Full to Unprovisioned
+        let wipe_confirmed = vec![
             (Value::Text("confirm".into()), Value::Bool(true)),
-            (Value::Text("pin".into()), Value::Bytes(b"9999".to_vec())),
+            (Value::Text("confirmation".into()), Value::Text("WIPE-CONFIRMED".into())),
         ];
         let (st, _) = exec_secure_guard_op(
             &mut engine,
@@ -1614,30 +1636,200 @@ mod tests {
             &mut key_mgr,
             &mut oath,
             OP_SECURE_GUARD_WIPE_SELECTIVE,
-            &to_cbor_bytes(&Value::Map(wipe_bad_pin)),
+            &to_cbor_bytes(&Value::Map(wipe_confirmed)),
             1200,
-            &mut rng,
-        );
-        assert_eq!(st, CTAP2_ERR_PIN_AUTH_INVALID);
-
-        // 3. Wipe with CORRECT PIN + confirm -> Succeeds (0x00) and executes wipe
-        let wipe_good_pin = vec![
-            (Value::Text("confirm".into()), Value::Bool(true)),
-            (Value::Text("pin".into()), Value::Bytes(b"4927".to_vec())),
-        ];
-        let (st, _) = exec_secure_guard_op(
-            &mut engine,
-            &mut storage,
-            &mut wallet,
-            &mut key_mgr,
-            &mut oath,
-            OP_SECURE_GUARD_WIPE_SELECTIVE,
-            &to_cbor_bytes(&Value::Map(wipe_good_pin)),
-            1300,
             &mut rng,
         );
         assert_eq!(st, 0x00);
         assert_eq!(engine.state(), SecureGuardState::Unprovisioned);
+        assert!(!engine.is_provisioned());
+    }
+
+    #[test]
+    fn test_any_pin_creation_000000_and_849201() {
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let policy = SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            ..Default::default()
+        };
+        let mut engine = SecureGuardEngine::new(policy.clone());
+        let mut rng = rand_core::OsRng;
+
+        // 1. PIN 000000 is accepted
+        let prov_zeros = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Text("000000".into())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(prov_zeros)),
+            1000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert!(engine.is_provisioned());
+
+        // Unlock com 000000
+        let unl_zeros = vec![
+            (Value::Text("action".into()), Value::Text("unlock".into())),
+            (Value::Text("pin".into()), Value::Text("000000".into())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(unl_zeros)),
+            1100,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert!(engine.is_unlocked());
+
+        // Wipe full com scope 0xFF
+        let wipe_full = vec![
+            (Value::Text("scope".into()), Value::from(0xFF)),
+            (Value::Text("confirm".into()), Value::Bool(true)),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_WIPE_SELECTIVE,
+            &to_cbor_bytes(&Value::Map(wipe_full)),
+            1200,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert_eq!(engine.state(), SecureGuardState::Unprovisioned);
+
+        // 2. PIN 849201 is accepted
+        let prov_custom = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Text("849201".into())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(prov_custom)),
+            1300,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert!(engine.is_provisioned());
+
+        // Unlock com 849201
+        let unl_custom = vec![
+            (Value::Text("action".into()), Value::Text("unlock".into())),
+            (Value::Text("pin".into()), Value::Text("849201".into())),
+        ];
+        let (st, _) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(unl_custom)),
+            1400,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert!(engine.is_unlocked());
+    }
+
+    #[test]
+    fn test_wipe_full_emergency_in_ratelimited_or_locked_state() {
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut engine = SecureGuardEngine::new(SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            wipe_on_5_failures: false,
+            ..Default::default()
+        });
+        let mut rng = rand_core::OsRng;
+
+        // Provision PIN "849201"
+        let prov = vec![
+            (Value::Text("action".into()), Value::Text("provision".into())),
+            (Value::Text("pin".into()), Value::Text("849201".into())),
+        ];
+        exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_UNLOCK,
+            &to_cbor_bytes(&Value::Map(prov)),
+            1000,
+            &mut rng,
+        );
+
+        // 5 consecutive failures -> RateLimited (15s backoff)
+        let mut time = 2000u64;
+        for _ in 1..=5 {
+            let bad = vec![
+                (Value::Text("action".into()), Value::Text("unlock".into())),
+                (Value::Text("pin".into()), Value::Text("000000".into())),
+            ];
+            exec_secure_guard_op(
+                &mut engine,
+                &mut storage,
+                &mut wallet,
+                &mut key_mgr,
+                &mut oath,
+                OP_SECURE_GUARD_UNLOCK,
+                &to_cbor_bytes(&Value::Map(bad)),
+                time,
+                &mut rng,
+            );
+            time += 100;
+        }
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
+
+        // Wipe Full emergency com confirmation "WIPE-CONFIRMED" mesmo em RateLimited!
+        let emergency_wipe = vec![
+            (Value::Text("confirmation".into()), Value::Text("WIPE-CONFIRMED".into())),
+            (Value::Text("scope".into()), Value::from(0x07)),
+        ];
+        let (st, body) = exec_secure_guard_op(
+            &mut engine,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            OP_SECURE_GUARD_WIPE_SELECTIVE,
+            &to_cbor_bytes(&Value::Map(emergency_wipe)),
+            time,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        assert_eq!(engine.state(), SecureGuardState::Unprovisioned);
+        assert!(!engine.is_provisioned());
+        let val: Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+        if let Value::Map(entries) = val {
+            assert_eq!(get_field(&entries, "wiped"), Some(&Value::Bool(true)));
+            assert_eq!(get_field(&entries, "state"), Some(&Value::from(0u8)));
+        }
     }
 
     #[test]

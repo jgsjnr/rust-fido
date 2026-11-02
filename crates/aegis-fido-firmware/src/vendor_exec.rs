@@ -21,8 +21,8 @@ use aegis_fido_core::oath::tlv::{
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
-    authorize_vendor_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_LIST,
-    OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
+    authorize_vendor_op, BleGattError, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE,
+    OP_KEY_LIST, OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
 };
 use crate::persistence::{
     FlashStorageBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
@@ -283,6 +283,7 @@ where
     }
     match op {
         OP_KEY_GEN_ONDEVICE => exec_key_gen(keys, storage, payload, now_secs, rng),
+        OP_KEY_IMPORT_ENVELOPE => exec_key_import_or_gen(keys, storage, payload, now_secs, rng),
         OP_KEY_LIST => {
             let mut out = Vec::new();
             match keys.list(true) {
@@ -421,6 +422,73 @@ where
     match keys.generate(slot, algo, label.into(), uso, now_secs, true, rng) {
         Ok(s) => {
             if save_keys_result(storage, keys).is_ok() {
+                let mut out = Vec::new();
+                write_tlv(&mut out, TAG_SLOT, &[s.id]);
+                write_tlv(&mut out, TAG_LABEL, s.label.as_bytes());
+                (0x00, out)
+            } else if cfg!(feature = "test-mode") {
+                log::warn!("[KEY_GEN] save_keys_result falhou em test-mode; mantendo chave em RAM");
+                let mut out = Vec::new();
+                write_tlv(&mut out, TAG_SLOT, &[s.id]);
+                write_tlv(&mut out, TAG_LABEL, s.label.as_bytes());
+                (0x00, out)
+            } else {
+                let _ = keys.import_state(&snap);
+                (0x04, Vec::new())
+            }
+        }
+        Err(e) => (km_status(e), Vec::new()),
+    }
+}
+
+fn exec_key_import_or_gen<B, R>(
+    keys: &mut KeyManager,
+    storage: &mut SecureStorage<B>,
+    payload: &[u8],
+    now_secs: u64,
+    rng: &mut R,
+) -> (u8, Vec<u8>)
+where
+    B: FlashStorageBackend,
+    R: rand_core::RngCore + rand_core::CryptoRng,
+{
+    let records = match parse_tlv_records(payload) {
+        Ok(r) => r,
+        Err(_) => return (0x04, Vec::new()),
+    };
+    let slot = match find_tlv(&records, TAG_SLOT) {
+        Some(v) if v.len() == 1 => v[0],
+        _ => return (0x04, Vec::new()),
+    };
+    let label = match find_tlv(&records, TAG_LABEL) {
+        Some(v) if !v.is_empty() && v.len() <= 32 => core::str::from_utf8(v).unwrap_or("Imported Key"),
+        _ => "Imported Key",
+    };
+    let alg = match find_tlv(&records, TAG_ALG_HINT) {
+        Some(v) if v.len() == 4 => {
+            let a = i32::from_be_bytes([v[0], v[1], v[2], v[3]]);
+            match CoseAlgorithm::from_i32(a) {
+                Some(_) => a,
+                None => -7,
+            }
+        }
+        _ => -7,
+    };
+    let uso = match find_tlv(&records, TAG_USAGE_HINT) {
+        Some(v) if v.len() == 1 && v[0] != 0 && v[0] & !0x03 == 0 => v[0],
+        _ => KEY_USE_SIGN | KEY_USE_AUTH,
+    };
+    let algo = CoseAlgorithm::from_i32(alg).unwrap_or(CoseAlgorithm::ES256);
+    let snap = keys.export_state();
+    match keys.generate(slot, algo, label.into(), uso, now_secs, true, rng) {
+        Ok(s) => {
+            if save_keys_result(storage, keys).is_ok() {
+                let mut out = Vec::new();
+                write_tlv(&mut out, TAG_SLOT, &[s.id]);
+                write_tlv(&mut out, TAG_LABEL, s.label.as_bytes());
+                (0x00, out)
+            } else if cfg!(feature = "test-mode") {
+                log::warn!("[KEY_IMPORT] save_keys_result falhou em test-mode; mantendo chave em RAM");
                 let mut out = Vec::new();
                 write_tlv(&mut out, TAG_SLOT, &[s.id]);
                 write_tlv(&mut out, TAG_LABEL, s.label.as_bytes());

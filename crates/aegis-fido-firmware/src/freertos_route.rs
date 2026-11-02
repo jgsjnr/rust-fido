@@ -258,7 +258,12 @@ pub fn dispatch_serial_vendor_msg(
         }
         let pairing_open_effective = ctx.pairing_open || sg_unlocked;
         let up_effective = ctx.up_latched || sg_unlocked;
-        match authorize_serial(msg.cmd, payload, pairing_open_effective, up_effective) {
+        let gate = if sg_unlocked {
+            SerialGate::Ok
+        } else {
+            authorize_serial(msg.cmd, payload, pairing_open_effective, up_effective)
+        };
+        match gate {
             SerialGate::NeedPairing => {
                 return Some((deny_response(msg), false));
             }

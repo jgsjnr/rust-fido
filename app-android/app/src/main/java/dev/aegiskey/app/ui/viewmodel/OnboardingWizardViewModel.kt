@@ -37,6 +37,7 @@ data class OnboardingWizardUiState(
     val isBinding: Boolean = false,
     val buttonHoldDetected: Boolean = false,
     val buttonTouchDetected: Boolean = false,
+    val isUsbDetected: Boolean = false,
     val keyAlias: String = "Minha Chave Principal",
     val recoveryPin: String = "",
     val errorMessage: String? = null,
@@ -71,6 +72,10 @@ class OnboardingWizardViewModel(
 
         pairingWizardRepository.isScanning.onEach { scanning ->
             _uiState.update { it.copy(isScanning = scanning) }
+        }.launchIn(viewModelScope)
+
+        pairingWizardRepository.isUsbDetected.onEach { detected ->
+            _uiState.update { it.copy(isUsbDetected = detected) }
         }.launchIn(viewModelScope)
 
         pairingWizardRepository.buttonHoldSimulatedOrDetected.onEach { detected ->
@@ -205,10 +210,12 @@ class OnboardingWizardViewModel(
                     val isMockCandidate = DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate.id)
                     if (connectResult.isSuccess || isMockCandidate) {
                         stopDiscoveryUseCase()
+                        pairingWizardRepository.autoValidatePresence(candidate, transport)
                         _uiState.update {
                             it.copy(
                                 isConnecting = false,
                                 currentStep = OnboardingStep.TOUCH_AND_BIOMETRIC_BIND,
+                                buttonTouchDetected = true,
                                 errorMessage = null
                             )
                         }
@@ -261,6 +268,41 @@ class OnboardingWizardViewModel(
             OnboardingStep.NAME_AND_FINISH -> OnboardingStep.TOUCH_AND_BIOMETRIC_BIND
         }
         _uiState.update { it.copy(currentStep = previous, errorMessage = null) }
+    }
+
+    fun restoreState(step: OnboardingStep, transport: ConnectionTransportType) {
+        _uiState.update {
+            it.copy(
+                currentStep = step,
+                selectedTransport = transport
+            )
+        }
+    }
+
+    fun skipOnboardingAndGoToVault(onFinished: () -> Unit) {
+        viewModelScope.launch {
+            pairingWizardRepository.registerConfiguredKeyOrSkip()
+            _uiState.update { it.copy(isCompleted = true) }
+            onFinished()
+        }
+    }
+
+    fun connectUsbDeviceAndOpenVault(onFinished: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isConnecting = true, errorMessage = null) }
+            val result = pairingWizardRepository.connectUsbDeviceAndRegister()
+            result.onSuccess {
+                _uiState.update { it.copy(isConnecting = false, isCompleted = true) }
+                onFinished()
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isConnecting = false,
+                        errorMessage = "Erro ao conectar chave USB: ${error.localizedMessage ?: "Verifique a conexão OTG."}"
+                    )
+                }
+            }
+        }
     }
 
     fun completeWizardWithCustomName(

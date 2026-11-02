@@ -72,6 +72,7 @@ mod tests {
     fn test_provision_valid_and_invalid_pins() {
         let policy = SecureGuardPolicy {
             pbkdf2_iterations: 10,
+            reject_trivial_pins: true,
             ..Default::default()
         };
         let mut engine = SecureGuardEngine::new(policy);
@@ -195,21 +196,28 @@ mod tests {
         // Advance past delay 15000ms
         time += 15500;
 
-        // Failure 5: triggers RecoveryRequired
+        // Failure 5: triggers 15-second RateLimited (NEVER locks forever!)
         let err5 = engine.unlock_with_pin(TEST_WRONG_PIN, time);
         assert!(matches!(
             err5,
-            Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+            Err(SecureGuardError::RateLimited { remaining_ms: 15000 })
         ));
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
         assert_eq!(engine.failed_attempts(), 5);
 
-        // Any subsequent unlock_with_pin is rejected
+        // Subsequent attempt within 15s is rate-limited
         let blocked = engine.unlock_with_pin(TEST_PIN, time + 100);
         assert!(matches!(
             blocked,
-            Err(SecureGuardError::MaxAttemptsReachedRecoveryRequired)
+            Err(SecureGuardError::RateLimited { .. })
         ));
+
+        // After 15s cooldown, correct PIN unlocks!
+        time += 15500;
+        let unlocked = engine.unlock_with_pin(TEST_PIN, time);
+        assert!(unlocked.is_ok());
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+        assert_eq!(engine.failed_attempts(), 0);
     }
 
     #[test]
@@ -381,6 +389,7 @@ mod tests {
         assert!(engine.unlock_with_pin(TEST_PIN, 2100).is_ok());
 
         // 2. Trivial new PIN fails and preserves old PIN
+        engine.policy_mut().reject_trivial_pins = true;
         let err2 = engine.change_pin(TEST_PIN, b"1111", [0x30; 16], 3000);
         assert!(matches!(err2, Err(SecureGuardError::TrivialPinRejected)));
 
@@ -421,7 +430,7 @@ mod tests {
                 _ => 100,
             };
         }
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
         // 1. Wrong recovery code fails
         let bad_rec = engine.recover_with_code(b"wrong_code", b"7412", [0x40; 16], time);
@@ -429,7 +438,7 @@ mod tests {
             bad_rec,
             Err(SecureGuardError::InvalidRecoveryCode)
         ));
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
         // 2. Legitimate recovery with valid code
         let ok_rec = engine.recover_with_code(&recovery_code, b"7412", [0x40; 16], time + 500);
@@ -502,7 +511,7 @@ mod tests {
             Ok(())
         );
 
-        // 6. Force RecoveryRequired state: FIDO Standard STILL allowed!
+        // 6. Force RateLimited state with 5 failures: FIDO Standard STILL allowed!
         engine.lock_now(3000).unwrap();
         let mut time = 3000u64;
         for i in 1..=5 {
@@ -515,7 +524,7 @@ mod tests {
                 _ => 100,
             };
         }
-        assert_eq!(engine.state(), SecureGuardState::RecoveryRequired);
+        assert_eq!(engine.state(), SecureGuardState::RateLimited);
 
         // FIDO Standard Flow STILL PERMITTED!
         assert_eq!(

@@ -134,12 +134,108 @@ class SecureGuardRepositoryAndCborTest {
         )
 
         vm.unlock("1234")
-        advanceUntilIdle()
+        testScheduler.runCurrent()
 
         val err = vm.uiState.value.errorMessage
         assertNotNull(err)
         assertFalse("Não deve expor jna", err!!.contains("jna", ignoreCase = true))
         assertFalse("Não deve expor Native", err.contains("Native", ignoreCase = true))
         assertTrue("Deve ser mensagem amigável", err.contains("Falha na comunicação", ignoreCase = true) || err.contains("hardware", ignoreCase = true))
+    }
+
+    @Test
+    fun viewModel_unlockClosesPromptAndSetsUnlockedTrue() = runTest(testDispatcher) {
+        val unlockedStatus = SecureGuardStatus(
+            state = SecureGuardStateEnum.UNLOCKED,
+            isProvisioned = true,
+            isUnlocked = true,
+            failedAttempts = 0,
+            remainingAttempts = 5,
+            sessionRemainingMs = 300_000L
+        )
+
+        val successRepo = object : dev.aegiskey.app.domain.repository.SecureGuardRepository {
+            override val statusFlow = kotlinx.coroutines.flow.MutableStateFlow(unlockedStatus)
+            override suspend fun getStatus() = Result.success(unlockedStatus)
+            override suspend fun provision(pin: String, recoveryCode: String?, policy: SecureGuardPolicy?) = Result.success("RECOVERY-123")
+            override suspend fun unlock(pin: String) = Result.success(unlockedStatus)
+            override suspend fun lock() = Result.success(Unit)
+            override suspend fun changePin(currentPin: String, newPin: String) = Result.success(Unit)
+            override suspend fun recover(recoveryCode: String, newPin: String) = Result.success(null)
+            override suspend fun updatePolicy(policy: SecureGuardPolicy) = Result.success(policy)
+            override suspend fun wipeSelective(scope: Int, confirmationToken: String) = Result.success(false)
+        }
+
+        val vm = SecureGuardViewModel(
+            getSecureGuardStatusUseCase = GetSecureGuardStatusUseCase(successRepo),
+            provisionSecureGuardUseCase = ProvisionSecureGuardUseCase(successRepo),
+            unlockSecureGuardUseCase = UnlockSecureGuardUseCase(successRepo),
+            lockSecureGuardUseCase = LockSecureGuardUseCase(successRepo),
+            changeSecureGuardPinUseCase = ChangeSecureGuardPinUseCase(successRepo),
+            recoverSecureGuardUseCase = RecoverSecureGuardUseCase(successRepo),
+            updateSecureGuardPolicyUseCase = UpdateSecureGuardPolicyUseCase(successRepo),
+            triggerSelectiveWipeTestUseCase = TriggerSelectiveWipeTestUseCase(successRepo)
+        )
+
+        vm.openUnlockPrompt()
+        assertTrue("Prompt deve abrir", vm.uiState.value.isUnlockPromptOpen)
+
+        vm.unlock("1234")
+        testScheduler.runCurrent()
+
+        assertFalse("Prompt deve fechar imediatamente após unlock com sucesso", vm.uiState.value.isUnlockPromptOpen)
+        assertTrue("Status deve estar desbloqueado", vm.uiState.value.status.isUnlocked)
+        assertEquals(SecureGuardStateEnum.UNLOCKED, vm.uiState.value.status.state)
+    }
+
+    @Test
+    fun viewModel_wipeSelectiveRestoresToUnprovisionedAndClosesPrompt() = runTest(testDispatcher) {
+        val initialStatus = SecureGuardStatus(
+            state = SecureGuardStateEnum.UNLOCKED,
+            isProvisioned = true,
+            isUnlocked = true
+        )
+
+        val wipeRepo = object : dev.aegiskey.app.domain.repository.SecureGuardRepository {
+            override val statusFlow = kotlinx.coroutines.flow.MutableStateFlow(initialStatus)
+            override suspend fun getStatus() = Result.success(statusFlow.value)
+            override suspend fun provision(pin: String, recoveryCode: String?, policy: SecureGuardPolicy?) = Result.success("RC")
+            override suspend fun unlock(pin: String) = Result.success(initialStatus)
+            override suspend fun lock() = Result.success(Unit)
+            override suspend fun changePin(currentPin: String, newPin: String) = Result.success(Unit)
+            override suspend fun recover(recoveryCode: String, newPin: String) = Result.success(null)
+            override suspend fun updatePolicy(policy: SecureGuardPolicy) = Result.success(policy)
+            override suspend fun wipeSelective(scope: Int, confirmationToken: String): Result<Boolean> {
+                val wiped = SecureGuardStatus(
+                    state = SecureGuardStateEnum.UNPROVISIONED,
+                    isProvisioned = false,
+                    isUnlocked = false
+                )
+                statusFlow.value = wiped
+                return Result.success(false)
+            }
+        }
+
+        val vm = SecureGuardViewModel(
+            getSecureGuardStatusUseCase = GetSecureGuardStatusUseCase(wipeRepo),
+            provisionSecureGuardUseCase = ProvisionSecureGuardUseCase(wipeRepo),
+            unlockSecureGuardUseCase = UnlockSecureGuardUseCase(wipeRepo),
+            lockSecureGuardUseCase = LockSecureGuardUseCase(wipeRepo),
+            changeSecureGuardPinUseCase = ChangeSecureGuardPinUseCase(wipeRepo),
+            recoverSecureGuardUseCase = RecoverSecureGuardUseCase(wipeRepo),
+            updateSecureGuardPolicyUseCase = UpdateSecureGuardPolicyUseCase(wipeRepo),
+            triggerSelectiveWipeTestUseCase = TriggerSelectiveWipeTestUseCase(wipeRepo)
+        )
+
+        vm.openUnlockPrompt()
+        assertTrue(vm.uiState.value.isUnlockPromptOpen)
+
+        vm.wipeSelective(0, "CONFIRM_TOKEN")
+        advanceUntilIdle()
+
+        assertFalse("Prompt deve fechar após wipe", vm.uiState.value.isUnlockPromptOpen)
+        assertFalse("Deve desprovisionar", vm.uiState.value.status.isProvisioned)
+        assertFalse("Deve bloquear", vm.uiState.value.status.isUnlocked)
+        assertEquals(SecureGuardStateEnum.UNPROVISIONED, vm.uiState.value.status.state)
     }
 }

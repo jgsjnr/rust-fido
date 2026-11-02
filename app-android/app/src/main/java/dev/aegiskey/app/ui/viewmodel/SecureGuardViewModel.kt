@@ -171,10 +171,19 @@ class SecureGuardViewModel(
                             isLoading = false,
                             generatedRecoveryCode = rc,
                             successMessage = "Secure Guard provisionado com sucesso!",
-                            isUnlockPromptOpen = false
+                            isUnlockPromptOpen = false,
+                            status = it.status.copy(
+                                state = SecureGuardStateEnum.UNLOCKED,
+                                isUnlocked = true,
+                                isProvisioned = true,
+                                failedAttempts = 0,
+                                remainingAttempts = 5,
+                                sessionRemainingMs = 300_000L,
+                                lastGeneratedRecoveryCode = rc
+                            )
                         )
                     }
-                    refreshStatus()
+                    startCountdownTickerIfNeeded()
                 }
                 .onFailure { t ->
                     _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
@@ -190,7 +199,14 @@ class SecureGuardViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            status = st,
+                            status = st.copy(
+                                state = SecureGuardStateEnum.UNLOCKED,
+                                isUnlocked = true,
+                                isProvisioned = true,
+                                failedAttempts = 0,
+                                remainingAttempts = 5,
+                                sessionRemainingMs = 300_000L
+                            ),
                             successMessage = "Cofre desbloqueado com sucesso!",
                             isUnlockPromptOpen = false
                         )
@@ -310,10 +326,17 @@ class SecureGuardViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isUnlockPromptOpen = false,
+                            status = it.status.copy(
+                                state = SecureGuardStateEnum.UNPROVISIONED,
+                                isProvisioned = false,
+                                isUnlocked = false,
+                                sessionRemainingMs = 0L,
+                                rateLimitRemainingMs = 0L
+                            ),
                             successMessage = if (simulated) "Simulação de wipe concluída!" else "Wipe seletivo executado com sucesso."
                         )
                     }
-                    refreshStatus()
                 }
                 .onFailure { t ->
                     _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }

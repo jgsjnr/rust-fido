@@ -172,6 +172,13 @@ class BleKeyTransport(
         enforceWindowsLock: Boolean = false
     ): Boolean = hostBridgeClient.configureProximityLock(enabled, thresholdDbm, lockSeconds, enforceWindowsLock)
 
+    suspend fun notifySecureGuardUnlocked() {
+        runCatching {
+            sendVendor(0x2F, byteArrayOf())
+            sendVendor(0x2D, byteArrayOf())
+        }
+    }
+
     suspend fun unlockProximitySession(pin: String): Boolean =
         hostBridgeClient.unlockProximitySession(pin)
 }

@@ -164,6 +164,7 @@ fun KeyVaultHubScreen(
                             viewModel.refreshVault()
                         },
                         onUnlock = { pin ->
+                            secureGuardViewModel.dismissUnlockPrompt()
                             secureGuardViewModel.unlock(pin)
                             viewModel.refreshVault()
                         },
@@ -507,6 +508,13 @@ fun KeyVaultHubScreen(
     // Modal Popup de PIN por Sessão Sincronizada com a Hardwallet
     if (secureGuardViewModel != null) {
         val sgState by secureGuardViewModel.uiState.collectAsState()
+        LaunchedEffect(sgState.status.isUnlocked, sgState.status.state) {
+            if (sgState.status.isUnlocked || sgState.status.state == dev.aegiskey.app.domain.model.SecureGuardStateEnum.UNLOCKED) {
+                secureGuardViewModel.dismissUnlockPrompt()
+                viewModel.refreshVault()
+            }
+        }
+
         if (sgState.isUnlockPromptOpen) {
             HardwareSessionPinPopupDialog(
                 isOpen = true,
@@ -516,6 +524,7 @@ fun KeyVaultHubScreen(
                 errorMessage = sgState.errorMessage,
                 onDismissRequest = { secureGuardViewModel.dismissUnlockPrompt() },
                 onConfirmPin = { pin, _ ->
+                    secureGuardViewModel.dismissUnlockPrompt()
                     secureGuardViewModel.unlock(pin)
                     viewModel.refreshVault()
                 }

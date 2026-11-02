@@ -10,6 +10,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import dev.aegiskey.app.ui.screens.FriendlyOnboardingWizardScreen
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
@@ -82,13 +87,21 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
     val activeKey by keysViewModel.activeKey.collectAsState()
     val guardUiState by secureGuardViewModel.uiState.collectAsState()
 
+    var showWizard by rememberSaveable { mutableStateOf(!hasAnyKey) }
+
+    LaunchedEffect(hasAnyKey) {
+        if (hasAnyKey) {
+            showWizard = false
+        }
+    }
+
     AegisTheme(darkTheme = darkTheme, dynamicColor = themePref.useDynamicColors) {
         // Guided onboarding displays in full screen when no security key is connected.
-        if (!hasAnyKey) {
-            OnboardingWizardScreen(
+        if (!hasAnyKey && showWizard) {
+            FriendlyOnboardingWizardScreen(
                 viewModel = onboardingViewModel,
                 onFinished = {
-                    // Completing onboarding registers the key, transitioning hasAnyKey to true.
+                    showWizard = false
                 }
             )
         } else {
@@ -197,7 +210,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
 
                     // Pairing Wizard flow
                     composable("onboarding-wizard") {
-                        OnboardingWizardScreen(
+                        FriendlyOnboardingWizardScreen(
                             viewModel = onboardingViewModel,
                             onFinished = {
                                 nav.navigate(HubDestination.VAULT.route) {

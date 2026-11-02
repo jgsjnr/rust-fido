@@ -75,6 +75,13 @@ class UsbKeyTransport(
         return hostBridgeClient.sendVendor(0x83, payload)
     }
 
+    suspend fun notifySecureGuardUnlocked() {
+        runCatching {
+            sendVendor(0x2F, byteArrayOf())
+            sendVendor(0x2D, byteArrayOf())
+        }
+    }
+
     override suspend fun cancel(): Boolean {
         return true
     }

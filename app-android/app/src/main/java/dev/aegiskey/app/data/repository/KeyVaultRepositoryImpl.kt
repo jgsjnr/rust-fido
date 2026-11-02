@@ -58,14 +58,14 @@ class KeyVaultRepositoryImpl(
 
     init {
         val initialKey = connectedKeysRepository.activeKey.value
-        if (initialKey != null && initialKey.isCurrentlyConnected) {
+        if (initialKey != null) {
             _vaultEntries.value = keysStore.loadVaultEntries(initialKey.id)
         } else {
             _vaultEntries.value = emptyList()
         }
 
         connectedKeysRepository.activeKey.onEach { key ->
-            if (key != null && key.isCurrentlyConnected) {
+            if (key != null) {
                 _vaultEntries.value = keysStore.loadVaultEntries(key.id)
             } else {
                 _vaultEntries.value = emptyList()
@@ -75,64 +75,54 @@ class KeyVaultRepositoryImpl(
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        if (activeKey?.isCurrentlyConnected == false) {
-            return null
+        val preferredTransport = activeKey?.transportType
+
+        // 1. Se preferredTransport == BLE, tenta BLE primeiro
+        if (preferredTransport == ConnectionTransportType.BLE) {
+            val bleResp = bleKeyTransport?.sendVendor(opcode, payload)
+            if (bleResp != null && bleResp.isNotEmpty()) return bleResp
         }
-        val addr = activeKey?.hardwareAddressOrId ?: ""
-        return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
-                usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
-                simulatedRenodeTransport.sendVendor(opcode, payload)
-            }
-            activeKey?.transportType == ConnectionTransportType.BLE -> {
-                bleKeyTransport?.sendVendor(opcode, payload)
-                    ?: usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
-            else -> {
-                usbKeyTransport?.sendVendor(opcode, payload)
-                    ?: bleKeyTransport?.sendVendor(opcode, payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendVendor(opcode, payload) else null)
-            }
+
+        // 2. Tenta USB (que já faz ensureSessionOpen() / open() se OTG plugado ou via bridge)
+        val usbResp = usbKeyTransport?.sendVendor(opcode, payload)
+        if (usbResp != null && usbResp.isNotEmpty()) return usbResp
+
+        // 3. Tenta BLE se ainda não tentou ou se USB não respondeu
+        if (preferredTransport != ConnectionTransportType.BLE) {
+            val bleResp = bleKeyTransport?.sendVendor(opcode, payload)
+            if (bleResp != null && bleResp.isNotEmpty()) return bleResp
         }
+
+        // 4. Se simulador habilitado, tenta simulador
+        if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            val simResp = simulatedRenodeTransport.sendVendor(opcode, payload)
+            if (simResp != null && simResp.isNotEmpty()) return simResp
+        }
+
+        return null
     }
 
     private suspend fun sendMsg(payload: ByteArray): ByteArray? {
         val activeKey = connectedKeysRepository.activeKey.value
-        if (activeKey?.isCurrentlyConnected == false) {
-            return null
+        val preferredTransport = activeKey?.transportType
+
+        if (preferredTransport == ConnectionTransportType.BLE) {
+            val bleResp = bleKeyTransport?.sendMsg(payload)
+            if (bleResp != null && bleResp.isNotEmpty()) return bleResp
         }
-        val addr = activeKey?.hardwareAddressOrId ?: ""
-        return when {
-            addr.startsWith("BRIDGE:") || activeKey?.transportType == ConnectionTransportType.USB || addr.startsWith("USB:") -> {
-                usbKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.WIFI || addr.startsWith("WIFI:") -> {
-                usbKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
-            activeKey?.transportType == ConnectionTransportType.SIMULATOR -> {
-                simulatedRenodeTransport.sendMsg(payload)
-            }
-            activeKey?.transportType == ConnectionTransportType.BLE -> {
-                bleKeyTransport?.sendMsg(payload)
-                    ?: usbKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
-            else -> {
-                usbKeyTransport?.sendMsg(payload)
-                    ?: bleKeyTransport?.sendMsg(payload)
-                    ?: (if (DebugHardwareChipMock.IS_MOCK_ENABLED) simulatedRenodeTransport.sendMsg(payload) else null)
-            }
+
+        val usbResp = usbKeyTransport?.sendMsg(payload)
+        if (usbResp != null && usbResp.isNotEmpty()) return usbResp
+
+        val bleResp = bleKeyTransport?.sendMsg(payload)
+        if (bleResp != null && bleResp.isNotEmpty()) return bleResp
+
+        if (DebugHardwareChipMock.IS_MOCK_ENABLED) {
+            val simResp = simulatedRenodeTransport.sendMsg(payload)
+            if (simResp != null && simResp.isNotEmpty()) return simResp
         }
+
+        return null
     }
 
     private data class ParsedWalletEntry(val slot: Int, val label: String, val address: String)
@@ -261,8 +251,19 @@ class KeyVaultRepositoryImpl(
         val candidateSlots = listOf(preferredSlot) + (0..31).filter { it != preferredSlot && it !in occupiedSlots }
         for (slot in candidateSlots) {
             val req = VendorOps.genRequest(slot, label.take(32), coseAlg, usage)
-            val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req) ?: continue
-            val status = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+            var resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req) ?: continue
+            var status = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+
+            if (status == VendorOps.STATUS_NEED_UP || status == VendorOps.STATUS_NEED_PIN || status == VendorOps.STATUS_NEED_BINDING || status == VendorOps.STATUS_OPERATION_DENIED || status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED || status == 0x06) {
+                usbKeyTransport?.notifySecureGuardUnlocked()
+                bleKeyTransport?.notifySecureGuardUnlocked()
+                val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
+                if (retry != null && retry.size >= 2) {
+                    resp = retry
+                    status = resp[1].toInt() and 0xFF
+                }
+            }
+
             if (status == VendorOps.STATUS_OK) {
                 return Pair(slot, resp)
             } else if (status == VendorOps.STATUS_NO_SLOT) {
