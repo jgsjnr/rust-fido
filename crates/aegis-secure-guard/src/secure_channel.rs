@@ -12,12 +12,14 @@
 //!    - `mac_key` (32 bytes): Key for HMAC-SHA256 authentication tag.
 //! 4. **Authenticated Framing**: Every payload carries `nonce` (12 bytes), monotonic `counter` (4 bytes),
 //!    and a 32-byte authentication tag verified strictly in constant time (`constant_time_eq_32`).
+//!    The tag AD additionally binds both ephemeral SEC1 public keys (F-02), so a
+//!    frame sealed in session N never verifies in session N+1 (fail closed on upgrade).
 //! 5. **Anti-Replay**: Monotonic counter enforces strictly increasing sequence numbers.
 //! 6. **Zeroization**: All ephemeral keys, shared secrets, and session keys are scrubbed with `Zeroize` on drop.
 
 use alloc::vec::Vec;
-use p256::elliptic_curve::Generate;
 use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
 use p256::{ecdh::diffie_hellman, PublicKey, SecretKey};
 use rand_core::CryptoRng;
 use zeroize::Zeroize;
@@ -44,9 +46,19 @@ pub struct SealedPinPayload {
 }
 
 /// Ephemeral ECDH Secure Channel for PIN and Vendor Commands (`GAP-02`).
+///
+/// # Session binding (F-02 hardening)
+/// The HMAC authentication tag's associated data (AD) binds BOTH ephemeral
+/// public keys (local + remote, canonically ordered) alongside the nonce and
+/// counter. AD is never transmitted, so the wire framing is unchanged, but a
+/// frame sealed in session N verifies only in session N: after an upgrade,
+/// frames captured under an old (unbound) tag fail closed with
+/// `SecureChannelAuthFailed`. This one-way property is intentional — old
+/// sessions do not interoperate with bound sessions.
 pub struct SecureGuardEcdhChannel {
     private_key: SecretKey,
     public_key_sec1: [u8; 65],
+    peer_public_key_sec1: Option<[u8; 65]>,
     enc_key: [u8; 32],
     mac_key: [u8; 32],
     is_established: bool,
@@ -81,6 +93,7 @@ impl SecureGuardEcdhChannel {
         Self {
             private_key,
             public_key_sec1: sec1,
+            peer_public_key_sec1: None,
             enc_key: [0u8; 32],
             mac_key: [0u8; 32],
             is_established: false,
@@ -103,6 +116,7 @@ impl SecureGuardEcdhChannel {
         Ok(Self {
             private_key,
             public_key_sec1: sec1,
+            peer_public_key_sec1: None,
             enc_key: [0u8; 32],
             mac_key: [0u8; 32],
             is_established: false,
@@ -138,7 +152,10 @@ impl SecureGuardEcdhChannel {
     /// Completes the ECDH key exchange with the peer's 65-byte SEC1 uncompressed public key.
     ///
     /// Derives `enc_key` (32 bytes) and `mac_key` (32 bytes) via HKDF-SHA256.
-    pub fn complete_handshake(&mut self, peer_pub_key_sec1: &[u8; 65]) -> Result<(), SecureGuardError> {
+    pub fn complete_handshake(
+        &mut self,
+        peer_pub_key_sec1: &[u8; 65],
+    ) -> Result<(), SecureGuardError> {
         let peer_pub = PublicKey::from_sec1_bytes(peer_pub_key_sec1)
             .map_err(|_| SecureGuardError::InvalidEcdhKey)?;
 
@@ -158,6 +175,7 @@ impl SecureGuardEcdhChannel {
 
         self.enc_key.copy_from_slice(&okm[0..32]);
         self.mac_key.copy_from_slice(&okm[32..64]);
+        self.peer_public_key_sec1 = Some(*peer_pub_key_sec1);
         self.is_established = true;
         self.last_seen_counter = 0;
 
@@ -166,7 +184,12 @@ impl SecureGuardEcdhChannel {
     }
 
     /// Computes deterministic keystream for block index.
-    fn compute_keystream_block(&self, nonce: &[u8; 12], counter: u32, block_index: u32) -> [u8; 32] {
+    fn compute_keystream_block(
+        &self,
+        nonce: &[u8; 12],
+        counter: u32,
+        block_index: u32,
+    ) -> [u8; 32] {
         let mut data = [0u8; 20];
         data[0..12].copy_from_slice(nonce);
         data[12..16].copy_from_slice(&counter.to_be_bytes());
@@ -186,12 +209,48 @@ impl SecureGuardEcdhChannel {
         output
     }
 
+    /// Canonically ordered session binding: `min(local, remote) || max(local, remote)`.
+    ///
+    /// Ordering is lexicographic over the 65-byte SEC1 encodings so both peers
+    /// derive byte-identical AD regardless of which side is "local". Public
+    /// keys are public values; including them in the HMAC AD (not as key
+    /// material) only binds the tag to the session.
+    fn session_binding(&self) -> [u8; 130] {
+        let mut out = [0u8; 130];
+        match self.peer_public_key_sec1 {
+            Some(peer) => {
+                let (first, second) = if self.public_key_sec1 <= peer {
+                    (&self.public_key_sec1, &peer)
+                } else {
+                    (&peer, &self.public_key_sec1)
+                };
+                out[0..65].copy_from_slice(first);
+                out[65..130].copy_from_slice(second);
+            }
+            // Pre-handshake: no frames can flow (`seal`/`open` require an
+            // established session), so bind to the local key only. Any frame
+            // sealed here could never verify elsewhere.
+            None => {
+                out[0..65].copy_from_slice(&self.public_key_sec1);
+                out[65..130].copy_from_slice(&self.public_key_sec1);
+            }
+        }
+        out
+    }
+
     /// Computes 32-byte HMAC-SHA256 authentication tag over Associated Data:
-    /// `nonce (12B) || counter (4B) || ciphertext`.
+    /// `nonce (12B) || counter (4B) || session_binding (130B) || ciphertext`.
+    ///
+    /// `session_binding` is the canonically ordered concatenation of both
+    /// ephemeral SEC1 public keys (F-02). It is recomputed locally on seal
+    /// and open and never transmitted, so wire framing is unchanged; frames
+    /// from a different session (different ephemerals) fail tag verification.
     fn compute_tag(&self, nonce: &[u8; 12], counter: u32, ciphertext: &[u8]) -> [u8; 32] {
-        let mut ad = Vec::with_capacity(16 + ciphertext.len());
+        let binding = self.session_binding();
+        let mut ad = Vec::with_capacity(16 + 130 + ciphertext.len());
         ad.extend_from_slice(nonce);
         ad.extend_from_slice(&counter.to_be_bytes());
+        ad.extend_from_slice(&binding);
         ad.extend_from_slice(ciphertext);
         hmac_sha256(&self.mac_key, &ad)
     }
@@ -283,8 +342,12 @@ mod tests {
         assert_eq!(host_pub[0], 0x04);
 
         // 2. Perform ECDH key exchange
-        device_chan.complete_handshake(&host_pub).expect("device handshake");
-        host_chan.complete_handshake(&dev_pub).expect("host handshake");
+        device_chan
+            .complete_handshake(&host_pub)
+            .expect("device handshake");
+        host_chan
+            .complete_handshake(&dev_pub)
+            .expect("host handshake");
 
         assert!(device_chan.is_established());
         assert!(host_chan.is_established());
@@ -304,7 +367,12 @@ mod tests {
 
         // 4. Device opens PIN payload
         let opened = device_chan
-            .open_pin_payload(&sealed.ciphertext, &sealed.tag, &sealed.nonce, sealed.counter)
+            .open_pin_payload(
+                &sealed.ciphertext,
+                &sealed.tag,
+                &sealed.nonce,
+                sealed.counter,
+            )
             .expect("device open");
 
         assert_eq!(opened.as_slice(), pin);
@@ -316,8 +384,12 @@ mod tests {
         let mut device_chan = SecureGuardEcdhChannel::new_device(&mut rng);
         let mut host_chan = SecureGuardEcdhChannel::new_host(&mut rng);
 
-        device_chan.complete_handshake(&host_chan.local_public_key_sec1()).unwrap();
-        host_chan.complete_handshake(&device_chan.local_public_key_sec1()).unwrap();
+        device_chan
+            .complete_handshake(&host_chan.local_public_key_sec1())
+            .unwrap();
+        host_chan
+            .complete_handshake(&device_chan.local_public_key_sec1())
+            .unwrap();
 
         let pin = b"123456";
         let nonce = [0x55u8; 12];
@@ -326,7 +398,12 @@ mod tests {
         // Tamper with tag
         sealed.tag[0] ^= 0xFF;
 
-        let err = device_chan.open_pin_payload(&sealed.ciphertext, &sealed.tag, &sealed.nonce, sealed.counter);
+        let err = device_chan.open_pin_payload(
+            &sealed.ciphertext,
+            &sealed.tag,
+            &sealed.nonce,
+            sealed.counter,
+        );
         assert_eq!(err, Err(SecureGuardError::SecureChannelAuthFailed));
     }
 
@@ -336,18 +413,98 @@ mod tests {
         let mut device_chan = SecureGuardEcdhChannel::new_device(&mut rng);
         let mut host_chan = SecureGuardEcdhChannel::new_host(&mut rng);
 
-        device_chan.complete_handshake(&host_chan.local_public_key_sec1()).unwrap();
-        host_chan.complete_handshake(&device_chan.local_public_key_sec1()).unwrap();
+        device_chan
+            .complete_handshake(&host_chan.local_public_key_sec1())
+            .unwrap();
+        host_chan
+            .complete_handshake(&device_chan.local_public_key_sec1())
+            .unwrap();
 
         let pin = b"123456";
         let nonce = [0x55u8; 12];
 
         // First message with counter = 10
         let sealed1 = host_chan.seal_pin_payload(pin, &nonce, 10).unwrap();
-        assert!(device_chan.open_pin_payload(&sealed1.ciphertext, &sealed1.tag, &sealed1.nonce, sealed1.counter).is_ok());
+        assert!(device_chan
+            .open_pin_payload(
+                &sealed1.ciphertext,
+                &sealed1.tag,
+                &sealed1.nonce,
+                sealed1.counter
+            )
+            .is_ok());
 
         // Replay of counter = 10 or lower must fail
         let sealed_replay = host_chan.seal_pin_payload(pin, &nonce, 5);
         assert_eq!(sealed_replay, Err(SecureGuardError::ReplayCounterInvalid));
+    }
+
+    #[test]
+    fn test_cross_session_replay_rejected_f02() {
+        let mut rng = rand::rng();
+
+        // Session N: device + host handshake, host seals one frame.
+        let mut device_a = SecureGuardEcdhChannel::new_device(&mut rng);
+        let mut host_a = SecureGuardEcdhChannel::new_host(&mut rng);
+        device_a
+            .complete_handshake(&host_a.local_public_key_sec1())
+            .unwrap();
+        host_a
+            .complete_handshake(&device_a.local_public_key_sec1())
+            .unwrap();
+
+        let pin = b"948201";
+        let nonce = [0x77u8; 12];
+        let captured = host_a.seal_pin_payload(pin, &nonce, 1).unwrap();
+
+        // Session N+1: fresh ephemerals on both sides (new handshake).
+        let mut device_b = SecureGuardEcdhChannel::new_device(&mut rng);
+        let mut host_b = SecureGuardEcdhChannel::new_host(&mut rng);
+        device_b
+            .complete_handshake(&host_b.local_public_key_sec1())
+            .unwrap();
+        host_b
+            .complete_handshake(&device_b.local_public_key_sec1())
+            .unwrap();
+
+        // The captured frame must NOT verify in the new session, even though
+        // the counter is fresh there. Fails closed on the tag, not the counter.
+        let err = device_b.open_pin_payload(
+            &captured.ciphertext,
+            &captured.tag,
+            &captured.nonce,
+            captured.counter,
+        );
+        assert_eq!(err, Err(SecureGuardError::SecureChannelAuthFailed));
+    }
+
+    #[test]
+    fn test_same_session_roundtrip_still_ok_f02() {
+        let mut rng = rand::rng();
+        let mut device_chan = SecureGuardEcdhChannel::new_device(&mut rng);
+        let mut host_chan = SecureGuardEcdhChannel::new_host(&mut rng);
+
+        device_chan
+            .complete_handshake(&host_chan.local_public_key_sec1())
+            .unwrap();
+        host_chan
+            .complete_handshake(&device_chan.local_public_key_sec1())
+            .unwrap();
+
+        // Sequential counters in the same session keep working after binding.
+        for counter in [1u32, 2, 3] {
+            let pin = b"560123";
+            let nonce = [0x42u8; 12];
+            let sealed = host_chan.seal_pin_payload(pin, &nonce, counter).unwrap();
+            let opened = device_chan
+                .open_pin_payload(
+                    &sealed.ciphertext,
+                    &sealed.tag,
+                    &sealed.nonce,
+                    sealed.counter,
+                )
+                .expect("same-session frame must verify");
+            assert_eq!(opened.as_slice(), pin);
+        }
     }
 }
