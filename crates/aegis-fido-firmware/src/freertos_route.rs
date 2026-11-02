@@ -116,6 +116,31 @@ pub struct SerialVendorCtx<'a> {
     pub pin_uv_session: bool,
     /// Mecanismo do Secure Guard (autoridade local e barreira de autorização).
     pub secure_guard: Option<&'a mut aegis_fido_core::secure_guard::SecureGuardEngine>,
+    /// PIN extraído durante desbloqueio/provisionamento do Secure Guard (para sincronização com CTAP2).
+    pub verified_pin: Option<Vec<u8>>,
+}
+
+fn extract_pin_from_payload(payload: &[u8]) -> Option<Vec<u8>> {
+    if payload.is_empty() {
+        return None;
+    }
+    use ciborium::value::Value;
+    if let Ok(Value::Map(entries)) = ciborium::from_reader::<Value, _>(payload) {
+        for (k, v) in &entries {
+            if let Value::Text(key_str) = k {
+                if key_str == "pin" || key_str == "new_pin" {
+                    match v {
+                        Value::Bytes(b) => return Some(b.clone()),
+                        Value::Text(s) => return Some(s.as_bytes().to_vec()),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        None
+    } else {
+        Some(payload.to_vec())
+    }
 }
 
 /// Despacha 1 `CMD_MSG` serial vendor/bind-mgmt/wallet/fw-log/rescue/
@@ -208,6 +233,8 @@ pub fn dispatch_serial_vendor_msg(
                 ctx.pairing.open_host_window(ctx.now_ms);
                 ctx.pairing_open = true;
                 ctx.arm_up = true;
+                // Sincroniza o PIN do Secure Guard (ex.: 2707) com o ClientPIN FIDO2 / CTAP2
+                ctx.verified_pin = extract_pin_from_payload(&payload[1..]);
             } else if st == 0x00 && op == crate::ble_gatt::OP_SECURE_GUARD_LOCK {
                 ctx.pin_verified = false;
                 ctx.pairing_open = false;
@@ -367,7 +394,7 @@ pub fn route_ctaphid_event(
     up_latched: bool,
     now_ms: u64,
     now_secs: u64,
-    vendor: Option<&mut SerialVendorCtx<'_>>,
+    mut vendor: Option<&mut SerialVendorCtx<'_>>,
 ) -> CtaphidDispatch {
     let origin = packet_origin(event);
     let raw = packet_bytes(event);
@@ -452,12 +479,19 @@ pub fn route_ctaphid_event(
             // dispatcher FreeRTOS (paridade seção D legada). `None` = cai
             // no engine CTAP genérico abaixo (U2F/OTA/desconhecido).
             if msg.cmd == CMD_MSG && !msg.payload.is_empty() {
-                if let Some(ctx) = vendor {
+                if let Some(ref mut ctx) = vendor {
                     ctx.now_ms = now_ms;
                     ctx.now_secs = now_secs;
                     if let Some((responses, consumed)) = dispatch_serial_vendor_msg(ctx, &msg) {
                         let arm_up = ctx.arm_up;
                         let pin_verified = ctx.pin_verified;
+                        if let Some(pin_bytes) = ctx.verified_pin.take() {
+                            engine.pin_state.pin_hash = Some(aegis_fido_core::crypto::pin_hash(&pin_bytes));
+                            engine.pin_state.pin_retries = 8;
+                            engine.pin_state.power_cycle_state = false;
+                            let _ = crate::vendor_exec::save_pin_state(ctx.storage, &engine.pin_state);
+                            log::info!("[FIDO2] Secure Guard PIN sincronizado com CTAP2 Client PIN (clientPin ativo)!");
+                        }
                         return CtaphidDispatch {
                             responses,
                             origin: Some(origin),
@@ -470,11 +504,26 @@ pub fn route_ctaphid_event(
             }
             if msg.cmd == CMD_CBOR || msg.cmd == CMD_MSG {
                 let up_needed = ctaphid_up_required(msg.cmd, &msg.payload);
-                let up_ok = !up_needed || up_latched;
+                let sg_unlocked = vendor
+                    .as_ref()
+                    .and_then(|v| v.secure_guard.as_ref())
+                    .map(|s| s.is_unlocked())
+                    .unwrap_or(false);
+                let up_ok = !up_needed || up_latched || sg_unlocked;
                 let consumed = up_needed && up_latched;
                 engine.set_user_presence(up_ok);
                 let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
                 let resp = engine.process_packet(&msg.payload, now_secs, &mut rng);
+                log::info!(
+                    "[CTAP] cmd=0x{:02X} sub=0x{:02X} up_needed={} up_ok={} sg_unlocked={} -> status=0x{:02X} (len={})",
+                    msg.cmd,
+                    msg.payload.first().copied().unwrap_or(0),
+                    up_needed,
+                    up_ok,
+                    sg_unlocked,
+                    resp.first().copied().unwrap_or(0xFF),
+                    resp.len()
+                );
                 return CtaphidDispatch {
                     responses: CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
                     arm_up: false,
@@ -720,6 +769,7 @@ mod tests {
             pairing: &mut pairing,
             pin_uv_session: false,
             secure_guard: None,
+            verified_pin: None,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -788,6 +838,7 @@ mod tests {
             pairing: &mut pairing,
             pin_uv_session: false,
             secure_guard: None,
+            verified_pin: None,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -880,6 +931,7 @@ mod tests {
             pairing: &mut pairing,
             pin_uv_session: true,
             secure_guard: Some(&mut sg),
+            verified_pin: None,
         };
         let out_unprov = route_ctaphid_event(
             &mut mgr_usb,
@@ -929,6 +981,7 @@ mod tests {
             pairing: &mut pairing,
             pin_uv_session: true,
             secure_guard: Some(&mut sg),
+            verified_pin: None,
         };
 
         let out_prov = route_ctaphid_event(
@@ -1099,6 +1152,7 @@ mod tests {
             pairing: &mut pairing,
             pin_uv_session: false,
             secure_guard: Some(&mut sg),
+            verified_pin: None,
         };
 
         // FIDO2 standard MakeCredential / GetAssertion via CMD_CBOR
