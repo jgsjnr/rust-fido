@@ -13,6 +13,14 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0-wave5"
+        // OTA_HOOK.md line 1: release pubkey hex for the offline ota2 engine.
+        // Denied all-zeros placeholder (fail-closed): engine denies every
+        // verify until a real release key is provisioned. Never ship nonzero.
+        buildConfigField(
+            "String",
+            "OTA_RELEASE_PUBKEY_HEX",
+            "\"0000000000000000000000000000000000000000000000000000000000000000\""
+        )
     }
 
     compileOptions {

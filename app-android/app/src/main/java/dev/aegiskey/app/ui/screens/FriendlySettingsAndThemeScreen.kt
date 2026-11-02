@@ -139,6 +139,7 @@ fun FriendlySettingsAndThemeScreen(
     onNavigateToBackup: () -> Unit = {},
     onNavigateToTransfer: () -> Unit = {},
     onNavigateToOta: () -> Unit = {},
+    onNavigateToOta2: () -> Unit = {},
     onNavigateToRescue: () -> Unit = {},
     onNavigateToPiv: () -> Unit = {},
     onNavigateToLogs: () -> Unit = {},
@@ -1365,6 +1366,16 @@ fun FriendlySettingsAndThemeScreen(
                 description = stringResource(R.string.set_piv_desc),
                 icon = Icons.Filled.Badge,
                 onClick = onNavigateToPiv,
+            )
+        }
+
+        // --- 8.1 Offline Firmware Update (ota2 engine, no COMMIT) ---
+        item {
+            SettingsNavigationItemCard(
+                title = stringResource(R.string.ota2_nav_title),
+                description = stringResource(R.string.ota2_nav_desc),
+                icon = Icons.Filled.SystemUpdate,
+                onClick = onNavigateToOta2,
             )
         }
 

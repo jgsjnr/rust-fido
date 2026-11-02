@@ -2,6 +2,8 @@
 <!-- OTA offline de firmware.bin (motor ota2). ASD-STE100: texto curto, um conceito por string. Sem emoji. -->
 <resources>
     <string name="ota2_title">Atualização de firmware</string>
+    <string name="ota2_nav_title">Atualização de firmware offline</string>
+    <string name="ota2_nav_desc">Envia firmware.bin assinado do armazenamento. Sem COMMIT.</string>
     <string name="ota2_pick">Escolher firmware.bin</string>
     <string name="ota2_send">Enviar para a chave</string>
     <string name="ota2_abort">Anular</string>

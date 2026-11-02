@@ -30,6 +30,7 @@ import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.ota2.Ota2Screen
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.atomic.templates.HubDestination
@@ -217,7 +218,18 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                             keysViewModel = keysViewModel,
                             client = client,
                             localeStore = container.localeStore,
-                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") }
+                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") },
+                            onNavigateToOta2 = { nav.navigate("ota2") }
+                        )
+                    }
+
+                    // Offline firmware update (ota2 engine, no COMMIT)
+                    composable("ota2") {
+                        val otaTransport =
+                            if (client.isReady()) container.bleTransport else container.usbTransport
+                        Ota2Screen(
+                            transport = otaTransport,
+                            currentVersion = activeKey?.firmwareRevision?.toLong() ?: 0L,
                         )
                     }
 
