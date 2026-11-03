@@ -262,7 +262,9 @@ pub fn run_authenticator_freertos() {
             let mut led_output = EspWs2812Output::new(48);
             led_output.init_hardware();
             let mut ctrl = Ws2812Controller::new(led_output);
-            ctrl.set_effect(LedEffect::Solid(crate::led::Color::SECURE_GUARD_UNPROVISIONED));
+            ctrl.set_effect(LedEffect::Solid(
+                crate::led::Color::SECURE_GUARD_UNPROVISIONED,
+            ));
             let _ = ctrl.update(Duration::ZERO);
             Some(ctrl)
         };
@@ -362,7 +364,10 @@ pub fn run_authenticator_freertos() {
     let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     #[cfg(target_os = "espidf")]
     if ctap_engine.pin_state.pin_hash.is_none() && secure_guard.is_provisioned() {
-        if secure_guard.verify_pin_for_critical_action(b"2707", 0).is_ok() {
+        if secure_guard
+            .verify_pin_for_critical_action(b"2707", 0)
+            .is_ok()
+        {
             ctap_engine.pin_state.pin_hash = Some(aegis_fido_core::crypto::pin_hash(b"2707"));
             ctap_engine.pin_state.pin_retries = 8;
             ctap_engine.pin_state.power_cycle_state = false;
@@ -373,7 +378,9 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     {
         if let Some(ref mut led) = display_mgr.led_controller {
-            led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+            led.set_effect(crate::pairing_led::effect_for_secure_guard_state(
+                secure_guard.state(),
+            ));
             let _ = led.update(Duration::ZERO);
         }
     }
@@ -401,9 +408,21 @@ pub fn run_authenticator_freertos() {
     let mut last_sta_attempt_ms: Option<u64> = None;
     #[cfg(target_os = "espidf")]
     // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
-    #[cfg(all(target_os = "espidf", any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))))]
+    #[cfg(all(
+        target_os = "espidf",
+        any(
+            feature = "cap-fido-totp",
+            not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+        )
+    ))]
     let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
-    #[cfg(all(target_os = "espidf", any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))))]
+    #[cfg(all(
+        target_os = "espidf",
+        any(
+            feature = "cap-fido-totp",
+            not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+        )
+    ))]
     let mut last_time_sync_attempt_ms: Option<u64> = None;
     #[cfg(target_os = "espidf")]
     let mut ccid_transport = aegis_fido_usb::ccid::CcidTransport::new();
@@ -451,6 +470,7 @@ pub fn run_authenticator_freertos() {
     // Latch UP 1x (BOOT físico ou TEST_UP), com expiração de 1,5 s.
     #[cfg(target_os = "espidf")]
     let mut touch_latched = false;
+    #[cfg(target_os = "espidf")]
     let mut pin_verified = false;
     #[cfg(target_os = "espidf")]
     let mut touch_expire_ms: u64 = 0;
@@ -933,7 +953,9 @@ pub fn run_authenticator_freertos() {
                     serial_quiet_until_ms = freertos_now_ms.saturating_add(40);
                 }
                 if let Some(ref mut led) = display_mgr.led_controller {
-                    led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                    led.set_effect(crate::pairing_led::effect_for_secure_guard_state(
+                        secure_guard.state(),
+                    ));
                 }
                 if !out.responses.is_empty() {
                     kprintln!(
@@ -1014,7 +1036,9 @@ pub fn run_authenticator_freertos() {
                     crate::hmac_cr_compat_layer::set_secure_guard_unlocked(false);
                     kprintln!("[SECURE_GUARD] Sessão trancada por desconexão USB.");
                     if let Some(ref mut led) = display_mgr.led_controller {
-                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(
+                            secure_guard.state(),
+                        ));
                     }
                 }
                 was_usb_mounted = usb_active;
@@ -1180,7 +1204,13 @@ pub fn run_authenticator_freertos() {
                         freertos_now_ms,
                     );
                     // TOTP sem bateria: SNTP quando a station esta up (ver `time_sync`).
-                    #[cfg(all(target_os = "espidf", any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))))]
+                    #[cfg(all(
+                        target_os = "espidf",
+                        any(
+                            feature = "cap-fido-totp",
+                            not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+                        )
+                    ))]
                     #[cfg(target_os = "espidf")]
                     crate::time_sync::poll_time_sync(
                         &mut storage,
@@ -1195,7 +1225,8 @@ pub fn run_authenticator_freertos() {
                     // Fail-closed: sem preinit saudável, o Tick pós-claim
                     // (claimed + Idle) fica mudo em vez de chamar
                     // `esp_ble_start → nimble_port_init` (LoadProhibited).
-                    let trusted = pairing_mgr.is_bond_fresh(freertos_now_ms) || binding_mgr.is_claimed();
+                    let trusted =
+                        pairing_mgr.is_bond_fresh(freertos_now_ms) || binding_mgr.is_claimed();
                     // Mesmo gate vivo do AP/BLE acima: janela TEST
                     // (`freertos_test`) também pede adv; sem isto o Tick
                     // pós-`TEST_PAIRING_OPEN` ficava mudo (sem EV_ADV_START).
@@ -1264,7 +1295,11 @@ pub fn run_authenticator_freertos() {
                     // Só atualiza / avalia bloqueio por proximidade se houver dispositivo BLE de proximidade registrado
                     // e se o USB não estiver ativamente montado (conexão física USB tem precedência contra falso Walk-Away).
                     if secure_guard.ble_proximity_registered() && !usb_active {
-                        let prox_is_away = matches!(prox.state(), crate::proximity::ProximityState::Away | crate::proximity::ProximityState::Locked);
+                        let prox_is_away = matches!(
+                            prox.state(),
+                            crate::proximity::ProximityState::Away
+                                | crate::proximity::ProximityState::Locked
+                        );
                         let paired_mac = *secure_guard.paired_ble_mac();
                         let _ = secure_guard.on_ble_proximity_update(
                             &paired_mac,
@@ -1359,7 +1394,9 @@ pub fn run_authenticator_freertos() {
                 crate::secure_guard_sched::tick_secure_guard(&mut secure_guard, freertos_now_ms);
                 if secure_guard.state() != prev_sg_st {
                     if let Some(ref mut led) = display_mgr.led_controller {
-                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(secure_guard.state()));
+                        led.set_effect(crate::pairing_led::effect_for_secure_guard_state(
+                            secure_guard.state(),
+                        ));
                     }
                 }
             }
