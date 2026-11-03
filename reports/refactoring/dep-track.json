@@ -4854,8 +4854,8 @@
         "super::state::SecureGuardState"
       ],
       "fan_out": 1,
-      "fan_in": 23,
-      "god_score": 14.27,
+      "fan_in": 24,
+      "god_score": 14.77,
       "flag": false,
       "flag_reason": null
     },
@@ -5178,8 +5178,8 @@
         "alloc::string::ToString"
       ],
       "fan_out": 0,
-      "fan_in": 23,
-      "god_score": 14.23,
+      "fan_in": 24,
+      "god_score": 14.73,
       "flag": false,
       "flag_reason": null
     },
@@ -5299,27 +5299,41 @@
       "flag_reason": null
     },
     {
-      "path": "crates/universal-device-sdk/src/providers/oath.rs",
-      "bytes": 1211,
-      "lines": 40,
-      "mods": [
-        "tests"
-      ],
+      "path": "crates/universal-device-sdk/src/providers/oath/contract.rs",
+      "bytes": 416,
+      "lines": 13,
+      "mods": [],
       "uses": [
         "crate::error::SdkError",
         "crate::request::OathRequest",
-        "crate::response::SdkResponse",
+        "crate::response::SdkResponse"
+      ],
+      "fan_out": 3,
+      "fan_in": 0,
+      "god_score": 4.63,
+      "flag": false,
+      "flag_reason": null
+    },
+    {
+      "path": "crates/universal-device-sdk/src/providers/oath/mod.rs",
+      "bytes": 849,
+      "lines": 32,
+      "mods": [
+        "contract",
+        "tests"
+      ],
+      "uses": [
         "crate::error::SdkError",
         "crate::providers::OathProvider",
         "crate::request::OathRequest",
         "crate::response::SdkResponse",
         "alloc::vec::Vec"
       ],
-      "fan_out": 7,
+      "fan_out": 4,
       "fan_in": 30,
-      "god_score": 25.9,
-      "flag": true,
-      "flag_reason": "god-score>25"
+      "god_score": 21.32,
+      "flag": false,
+      "flag_reason": null
     },
     {
       "path": "crates/universal-device-sdk/src/providers/ota.rs",
@@ -5498,8 +5512,8 @@
         "alloc::vec::Vec"
       ],
       "fan_out": 1,
-      "fan_in": 10,
-      "god_score": 10.86,
+      "fan_in": 11,
+      "god_score": 11.36,
       "flag": false,
       "flag_reason": null
     },
@@ -5519,8 +5533,8 @@
         "alloc::vec::Vec"
       ],
       "fan_out": 4,
-      "fan_in": 11,
-      "god_score": 12.11,
+      "fan_in": 12,
+      "god_score": 12.61,
       "flag": false,
       "flag_reason": null
     },
@@ -6162,11 +6176,11 @@
   },
   "summary": {
     "totals": {
-      "files": 252,
-      "bytes": 3089537,
-      "lines": 83517,
-      "flagged": 36,
-      "gods": 24
+      "files": 253,
+      "bytes": 3089591,
+      "lines": 83522,
+      "flagged": 35,
+      "gods": 23
     },
     "top10_god": [
       {
