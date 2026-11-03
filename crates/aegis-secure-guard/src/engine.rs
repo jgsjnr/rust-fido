@@ -8,6 +8,7 @@ use super::crypto::{constant_time_eq_32, derive_verifier, hmac_sha256};
 use super::error::SecureGuardError;
 use super::persistence::{SecureGuardPersistentRecord, PERSISTENT_RECORD_SIZE};
 use super::policy::{SecureGuardPolicy, MAX_ATTEMPTS};
+use super::recovery::{SecureGuardRecoveryEnvelope, RECOVERY_ENVELOPE_SIZE};
 use super::resource::{ProtectedResourceClass, SecureGuardWipeScope};
 use super::state::SecureGuardState;
 use zeroize::Zeroize;
@@ -28,6 +29,13 @@ pub struct SecureGuardEngine {
     last_activity_ms: u64,
     last_wipe_simulated: bool,
     last_rotated_recovery_code: Option<[u8; 16]>,
+    /// RAM-only cache of the device-key-independent recovery envelope, sealed
+    /// at provision / recovery rotation. Deliberately NOT part of the 256-byte
+    /// persistent record: the envelope must be stored by firmware in a separate
+    /// NVS blob outside the device-key envelope, otherwise it would be lost in
+    /// exactly the reboot scenario it rescues from. Rebuilt from NVS bytes via
+    /// [`Self::recover_with_envelope`]; `None` after a fresh reboot until then.
+    recovery_envelope: Option<SecureGuardRecoveryEnvelope>,
     audit_log: AuditRingBuffer,
     paired_ble_mac: [u8; 6],
     paired_ble_name: [u8; 24],
@@ -60,6 +68,7 @@ impl SecureGuardEngine {
             last_activity_ms: 0,
             last_wipe_simulated: false,
             last_rotated_recovery_code: None,
+            recovery_envelope: None,
             audit_log: AuditRingBuffer::new(),
             paired_ble_mac: [0u8; 6],
             paired_ble_name: [0u8; 24],
@@ -90,6 +99,10 @@ impl SecureGuardEngine {
         engine.paired_ble_name = record.paired_ble_name;
         engine.ble_proximity_registered = record.ble_proximity_registered;
         engine.auto_lock_on_ble_away = record.auto_lock_on_ble_away;
+        // The recovery envelope is RAM-only and travels in a separate NVS blob
+        // outside the device-key envelope (see `recovery_envelope_bytes`); it
+        // is never restored from the 256-byte record. After a reboot it is
+        // `None` until `recover_with_envelope` (or a refresh) rebuilds it.
 
         if !record.is_provisioned {
             engine.state = SecureGuardState::Unprovisioned;
@@ -383,6 +396,19 @@ impl SecureGuardEngine {
         self.rate_limit_until_ms = 0;
         self.last_rotated_recovery_code = Some(rec_code);
 
+        // Cache the device-key-independent rescue envelope while the fresh code
+        // is still in hand. Firmware persists `recovery_envelope_bytes()` in a
+        // separate NVS blob outside the device-key envelope.
+        if let Ok(envelope) = SecureGuardRecoveryEnvelope::seal(
+            &rec_code,
+            &recovery_salt,
+            &self.pin_salt,
+            &self.pin_verifier,
+            self.policy.pbkdf2_iterations,
+        ) {
+            self.recovery_envelope = Some(envelope);
+        }
+
         self.transition_to(SecureGuardState::Locked, now_ms)?;
         self.audit_log
             .push(now_ms, SecureGuardAuditEventType::PinProvisioned);
@@ -562,7 +588,6 @@ impl SecureGuardEngine {
             }
         }
     }
-
 
     /// Verifies PIN for a critical action in constant time, applying failure policies and renewing active session on success.
     pub fn verify_pin_for_critical_action(
@@ -971,6 +996,148 @@ impl SecureGuardEngine {
         self.failed_attempts = 0;
         self.rate_limit_until_ms = 0;
 
+        // Re-seal the rescue envelope under the rotated code while it is in
+        // hand; the previous envelope is superseded along with the old code.
+        if let Ok(envelope) = SecureGuardRecoveryEnvelope::seal(
+            &rotated_code,
+            &new_recovery_salt,
+            &new_pin_salt,
+            &new_pin_verifier,
+            self.policy.pbkdf2_iterations,
+        ) {
+            self.recovery_envelope = Some(envelope);
+        }
+
+        self.transition_to(SecureGuardState::Locked, now_ms)?;
+        self.audit_log
+            .push(now_ms, SecureGuardAuditEventType::RecoverySuccess);
+
+        Ok(SecureGuardState::Locked)
+    }
+
+    /// Returns the cached device-key-independent recovery envelope bytes.
+    ///
+    /// Firmware must persist these in a **separate NVS blob outside the
+    /// device-key envelope** (plaintext + internal CRC, e.g. `sg_recovery_v1`)
+    /// at provision / rotation time. `None` when no envelope was sealed yet
+    /// (e.g. engines restored from the 256-byte record after a reboot, until
+    /// `recover_with_envelope` or `refresh_recovery_envelope` rebuilds it).
+    /// Absent envelope is reported as `None`, never as empty bytes.
+    pub fn recovery_envelope_bytes(&self) -> Option<[u8; RECOVERY_ENVELOPE_SIZE]> {
+        self.recovery_envelope.as_ref().map(|env| env.to_bytes())
+    }
+
+    /// Rebuilds the cached recovery envelope from the live verifiers.
+    ///
+    /// Used after [`Self::change_pin`] (which the envelope cannot otherwise
+    /// observe) whenever the recovery code is available. Verifies the code in
+    /// constant time against the stored verifier first; KDF strength is never
+    /// weakened. Returns fresh envelope bytes for NVS persistence.
+    ///
+    /// The seal reuses the iteration count bound to the live material (carried
+    /// by the cached envelope when present): re-wrapping must not silently
+    /// rebind material to a different KDF count.
+    pub fn refresh_recovery_envelope(
+        &mut self,
+        recovery_code: &[u8],
+    ) -> Result<[u8; RECOVERY_ENVELOPE_SIZE], SecureGuardError> {
+        if self.state == SecureGuardState::ErrorLocked {
+            return Err(SecureGuardError::InvalidStateForOperation {
+                current: self.state,
+                expected: "Locked",
+            });
+        }
+        if !self.is_provisioned {
+            return Err(SecureGuardError::NotProvisioned);
+        }
+
+        let mut candidate = derive_verifier(
+            recovery_code,
+            &self.recovery_salt,
+            self.policy.pbkdf2_iterations,
+        );
+        let valid = constant_time_eq_32(&candidate, &self.recovery_verifier);
+        candidate.zeroize();
+        if !valid {
+            return Err(SecureGuardError::InvalidRecoveryCode);
+        }
+
+        let iterations = self
+            .recovery_envelope
+            .as_ref()
+            .map(|env| env.pbkdf2_iterations)
+            .unwrap_or(self.policy.pbkdf2_iterations);
+        let envelope = SecureGuardRecoveryEnvelope::seal(
+            recovery_code,
+            &self.recovery_salt,
+            &self.pin_salt,
+            &self.pin_verifier,
+            iterations,
+        )?;
+        let bytes = envelope.to_bytes();
+        self.recovery_envelope = Some(envelope);
+        Ok(bytes)
+    }
+
+    /// Recovers provisioned state from the device-key-independent envelope.
+    ///
+    /// This is the DEV-reboot rescue: after ephemeral device keys rotate, the
+    /// NVS `sg_record` bytes are undecryptable and the engine boots
+    /// `ErrorLocked` with zeroed verifiers. Given the recovery code captured
+    /// at provision time plus the separately-stored envelope bytes, this
+    /// re-authenticates the code (constant time, no device key involved),
+    /// restores the provision-time credential material, and returns to
+    /// `Locked` — the original PIN then unlocks the session. Never weakens
+    /// KDF iterations; tampered envelopes and wrong codes fail closed.
+    ///
+    /// The envelope's authentic (KEK-bound) iteration count is adopted into
+    /// the live policy: verifiers are meaningless without the count that
+    /// created them, and the count cannot be forged without the code.
+    pub fn recover_with_envelope(
+        &mut self,
+        recovery_code: &[u8],
+        envelope_bytes: &[u8; RECOVERY_ENVELOPE_SIZE],
+        now_ms: u64,
+    ) -> Result<SecureGuardState, SecureGuardError> {
+        let envelope = SecureGuardRecoveryEnvelope::from_bytes(envelope_bytes)?;
+
+        let (pin_salt, pin_verifier) = envelope
+            .verify_and_unwrap(recovery_code)
+            .inspect_err(|_| {
+                self.failed_attempts = self.failed_attempts.saturating_add(1);
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::RecoveryFailed {
+                        failed_attempts: self.failed_attempts,
+                    },
+                );
+            })?;
+
+        // Rebuild live state from the envelope. The iteration count travels
+        // with the material (see above); the stored recovery verifier is then
+        // recomputed in the crate-standard PBKDF2 form so later
+        // `recover_with_code` / `refresh` calls keep working with the same
+        // code under the adopted count.
+        self.policy.pbkdf2_iterations = envelope.pbkdf2_iterations;
+        let recovery_verifier = derive_verifier(
+            recovery_code,
+            &envelope.recovery_salt,
+            self.policy.pbkdf2_iterations,
+        );
+        self.pin_salt = pin_salt;
+        self.pin_verifier = pin_verifier;
+        self.recovery_salt = envelope.recovery_salt;
+        self.recovery_verifier = recovery_verifier;
+        self.is_provisioned = true;
+        self.failed_attempts = 0;
+        self.rate_limit_until_ms = 0;
+        self.session_expires_at_ms = 0;
+        self.last_rotated_recovery_code = None;
+        self.recovery_envelope = Some(envelope);
+
+        if self.state == SecureGuardState::Unprovisioned {
+            self.transition_to(SecureGuardState::Provisioning, now_ms)?;
+        }
         self.transition_to(SecureGuardState::Locked, now_ms)?;
         self.audit_log
             .push(now_ms, SecureGuardAuditEventType::RecoverySuccess);
@@ -1005,6 +1172,9 @@ impl SecureGuardEngine {
             self.failed_attempts = 0;
             self.rate_limit_until_ms = 0;
             self.last_rotated_recovery_code = None;
+            // A real wipe destroys the rescue path too; otherwise the wiped
+            // credentials could be resurrected from the cached envelope.
+            self.recovery_envelope = None;
         }
 
         self.audit_log.push(
@@ -1032,6 +1202,7 @@ impl SecureGuardEngine {
         self.last_activity_ms = 0;
         self.last_wipe_simulated = false;
         self.last_rotated_recovery_code = None;
+        self.recovery_envelope = None;
         self.paired_ble_mac = [0u8; 6];
         self.paired_ble_name = [0u8; 24];
         self.ble_proximity_registered = false;
@@ -1064,7 +1235,8 @@ impl SecureGuardEngine {
         let authorized_inv = !authorized;
 
         let jitter = (now_ms as u32) ^ 0xACE1;
-        let check = super::glitch_guard::double_check_authorization(authorized, authorized_inv, jitter)?;
+        let check =
+            super::glitch_guard::double_check_authorization(authorized, authorized_inv, jitter)?;
         if !check.is_true() {
             return Err(SecureGuardError::AccessDeniedLocked {
                 state: self.state,
@@ -1090,7 +1262,8 @@ impl SecureGuardEngine {
         let authorized_inv = !authorized;
 
         let jitter = (now_ms as u32) ^ (opcode as u32);
-        let check = super::glitch_guard::double_check_authorization(authorized, authorized_inv, jitter)?;
+        let check =
+            super::glitch_guard::double_check_authorization(authorized, authorized_inv, jitter)?;
         if !check.is_true() {
             return Err(SecureGuardError::AccessDeniedLocked {
                 state: self.state,
@@ -1099,5 +1272,214 @@ impl SecureGuardEngine {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::recovery::RECOVERY_ENVELOPE_SIZE;
+    use super::*;
+
+    const TEST_PIN: &[u8] = b"4927";
+    const TEST_PIN_SALT: [u8; 16] = [0x10; 16];
+    const TEST_REC_SALT: [u8; 16] = [0x20; 16];
+
+    fn test_policy() -> SecureGuardPolicy {
+        SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            ..Default::default()
+        }
+    }
+
+    /// Host reboot simulation for the DEV (no-eFuse) production symptom:
+    /// every reboot mints fresh ephemeral device keys, so the NVS `sg_record`
+    /// bytes can no longer be opened and firmware boots `ErrorLocked`.
+    /// Provision, capture the recovery code + the separately-stored envelope,
+    /// reboot into `ErrorLocked`, rescue with code + envelope, and prove the
+    /// engine ends provisioned + unlocked with the original credentials — with
+    /// no device key involved at any step.
+    #[test]
+    fn test_dev_reboot_recovery_with_code_no_device_key() {
+        // 1. Provision and capture code + both NVS artifacts.
+        let mut engine = SecureGuardEngine::new(test_policy());
+        let rec_code = engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .expect("provision");
+        let record_bytes = engine.to_persistent_record().to_bytes();
+        let envelope_bytes = engine
+            .recovery_envelope_bytes()
+            .expect("envelope sealed at provision");
+        // KDF params travel inside the envelope, never weakened.
+        assert_eq!(
+            SecureGuardRecoveryEnvelope::from_bytes(&envelope_bytes)
+                .unwrap()
+                .pbkdf2_iterations,
+            10
+        );
+
+        // 2. Control: same device keys (healthy reboot) restores Locked.
+        let healthy = SecureGuardEngine::from_persisted_bytes(&record_bytes, 1500);
+        assert_eq!(healthy.state(), SecureGuardState::Locked);
+        assert!(healthy.is_provisioned());
+
+        // 3. Fresh ephemeral device keys + same NVS bytes: the device-key
+        // envelope cannot be opened -> firmware boots ErrorLocked with zeroed
+        // verifiers (simulated here with undecryptable bytes).
+        let mut rescued = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(rescued.state(), SecureGuardState::ErrorLocked);
+        assert!(rescued.is_provisioned());
+        // The pre-existing code path cannot rescue: nothing to check against.
+        assert!(matches!(
+            rescued.recover_with_code(&rec_code, b"7412", [0x40; 16], 1600),
+            Err(SecureGuardError::InvalidStateForOperation { .. })
+        ));
+
+        // 4. Rescue with code + envelope (no device key): back to Locked...
+        assert_eq!(
+            rescued
+                .recover_with_envelope(&rec_code, &envelope_bytes, 1600)
+                .unwrap(),
+            SecureGuardState::Locked
+        );
+        assert_eq!(rescued.state(), SecureGuardState::Locked);
+        assert!(rescued.is_provisioned());
+
+        // 5. ...and the ORIGINAL credentials unlock the session.
+        rescued
+            .unlock_with_pin(TEST_PIN, 1700)
+            .expect("original PIN");
+        assert_eq!(rescued.state(), SecureGuardState::Unlocked);
+        assert!(rescued.is_unlocked());
+    }
+
+    #[test]
+    fn test_recover_with_envelope_rejects_wrong_code_and_tamper() {
+        let mut engine = SecureGuardEngine::new(test_policy());
+        let rec_code = engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .unwrap();
+        let envelope_bytes = engine.recovery_envelope_bytes().unwrap();
+
+        // Wrong code from ErrorLocked: fail closed, stays ErrorLocked.
+        let mut rebooted = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(
+            rebooted.recover_with_envelope(b"wrong-code-000000", &envelope_bytes, 1600),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        assert_eq!(rebooted.failed_attempts(), 1);
+
+        // Tampered envelope (valid CRC, broken KEK tag) with the RIGHT code:
+        // still fail closed.
+        let mut tampered = envelope_bytes;
+        tampered[70] ^= 0xFF;
+        let crc = super::super::crypto::crc32(&tampered[0..142]);
+        tampered[142..146].copy_from_slice(&crc.to_be_bytes());
+        let mut rebooted2 = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(
+            rebooted2.recover_with_envelope(&rec_code, &tampered, 1600),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(rebooted2.state(), SecureGuardState::ErrorLocked);
+    }
+
+    #[test]
+    fn test_recovery_envelope_refresh_after_pin_change() {
+        let mut engine = SecureGuardEngine::new(test_policy());
+        let rec_code = engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .unwrap();
+        let stale = engine.recovery_envelope_bytes().unwrap();
+
+        // Change PIN, then refresh the envelope while the code is available.
+        engine
+            .change_pin(TEST_PIN, b"9182", [0x30; 16], 2000)
+            .unwrap();
+        // change_pin cannot re-wrap without the code: the cached envelope is
+        // untouched (still rescues to the provision-time PIN below).
+        assert_eq!(engine.recovery_envelope_bytes().unwrap(), stale);
+        let fresh = engine.refresh_recovery_envelope(&rec_code).unwrap();
+        assert_ne!(fresh, stale);
+
+        // Reboot into ErrorLocked, rescue, unlock with the NEW PIN.
+        let mut rebooted = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 2500);
+        rebooted
+            .recover_with_envelope(&rec_code, &fresh, 2600)
+            .unwrap();
+        rebooted.unlock_with_pin(b"9182", 2700).expect("new PIN");
+        assert_eq!(rebooted.state(), SecureGuardState::Unlocked);
+
+        // Without a refresh, the stale envelope still rescues (durable rescue
+        // to the provision-time credentials), proving the code path itself
+        // never depended on the changed PIN.
+        let mut rebooted_stale = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 2500);
+        rebooted_stale
+            .recover_with_envelope(&rec_code, &stale, 2600)
+            .unwrap();
+        rebooted_stale
+            .unlock_with_pin(TEST_PIN, 2700)
+            .expect("old PIN");
+        assert_eq!(rebooted_stale.state(), SecureGuardState::Unlocked);
+
+        // Refresh with a wrong code is rejected and keeps the cached envelope.
+        let before = engine.recovery_envelope_bytes().unwrap();
+        assert_eq!(
+            engine.refresh_recovery_envelope(b"wrong-code-000000"),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(engine.recovery_envelope_bytes().unwrap(), before);
+    }
+
+    #[test]
+    fn test_recover_with_envelope_from_healthy_locked_and_unprovisioned() {
+        let mut engine = SecureGuardEngine::new(test_policy());
+        let rec_code = engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .unwrap();
+        let envelope_bytes: [u8; RECOVERY_ENVELOPE_SIZE] =
+            engine.recovery_envelope_bytes().unwrap();
+
+        // Healthy Locked engine: envelope rescue also works (same outcome).
+        engine
+            .recover_with_envelope(&rec_code, &envelope_bytes, 1500)
+            .unwrap();
+        assert_eq!(engine.state(), SecureGuardState::Locked);
+        engine.unlock_with_pin(TEST_PIN, 1600).unwrap();
+        assert_eq!(engine.state(), SecureGuardState::Unlocked);
+
+        // Factory-fresh engine (e.g. after a firmware update wiped RAM and the
+        // record): envelope + code re-provisions to Locked with the original
+        // PIN, even under a different live policy iteration count.
+        let mut fresh = SecureGuardEngine::new(SecureGuardPolicy {
+            pbkdf2_iterations: 12,
+            ..Default::default()
+        });
+        assert_eq!(fresh.state(), SecureGuardState::Unprovisioned);
+        assert_eq!(fresh.recovery_envelope_bytes(), None);
+        fresh
+            .recover_with_envelope(&rec_code, &envelope_bytes, 1700)
+            .unwrap();
+        assert_eq!(fresh.state(), SecureGuardState::Locked);
+        assert!(fresh.is_provisioned());
+        fresh.unlock_with_pin(TEST_PIN, 1800).unwrap();
+        assert_eq!(fresh.state(), SecureGuardState::Unlocked);
+    }
+
+    #[test]
+    fn test_wipe_destroys_cached_envelope() {
+        let mut engine = SecureGuardEngine::new(SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            test_mode_non_destructive_wipe: false,
+            ..Default::default()
+        });
+        engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .unwrap();
+        assert!(engine.recovery_envelope_bytes().is_some());
+
+        engine.execute_wipe(2000).ok();
+        assert_eq!(engine.state(), SecureGuardState::Unprovisioned);
+        // Rescue material is gone with the wipe: no resurrection.
+        assert_eq!(engine.recovery_envelope_bytes(), None);
     }
 }

@@ -111,14 +111,15 @@ impl SecureGuardState {
             }
             Self::RateLimited => matches!(
                 target,
-                Self::Locked
-                    | Self::WipePending
-                    | Self::WipeInProgress
-                    | Self::Unprovisioned
+                Self::Locked | Self::WipePending | Self::WipeInProgress | Self::Unprovisioned
             ),
             Self::WipePending => matches!(target, Self::WipeInProgress | Self::Unprovisioned),
             Self::WipeInProgress => matches!(target, Self::Unprovisioned | Self::Locked),
-            Self::ErrorLocked => matches!(target, Self::Unprovisioned),
+            // ErrorLocked escapes only via factory wipe — or via recovery-code
+            // rescue from the device-key-independent envelope (no device key
+            // needed, so rescue works exactly when the device-key envelope is
+            // lost after a DEV reboot).
+            Self::ErrorLocked => matches!(target, Self::Unprovisioned | Self::Locked),
         }
     }
 

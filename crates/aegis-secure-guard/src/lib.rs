@@ -15,6 +15,7 @@ pub mod error;
 pub mod glitch_guard;
 pub mod persistence;
 pub mod policy;
+pub mod recovery;
 pub mod resource;
 pub mod secure_channel;
 pub mod state;
@@ -24,8 +25,8 @@ pub use audit::{
     AUDIT_LOG_CAPACITY,
 };
 pub use crypto::{
-    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored, hkdf_sha256, hmac_sha256,
-    pbkdf2_hmac_sha256, HardwareHmacPeripheral, SimulatedDevHardwareHmac,
+    constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored, hkdf_sha256,
+    hmac_sha256, pbkdf2_hmac_sha256, HardwareHmacPeripheral, SimulatedDevHardwareHmac,
     DO_NOT_BURN_EFUSE_BLOCK7_WARNING, PBKDF2_DEFAULT_ITERATIONS,
 };
 pub use engine::SecureGuardEngine;
@@ -35,6 +36,10 @@ pub use persistence::{
     SecureGuardPersistentRecord, PERSISTENCE_MAGIC, PERSISTENCE_VERSION, PERSISTENT_RECORD_SIZE,
 };
 pub use policy::{SecureGuardPolicy, MAX_ATTEMPTS};
+pub use recovery::{
+    SecureGuardRecoveryEnvelope, RECOVERY_ENVELOPE_MAGIC, RECOVERY_ENVELOPE_SIZE,
+    RECOVERY_ENVELOPE_VERSION,
+};
 pub use resource::{
     ProtectedResourceClass, SecureGuardAdminOp, SecureGuardWipeScope, OP_KEY_DELETE,
     OP_KEY_GEN_ONDEVICE, OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_DELETE,
@@ -200,17 +205,16 @@ mod tests {
         let err5 = engine.unlock_with_pin(TEST_WRONG_PIN, time);
         assert!(matches!(
             err5,
-            Err(SecureGuardError::RateLimited { remaining_ms: 15000 })
+            Err(SecureGuardError::RateLimited {
+                remaining_ms: 15000
+            })
         ));
         assert_eq!(engine.state(), SecureGuardState::RateLimited);
         assert_eq!(engine.failed_attempts(), 5);
 
         // Subsequent attempt with wrong PIN within 15s is rate-limited
         let blocked = engine.unlock_with_pin(TEST_WRONG_PIN, time + 100);
-        assert!(matches!(
-            blocked,
-            Err(SecureGuardError::RateLimited { .. })
-        ));
+        assert!(matches!(blocked, Err(SecureGuardError::RateLimited { .. })));
 
         // After 15s cooldown, correct PIN unlocks!
         time += 15500;
@@ -604,7 +608,9 @@ mod tests {
         assert_eq!(engine.failed_attempts(), 1);
 
         // 5. Helper verify_pin_or_active_session
-        assert!(engine.verify_pin_or_active_session(Some(TEST_PIN), 2200).is_ok());
+        assert!(engine
+            .verify_pin_or_active_session(Some(TEST_PIN), 2200)
+            .is_ok());
         assert!(engine.verify_pin_or_active_session(None, 2300).is_ok());
     }
 
@@ -626,12 +632,16 @@ mod tests {
         assert_eq!(engine.state(), SecureGuardState::Unlocked);
 
         // 3. Proximity update: near (-35 dBm)
-        let locked = engine.on_ble_proximity_update(&phone_mac, -35, false, 1600).unwrap();
+        let locked = engine
+            .on_ble_proximity_update(&phone_mac, -35, false, 1600)
+            .unwrap();
         assert!(!locked);
         assert_eq!(engine.state(), SecureGuardState::Unlocked);
 
         // 4. Proximity update: away (-92 dBm, is_away = true) -> IMMEDIATELY LOCKS
-        let locked2 = engine.on_ble_proximity_update(&phone_mac, -92, true, 2000).unwrap();
+        let locked2 = engine
+            .on_ble_proximity_update(&phone_mac, -92, true, 2000)
+            .unwrap();
         assert!(locked2, "Must trigger immediate lock when moving away");
         assert_eq!(engine.state(), SecureGuardState::Locked);
         assert!(engine.ble_proximity_away());
@@ -641,7 +651,9 @@ mod tests {
         assert_eq!(unlock_err, Err(SecureGuardError::BleProximityLocked));
 
         // 6. Returns near (-40 dBm, is_away = false)
-        let locked3 = engine.on_ble_proximity_update(&phone_mac, -40, false, 2500).unwrap();
+        let locked3 = engine
+            .on_ble_proximity_update(&phone_mac, -40, false, 2500)
+            .unwrap();
         assert!(!locked3);
         assert!(!engine.ble_proximity_away());
 
@@ -661,9 +673,18 @@ mod tests {
 
         // Dispara evento de proximidade "Away" sem estar registrado (ex.: chave conectada via USB)
         let dummy_mac = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
-        let locked = engine.on_ble_proximity_update(&dummy_mac, -90, true, 1100).unwrap();
-        assert!(!locked, "Não deve trancar se proximidade BLE não estiver registrada");
-        assert_eq!(engine.state(), SecureGuardState::Unlocked, "Sessão deve permanecer Unlocked");
+        let locked = engine
+            .on_ble_proximity_update(&dummy_mac, -90, true, 1100)
+            .unwrap();
+        assert!(
+            !locked,
+            "Não deve trancar se proximidade BLE não estiver registrada"
+        );
+        assert_eq!(
+            engine.state(),
+            SecureGuardState::Unlocked,
+            "Sessão deve permanecer Unlocked"
+        );
         assert!(!engine.ble_proximity_away());
     }
 }
