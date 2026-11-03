@@ -365,7 +365,7 @@ pub fn handle_get_oath_code(
 // deps, sem features do esp-idf-svc além de `binstart`).
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "espidf")]
+#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 extern "C" {
     fn aegis_wifi_ap_start(ssid: *const u8, ssid_len: i32, pass: *const u8, pass_len: i32) -> i32;
     fn aegis_wifi_ap_stop() -> i32;
@@ -374,7 +374,7 @@ extern "C" {
 
 /// Liga o AP real (`0` ok, negativo = erro do C).
 /// `pass` vazia = rede aberta (bootstrap na janela curta de pareamento).
-#[cfg(target_os = "espidf")]
+#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub fn esp_ap_start(ssid: &str, pass: &str) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "wifi-ap");
     unsafe {
@@ -388,7 +388,7 @@ pub fn esp_ap_start(ssid: &str, pass: &str) -> i32 {
 }
 
 /// Desliga o AP (rebaixa p/ station ou desliga o radio; `0` ok).
-#[cfg(target_os = "espidf")]
+#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub fn esp_ap_stop() -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "wifi-ap");
     unsafe { aegis_wifi_ap_stop() }
@@ -396,21 +396,21 @@ pub fn esp_ap_stop() -> i32 {
 
 /// Power-down total do radio (bateria): chamar com AP off + station off.
 /// Idempotente; `0` ok.
-#[cfg(target_os = "espidf")]
+#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub fn esp_wifi_off() -> i32 {
     unsafe { aegis_wifi_off() }
 }
 
 // Shims inertes no host (sem radio; politica testada por unidade).
-#[cfg(not(target_os = "espidf"))]
+#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub fn esp_ap_start(_ssid: &str, _pass: &str) -> i32 {
     0
 }
-#[cfg(not(target_os = "espidf"))]
+#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub fn esp_ap_stop() -> i32 {
     0
 }
-#[cfg(not(target_os = "espidf"))]
+#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub fn esp_wifi_off() -> i32 {
     0
 }

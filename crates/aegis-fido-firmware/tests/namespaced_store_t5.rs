@@ -12,15 +12,20 @@
 //! doubles live in this test file, never in production code). No hardware,
 //! no flash, no COM port.
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 use aegis_fido_firmware::config::DeviceConfig;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 use aegis_fido_firmware::oath_store::{
     oath_store_delete, oath_store_get, oath_store_put, OathStoreError, OATH_STORE_MAX_BYTES,
 };
 use aegis_fido_firmware::persistence::{
     FlashStorageBackend, MockFlashBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
-    StorageError, NAMESPACED_SLOT_MAX_BYTES,
+    StorageError,
 };
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+use aegis_fido_firmware::persistence::NAMESPACED_SLOT_MAX_BYTES;
 use aegis_fido_firmware::piv_store::PivNvsStore;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 use aegis_fido_firmware::vault_store::{
     vault_store_delete, vault_store_get, vault_store_put, VaultStoreError, VAULT_INDEX_KEY,
     VAULT_STORE_MAX_BYTES,
@@ -30,8 +35,11 @@ use aegis_fido_usb::piv::PivRecordStore;
 // Frozen vectors (offline, deterministic).
 const MASTER: [u8; 32] = [0x55u8; 32];
 const SALT: [u8; 32] = [0xAAu8; 32];
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 const BLOB_A: &[u8] = b"frozen-oath-blob-a";
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 const BLOB_B: &[u8] = b"frozen-oath-blob-b";
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 const ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E]; // "AEGN"
 
 fn storage() -> SecureStorage<MockFlashBackend> {
@@ -39,6 +47,7 @@ fn storage() -> SecureStorage<MockFlashBackend> {
 }
 
 /// 1-slot vault config (`DeviceConfig::new` arity is 8; last = vault slots).
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 fn one_slot_cfg() -> DeviceConfig {
     DeviceConfig::new(50, 512, 4, 8, 3, 32, 64, 1).expect("one-slot vault cfg valid")
 }
@@ -57,6 +66,7 @@ fn short_label_ok(label: &str) -> bool {
 // Preset: oath6/ (OATH store)
 // ---------------------------------------------------------------------------
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn oath_preset_put_get_delete_roundtrip_under_oath6_prefix() {
     let mut st = storage();
@@ -77,6 +87,7 @@ fn oath_preset_put_get_delete_roundtrip_under_oath6_prefix() {
     assert!(!st.exists("oath6/GitHub:alice"));
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn oath_preset_rejects_bad_label_and_too_large() {
     let mut st = storage();
@@ -99,6 +110,7 @@ fn oath_preset_rejects_bad_label_and_too_large() {
     assert_eq!(oath_store_get(&st, "k"), Err(OathStoreError::NotFound));
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn oath_preset_delete_absent_is_notfound_and_overwrite_verifies() {
     let mut st = storage();
@@ -115,6 +127,7 @@ fn oath_preset_delete_absent_is_notfound_and_overwrite_verifies() {
 // Preset: vault/ (quota via encrypted index)
 // ---------------------------------------------------------------------------
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn vault_preset_quota_enforced_and_overwrite_keeps_slot() {
     let mut st = storage();
@@ -133,6 +146,7 @@ fn vault_preset_quota_enforced_and_overwrite_keeps_slot() {
     assert_eq!(vault_store_get(&st, "a").unwrap(), b"uno");
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn vault_preset_delete_frees_quota_and_reserved_index_label_rejected() {
     let mut st = storage();
@@ -151,6 +165,7 @@ fn vault_preset_delete_frees_quota_and_reserved_index_label_rejected() {
     );
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn vault_preset_corrupt_index_fails_closed_on_put_get_delete() {
     let mut st = storage();
@@ -219,6 +234,7 @@ fn direct_ns_quota(slots: usize) -> NamespacedStore {
     }
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn direct_error_semantics_and_display() {
     // Typed errors (no panics, no stringly) with stable Display text.
@@ -291,6 +307,7 @@ fn direct_put_get_delete_with_quota_and_bounds() {
     assert_eq!(ns.get(&st, "b").unwrap(), b"y");
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn namespaces_do_not_share_slots() {
     let mut st = storage();
@@ -307,6 +324,7 @@ fn namespaces_do_not_share_slots() {
 // Verify-after-write + corruption: fail-closed, slot-only rollback
 // ---------------------------------------------------------------------------
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 /// Test-only backend: flips the last byte of every read of `target` while
 /// armed (emulates tampered flash; TRNG writes themselves stay intact).
 #[derive(Clone)]
@@ -316,6 +334,7 @@ struct CorruptSlotReads {
     armed: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 impl FlashStorageBackend for CorruptSlotReads {
     fn read_raw(&self, key: &str) -> Result<Vec<u8>, StorageError> {
         let mut raw = self.inner.read_raw(key)?;
@@ -337,6 +356,7 @@ impl FlashStorageBackend for CorruptSlotReads {
     }
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn verify_after_write_mismatch_rolls_back_slot_only() {
     let armed = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -365,6 +385,7 @@ fn verify_after_write_mismatch_rolls_back_slot_only() {
     assert_eq!(ns.get(&st, "a").unwrap(), b"healed");
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn tampered_slot_envelope_fails_closed_with_storage() {
     let mut st = storage();

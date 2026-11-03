@@ -11,7 +11,9 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use aegis_fido_core::oath::{write_tlv, OathApplet, OathType, TAG_CHALLENGE, TAG_NAME};
+use aegis_fido_core::oath::{write_tlv, OathApplet, TAG_CHALLENGE, TAG_NAME};
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+use aegis_fido_core::oath::OathType;
 
 /// Periodo TOTP em segundos (RFC 6238).
 pub const TOTP_PERIOD_SECS: u64 = 30;
@@ -63,6 +65,7 @@ pub fn build_totp_request_tlv(label: &str, challenge: &[u8; 8]) -> Vec<u8> {
 /// - Applet vazio → vazio (chamador mostra "sem contas").
 /// - HOTP e ignorado aqui (sem janela 30s; via USB/CTAP apenas).
 /// - Ordem = ordem do `device_list` (estavel por insercao).
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub fn collect_totp_codes(
     applet: &mut OathApplet,
     unix_secs: u64,
@@ -89,6 +92,19 @@ pub fn collect_totp_codes(
         }
     }
     out
+}
+
+/// Diet cap-fido-only: sem OATH no preset (fail-closed).
+///
+/// Vetor sempre vazio: o chamador mostra `NO_ACCOUNTS_MSG` ("sem contas"),
+/// nunca codigo falso. OATH via USB/BLE responde `UNSUPPORTED_FEATURE`.
+#[cfg(all(feature = "cap-fido-only", not(feature = "cap-fido-totp")))]
+pub fn collect_totp_codes(
+    _applet: &mut OathApplet,
+    _unix_secs: u64,
+    _presence_confirmed: bool,
+) -> Vec<TotpEntry> {
+    Vec::new()
 }
 
 /// T9: espelho `validate_v6_label` (migrations): 1..=32B, utf8 válido,
@@ -118,6 +134,7 @@ pub fn type_code_via_keyboard(
     typer.is_active()
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[cfg(test)]
 mod tests {
     use super::*;

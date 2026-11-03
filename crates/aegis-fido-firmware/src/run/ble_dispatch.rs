@@ -42,7 +42,6 @@ pub(crate) fn ble_dispatch_complete(
     use crate::ble_gatt as g;
     use crate::ble_nimble as ble;
     use crate::fw_log as fl;
-    use crate::wallet_exec as w;
 
     let op = msg.opcode;
     let p = &msg.payload;
@@ -206,7 +205,9 @@ pub(crate) fn ble_dispatch_complete(
             }
             ble::notify_frame(o, st, &body)
         }
+        #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         o if g::is_wallet_op(o) => {
+            use crate::wallet_exec as w;
             // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
             // verdade no WalletStore de sessão (chaves TRNG no device).
             let effective_claimed = binding_mgr.is_claimed() || secure_guard.is_unlocked();
@@ -230,6 +231,9 @@ pub(crate) fn ble_dispatch_complete(
                 Err(e) => ble::notify_frame(o, e.to_vendor_status(), &[]),
             }
         }
+        // Diet: carteira fora da capability (fail-closed, 0x06).
+        #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+        o if g::is_wallet_op(o) => ble::notify_frame(o, crate::UNSUPPORTED_FEATURE, &[]),
         o if g::is_secure_guard_op(o) => {
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let (st, body) = crate::secure_guard_exec::exec_secure_guard_op(

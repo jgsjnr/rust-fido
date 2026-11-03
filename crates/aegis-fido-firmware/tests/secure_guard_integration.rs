@@ -243,9 +243,17 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         Some(&mut vendor),
     );
     assert_eq!(out.responses.len(), 1);
+    // Diet: carteira fora da capability (fail-closed 0x06); full: 0x00.
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
     assert_eq!(
         out.responses[0][7], 0x00,
         "Acesso deve ser permitido quando Unlocked"
+    );
+    #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+    assert_eq!(
+        out.responses[0][7],
+        aegis_fido_firmware::UNSUPPORTED_FEATURE,
+        "Dieta: carteira fora da capability (fail-closed 0x06)"
     );
 
     // 6. Bloqueio manual via 0x3C (OP_SECURE_GUARD_LOCK)

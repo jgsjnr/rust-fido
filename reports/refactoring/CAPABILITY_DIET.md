@@ -1,0 +1,134 @@
+# CAPABILITY_DIET — presets fido-only / fido-totp (dieta 2 MB)
+
+Fonte da verdade legivel por maquina: `scripts/capability-catalog.json`
+(este doc espelha os numeros dele; tabelas geradas do mesmo JSON).
+Picker: `scripts/select-capability.ps1` / `scripts/select-capability.sh`
+(paridade total; nunca grava flash).
+
+## 1. Presets (raizes alternativas)
+
+`full` = `default` como hoje. `cap-*` exigem
+`--no-default-features` e sao mutuamente exclusivas entre si e com
+`default` (`compile_error!` em `lib.rs`). Diet recusa por `compile_error!`
+as features `proximity`, `debug-terminal`, `test-mode`, `has-display`,
+`board-t-display`, `board-ttgo-classic`, `wifi` — dieta e so devkitc/2MB.
+
+| preset | features (cargo) | boards | medido .bin | factory (budget) | status |
+|---|---|---|---|---|---|
+| full (default como hoje) | board-devkitc (default) | devkitc | 1,81 MiB (1902288 B) | 1.50 MiB (0x180000, 2MB layout) | **OVERFLOW (>1.5MB)** |
+| cap-fido-only (CTAP2/HID puro) | board-devkitc,cap-fido-only | devkitc | 1,08 MiB (1128144 B) | 1.50 MiB (0x180000, 2MB layout) | **PASS <= factory** |
+| cap-fido-totp (+OATH/TOTP) | board-devkitc,cap-fido-totp | devkitc | 1,19 MiB (1251632 B) | 1.50 MiB (0x180000, 2MB layout) | **PASS <= factory** |
+
+Medicao: `cargo +esp build -p aegis-fido-firmware --target
+xtensa-esp32s3-espidf --release --no-default-features --features
+<set> -Zbuild-std=std,panic_abort` + `esptool --chip esp32s3 elf2image
+--flash_size 4MB` (v5.3.1 shell-local), 2026-11-02. Full nao cabe na
+factory 2 MB (motivacao da dieta); dieta passa com margem. Meta
+fido-only <= 1.4 MB: PASS (1128144 B). tdisplay/ttgo-classic usam o
+layout 16 MB/4 MB (factory 0x300000 = 3 MiB) e nao foram medidos aqui.
+
+## 2. O que entra / o que sai por preset
+
+- fido-only INCLUI: ctap-makecred, ctap-getassert, ctap-clientpin, ccid,
+  piv, openpgp, vendor-mgmt (braços wallet/OATH respondem 0x06).
+  EXCLUI: oath-totp, oath-hotp, otp-challenge-response, wallet, vault,
+  ble (radio inerte), wifi-sntp, display, proximity, debug-terminal,
+  test-hooks (comando fora da capability = 0x06 UNSUPPORTED_FEATURE,
+  fail-closed, nunca queda silenciosa).
+- fido-totp = fido-only + oath-totp, oath-hotp, otp-challenge-response
+  (inclui ancora de tempo NVS; OATH via USB/BLE real).
+- full = tudo acima + wallet + vault + ble + wifi-sntp + display +
+  proximity + debug-terminal + test-hooks.
+
+Comandos indisponiveis num preset respondem `UNSUPPORTED_FEATURE`
+(0x06, namespace vendor §9.5); telas TOTP mostram NO_ACCOUNTS sem
+codigo falso.
+
+## 3. Como selecionar (picker)
+
+Interativo (menu mostra includes/excludes + orcamento, pede confirmacao):
+
+```
+./scripts/select-capability.ps1
+./scripts/select-capability.sh
+```
+
+Nao-interativo (CI):
+
+```
+./scripts/select-capability.ps1 --cap fido-only --board devkitc --release
+./scripts/select-capability.sh --cap fido-totp --board devkitc --release
+```
+
+Catalogo (gera da mesma fonte JSON):
+
+```
+./scripts/select-capability.ps1 --list-caps
+./scripts/select-capability.ps1 --list-pools
+./scripts/select-capability.sh --list-caps
+./scripts/select-capability.sh --list-pools
+```
+
+O picker monta o `cargo +esp build` correto por preset+placa
+(`--no-default-features --features <board>[,<cap>]`; ttgo preserva
+`CARGO_PROFILE_RELEASE_OPT_LEVEL=z`), escolhe o layout de particoes da
+placa, converte ELF->.bin via esptool, grava `.sha256` sidecar e compara
+com a factory: PASS continua (exit 0), FAIL (overflow) recusa continuar
+(exit 1). Tambem confere pools NVS residentes vs storage (WARN, nao
+bloqueia) e avisa sobre OTA staging transiente no layout 2 MB. Flash
+permanece manual via `scripts/build-*.ps1 -Flash` (exige placa +
+aprovacao); o picker nunca grava hardware. Sem toolchain/IDF o picker
+sai exit 2 nomeando a peca ausente (EXTERNAL_BLOCKED).
+## 4. Catalogo de capabilities (gerado de capability-catalog.json)
+
+Custos flash sao ESTIMATIVAS (modulo-fonte proporcional, calibrado no build full medido de 1902288 B); modulos compartilhados aparecem em cada capability: NAO SOMAR. Totais por preset sao MEDIDOS (secao 1).
+
+| id | feature | presets | flash est. | deps | modulos |
+|---|---|---|---|---|---|
+| ctap-makecred | (always on) | full,fido-only,fido-totp | ~141,5 KiB | - | ctap_cmd.rs, ctap_state.rs, ctap_ext.rs, cred_store.rs, pin_uv.rs, apdu.rs, up_policy.rs |
+| ctap-getassert | (always on) | full,fido-only,fido-totp | ~141,5 KiB | - | ctap_cmd.rs, ctap_state.rs, ctap_ext.rs, cred_store.rs, pin_uv.rs, apdu.rs, up_policy.rs |
+| ctap-clientpin | (always on) | full,fido-only,fido-totp | ~141,5 KiB | - | ctap_cmd.rs, ctap_state.rs, pin_uv.rs |
+| ccid | (always on) | full,fido-only,fido-totp | ~7,0 KiB | - | ccid_dispatch.rs |
+| piv | (always on) | full,fido-only,fido-totp | ~62,5 KiB | ccid | piv_cmd.rs, piv_store.rs, crypto_rsa.rs |
+| openpgp | (always on) | full,fido-only,fido-totp | ~64,6 KiB | ccid | openpgp_applet.rs, openpgp_cmd.rs, crypto_extra.rs |
+| oath-totp | cap-fido-totp (or full) | full,fido-totp | ~71,4 KiB | wifi-sntp (sntp opcional) | oath_cmd.rs, oath_store.rs, totp.rs, totp_view.rs, time_sync.rs, migrations/keys_oath_v6.rs |
+| oath-hotp | cap-fido-totp (or full) | full,fido-totp | (compartilhado) | oath-totp | oath_cmd.rs (hotp dispatcher), oath_store.rs |
+| otp-challenge-response | cap-fido-totp (or full) | full,fido-totp | (compartilhado) | oath-hotp | oath_cmd.rs (hotp_resync path) |
+| wallet | full only (gated out of cap-*) | full | ~24,4 KiB | - | wallet_exec.rs, hd_wallet.rs |
+| vault | full only (gated out of cap-*) | full | ~45,8 KiB | - | vault_aead.rs, vault_store.rs, migrations/vault_v7.rs |
+| ble | ble (off in diet builds) | full | ~94,9 KiB | vendor-mgmt | ble/, ble_gatt.rs, ble_nimble.rs |
+| wifi-sntp | wifi (forbidden with cap-*) | full | ~76,7 KiB | - | wifi_ap.rs, wifi_station.rs, net/, mdns.rs |
+| display | has-display via board-t-display/board-ttgo-classic (forbidden with cap-*) | full | ~85,3 KiB | - | display/, oled_ssd1306_code_only.rs, ui_journey.rs |
+| proximity | proximity (forbidden with cap-*) | full | ~51,5 KiB | ble | proximity/, proximity_sched.rs, proximity_crypto.rs |
+| vendor-mgmt | (always on) | full,fido-only,fido-totp | ~42,3 KiB | - | vendor_exec.rs, serial_vendor.rs, serial_text.rs |
+| debug-terminal | debug-terminal (forbidden with cap-*) | full | ~6,8 KiB | - | lifetime_trace.rs |
+| test-hooks | test-mode (forbidden with cap-*) | full | ~2,5 KiB | - | test_hooks.rs |
+
+Notas: oath-hotp/otp-challenge-response pegam carona no oath (custo contado em oath-totp). ble em dieta: radio init fail-closed (-1), sem advertising. display em devkitc (todos os presets) ja usa stub headless; dieta recusa boards com display por compile_error.
+
+## 5. Pools de chaves/storage (gerado de capability-catalog.json)
+
+| id | namespaces | limite | est. total | consome (caps) |
+|---|---|---|---|---|
+| credential-slots [resident] | cred/, cred/index | 32 slots x 1024 B | ~~34,2 KiB | ctap-makecred |
+| oath6 [resident] | oath6/ | 64 slots x 512 B (no quota index) | ~~32,2 KiB | oath-totp,oath-hotp |
+| oath6ctr [resident] | oath6ctr/ | 8 B blobs, label <=64 | ~~4,9 KiB | oath-hotp,otp-challenge-response |
+| vault-store [resident] | vault/, vault/index | default 32 slots x 512 B (bound 64) | ~~17,6 KiB | vault |
+| wallet-stores [resident] | key_slots_v1, keys6/ | <=32 slots | ~~7,8 KiB | wallet |
+| secureguard-slots [resident] | sg_record_v1 | 1 record | ~512 B | vendor-mgmt |
+| bonding-store [resident] | ble_store (controller NVS) | 1 bond | ~~2,0 KiB | ble |
+| wifi-creds [resident] | wifi_sta_ssid, wifi_sta_pass, wifi_ap_pass | 3 keys | ~512 B | wifi-sntp |
+| binding-keys [resident] | app_bind_pub, app_bind_id | 2 keys | ~128 B | vendor-mgmt,ble |
+| ota-staging [transient] | ota_staging, ota_stage_len, ota_c*, ota_manifest, ota_committed | 8 KiB chunks, budget const 896 KiB | ~~896,0 KiB | (transiente/sempre) |
+
+Budgets NVS: `storage @0x190000 len 0x070000` = 458752 B (448 KiB, layout 2 MB, devkitc); `storage @0x310000 len 0x0e0000` = 917504 B (896 KiB, layout 16 MB). Residente fido-only ~35 KiB (7,8%) PASS; full ~102 KiB PASS. OTA staging e TRANSIENTE (nunca somado ao residente): 917504 B nao cabe no storage 2 MB (WARN: nessa placa o fluxo precisa transmitir por streaming); cabe no 16 MB.
+
+## 6. Evidencia (medido, elf2image --flash_size 4MB)
+
+| preset | bin | bytes | sha256 | data |
+|---|---|---|---|---|
+| full | aegis-app-esp32s3-devkitc.bin | 1902288 | 747691BCA6D67CAB40FF2AADDECAFB2AB5BA5CAA1A12C1E14411E50769F86F40 | 2026-11-02 |
+| fido-only | aegis-app-esp32s3-devkitc-fido-only.bin | 1128144 | 36CA330DC23CEF56D7716BFE08871D5A0CE562666716D13C555A9B2DCFD188AE | 2026-11-02 |
+| fido-totp | aegis-app-esp32s3-devkitc-fido-totp.bin | 1251632 | 55AC03BC49C18C2DB09175BE0D5246B0103CAE369EDB554F79D800F0B0AE9FDC | 2026-11-02 |
+
+Ver tambem: header de `crates/aegis-fido-firmware/partitions-2m.csv` (tamanho fido-only medido + preset atendido).

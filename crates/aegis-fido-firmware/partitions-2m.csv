@@ -1,6 +1,10 @@
 # AegisKey S3 Partition Table — board física COM14 (flash 2 MB)
-# Derivada de partitions.csv (16 MB); app com pilha CTAPHID real tem ~1.45 MB,
-# então factory de 1.5 MB (storage NVS de 448 KB é suficiente: só slots/chaves).
+# Derivada de partitions.csv (16 MB). Medido 2026-11-02 (elf2image):
+# full board-devkitc = 1902288 B (OVERFLOW na factory 0x180000);
+# cap-fido-only = 1128144 B (PASS, meta <=1.4MB ok, serve esta factory);
+# cap-fido-totp = 1251632 B (PASS, serve esta factory).
+# Storage NVS de 448 KB (0x070000): suficiente p/ pools residentes
+# (fido-only ~35 KB; ver reports/refactoring/CAPABILITY_DIET.md).
 # Name,   Type, SubType, Offset,   Size,
 nvs,      data, nvs,     0x9000,   0x6000,
 phy_init, data, phy,     0xf000,   0x1000,

@@ -7,6 +7,40 @@
 //! - Secure encrypted persistence in NVS/Flash with AES-256-GCM.
 //! - Composite USB descriptors (CTAPHID, CCID, Keyboard, WinUSB with MS OS 2.0).
 //! - Wave4: pairing journey (5s hold), BLE GATT 0xFFFD, WiFi AP, UI journey.
+//!
+//! Capability diet (owner-requested presets; ver
+//! `reports/refactoring/CAPABILITY_DIET.md`).
+//!
+//! Predicados (escritos por extenso em cada `#[cfg]`):
+//! - DIET      = `any(feature = "cap-fido-only", feature = "cap-fido-totp")`
+//! - FIDO_ONLY = `all(feature = "cap-fido-only", not(feature = "cap-fido-totp"))`
+//! - TOTP_ON   = `any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))`
+//! - FULL_ONLY = `not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))`
+//!
+//! `full` = default como hoje (tudo compilado). `cap-*` sao raizes
+//! alternativas: mutuamente exclusivas entre si e com `default`.
+//! Modulos pesados saem do preset via `#[cfg]` + stubs fail-closed com
+//! `UNSUPPORTED_FEATURE` onde o comando fica indisponivel (nunca queda
+//! silenciosa). CTAP2 + CCID/HID + SecureGuard + NVS + OTA + USB ficam
+//! sempre ligados.
+// `cap-fido-only` x `cap-fido-totp`: raizes alternativas mutuamente exclusivas.
+#[cfg(all(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+compile_error!("cap-fido-only and cap-fido-totp are mutually exclusive capability roots");
+// `cap-*` exige `--no-default-features` (`full` = default como hoje).
+#[cfg(all(feature = "default", feature = "cap-fido-only"))]
+compile_error!("cap-fido-only is an alternative root: build with --no-default-features --features board-devkitc,cap-fido-only");
+#[cfg(all(feature = "default", feature = "cap-fido-totp"))]
+compile_error!("cap-fido-totp is an alternative root: build with --no-default-features --features board-devkitc,cap-fido-totp");
+// Diet exclui radios extras, display, diagnosticos e binds de teste.
+#[cfg(all(any(feature = "cap-fido-only", feature = "cap-fido-totp"), any(feature = "proximity", feature = "debug-terminal", feature = "test-mode", feature = "has-display", feature = "board-t-display", feature = "board-ttgo-classic", feature = "wifi")))]
+compile_error!("capability diet presets exclude proximity/debug-terminal/test-mode/display/wifi features");
+/// Vendor status fail-closed para comando compilado para fora da capability
+/// (diet presets). Namespace vendor section 9.5: `0x00` OK | `0x01` NEED_UP |
+/// `0x02` NEED_PIN | `0x03` NO_SLOT | `0x04` falha generica |
+/// `0x05` NEED_BINDING. `0x06` = UNSUPPORTED_FEATURE (comando indisponivel
+/// no preset; nunca queda silenciosa).
+pub const UNSUPPORTED_FEATURE: u8 = 0x06;
+
 
 pub mod anti_rollback;
 pub mod apdu;
@@ -20,10 +54,12 @@ pub mod ccid_dispatch;
 pub mod config;
 pub mod cred_store;
 pub mod crypto_aead;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod crypto_extra;
 pub mod crypto_hash;
 pub mod crypto_hrng;
 pub mod crypto_p256;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod crypto_rsa;
 pub mod ctap_cmd;
 pub mod ctap_ext;
@@ -40,6 +76,7 @@ pub mod freertos_queue;
 pub mod freertos_route;
 pub mod freertos_sched;
 pub mod fw_log;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod hd_wallet;
 pub mod identity;
 pub mod led;
@@ -49,7 +86,9 @@ pub mod mdns;
 pub mod migrations;
 pub mod net;
 pub mod nvs_backend;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub mod oath_cmd;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub mod oath_store;
 pub mod oled_ssd1306_code_only;
 pub mod openpgp_applet;
@@ -68,6 +107,7 @@ pub mod prod_strict_guard;
 pub mod psram_public_alloc;
 #[cfg(feature = "proximity")]
 pub mod proximity;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod proximity_crypto;
 #[cfg(feature = "proximity")]
 pub mod proximity_sched;
@@ -82,17 +122,23 @@ pub mod serial_text;
 pub mod serial_vendor;
 pub mod stores;
 pub mod test_hooks;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub mod totp;
 pub mod totp_view;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 pub mod time_sync;
 pub mod trust_facade;
 pub mod trust_gap;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod ui_journey;
 pub mod up_policy;
 pub mod usb_descriptors;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod vault_aead;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod vault_store;
 pub mod vendor_exec;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod wallet_exec;
 pub mod watchdog;
 pub mod wifi_ap;
@@ -101,10 +147,12 @@ pub mod hmac_cr_compat_layer;
 pub mod zeroize;
 
 pub use crate::crypto_aead::{AeadAlgorithm, AeadBackend, AeadError};
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub use crate::crypto_extra::{ExtraCurve, ExtraError};
 pub use crate::crypto_hash::HashError;
 pub use crate::crypto_hrng::{HrngError, HrngSource};
 pub use crate::crypto_p256::{P256Error, P256Secret};
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub use crate::crypto_rsa::{RsaError, RsaKeyBits, RsaScheme};
 pub use crate::efuse_plan::{EfusePlan, PlanError};
 pub use crate::efuse_safety_lock::{

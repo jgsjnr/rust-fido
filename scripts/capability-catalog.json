@@ -1,0 +1,470 @@
+{
+  "source": "scripts/capability-catalog.json",
+  "version": 1,
+  "cost_basis": "Per-capability flash costs are ESTIMATES: module source bytes x 1.06294 (calibrated on measured full devkitc build, 1902288 B / 1789637 src bytes). Shared modules are counted in each capability that uses them: DO NOT SUM per-cap costs. Preset totals below are MEASURED (.bin after esptool elf2image) and authoritative.",
+  "measurement": {
+    "method": "cargo +esp build -p aegis-fido-firmware --target xtensa-esp32s3-espidf --release --no-default-features --features <set> -Zbuild-std=std,panic_abort ; esptool --chip esp32s3 elf2image --flash_size 4MB",
+    "builds": {
+      "full": {
+        "features": "board-devkitc (default)",
+        "bin": "aegis-app-esp32s3-devkitc.bin",
+        "size_bytes": 1902288,
+        "sha256": "747691BCA6D67CAB40FF2AADDECAFB2AB5BA5CAA1A12C1E14411E50769F86F40",
+        "date": "2026-11-02",
+        "fits_2m_factory": false
+      },
+      "fido-only": {
+        "features": "board-devkitc,cap-fido-only",
+        "bin": "aegis-app-esp32s3-devkitc-fido-only.bin",
+        "size_bytes": 1128144,
+        "sha256": "36CA330DC23CEF56D7716BFE08871D5A0CE562666716D13C555A9B2DCFD188AE",
+        "date": "2026-11-02",
+        "fits_2m_factory": true
+      },
+      "fido-totp": {
+        "features": "board-devkitc,cap-fido-totp",
+        "bin": "aegis-app-esp32s3-devkitc-fido-totp.bin",
+        "size_bytes": 1251632,
+        "sha256": "55AC03BC49C18C2DB09175BE0D5246B0103CAE369EDB554F79D800F0B0AE9FDC",
+        "date": "2026-11-02",
+        "fits_2m_factory": true
+      }
+    }
+  },
+  "boards": {
+    "devkitc": {
+      "name": "ESP32-S3 DevKitC-1 (2 MB flash fisica)",
+      "chip": "esp32s3",
+      "target": "xtensa-esp32s3-espidf",
+      "board_feature": "board-devkitc",
+      "flash_bytes": 2097152,
+      "partition_file": "crates/aegis-fido-firmware/partitions-2m.csv",
+      "factory_bytes": 1572864,
+      "storage_bytes": 458752,
+      "extra_env": {},
+      "bin_prefix": "aegis-app-esp32s3-devkitc"
+    },
+    "tdisplay": {
+      "name": "LilyGO T-Display-S3 (16 MB flash, LCD 170x320)",
+      "chip": "esp32s3",
+      "target": "xtensa-esp32s3-espidf",
+      "board_feature": "board-t-display",
+      "flash_bytes": 16777216,
+      "partition_file": "crates/aegis-fido-firmware/partitions.csv",
+      "factory_bytes": 3145728,
+      "storage_bytes": 917504,
+      "extra_env": {},
+      "bin_prefix": "aegis-app-esp32s3-tdisplay"
+    },
+    "ttgo-classic": {
+      "name": "LilyGO TTGO T-Display Classic (ESP32 4 MB, LCD 135x240)",
+      "chip": "esp32",
+      "target": "xtensa-esp32-espidf",
+      "board_feature": "board-ttgo-classic",
+      "flash_bytes": 4194304,
+      "partition_file": "crates/aegis-fido-firmware/partitions.csv",
+      "factory_bytes": 3145728,
+      "storage_bytes": 917504,
+      "extra_env": { "CARGO_PROFILE_RELEASE_OPT_LEVEL": "z" },
+      "bin_prefix": "aegis-app-esp32"
+    }
+  },
+  "presets": {
+    "full": {
+      "name": "full (default como hoje)",
+      "diet": false,
+      "extra_features": [],
+      "boards": ["devkitc", "tdisplay", "ttgo-classic"],
+      "goal_bytes": null,
+      "blurb": "Tudo compilado: CTAP2 + CCID/PIV/OpenPGP + OATH + wallet + vault + BLE + WiFi/SNTP + display + proximity + vendor/mgmt + diagnosticos.",
+      "includes": ["ctap-makecred", "ctap-getassert", "ctap-clientpin", "ccid", "piv", "openpgp", "oath-totp", "oath-hotp", "otp-challenge-response", "wallet", "vault", "ble", "wifi-sntp", "display", "proximity", "vendor-mgmt", "debug-terminal", "test-hooks"],
+      "excludes": []
+    },
+    "fido-only": {
+      "name": "cap-fido-only (CTAP2/HID puro)",
+      "diet": true,
+      "extra_features": ["cap-fido-only"],
+      "boards": ["devkitc"],
+      "goal_bytes": 1400000,
+      "blurb": "CTAP2/HID puro para a factory 2 MB (0x180000). Sem OATH/TOTP, sem wallet/vault, sem radio WiFi/BLE, sem display. Comandos fora da capability respondem 0x06 UNSUPPORTED_FEATURE (fail-closed).",
+      "includes": ["ctap-makecred", "ctap-getassert", "ctap-clientpin", "ccid", "piv", "openpgp", "vendor-mgmt"],
+      "excludes": ["oath-totp", "oath-hotp", "otp-challenge-response", "wallet", "vault", "ble", "wifi-sntp", "display", "proximity", "debug-terminal", "test-hooks"]
+    },
+    "fido-totp": {
+      "name": "cap-fido-totp (+OATH/TOTP)",
+      "diet": true,
+      "extra_features": ["cap-fido-totp"],
+      "boards": ["devkitc"],
+      "goal_bytes": null,
+      "blurb": "cap-fido-only + OATH/TOTP/HOTP (inclui ancora de tempo NVS). Serve a factory 2 MB. OATH via USB/BLE responde 0x06 quando fora da capability.",
+      "includes": ["ctap-makecred", "ctap-getassert", "ctap-clientpin", "ccid", "piv", "openpgp", "oath-totp", "oath-hotp", "otp-challenge-response", "vendor-mgmt"],
+      "excludes": ["wallet", "vault", "ble", "wifi-sntp", "display", "proximity", "debug-terminal", "test-hooks"]
+    }
+  },
+  "capabilities": [
+    {
+      "id": "ctap-makecred",
+      "name": "CTAP2 MakeCredential",
+      "modules": ["ctap_cmd.rs", "ctap_state.rs", "ctap_ext.rs", "cred_store.rs", "pin_uv.rs", "apdu.rs", "up_policy.rs"],
+      "shared_group": "ctap-core",
+      "shared": true,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 144941,
+      "deps": [],
+      "notes": "Shares ctap-core modules with getassert/clientpin (cost counted in group, do not sum)."
+    },
+    {
+      "id": "ctap-getassert",
+      "name": "CTAP2 GetAssertion",
+      "modules": ["ctap_cmd.rs", "ctap_state.rs", "ctap_ext.rs", "cred_store.rs", "pin_uv.rs", "apdu.rs", "up_policy.rs"],
+      "shared_group": "ctap-core",
+      "shared": true,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 144941,
+      "deps": [],
+      "notes": "Shares ctap-core modules with makecred/clientpin (cost counted in group, do not sum)."
+    },
+    {
+      "id": "ctap-clientpin",
+      "name": "CTAP2 ClientPIN/UV",
+      "modules": ["ctap_cmd.rs", "ctap_state.rs", "pin_uv.rs"],
+      "shared_group": "ctap-core",
+      "shared": true,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 144941,
+      "deps": [],
+      "notes": "Shares ctap-core modules (cost counted in group, do not sum)."
+    },
+    {
+      "id": "ccid",
+      "name": "CCID transport (smartcard USB)",
+      "modules": ["ccid_dispatch.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 7162,
+      "deps": [],
+      "notes": "USB descriptors/framing are always-on shared infra (cost carried in base image)."
+    },
+    {
+      "id": "piv",
+      "name": "PIV applet (slots 9A/9C/9D/9E)",
+      "modules": ["piv_cmd.rs", "piv_store.rs", "crypto_rsa.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 63961,
+      "deps": ["ccid"],
+      "notes": "Compiled in all presets (CCID keep). crypto_rsa attributed here (serves smartcard RSA; non-RSA algs fail closed with BadAlg when gated)."
+    },
+    {
+      "id": "openpgp",
+      "name": "OpenPGP applet",
+      "modules": ["openpgp_applet.rs", "openpgp_cmd.rs", "crypto_extra.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 66126,
+      "deps": ["ccid"],
+      "notes": "Compiled in all presets (CCID keep). crypto_extra attributed here (extra curves for OpenPGP)."
+    },
+    {
+      "id": "oath-totp",
+      "name": "OATH TOTP (RFC 6238, device CALCULATE)",
+      "modules": ["oath_cmd.rs", "oath_store.rs", "totp.rs", "totp_view.rs", "time_sync.rs", "migrations/keys_oath_v6.rs"],
+      "shared_group": "oath",
+      "shared": true,
+      "feature": "cap-fido-totp (or full)",
+      "presets": ["full", "fido-totp"],
+      "flash_cost_est_bytes": 73122,
+      "deps": ["wifi-sntp"],
+      "deps_optional": ["wifi-sntp"],
+      "deps_note": "SNTP wall-clock is optional: without it the NVS time anchor + host-set time apply.",
+      "notes": "Diet fido-only: vendor OATH ops answer 0x06 UNSUPPORTED_FEATURE; totp_view shows NO_ACCOUNTS (fail-closed, never fake codes)."
+    },
+    {
+      "id": "oath-hotp",
+      "name": "OATH HOTP (counter + resync, oath6ctr/)",
+      "modules": ["oath_cmd.rs (hotp dispatcher)", "oath_store.rs"],
+      "shared_group": "oath",
+      "shared": true,
+      "feature": "cap-fido-totp (or full)",
+      "presets": ["full", "fido-totp"],
+      "flash_cost_est_bytes": 0,
+      "deps": ["oath-totp"],
+      "notes": "No separate module: rides oath_store + oath_cmd HOTP dispatcher. Cost counted in oath-totp group."
+    },
+    {
+      "id": "otp-challenge-response",
+      "name": "OTP challenge-response (HOTP path)",
+      "modules": ["oath_cmd.rs (hotp_resync path)"],
+      "shared_group": "oath",
+      "shared": true,
+      "feature": "cap-fido-totp (or full)",
+      "presets": ["full", "fido-totp"],
+      "flash_cost_est_bytes": 0,
+      "deps": ["oath-hotp"],
+      "notes": "No Yubico-proprietary CR module in tree; served by the HOTP counter dispatcher (forward-only resync)."
+    },
+    {
+      "id": "wallet",
+      "name": "Wallet addr/sign (Web3, sessao RAM)",
+      "modules": ["wallet_exec.rs", "hd_wallet.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "full only (gated out of cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 25018,
+      "deps": [],
+      "notes": "Diet: wallet ops answer 0x06 UNSUPPORTED_FEATURE on USB/BLE/vendor (fail-closed, never silent)."
+    },
+    {
+      "id": "vault",
+      "name": "Vault (itens cifrados vault/ + quota)",
+      "modules": ["vault_aead.rs", "vault_store.rs", "migrations/vault_v7.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "full only (gated out of cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 46884,
+      "deps": [],
+      "notes": "Diet: vault ops answer 0x06 UNSUPPORTED_FEATURE (fail-closed)."
+    },
+    {
+      "id": "ble",
+      "name": "BLE GATT (CTAP proxy 0xFFFD + vendor ops)",
+      "modules": ["ble/", "ble_gatt.rs", "ble_nimble.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "ble (off in diet builds)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 97181,
+      "deps": ["vendor-mgmt"],
+      "notes": "Diet: radio init stub returns fail-closed (-1, no advertising); wallet/oath GATT arms answer 0x06. esp_ble_preinit diet shim: ble/nimble_backend.rs."
+    },
+    {
+      "id": "wifi-sntp",
+      "name": "WiFi AP/station + SNTP + mDNS",
+      "modules": ["wifi_ap.rs", "wifi_station.rs", "net/", "mdns.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "wifi (forbidden with cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 78505,
+      "deps": [],
+      "notes": "Diet: net/ap_core radio paths gated to fail-closed stubs on target; wifi feature rejected by compile_error with cap-*."
+    },
+    {
+      "id": "display",
+      "name": "Display (ST7789 + OLED + UI journey)",
+      "modules": ["display/", "oled_ssd1306_code_only.rs", "ui_journey.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "has-display via board-t-display/board-ttgo-classic (forbidden with cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 87324,
+      "deps": [],
+      "notes": "devkitc builds (all presets) already use the headless DisplayManager stub; diet additionally rejects display boards by compile_error."
+    },
+    {
+      "id": "proximity",
+      "name": "Proximity beacon 0xFFFE (rolling-code)",
+      "modules": ["proximity/", "proximity_sched.rs", "proximity_crypto.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "proximity (forbidden with cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 52695,
+      "deps": ["ble"],
+      "notes": "1 bond max (sdkconfig), RAM-only bonded flag; release revokes K_prox."
+    },
+    {
+      "id": "vendor-mgmt",
+      "name": "Vendor/management cmds (keys/OATH ops, serial console)",
+      "modules": ["vendor_exec.rs", "serial_vendor.rs", "serial_text.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "(always on)",
+      "presets": ["full", "fido-only", "fido-totp"],
+      "flash_cost_est_bytes": 43309,
+      "deps": [],
+      "notes": "Always compiled; in diet the wallet/OATH arms answer 0x06 UNSUPPORTED_FEATURE. USB CTAPHID/serial transports are always-on infra."
+    },
+    {
+      "id": "debug-terminal",
+      "name": "Debug terminal (lifetime lines)",
+      "modules": ["lifetime_trace.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "debug-terminal (forbidden with cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 6945,
+      "deps": [],
+      "notes": "Release = ltrace! no-op; diet rejects the feature."
+    },
+    {
+      "id": "test-hooks",
+      "name": "Test-mode hooks (TEST_* serial)",
+      "modules": ["test_hooks.rs"],
+      "shared_group": null,
+      "shared": false,
+      "feature": "test-mode (forbidden with cap-*)",
+      "presets": ["full"],
+      "flash_cost_est_bytes": 2585,
+      "deps": [],
+      "notes": "Absent in release/diet; diet rejects the feature."
+    }
+  ],
+  "pools": [
+    {
+      "id": "credential-slots",
+      "name": "Credential slots (FIDO2 resident creds)",
+      "kind": "resident",
+      "namespaces": ["cred/", "cred/index"],
+      "slot_limit": "32 slots x 1024 B",
+      "bytes_per_slot": 1024,
+      "est_total_bytes": 35000,
+      "consumed_by": ["ctap-makecred"],
+      "always": false,
+      "notes": "CRED_MAX_SLOTS=32, CRED_SLOT_MAX_BYTES=1024 (+ encrypted index)."
+    },
+    {
+      "id": "oath6",
+      "name": "OATH credential blobs",
+      "kind": "resident",
+      "namespaces": ["oath6/"],
+      "slot_limit": "64 slots x 512 B (no quota index)",
+      "bytes_per_slot": 512,
+      "est_total_bytes": 33000,
+      "consumed_by": ["oath-totp", "oath-hotp"],
+      "always": false,
+      "notes": "MAX_OATH6_SLOTS=64, OATH_STORE_MAX_BYTES=512, TLV total <=512B."
+    },
+    {
+      "id": "oath6ctr",
+      "name": "HOTP counters",
+      "kind": "resident",
+      "namespaces": ["oath6ctr/"],
+      "slot_limit": "8 B blobs, label <=64",
+      "bytes_per_slot": 8,
+      "est_total_bytes": 5000,
+      "consumed_by": ["oath-hotp", "otp-challenge-response"],
+      "always": false,
+      "notes": "Fixed 8 B big-endian next-counter blobs + envelope overhead."
+    },
+    {
+      "id": "vault-store",
+      "name": "Vault slots + quota index",
+      "kind": "resident",
+      "namespaces": ["vault/", "vault/index"],
+      "slot_limit": "default 32 slots x 512 B (bound 64)",
+      "bytes_per_slot": 512,
+      "est_total_bytes": 18000,
+      "consumed_by": ["vault"],
+      "always": false,
+      "notes": "Quota enforced via encrypted vault/index; default max_vault_slots=32."
+    },
+    {
+      "id": "wallet-stores",
+      "name": "Wallet/key slots blob",
+      "kind": "resident",
+      "namespaces": ["key_slots_v1", "keys6/"],
+      "slot_limit": "<=32 slots",
+      "bytes_per_slot": 256,
+      "est_total_bytes": 8000,
+      "consumed_by": ["wallet"],
+      "always": false,
+      "notes": "Session WalletStore in RAM (NVS = follow-up): key_slots_v1 blob + keys6/ records."
+    },
+    {
+      "id": "secureguard-slots",
+      "name": "SecureGuard record",
+      "kind": "resident",
+      "namespaces": ["sg_record_v1"],
+      "slot_limit": "1 record",
+      "bytes_per_slot": 512,
+      "est_total_bytes": 512,
+      "consumed_by": ["vendor-mgmt"],
+      "always": true,
+      "notes": "Always resident (SecureGuard gates privileged ops in every preset)."
+    },
+    {
+      "id": "bonding-store",
+      "name": "BLE bonding (controller store)",
+      "kind": "resident",
+      "namespaces": ["ble_store (controller NVS)"],
+      "slot_limit": "1 bond",
+      "bytes_per_slot": 2048,
+      "est_total_bytes": 2048,
+      "consumed_by": ["ble"],
+      "always": false,
+      "notes": "BLE_NIMBLE_MAX_BONDS=1; RAM bonded flag, 30-day max age."
+    },
+    {
+      "id": "wifi-creds",
+      "name": "WiFi credentials + mDNS host",
+      "kind": "resident",
+      "namespaces": ["wifi_sta_ssid", "wifi_sta_pass", "wifi_ap_pass"],
+      "slot_limit": "3 keys",
+      "bytes_per_slot": 128,
+      "est_total_bytes": 512,
+      "consumed_by": ["wifi-sntp"],
+      "always": false,
+      "notes": "Station/AP passphrases + mDNS hostname."
+    },
+    {
+      "id": "binding-keys",
+      "name": "Binding keys (BLE claim)",
+      "kind": "resident",
+      "namespaces": ["app_bind_pub", "app_bind_id"],
+      "slot_limit": "2 keys",
+      "bytes_per_slot": 64,
+      "est_total_bytes": 128,
+      "consumed_by": ["vendor-mgmt", "ble"],
+      "always": true,
+      "notes": "Always resident; BLE claim path consumes it when ble is selected."
+    },
+    {
+      "id": "ota-staging",
+      "name": "OTA staging (transient)",
+      "kind": "transient",
+      "namespaces": ["ota_staging", "ota_stage_len", "ota_c*", "ota_manifest", "ota_committed"],
+      "slot_limit": "8 KiB chunks, budget const 896 KiB",
+      "bytes_per_slot": 8192,
+      "est_total_bytes": 917504,
+      "consumed_by": [],
+      "always": true,
+      "notes": "TRANSIENT: checked separately, never summed into resident total. OTA_STORAGE_BUDGET_BYTES=917504 exceeds the 2 MB layout storage partition (458752): on devkitc/2MB the flow must stream, never stage a full image. Fits the 16 MB layout storage (917504)."
+    },
+    {
+      "id": "nvs-budget-2m",
+      "name": "NVS budget: 2 MB layout (devkitc)",
+      "kind": "budget",
+      "namespaces": ["storage @0x190000 len 0x070000 (partitions-2m.csv)"],
+      "slot_limit": "458752 B",
+      "bytes_per_slot": 1,
+      "est_total_bytes": 458752,
+      "consumed_by": [],
+      "always": true,
+      "notes": "Resident-pool budget for the devkitc/2MB layout."
+    },
+    {
+      "id": "nvs-budget-16m",
+      "name": "NVS budget: 16 MB layout (tdisplay/ttgo)",
+      "kind": "budget",
+      "namespaces": ["storage @0x310000 len 0x0e0000 (partitions.csv)"],
+      "slot_limit": "917504 B",
+      "bytes_per_slot": 1,
+      "est_total_bytes": 917504,
+      "consumed_by": [],
+      "always": true,
+      "notes": "Resident-pool budget for the 16 MB layout."
+    }
+  ]
+}

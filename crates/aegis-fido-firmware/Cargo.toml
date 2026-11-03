@@ -25,6 +25,16 @@ test-mode = []
 prod-strict = []
 # Variante FreeRTOS em Rust (tasks + queue + event-group; ver src/freertos.rs).
 freertos = []
+# Capability diet (alternative roots; ver reports/refactoring/CAPABILITY_DIET.md).
+# - `cap-fido-only`: CTAP2/HID puro (sem OATH/TOTP, sem wallet/vault, sem
+#   radio WiFi/BLE, sem display; fabrica 2 MB 0x180000).
+# - `cap-fido-totp`: `cap-fido-only` + OATH/TOTP (inclui ancora de tempo).
+# Uso: `--no-default-features --features board-devkitc,cap-fido-only`
+# (ou `cap-fido-totp`). `full` = default como hoje. `cap-*` sao raizes
+# alternativas, mutuamente exclusivas entre si e com `default`
+# (combinacao errada falha em `compile_error!` no lib.rs).
+cap-fido-only = []
+cap-fido-totp = []
 
 [dependencies]
 aegis-secure-guard = { path = "../aegis-secure-guard" }

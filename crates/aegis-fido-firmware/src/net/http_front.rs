@@ -278,12 +278,12 @@ impl<R: WifiRadioBackend> WifiNet<R> {
         ssid: &str,
         pass: Option<&str>,
     ) -> Result<(), WifiNetError> {
-        #[cfg(not(feature = "wifi"))]
+        #[cfg(any(not(feature = "wifi"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         {
             let _ = (pairing_open, menu_request, now_ms, ssid, pass);
             return Err(WifiNetError::NotCompiled);
         }
-        #[cfg(feature = "wifi")]
+        #[cfg(all(feature = "wifi", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         {
             if !(pairing_open || menu_request) {
                 return Err(WifiNetError::ApNotAllowed);
@@ -302,11 +302,11 @@ impl<R: WifiRadioBackend> WifiNet<R> {
     /// Desliga o AP (apos config/timeout; idempotente).
     #[allow(clippy::needless_return)]
     pub fn ap_stop(&mut self) -> Result<(), WifiNetError> {
-        #[cfg(not(feature = "wifi"))]
+        #[cfg(any(not(feature = "wifi"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         {
             return Err(WifiNetError::NotCompiled);
         }
-        #[cfg(feature = "wifi")]
+        #[cfg(all(feature = "wifi", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         {
             self.ap.shutdown_after_config();
             let rc = R::ap_stop();
@@ -327,12 +327,12 @@ impl<R: WifiRadioBackend> WifiNet<R> {
         ssid: &str,
         pass: &str,
     ) -> Result<(), WifiNetError> {
-        #[cfg(not(feature = "wifi"))]
+        #[cfg(any(not(feature = "wifi"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         {
             let _ = (pairing_open, has_credentials, now_ms, ssid, pass);
             return Err(WifiNetError::NotCompiled);
         }
-        #[cfg(feature = "wifi")]
+        #[cfg(all(feature = "wifi", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         {
             if pairing_open || !has_credentials {
                 return Err(WifiNetError::StationNotAllowed);
@@ -355,12 +355,12 @@ impl<R: WifiRadioBackend> WifiNet<R> {
         station_up: bool,
         host: &str,
     ) -> Result<(), WifiNetError> {
-        #[cfg(not(feature = "wifi"))]
+        #[cfg(any(not(feature = "wifi"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         {
             let _ = (pairing_open, station_up, host);
             return Err(WifiNetError::NotCompiled);
         }
-        #[cfg(feature = "wifi")]
+        #[cfg(all(feature = "wifi", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         {
             if pairing_open || !station_up {
                 return Err(WifiNetError::MdnsNotAllowed);
@@ -377,11 +377,11 @@ impl<R: WifiRadioBackend> WifiNet<R> {
     /// Power-down total (AP off + station off; bateria).
     #[allow(clippy::needless_return)]
     pub fn off(&mut self) -> Result<(), WifiNetError> {
-        #[cfg(not(feature = "wifi"))]
+        #[cfg(any(not(feature = "wifi"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         {
             return Err(WifiNetError::NotCompiled);
         }
-        #[cfg(feature = "wifi")]
+        #[cfg(all(feature = "wifi", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         {
             self.ap.shutdown_after_config();
             self.sta.disconnect();

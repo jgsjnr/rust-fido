@@ -17,22 +17,29 @@ use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::credential::{KEY_USE_AUTH, KEY_USE_SIGN};
 use aegis_fido_core::crypto::cose::CoseKey;
 use aegis_fido_core::crypto::curves::{CoseAlgorithm, PublicKey};
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 use aegis_fido_core::oath::tlv::{TAG_OATH_NAME, TAG_OATH_RESPONSE};
 use aegis_fido_core::oath::{
-    find_tlv, parse_tlv_records, write_tlv, OathAlgorithm, OathApplet, OathDeviceError, OathType,
-    OATH_TLV_MAX_BYTES, TAG_CHALLENGE, TAG_KEY, TAG_NAME,
+    write_tlv, OathAlgorithm, OathApplet, OathDeviceError, OathType, OATH_TLV_MAX_BYTES,
+    TAG_CHALLENGE, TAG_KEY, TAG_NAME,
 };
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+use aegis_fido_core::oath::{find_tlv, parse_tlv_records};
 use aegis_fido_core::wallet::{CryptoNetwork, WalletError, WalletStore, WALLET_LABEL_PREFIX};
-use aegis_fido_firmware::ble_gatt::{
-    OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT, OP_PIV_ENROLL,
-};
+use aegis_fido_firmware::ble_gatt::OP_PIV_ENROLL;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+use aegis_fido_firmware::ble_gatt::{OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT};
 use aegis_fido_firmware::ccid_dispatch::process_ccid_frame;
 use aegis_fido_firmware::persistence::{MockFlashBackend, SecureStorage};
 use aegis_fido_firmware::piv_store::{PivFwBackend, PivNvsStore, PIV_SLOT_BASE};
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 use aegis_fido_firmware::totp_view::{
     collect_totp_codes, sanitized_code_log, totp_challenge_for_unix_secs,
 };
-use aegis_fido_firmware::vendor_exec::{exec_vendor_op, load_states};
+use aegis_fido_firmware::vendor_exec::exec_vendor_op;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+use aegis_fido_firmware::vendor_exec::load_states;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 use aegis_fido_firmware::wallet_exec::{
     wallet_addr, wallet_gen, wallet_list, TAG_WALLET_ADDRESS, TAG_WALLET_LABEL, TAG_WALLET_NETWORK,
     TAG_WALLET_SLOT,
@@ -42,12 +49,15 @@ use aegis_fido_usb::piv::{PivCryptoError, PivKeyBackend, PivRecordStore, PivSlot
 
 // Vetores congelados (offline, determinísticos).
 const SECRET_SHA1_20: &[u8] = b"12345678901234567890";
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 const SECRET_SHA256_32: &[u8] = b"12345678901234567890123456789012";
 // RFC 4226 S5.4 / RFC 6238 T=1 (unix 59s): counter 0 -> 755224, counter 1 -> 287082.
 const HOTP_COUNTER_0_CODE: &str = "755224";
 const RFC_COUNTER_1_CODE: &str = "287082";
 // RFC 6238 SHA-256, T=1, 8 dígitos.
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 const RFC_SHA256_8D_CODE: &str = "46119246";
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 const UNIX_T1: u64 = 59;
 
 fn storage() -> SecureStorage<MockFlashBackend> {
@@ -192,6 +202,7 @@ fn oath_hotp_e2e_counter_avanca_a_cada_code() {
     assert_eq!(second.code, RFC_COUNTER_1_CODE);
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn oath_sha256_8_digitos_rfc6238() {
     let mut applet = OathApplet::new();
@@ -217,6 +228,7 @@ fn oath_sha256_8_digitos_rfc6238() {
     assert_eq!(entries[0].account, "SHA256:alice");
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn oath_vendor_exec_fim_a_fim_com_gates_e_persistencia() {
     let mut st = storage();
@@ -398,6 +410,7 @@ fn oath_gates_e_erro_fechado_01_a_04() {
 // Segredo nunca sai do device
 // ---------------------------------------------------------------------------
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 #[test]
 fn oath_segredo_nunca_sai_list_code_log_tela() {
     let mut applet = OathApplet::new();
@@ -476,6 +489,7 @@ fn wallet_keymanager_dedicado_isola_stores_e_fido_alheio() {
     assert_eq!(listed[0].address, rec.address);
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[test]
 fn wallet_exec_sessao_sem_segredo_no_fio() {
     let mut rng = rand::rng();

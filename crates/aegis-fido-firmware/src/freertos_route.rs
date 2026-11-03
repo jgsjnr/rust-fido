@@ -309,15 +309,23 @@ pub fn dispatch_serial_vendor_msg(
                     || sg_unlocked
                     || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
                 let (st, body) = if is_wallet_op(op) {
-                    use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
-                    use crate::wallet_exec as w;
-                    match op {
-                        OP_WALLET_GEN => {
-                            w::wallet_gen(ctx.wallet, &payload[1..], ctx.now_secs, true, &mut rng)
+                    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                    {
+                        use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
+                        use crate::wallet_exec as w;
+                        match op {
+                            OP_WALLET_GEN => {
+                                w::wallet_gen(ctx.wallet, &payload[1..], ctx.now_secs, true, &mut rng)
+                            }
+                            OP_WALLET_LIST => w::wallet_list(ctx.wallet, true),
+                            OP_WALLET_ADDR => w::wallet_addr(ctx.wallet, &payload[1..], true),
+                            _ => (0x04, Vec::new()),
                         }
-                        OP_WALLET_LIST => w::wallet_list(ctx.wallet, true),
-                        OP_WALLET_ADDR => w::wallet_addr(ctx.wallet, &payload[1..], true),
-                        _ => (0x04, Vec::new()),
+                    }
+                    // Diet: carteira fora da capability (fail-closed, 0x06).
+                    #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+                    {
+                        (crate::UNSUPPORTED_FEATURE, Vec::new())
                     }
                 } else {
                     crate::vendor_exec::exec_vendor_op(
@@ -872,6 +880,7 @@ mod tests {
         assert!(FREERTOS_TRUST_GAPS_EXTERNALLY_BLOCKED.contains(&"WifiCoex"));
     }
 
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
     #[test]
     fn test_secure_guard_enforcement_barrier_on_wallet_ops() {
         use crate::binding::BindingManager;

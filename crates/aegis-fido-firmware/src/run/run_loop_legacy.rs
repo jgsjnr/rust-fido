@@ -294,7 +294,9 @@ pub fn run_authenticator() {
     let mut wifi_radio_on = false;
     let mut last_sta_attempt_ms: Option<u64> = None;
     // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
+    #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
     let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
+    #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
     let mut last_time_sync_attempt_ms: Option<u64> = None;
     // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
     // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
@@ -538,6 +540,7 @@ pub fn run_authenticator() {
         );
         // TOTP sem bateria: SNTP quando a station esta up; ancora NVS
         // sobrevive ao reboot (max() + fail-closed). Ver `time_sync`.
+        #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         crate::time_sync::poll_time_sync(
             &mut storage,
             &mut time_state,
@@ -1447,8 +1450,9 @@ pub fn run_authenticator() {
         if serial_installed {
             use crate::ble_gatt::{
                 is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
-                OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST,
             };
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use crate::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt, dispatch_serial_rescue,
                 is_rescue_msg, serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed,
@@ -1766,27 +1770,35 @@ pub fn run_authenticator() {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
                                             let (st, body) = if is_wallet_op(op) {
-                                                // Carteira Fase7: executa de verdade
-                                                // (gate pairing+UP já passou acima).
-                                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
-                                                use crate::wallet_exec as w;
-                                                match op {
-                                                    OP_WALLET_GEN => w::wallet_gen(
-                                                        &mut wallet_store,
-                                                        &msg.payload[1..],
-                                                        now_secs,
-                                                        true,
-                                                        &mut rng,
-                                                    ),
-                                                    OP_WALLET_LIST => {
-                                                        w::wallet_list(&wallet_store, true)
+                                                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                                                {
+                                                    // Carteira Fase7: executa de verdade
+                                                    // (gate pairing+UP já passou acima).
+                                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                                    use crate::wallet_exec as w;
+                                                    match op {
+                                                        OP_WALLET_GEN => w::wallet_gen(
+                                                            &mut wallet_store,
+                                                            &msg.payload[1..],
+                                                            now_secs,
+                                                            true,
+                                                            &mut rng,
+                                                        ),
+                                                        OP_WALLET_LIST => {
+                                                            w::wallet_list(&wallet_store, true)
+                                                        }
+                                                        OP_WALLET_ADDR => w::wallet_addr(
+                                                            &wallet_store,
+                                                            &msg.payload[1..],
+                                                            true,
+                                                        ),
+                                                        _ => (0x04, Vec::new()),
                                                     }
-                                                    OP_WALLET_ADDR => w::wallet_addr(
-                                                        &wallet_store,
-                                                        &msg.payload[1..],
-                                                        true,
-                                                    ),
-                                                    _ => (0x04, Vec::new()),
+                                                }
+                                                // Diet: carteira fora da capability (fail-closed, 0x06).
+                                                #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+                                                {
+                                                    (crate::UNSUPPORTED_FEATURE, Vec::new())
                                                 }
                                             } else {
                                                 // F2: executor real on-device

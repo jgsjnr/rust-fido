@@ -401,9 +401,9 @@ pub fn run_authenticator_freertos() {
     let mut last_sta_attempt_ms: Option<u64> = None;
     #[cfg(target_os = "espidf")]
     // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
-    #[cfg(target_os = "espidf")]
+    #[cfg(all(target_os = "espidf", any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))))]
     let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
-    #[cfg(target_os = "espidf")]
+    #[cfg(all(target_os = "espidf", any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))))]
     let mut last_time_sync_attempt_ms: Option<u64> = None;
     #[cfg(target_os = "espidf")]
     let mut ccid_transport = aegis_fido_usb::ccid::CcidTransport::new();
@@ -1180,6 +1180,7 @@ pub fn run_authenticator_freertos() {
                         freertos_now_ms,
                     );
                     // TOTP sem bateria: SNTP quando a station esta up (ver `time_sync`).
+                    #[cfg(all(target_os = "espidf", any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))))]
                     #[cfg(target_os = "espidf")]
                     crate::time_sync::poll_time_sync(
                         &mut storage,

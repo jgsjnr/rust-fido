@@ -13,11 +13,14 @@ use aegis_fido_core::credential::KEY_USE_AUTH;
 use aegis_fido_core::credential::KEY_USE_SIGN;
 use aegis_fido_core::crypto::curves::CoseAlgorithm;
 use aegis_fido_core::ctap::client_pin::ClientPinState;
-use aegis_fido_core::oath::applet::{OathApplet, OathDeviceError};
+use aegis_fido_core::oath::applet::OathApplet;
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+use aegis_fido_core::oath::applet::OathDeviceError;
 use aegis_fido_core::oath::tlv::{
-    find_tlv, parse_tlv_records, write_tlv, TAG_ALG_HINT, TAG_LABEL, TAG_OATH_NAME,
-    TAG_OATH_RESPONSE, TAG_SLOT, TAG_USAGE_HINT,
+    find_tlv, parse_tlv_records, write_tlv, TAG_ALG_HINT, TAG_LABEL, TAG_SLOT, TAG_USAGE_HINT,
 };
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+use aegis_fido_core::oath::tlv::{TAG_OATH_NAME, TAG_OATH_RESPONSE};
 use alloc::vec::Vec;
 
 use crate::ble_gatt::{
@@ -43,6 +46,7 @@ fn km_status(e: KeyManagerError) -> u8 {
     e.status()
 }
 
+#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
 fn oath_status(e: OathDeviceError) -> u8 {
     e.code()
 }
@@ -315,6 +319,7 @@ where
                 Err(e) => (km_status(e), Vec::new()),
             }
         }
+        #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         OP_OATH_PUT => {
             let snap = oath.export_state();
             match oath.device_put(payload, pin_ok, true) {
@@ -329,6 +334,7 @@ where
                 Err(e) => (oath_status(e), Vec::new()),
             }
         }
+        #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         OP_OATH_LIST => match oath.device_list(false, true) {
             Ok(slots) => {
                 let mut out = Vec::new();
@@ -342,6 +348,7 @@ where
             }
             Err(e) => (oath_status(e), Vec::new()),
         },
+        #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         OP_OATH_CODE => match oath.device_code(payload, false, true) {
             Ok(res) => {
                 // HOTP avança contador: persiste (rollback não faz sentido;
@@ -353,6 +360,7 @@ where
             }
             Err(e) => (oath_status(e), Vec::new()),
         },
+        #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
         OP_OATH_DELETE => {
             let snap = oath.export_state();
             match oath.device_delete(payload, pin_ok, true) {
@@ -368,6 +376,17 @@ where
             }
         }
         // IMPORT (0x21): envelope AEGN + vault = F2b; gate já passou.
+        // Diet cap-fido-only: OATH fora da capability (fail-closed).
+        // Nunca queda silenciosa: responde UNSUPPORTED_FEATURE (0x06).
+        #[cfg(all(feature = "cap-fido-only", not(feature = "cap-fido-totp")))]
+        op if matches!(
+            op,
+            OP_OATH_PUT | OP_OATH_LIST | OP_OATH_CODE | OP_OATH_DELETE
+        ) =>
+        {
+            let _ = (oath, storage, payload, pin_ok);
+            (crate::UNSUPPORTED_FEATURE, Vec::new())
+        }
         _ => (0x04, Vec::new()),
     }
 }
