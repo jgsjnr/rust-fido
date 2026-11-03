@@ -1733,6 +1733,33 @@ pub fn run_authenticator() {
                                     }
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
+                                    && crate::vendor_exec::is_get_caps_op(msg.payload[0])
+                                {
+                                    // GET_CAPS 0x3F: advertisement read-only, sem auth
+                                    // (como o 0x38): posse fisica = livre; execucao
+                                    // direta sem gates pairing/UP/PIN e sem latch.
+                                    let op = msg.payload[0];
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                    let (st, body) = crate::vendor_exec::exec_vendor_op(
+                                        &mut key_mgr,
+                                        &mut oath_applet,
+                                        &mut storage,
+                                        op,
+                                        &msg.payload[1..],
+                                        false,
+                                        false,
+                                        false,
+                                        now_secs,
+                                        &mut rng,
+                                    );
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
                                     && (is_vendor_keys_oath_op(msg.payload[0])
                                         || is_wallet_op(msg.payload[0])
                                         || is_piv_enroll_op(msg.payload[0]))

@@ -213,6 +213,27 @@ pub fn dispatch_serial_vendor_msg(
         resp.extend_from_slice(&body);
         return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
     }
+    // GET_CAPS 0x3F: advertisement read-only, sem auth (como o 0x38):
+    // posse fisica = livre; execucao direta sem gates pairing/UP/PIN.
+    if crate::vendor_exec::is_get_caps_op(op) {
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        let (st, body) = crate::vendor_exec::exec_vendor_op(
+            ctx.key_mgr,
+            ctx.oath,
+            ctx.storage,
+            op,
+            &payload[1..],
+            false,
+            false,
+            false,
+            ctx.now_secs,
+            &mut rng,
+        );
+        let mut resp = Vec::with_capacity(1 + body.len());
+        resp.push(st);
+        resp.extend_from_slice(&body);
+        return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
+    }
     // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
     if crate::ble_gatt::is_secure_guard_op(op) {
         if let Some(ref mut sg) = ctx.secure_guard {
@@ -861,6 +882,233 @@ mod tests {
         assert!(!out.consumed_up, "latch não deve ser consumido na negação");
         assert_eq!(out.responses.len(), 1);
         assert_eq!(out.responses[0][7], 0x05);
+    }
+
+    /// GET_CAPS (`0x3F`) atravessa os 3 funis sem gates e volta CBOR bem-formado.
+    ///
+    /// - FreeRTOS USB serial: `dispatch_serial_vendor_msg` com
+    ///   `pairing_open=false, up_latched=false, pin_uv_session=false` responde
+    ///   `0x00` + mapa CBOR (`preset`/`caps`/demais chaves presentes).
+    /// - Serial legada (secao D): mesmo predicado `is_get_caps_op` + chamada
+    ///   `exec_vendor_op` com os mesmos args sem-gate `(false, false, false)`
+    ///   do ramo (o ramo e `cfg(target_os = "espidf")`; aqui exercemos o
+    ///   predicado e o executor com os args do ramo).
+    /// - BLE: `is_ble_fragment_opcode(0x3F)` abre transacao, o reassembler
+    ///   completa o fragmento unico, o executor responde `0x00` + CBOR, e
+    ///   `ble_dispatch_complete` registra `EV_OP_RESP ARG=0` no fwlog
+    ///   (unbonded, sem UP, janela fechada).
+    #[test]
+    fn get_caps_atravessa_funis_sem_gates_com_cbor_bem_formado() {
+        use crate::binding::BindingManager;
+        use crate::freertos_sched::CTAPHID_PACKET_SIZE;
+        use crate::fw_log::FwLog;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
+        use ciborium::value::Value;
+
+        fn deframe(packets: &[[u8; CTAPHID_PACKET_SIZE]]) -> (u8, Vec<u8>) {
+            assert!(!packets.is_empty());
+            let total = ((packets[0][5] as usize) << 8) | packets[0][6] as usize;
+            let mut out = Vec::new();
+            let first = total.min(CTAPHID_PACKET_SIZE - 7);
+            out.extend_from_slice(&packets[0][7..7 + first]);
+            for p in &packets[1..] {
+                let want = (total - out.len()).min(CTAPHID_PACKET_SIZE - 5);
+                out.extend_from_slice(&p[5..5 + want]);
+            }
+            assert_eq!(out.len(), total);
+            (out[0], out[1..].to_vec())
+        }
+
+        fn assert_caps_map(body: &[u8]) {
+            let v: Value = ciborium::from_reader(body).expect("GET_CAPS body e CBOR");
+            let map = match v {
+                Value::Map(m) => m,
+                _ => panic!("GET_CAPS body deve ser mapa CBOR"),
+            };
+            let get = |k: &str| {
+                map.iter()
+                    .find(|(kk, _)| matches!(kk, Value::Text(s) if s.as_str() == k))
+                    .map(|(_, vv)| vv)
+                    .unwrap_or_else(|| panic!("chave ausente: {}", k))
+            };
+            assert!(matches!(get("preset"), Value::Text(_)));
+            assert!(matches!(get("fw_version"), Value::Text(_)));
+            match get("caps") {
+                Value::Array(items) => {
+                    assert_eq!(items.len(), crate::vendor_exec::capability_ids().len());
+                    for (item, want) in items
+                        .iter()
+                        .zip(crate::vendor_exec::capability_ids().iter())
+                    {
+                        assert!(matches!(item, Value::Text(s) if s.as_str() == *want));
+                    }
+                }
+                _ => panic!("caps deve ser array de text"),
+            }
+            assert!(matches!(get("unsupported_count"), Value::Integer(_)));
+        }
+
+        // --- FreeRTOS USB serial: dispatch sem pairing/UP/PIN ---
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let backend = PlatformFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut vendor = SerialVendorCtx {
+            pairing_open: false,
+            up_latched: false,
+            now_ms: 0,
+            now_secs: 0,
+            arm_up: false,
+            pin_verified: false,
+            binding: &mut binding,
+            storage: &mut storage,
+            wallet: &mut wallet,
+            key_mgr: &mut key_mgr,
+            oath: &mut oath,
+            fwlog: &mut fwlog,
+            rescue: &mut rescue,
+            pairing: &mut pairing,
+            pin_uv_session: false,
+            secure_guard: None,
+            verified_pin: None,
+        };
+        let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, vec![crate::vendor_exec::OP_GET_CAPS]);
+        let (packets, consumed) =
+            dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x3F tratado pelo funnel serial");
+        assert!(!consumed, "GET_CAPS nao consome latch UP");
+        let (st, body) = deframe(&packets);
+        assert_eq!(st, 0x00);
+        assert_caps_map(&body);
+        // Payload nao-vazio nega fail-closed (0x04) pelo mesmo funnel.
+        let bad = CtapHidMessage::new(
+            0x0A0B_0C0D,
+            CMD_MSG,
+            vec![crate::vendor_exec::OP_GET_CAPS, 0x00],
+        );
+        let (bad_packets, _) =
+            dispatch_serial_vendor_msg(&mut vendor, &bad).expect("0x3F com payload tratado");
+        assert_eq!(deframe(&bad_packets).0, 0x04);
+
+        // --- Serial legada (secao D): predicado + executor sem-gate ---
+        assert!(crate::vendor_exec::is_get_caps_op(0x3F));
+        {
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, body) = crate::vendor_exec::exec_vendor_op(
+                &mut key_mgr,
+                &mut oath,
+                &mut storage,
+                crate::vendor_exec::OP_GET_CAPS,
+                &[],
+                false,
+                false,
+                false,
+                0,
+                &mut rng,
+            );
+            assert_eq!(st, 0x00);
+            assert_caps_map(&body);
+        }
+
+        // --- BLE: reassembler aceita 0x3F e executor responde CBOR ---
+        assert!(crate::ble_gatt::is_ble_fragment_opcode(
+            crate::vendor_exec::OP_GET_CAPS
+        ));
+        assert!(!crate::ble_gatt::is_ble_fragment_opcode(0x2F));
+        {
+            let mut r = crate::ble::gatt_core::BleReassembler::new();
+            let done = r
+                .feed(&[crate::vendor_exec::OP_GET_CAPS, 0x00, 0x00])
+                .expect("0x3F abre transacao")
+                .expect("fragmento unico completa");
+            assert_eq!(done.opcode, crate::vendor_exec::OP_GET_CAPS);
+            assert!(done.payload.is_empty());
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, body) = crate::vendor_exec::exec_vendor_op(
+                &mut key_mgr,
+                &mut oath,
+                &mut storage,
+                done.opcode,
+                &done.payload,
+                false,
+                false,
+                false,
+                0,
+                &mut rng,
+            );
+            assert_eq!(st, 0x00);
+            assert_caps_map(&body);
+        }
+
+        // --- BLE dispatch completo: arm sem gates loga EV_OP_RESP ARG=0 ---
+        {
+            use aegis_fido_core::ctap::CtapEngine;
+            use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardPolicy};
+
+            let mut ctap_engine = CtapEngine::new([0x11; 32], 0);
+            let mut binding = BindingManager::new();
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let mut rescue = RescueEngine::new();
+            let mut wallet = WalletStore::new();
+            let mut fwlog = FwLog::new();
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let policy = SecureGuardPolicy {
+                pbkdf2_iterations: 10,
+                session_duration_ms: 1000,
+                inactivity_timeout_ms: 500,
+                ..Default::default()
+            };
+            let mut sg = SecureGuardEngine::new(policy);
+            let before = fwlog.len();
+            crate::run::ble_dispatch::ble_dispatch_complete(
+                crate::ble::gatt_core::BleCompleteMessage {
+                    opcode: crate::vendor_exec::OP_GET_CAPS,
+                    payload: Vec::new(),
+                },
+                false,
+                false,
+                0,
+                &mut ctap_engine,
+                &mut binding,
+                &mut storage,
+                &mut rescue,
+                &mut wallet,
+                false,
+                0,
+                &mut fwlog,
+                &mut key_mgr,
+                &mut oath,
+                &mut sg,
+            );
+            assert!(fwlog.len() > before);
+            let rendered = fwlog.render_ascii(1024);
+            let text = core::str::from_utf8(&rendered).expect("fwlog ascii");
+            assert!(
+                text.contains(" EV=10 ARG=0 "),
+                "BLE GET_CAPS responde 0x00: {}",
+                text
+            );
+        }
     }
 
     #[test]

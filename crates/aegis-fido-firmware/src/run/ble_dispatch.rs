@@ -178,6 +178,24 @@ pub(crate) fn ble_dispatch_complete(
                 ble::notify_frame(op, g::BleGattError::InvalidFragment.to_vendor_status(), &[])
             }
         },
+        o if crate::vendor_exec::is_get_caps_op(o) => {
+            // GET_CAPS 0x3F: advertisement read-only, sem auth (como
+            // fw-log com bonded): execucao direta sem gates binding/UP/PIN.
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, body) = crate::vendor_exec::exec_vendor_op(
+                key_mgr,
+                oath_applet,
+                storage,
+                o,
+                p,
+                false,
+                false,
+                false,
+                now_secs,
+                &mut rng,
+            );
+            ble::notify_frame(o, st, &body)
+        }
         o if g::is_vendor_keys_oath_op(o) || g::is_piv_enroll_op(o) => {
             // F2: executor real on-device (GEN/LIST/DELETE + OATH
             // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
