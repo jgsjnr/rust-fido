@@ -46,6 +46,7 @@ impl CredentialWrapper {
         // [2 bytes: user_id len] + [user_id bytes]
         // [2 bytes: priv_key len] + [private_key bytes]
         // [2 bytes: pub_cose len] + [pub_cose bytes]
+        // [1 byte: up_required (0/1); ABSENT in v0 wraps -> decode as true]
         let mut plaintext = Vec::new();
         plaintext.extend_from_slice(&rp_id_hash);
         plaintext.extend_from_slice(&record.algorithm.to_be_bytes());
@@ -67,6 +68,9 @@ impl CredentialWrapper {
 
         plaintext.extend_from_slice(&(record.public_key_cose.len() as u16).to_be_bytes());
         plaintext.extend_from_slice(&record.public_key_cose);
+
+        // Additive tail: new wraps carry the per-credential UP flag.
+        plaintext.push(u8::from(record.up_required));
 
         let ciphertext = cipher.encrypt(nonce, plaintext.as_ref()).map_err(|_| {
             plaintext.zeroize();
@@ -206,6 +210,27 @@ impl CredentialWrapper {
             return Err("Corrupted public_key_cose length");
         }
         let public_key_cose = plaintext[offset..offset + pub_len].to_vec();
+        offset += pub_len;
+        // Additive tail: v0 wraps end here -> default require-touch.
+        // New wraps carry exactly one trailing byte (0/1); anything
+        // else is corruption (fail-closed).
+        let up_required = match plaintext.len().checked_sub(offset) {
+            Some(0) => true,
+            Some(1) => match plaintext[offset] {
+                0 => false,
+                1 => true,
+                _ => {
+                    plaintext.zeroize();
+                    hmac_secret.zeroize();
+                    return Err("Corrupted up_required flag");
+                }
+            },
+            _ => {
+                plaintext.zeroize();
+                hmac_secret.zeroize();
+                return Err("Unwrapped plaintext is corrupted or truncated");
+            }
+        };
         plaintext.zeroize();
         hmac_secret.zeroize();
 
@@ -228,6 +253,122 @@ impl CredentialWrapper {
             large_blob_key: None,
             cred_blob: None,
             hmac_secret_key,
+            up_required,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::credential::record::CredentialRecord;
+
+    fn test_record(up_required: bool) -> CredentialRecord {
+        CredentialRecord {
+            id: Vec::new(),
+            rp_id: String::from("example.com"),
+            rp_name: None,
+            user_id: vec![7, 8],
+            user_name: None,
+            user_display_name: None,
+            algorithm: -7,
+            private_key: vec![9; 32],
+            public_key_cose: vec![10; 64],
+            sign_count: 0,
+            is_resident: false,
+            created_at: 0,
+            expires_at: None,
+            is_revoked: false,
+            cred_protect: None,
+            large_blob_key: None,
+            cred_blob: None,
+            hmac_secret_key: None,
+            up_required,
+        }
+    }
+
+    fn rng() -> rand::rngs::StdRng {
+        use rand::SeedableRng as _;
+        rand::rngs::StdRng::seed_from_u64(0xC0FFEE)
+    }
+
+    /// Encrypts a raw (legacy-shaped) plaintext exactly like `wrap` does,
+    /// so tests can craft v0 wraps (no UP tail) and corrupt-flag wraps.
+    fn encrypt_like_wrap(master: &[u8; 32], plaintext: &[u8], rng: &mut impl CryptoRng) -> Vec<u8> {
+        use aes_gcm::aead::{Aead, KeyInit};
+        let cipher = Aes256Gcm::new_from_slice(master).expect("cipher");
+        let mut nonce_bytes = [0u8; 12];
+        rng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ct = cipher.encrypt(nonce, plaintext).expect("encrypt");
+        let mut out = Vec::with_capacity(1 + 12 + ct.len());
+        out.push(CRED_WRAP_VERSION);
+        out.extend_from_slice(&nonce_bytes);
+        out.extend_from_slice(&ct);
+        out
+    }
+
+    #[test]
+    fn wrap_roundtrip_preserves_up_flag() {
+        let w = CredentialWrapper::new([0x11u8; 32]);
+        let mut r = rng();
+        for up in [true, false] {
+            let rec = test_record(up);
+            let id = w.wrap(&rec, &mut r).expect("wrap");
+            let back = w.unwrap(&id, "example.com", 3).expect("unwrap");
+            assert_eq!(back.up_required, up, "flag must survive wrap");
+            assert_eq!(back.requires_up(), up);
+        }
+    }
+
+    #[test]
+    fn legacy_wrap_without_tail_defaults_require_touch() {
+        // v0 layout: same prefix as `wrap` but WITHOUT the trailing
+        // UP byte. Must decode as require-touch (no migration wipe).
+        let master = [0x22u8; 32];
+        let rp_hash = sha256(b"example.com");
+        let mut plain = Vec::new();
+        plain.extend_from_slice(&rp_hash);
+        plain.extend_from_slice(&(-7i32).to_be_bytes());
+        plain.extend_from_slice(&[0u8; 32]);
+        plain.push(0);
+        plain.push(0);
+        plain.extend_from_slice(&2u16.to_be_bytes());
+        plain.extend_from_slice(&[7, 8]);
+        plain.extend_from_slice(&32u16.to_be_bytes());
+        plain.extend_from_slice(&[9u8; 32]);
+        plain.extend_from_slice(&64u16.to_be_bytes());
+        plain.extend_from_slice(&[10u8; 64]);
+        let w = CredentialWrapper::new(master);
+        let mut r = rng();
+        let id = encrypt_like_wrap(&master, &plain, &mut r);
+        let back = w.unwrap(&id, "example.com", 0).expect("legacy unwrap");
+        assert!(
+            back.up_required,
+            "legacy wrap without flag MUST require touch"
+        );
+    }
+
+    #[test]
+    fn corrupt_flag_byte_rejected() {
+        let master = [0x33u8; 32];
+        let rp_hash = sha256(b"example.com");
+        let mut plain = Vec::new();
+        plain.extend_from_slice(&rp_hash);
+        plain.extend_from_slice(&(-7i32).to_be_bytes());
+        plain.extend_from_slice(&[0u8; 32]);
+        plain.push(0);
+        plain.push(0);
+        plain.extend_from_slice(&2u16.to_be_bytes());
+        plain.extend_from_slice(&[7, 8]);
+        plain.extend_from_slice(&32u16.to_be_bytes());
+        plain.extend_from_slice(&[9u8; 32]);
+        plain.extend_from_slice(&64u16.to_be_bytes());
+        plain.extend_from_slice(&[10u8; 64]);
+        plain.push(0x02); // invalid: only 0/1 allowed
+        let w = CredentialWrapper::new(master);
+        let mut r = rng();
+        let id = encrypt_like_wrap(&master, &plain, &mut r);
+        assert!(w.unwrap(&id, "example.com", 0).is_err());
     }
 }

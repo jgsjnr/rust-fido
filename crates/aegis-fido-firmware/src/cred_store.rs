@@ -37,8 +37,11 @@ pub const CRED_ID_MAX_BYTES: usize = 128;
 pub const CRED_PRIV_MAX_BYTES: usize = 512;
 /// Magica do registro (`FC` = FIDO Credential).
 pub const CRED_MAGIC: [u8; 2] = [0x46, 0x43];
-/// Versao do registro (rejeita futuro sem migrador).
-pub const CRED_VERSION: u8 = 0x01;
+/// Versao do registro (v2 adiciona o byte final `up_required`; v1 segue
+/// aceita em leitura e decodifica como require-touch).
+pub const CRED_VERSION: u8 = 0x02;
+/// Versao legada (sem o byte `up_required`; leitura assume `true`).
+pub const CRED_VERSION_V1: u8 = 0x01;
 /// Label reservado (colide com o indice de quota).
 const CRED_INDEX_LABEL: &str = "index";
 
@@ -99,6 +102,14 @@ pub struct CredRecord {
     pub cred_id: Vec<u8>,
     /// Segredo opaco (0..=512 B; chave selada pelo cofre T-ST-01).
     pub priv_blob: Vec<u8>,
+    /// Politica de presenca por credencial (feature owner-explicit).
+    ///
+    /// `true` (default) = cada uso exige toque (fluxo UP existente,
+    /// phishing resistance preservada). `false` = presenca pode ser
+    /// pulada PARA ESTA credencial, mas sessao desbloqueada (PIN/UV
+    /// viva) continua obrigatoria — uso silencioso com device travado
+    /// nunca e permitido (invariante fiscalizada em `ctap_cmd`).
+    pub up_required: bool,
 }
 
 impl Drop for CredRecord {
@@ -117,6 +128,7 @@ impl core::fmt::Debug for CredRecord {
             .field("rp_id_hash_len", &self.rp_id_hash.len())
             .field("cred_id_len", &self.cred_id.len())
             .field("priv_blob_len", &self.priv_blob.len())
+            .field("up_required", &self.up_required)
             .finish()
     }
 }
@@ -150,7 +162,7 @@ fn cred_ns_read() -> NamespacedStore {
     }
 }
 
-/// Codifica o registro (cabecalho fixo 44 B + id + segredo).
+/// Codifica o registro (cabecalho fixo 44 B + id + segredo + 1 B `up_required`).
 pub fn encode_record(rec: &CredRecord) -> Result<Vec<u8>, CredStoreError> {
     if rec.cred_id.is_empty() || rec.cred_id.len() > CRED_ID_MAX_BYTES {
         return Err(CredStoreError::InvalidRecord);
@@ -158,7 +170,7 @@ pub fn encode_record(rec: &CredRecord) -> Result<Vec<u8>, CredStoreError> {
     if rec.priv_blob.len() > CRED_PRIV_MAX_BYTES {
         return Err(CredStoreError::TooLarge);
     }
-    let total = 2 + 1 + 1 + 4 + 32 + 2 + 2 + rec.cred_id.len() + rec.priv_blob.len();
+    let total = 2 + 1 + 1 + 4 + 32 + 2 + 2 + rec.cred_id.len() + rec.priv_blob.len() + 1;
     if total > CRED_SLOT_MAX_BYTES {
         return Err(CredStoreError::TooLarge);
     }
@@ -174,10 +186,15 @@ pub fn encode_record(rec: &CredRecord) -> Result<Vec<u8>, CredStoreError> {
     out.extend_from_slice(&pr_len.to_be_bytes());
     out.extend_from_slice(&rec.cred_id);
     out.extend_from_slice(&rec.priv_blob);
+    out.push(u8::from(rec.up_required));
     Ok(out)
 }
 
 /// Decodifica com validacao estrita (truncado/magica/versao/tamanho = erro).
+///
+/// Compatibilidade aditiva: blobs v1 (sem o byte final) decodificam com
+/// `up_required = true` (require-touch, sem migration wipe). Blobs v2
+/// exigem o byte final em `0/1`; qualquer outro valor nega fail-closed.
 pub fn decode_record(blob: &[u8]) -> Result<CredRecord, CredStoreError> {
     if blob.len() < 44 {
         return Err(CredStoreError::InvalidRecord);
@@ -185,7 +202,8 @@ pub fn decode_record(blob: &[u8]) -> Result<CredRecord, CredStoreError> {
     if blob[0..2] != CRED_MAGIC {
         return Err(CredStoreError::InvalidRecord);
     }
-    if blob[2] != CRED_VERSION {
+    let version = blob[2];
+    if version != CRED_VERSION && version != CRED_VERSION_V1 {
         return Err(CredStoreError::InvalidRecord);
     }
     let flags = blob[3];
@@ -205,20 +223,67 @@ pub fn decode_record(blob: &[u8]) -> Result<CredRecord, CredStoreError> {
     if pr_len > CRED_PRIV_MAX_BYTES {
         return Err(CredStoreError::InvalidRecord);
     }
-    if blob.len() != 44 + id_len + pr_len {
-        return Err(CredStoreError::InvalidRecord);
-    }
+    let body_len = 44 + id_len + pr_len;
+    let up_required = if version == CRED_VERSION_V1 {
+        // v1 legado: tamanho exato do layout antigo; sem o campo,
+        // comporta-se como require-touch.
+        if blob.len() != body_len {
+            return Err(CredStoreError::InvalidRecord);
+        }
+        true
+    } else {
+        // v2: exatamente 1 byte a mais (0/1).
+        if blob.len() != body_len + 1 {
+            return Err(CredStoreError::InvalidRecord);
+        }
+        match blob[body_len] {
+            0 => false,
+            1 => true,
+            _ => return Err(CredStoreError::InvalidRecord),
+        }
+    };
     let mut cred_id = Vec::with_capacity(id_len);
     cred_id.extend_from_slice(&blob[44..44 + id_len]);
     let mut priv_blob = Vec::with_capacity(pr_len);
-    priv_blob.extend_from_slice(&blob[44 + id_len..]);
+    priv_blob.extend_from_slice(&blob[44 + id_len..44 + id_len + pr_len]);
     Ok(CredRecord {
         flags,
         sign_count,
         rp_id_hash,
         cred_id,
         priv_blob,
+        up_required,
     })
+}
+
+/// v1 encoder (test-only): builds the legacy layout (`FC 01`, no UP tail)
+/// so host tests can prove old records decode as require-touch. Never
+/// shipped: `#[cfg(test)]` removes it from release builds.
+#[cfg(test)]
+pub(crate) fn encode_record_v1(rec: &CredRecord) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&CRED_MAGIC);
+    out.push(CRED_VERSION_V1);
+    out.push(rec.flags);
+    out.extend_from_slice(&rec.sign_count.to_be_bytes());
+    out.extend_from_slice(&rec.rp_id_hash);
+    out.extend_from_slice(&(rec.cred_id.len() as u16).to_be_bytes());
+    out.extend_from_slice(&(rec.priv_blob.len() as u16).to_be_bytes());
+    out.extend_from_slice(&rec.cred_id);
+    out.extend_from_slice(&rec.priv_blob);
+    out
+}
+
+/// Raw NVS write (test-only): stores pre-encoded bytes so host tests can
+/// plant legacy v1 blobs without an encode round-trip. Never shipped:
+/// `#[cfg(test)]` removes it from release builds.
+#[cfg(test)]
+pub(crate) fn cred_put_raw<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    label: &str,
+    blob: &[u8],
+) -> Result<(), CredStoreError> {
+    Ok(cred_ns_write().put(storage, label, blob)?)
 }
 
 /// Grava o slot com verify-after-write; reescrita com contador menor nega.
@@ -256,6 +321,38 @@ pub fn cred_delete<B: FlashStorageBackend>(
     label: &str,
 ) -> Result<(), CredStoreError> {
     Ok(cred_ns_read().delete(storage, label)?)
+}
+
+/// Le a politica de presenca do slot (`true` = require-touch).
+///
+/// Fail-closed para U2F/transporte: slot ausente, blob corrupto ou byte
+/// de flag invalido respondem `true` (exigem toque). O caminho CTAP
+/// (`ctap_cmd`) distingue `NotFound` separadamente; este helper existe
+/// para os equivalentes U2F (Register/Authenticate), que nao tem
+/// `credentialId` antes da autenticacao e precisam de um default seguro.
+pub fn up_required_for_label<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    label: &str,
+) -> bool {
+    match cred_get(storage, label) {
+        Ok(rec) => rec.up_required,
+        Err(_) => true,
+    }
+}
+
+/// Regrava o slot com nova politica de presenca, preservando contador e
+/// segredo. Erros: `NotFound` (slot ausente), `Storage`/`InvalidRecord`
+/// (falha de NVS ou blob corrompido). Nao consulta sessao aqui — o gate
+/// de sessao desbloqueada vive no executor (`ctap_cmd`), que nega
+/// fail-closed antes de chamar.
+pub fn cred_set_up_required<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    label: &str,
+    up_required: bool,
+) -> Result<(), CredStoreError> {
+    let mut rec = cred_get(storage, label)?;
+    rec.up_required = up_required;
+    cred_put(storage, label, &rec)
 }
 
 /// Avanca o contador em +1 de forma atomica (estouro = `Storage`).
@@ -297,6 +394,7 @@ mod tests {
             rp_id_hash: [0xABu8; 32],
             cred_id: id,
             priv_blob: vec![0xCDu8; 64],
+            up_required: true,
         }
     }
 
@@ -320,11 +418,13 @@ mod tests {
         assert_eq!(back.cred_id.len(), 16);
         assert_eq!(back.priv_blob, vec![0xCDu8; 64]);
         let enc = encode_record(&back).unwrap();
-        // Cabecalho: FC 01 flags ctr rpHash idLen privLen.
+        // Cabecalho: FC ver flags ctr rpHash idLen privLen + tail UP.
         assert_eq!(&enc[0..2], &CRED_MAGIC);
         assert_eq!(enc[2], CRED_VERSION);
         assert_eq!(&enc[4..8], &7u32.to_be_bytes());
+        assert_eq!(*enc.last().unwrap(), 1, "default grava require-touch");
         assert_eq!(decode_record(&enc).unwrap().sign_count, 7);
+        assert!(decode_record(&enc).unwrap().up_required);
     }
 
     #[test]
@@ -458,5 +558,68 @@ mod tests {
         assert!(!dbg.contains("CDCD"));
         let err = format!("{:?}", CredStoreError::CounterRegression);
         assert!(!err.contains("cd"));
+    }
+
+    #[test]
+    fn legacy_v1_blob_decodes_as_require_touch() {
+        // Registro antigo sem o campo: comporta-se como require-touch
+        // (sem migration wipe, sem re-gravacao forcada).
+        let rec = sample(0x20);
+        let blob = encode_record_v1(&rec);
+        let back = decode_record(&blob).unwrap();
+        assert!(back.up_required, "v1 sem campo = require-touch");
+        assert_eq!(back.sign_count, 7);
+        // Re-gravar via store promove para v2 com o default seguro.
+        let mut st = test_storage();
+        // `cred_put` valida via `encode_record` (v2); o blob v1 cru
+        // precisa passar por decode->put para promover.
+        let promoted = decode_record(&blob).unwrap();
+        cred_put(&mut st, "legacy", &promoted).unwrap();
+        assert!(cred_get(&st, "legacy").unwrap().up_required);
+    }
+
+    #[test]
+    fn opt_out_roundtrip_and_invalid_flag_rejected() {
+        let mut rec = sample(0x21);
+        rec.up_required = false;
+        let blob = encode_record(&rec).unwrap();
+        assert_eq!(*blob.last().unwrap(), 0);
+        assert!(!decode_record(&blob).unwrap().up_required);
+        // Byte final fora de 0/1 nega fail-closed.
+        let mut bad = blob.clone();
+        let last = bad.len() - 1;
+        bad[last] = 0x02;
+        assert!(matches!(
+            decode_record(&bad),
+            Err(CredStoreError::InvalidRecord)
+        ));
+        // Tamanho com sobra alem do tail tambem nega.
+        let mut trailed = blob.clone();
+        trailed.push(0x00);
+        assert!(matches!(
+            decode_record(&trailed),
+            Err(CredStoreError::InvalidRecord)
+        ));
+    }
+
+    #[test]
+    fn up_label_helper_fail_closed_and_set_preserves_counter() {
+        let mut st = test_storage();
+        // Ausente: helper de U2F exige toque (fail-closed).
+        assert!(up_required_for_label(&st, "ghost"));
+        cred_put(&mut st, "k", &sample(0x22)).unwrap();
+        assert!(up_required_for_label(&st, "k"));
+        cred_set_up_required(&mut st, "k", false).unwrap();
+        assert!(!up_required_for_label(&st, "k"));
+        // Contador e segredo preservados pela reescrita.
+        assert_eq!(cred_get(&st, "k").unwrap().sign_count, 7);
+        assert_eq!(cred_get(&st, "k").unwrap().priv_blob.len(), 64);
+        cred_set_up_required(&mut st, "k", true).unwrap();
+        assert!(up_required_for_label(&st, "k"));
+        // Slot ausente no SET nega (executor trata como fail-closed).
+        assert_eq!(
+            cred_set_up_required(&mut st, "ghost", false),
+            Err(CredStoreError::NotFound)
+        );
     }
 }

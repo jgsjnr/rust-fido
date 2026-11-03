@@ -181,3 +181,81 @@ o if crate::vendor_exec::is_get_caps_op(o) => {
 # + BLE reassembler (is_ble_fragment_opcode em gatt_core.rs): aceitar 0x3F
 #   como opcode de fragmento (hoje so PING/MSG/bind 0x28-0x2D/OTA 0x30-0x34).
 ```
+
+## 8. Per-credential UP policy (default require-touch, owner-explicit)
+
+Cada credencial residente carrega `up_required: bool` (default `TRUE`).
+`true` = fluxo UP existente, inalterado (phishing resistance preservada).
+`false` (opt-out explicito, pos-criacao) = pula a presenca PARA ESTA
+credencial, mas continua exigindo sessao DESBLOQUEADA (PIN/UV viva).
+Uso silencioso com device travado nunca e permitido (invariante
+fiscalizada no executor + documentada no codigo e aqui).
+
+### 8.1 Onde mora o flag
+
+- Core (`aegis-fido-core`, `credential::CredentialRecord::up_required`):
+  campo aditivo `#[serde(default = "default_up_required")]` (`true`).
+  CBOR/JSON antigo sem o campo decodifica como require-touch (sem
+  migration wipe). Non-resident wrap (AES-GCM): tail `0/1` apos
+  `public_key_cose`; wrap v0 sem tail decodifica `true`; tail fora de
+  `0/1` nega fail-closed.
+- Firmware NVS (`cred_store.rs`): registro `FC` bump `0x01 -> 0x02`;
+  v2 = layout antigo + 1 B final (`0/1`); v1 lido como `true` (promovido
+  para v2 de forma transparente no proximo `cred_bump_counter`).
+  `decode` estrito: tamanho exato + tail `0/1`, resto nega.
+- `MakeCredential` sempre minta `true`; opt-out nasce SOMENTE via
+  management op abaixo (nunca na criacao).
+
+### 8.2 Gate (firmware `ctap_cmd.rs`)
+
+- `get_assertion`: limites wire + UV (sem UP) -> carrega o slot ->
+  confere vinculo RP/id -> se `up_required`, `check_up` vinculado
+  (existente); se opt-out, exige desbloqueio
+  (`(pin_auth_ok && session.is_live()) || uv_performed`), senao
+  CTAP `PinRequired (0x36)`; grant NAO consumido no opt-out nem nas
+  negacoes (reuso do grant continua valido). Slot ausente/corrompido
+  ou cross-RP: exige toque ANTES de negar (`OperationDenied` /
+  `NoCredentials` / `InvalidCredential`; sem oraculo de existencia
+  sem presenca).
+- U2F equivalentes: o latch de transporte (`CMD_MSG` `INS=0x01` /
+  `INS=0x02,P1=0x03`) e mantido (defense in depth, sem mudanca nos
+  transportes); resolvido o `cred/` label, a lane de engine DEVE
+  consultar `up_required_for_label` (fail-closed `true` em
+  ausente/corrompido) e aplicar a mesma invariante de desbloqueio.
+- `ctap_reset`: inalterado (sempre UP).
+
+### 8.3 Management op SET (executor `ctap_cmd::set_credential_up_policy`)
+
+Gate fail-closed, nesta ordem: `cred_id` 1..=128 B (`MissingParameter`
+/ `InvalidParameter`) -> sessao desbloqueada viva
+(`pin_auth_ok && is_live`, senao `PinRequired`; `pin_auth_ok` sem RAM
+viva tambem nega) -> slot existente (`NoCredentials`) / NVS integra
+(`IntegrityFailure`). Sem gate UP (a autenticacao e a sessao viva);
+sessao de uso unico consumida SOMENTE no sucesso (negacoes nao
+consomem, retry sem novo verify). Auditoria em toda mudanca:
+`FwLog::record(EV_UP_POLICY_SET = 0x12, arg = 0/1, now_ms)` — proximo
+codigo livre apos `EV_ADV_NOMEM (0x11)`; `arg` carrega SO a politica,
+nunca label/credId/RP/segredo.
+
+### 8.4 Wire contract (para a app lane)
+
+CTAP existente e wire-invisivel (mesmos status): opt-out com sucesso
+retorna assertion normal; travado+opt-out = `PinRequired (0x36)`;
+toque ausente no default = `OperationDenied (0x27)`.
+
+SET via transporte (PROPOSTO — executor firmware pronto; fiacao do
+dispatcher e follow-up da app lane, sem mudanca de transporte neste
+commit):
+
+- `CMD_MSG` opcode `0x40` (primeiro livre apos `GET_CAPS 0x3F`).
+- Request body (apos o opcode):
+  `[up_flag:1][cred_id_len:1][cred_id:cred_id_len]` com
+  `up_flag in {0,1}`, `1 <= cred_id_len <= 128`; fora disso = `0x04`.
+- Gates de transporte: BLE = binding valido + sessao PIN viva
+  (sem latch UP); serial/USB fisico = sessao PIN viva.
+- Response status-first (namespace vendor §9.5):
+  `0x00` ok (+ auditoria `EV=18`) | `0x02` NEED_PIN (travado) |
+  `0x03` NO_SLOT (ausente) | `0x04` falha (forma/storage).
+- Invariante repetida no fio: `up_flag = 0` NUNCA autoriza uso com
+  device travado; o desbloqueio e verificado no executor, nao no host.
+

@@ -238,6 +238,7 @@ impl MakeCredentialHandler {
             large_blob_key,
             cred_blob: ext_inputs.cred_blob,
             hmac_secret_key,
+            up_required: true,
         };
 
         if rk_requested {

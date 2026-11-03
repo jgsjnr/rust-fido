@@ -26,11 +26,12 @@ use alloc::vec::Vec;
 use zeroize::Zeroize;
 
 use crate::cred_store::{
-    cred_bump_counter, cred_delete, cred_get, cred_put, CredRecord, CredStoreError,
-    CRED_ID_MAX_BYTES,
+    cred_bump_counter, cred_delete, cred_get, cred_put, cred_set_up_required,
+    up_required_for_label, CredRecord, CredStoreError, CRED_ID_MAX_BYTES,
 };
 use crate::crypto_hrng::HrngSource;
 use crate::ctap_state::{map_hrng_error, CtapCommand, CtapError, PinUvGate};
+use crate::fw_log::FwLog;
 use crate::persistence::{FlashStorageBackend, SecureStorage};
 use crate::pin_uv::{self, PinUvSession};
 use crate::up_policy::{OperationHash, UpGrant, UpPolicy};
@@ -185,6 +186,14 @@ fn map_pin_err(e: pin_uv::PinUvError) -> CtapError {
     }
 }
 
+/// Auditoria de mudanca de politica UP por credencial (anel `FwLog`).
+///
+/// Alocacao de codigo de evento: `0x12`, proximo livre apos `EV_ADV_NOMEM`
+/// (`0x11`) em `fw_log` (este modulo nao edita `fw_log`; o anel renderiza
+/// qualquer codigo como `EV=<dec>`). `arg` carrega SO a nova politica
+/// (`0` = opt-out, `1` = require-touch): nunca label, credId, RP ou segredo.
+pub const EV_UP_POLICY_SET: u8 = 0x12;
+
 /// Deterministic label for a credentialId (lowercase hex, fits 1..=64).
 fn label_for_cred_id(cred_id: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -207,6 +216,29 @@ fn admit<B: FlashStorageBackend, R: HrngSource>(
     uv_performed: bool,
     pin_auth_ok: bool,
 ) -> Result<(), CtapError> {
+    admit_no_up(ctx, cmd, encoded_len, require_uv, uv_performed, pin_auth_ok)?;
+    ctx.gate
+        .check_up(ctx.policy, ctx.grant, ctx.op, ctx.now_ms)?;
+    if pin_auth_ok {
+        ctx.session
+            .consume_uv_auth()
+            .map_err(|_| CtapError::PinTokenExpired)?;
+    }
+    Ok(())
+}
+
+/// Admission prefix WITHOUT the UP check: wire limits -> durable UV truth
+/// -> UV predicate. Used by `get_assertion`, where the per-credential flag
+/// decides whether bound UP runs at all (require-touch) or an unlocked
+/// session suffices (explicit opt-out). No session/grant is consumed here.
+fn admit_no_up<B: FlashStorageBackend, R: HrngSource>(
+    ctx: &mut CtapCall<'_, B, R>,
+    cmd: CtapCommand,
+    encoded_len: usize,
+    require_uv: bool,
+    uv_performed: bool,
+    pin_auth_ok: bool,
+) -> Result<(), CtapError> {
     ctx.gate.check_request(cmd.code(), encoded_len)?;
     let uv_blocked = match pin_uv::uv_retries_left(ctx.storage) {
         Ok(0) => true,
@@ -218,13 +250,6 @@ fn admit<B: FlashStorageBackend, R: HrngSource>(
     }
     ctx.gate
         .check_uv_policy(require_uv, uv_performed, pin_auth_ok)?;
-    ctx.gate
-        .check_up(ctx.policy, ctx.grant, ctx.op, ctx.now_ms)?;
-    if pin_auth_ok {
-        ctx.session
-            .consume_uv_auth()
-            .map_err(|_| CtapError::PinTokenExpired)?;
-    }
     Ok(())
 }
 /// Create a resident credential bound to (rpIdHash, clientDataHash).
@@ -232,6 +257,12 @@ fn admit<B: FlashStorageBackend, R: HrngSource>(
 /// Generates credId (16 B) + opaque private blob (32 B) via the context RNG,
 /// stores the record with sign_count 0 and consumes the UP grant + PIN
 /// session held by the context.
+///
+/// Per-credential UP policy: every new record is minted with
+/// `up_required = true` (require-touch default). Opt-out is NEVER granted
+/// at creation — only via the later explicit management op
+/// (`set_credential_up_policy`), which demands an unlocked session and is
+/// audit-logged. UP is therefore always required here (existing flow).
 pub fn make_credential<B: FlashStorageBackend, R: HrngSource>(
     ctx: &mut CtapCall<'_, B, R>,
     req: &MakeCredentialRequest,
@@ -271,6 +302,8 @@ pub fn make_credential<B: FlashStorageBackend, R: HrngSource>(
         rp_id_hash: req.rp_id_hash,
         cred_id: cred_id.to_vec(),
         priv_blob: priv_blob.to_vec(),
+        // INVARIANT: minted require-touch; opt-out only via management op.
+        up_required: true,
     };
     cred_id.zeroize();
     priv_blob.zeroize();
@@ -290,6 +323,17 @@ pub fn make_credential<B: FlashStorageBackend, R: HrngSource>(
 ///
 /// Denies cross-RP use (InvalidCredential), missing slots (NoCredentials)
 /// and replays the UP/PIN gates (OperationDenied / PinTokenExpired).
+///
+/// Per-credential UP policy: the stored flag for THAT credential decides.
+/// `up_required == true` (default, incl. legacy records) runs the existing
+/// bound-UP flow unchanged. `up_required == false` (explicit opt-out) skips
+/// the presence check BUT still demands an unlocked session — a live
+/// `pinUvAuth` session (or performed UV); a locked device denies with
+/// `PinRequired` and the UP grant is left untouched in every denial.
+///
+/// INVARIANT (documented for auditors): opt-out NEVER permits silent use
+/// on a locked device. Missing/corrupt slots and cross-RP mismatches still
+/// demand touch first (no existence oracle without presence).
 pub fn get_assertion<B: FlashStorageBackend, R: HrngSource>(
     ctx: &mut CtapCall<'_, B, R>,
     req: &GetAssertionRequest,
@@ -301,7 +345,9 @@ pub fn get_assertion<B: FlashStorageBackend, R: HrngSource>(
     if req.cred_id.len() > CRED_ID_MAX_BYTES {
         return Err(CtapError::InvalidParameter);
     }
-    admit(
+    // Wire limits + durable UV truth + UV predicate (shared with `admit`,
+    // but WITHOUT the UP check: the flag decides that below).
+    admit_no_up(
         ctx,
         CtapCommand::GetAssertion,
         encoded_len,
@@ -310,12 +356,40 @@ pub fn get_assertion<B: FlashStorageBackend, R: HrngSource>(
         req.pin_auth_ok,
     )?;
     let label = label_for_cred_id(&req.cred_id);
-    let rec = cred_get(ctx.storage, &label).map_err(map_cred_err)?;
-    if rec.rp_id_hash != req.rp_id_hash {
+    let rec = match cred_get(ctx.storage, &label) {
+        Ok(rec) => rec,
+        Err(e) => {
+            // Fail-closed: sem toque nao ha oraculo de existencia.
+            ctx.gate
+                .check_up(ctx.policy, ctx.grant, ctx.op, ctx.now_ms)?;
+            return Err(map_cred_err(e));
+        }
+    };
+    if rec.rp_id_hash != req.rp_id_hash || rec.cred_id.as_slice() != req.cred_id.as_slice() {
+        // Cross-RP tambem exige toque antes de negar (paridade com o
+        // fluxo antigo, que consumia o grant no `admit` antes de ler).
+        ctx.gate
+            .check_up(ctx.policy, ctx.grant, ctx.op, ctx.now_ms)?;
         return Err(CtapError::InvalidCredential);
     }
-    if rec.cred_id.as_slice() != req.cred_id.as_slice() {
-        return Err(CtapError::InvalidCredential);
+    if rec.up_required {
+        // Default: fluxo UP existente, inalterado.
+        ctx.gate
+            .check_up(ctx.policy, ctx.grant, ctx.op, ctx.now_ms)?;
+    } else {
+        // Opt-out explicito: pula a presenca, mas exige sessao
+        // desbloqueada (nunca uso silencioso com device travado).
+        let unlocked = (req.pin_auth_ok && ctx.session.is_live()) || req.uv_performed;
+        if !unlocked {
+            return Err(CtapError::PinRequired);
+        }
+        // Grant propositalmente NAO consumido: nenhum toque aconteceu,
+        // nada ha para vincular; o grant do chamador segue valido.
+    }
+    if req.pin_auth_ok {
+        ctx.session
+            .consume_uv_auth()
+            .map_err(|_| CtapError::PinTokenExpired)?;
     }
     let flags = rec.flags;
     let next = cred_bump_counter(ctx.storage, &label).map_err(map_cred_err)?;
@@ -324,6 +398,70 @@ pub fn get_assertion<B: FlashStorageBackend, R: HrngSource>(
         sign_count: next,
         flags,
     })
+}
+
+/// U2F-equivalent gate helper (Register/Authenticate).
+///
+/// Raw U2F APDUs (`CMD_MSG` `INS=0x01` / `INS=0x02,P1=0x03`) reach the
+/// transport latch before any `credentialId` is resolvable, so the
+/// transport keeps its existing UP latch (defense in depth, sem mudanca
+/// nos arquivos de transporte). Once the key handle resolves to a
+/// `cred/` label, the engine lane MUST consult
+/// `up_required_for_label`: `true` (default, incl. ausente/corrompido)
+/// keeps requiring touch; `false` may skip the latch ONLY with an
+/// unlocked session (same invariant as `get_assertion`).
+pub fn u2f_up_required_for_label<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    label: &str,
+) -> bool {
+    up_required_for_label(storage, label)
+}
+
+/// Request to change the per-credential UP flag (management op).
+pub struct SetUpPolicyRequest {
+    /// `credentialId` of the slot to change (1..=128 B).
+    pub cred_id: Vec<u8>,
+    /// New policy: `true` = require touch (default), `false` = opt-out.
+    pub up_required: bool,
+    /// `true` when a live `pinUvAuth` session backs this call.
+    pub pin_auth_ok: bool,
+}
+
+/// SET the per-credential UP flag. ONLY in an unlocked session.
+///
+/// Gates (fail-closed, nesta ordem): forma do `cred_id`, sessao
+/// desbloqueada viva (`pin_auth_ok` + `PinUvSession::is_live`, senao
+/// `PinRequired`), slot existente (`NoCredentials`), NVS integra
+/// (`IntegrityFailure`). NAO exige UP (a autenticacao e a sessao PIN/UV
+/// viva); a sessao de uso unico e consumida no sucesso. Toda mudanca
+/// gera um evento de auditoria no `FwLog` (`EV_UP_POLICY_SET`, `arg` =
+/// nova politica 0/1, sem label/credId/RP/segredo).
+///
+/// INVARIANT: travado (`!live`) nega antes de tocar no storage; opt-out
+/// nunca nasce aqui sem desbloqueio.
+pub fn set_credential_up_policy<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    fwlog: &mut FwLog,
+    session: &mut PinUvSession,
+    req: &SetUpPolicyRequest,
+    now_ms: u64,
+) -> Result<(), CtapError> {
+    if req.cred_id.is_empty() {
+        return Err(CtapError::MissingParameter);
+    }
+    if req.cred_id.len() > CRED_ID_MAX_BYTES {
+        return Err(CtapError::InvalidParameter);
+    }
+    if !(req.pin_auth_ok && session.is_live()) {
+        return Err(CtapError::PinRequired);
+    }
+    let label = label_for_cred_id(&req.cred_id);
+    cred_set_up_required(storage, &label, req.up_required).map_err(map_cred_err)?;
+    fwlog.record(EV_UP_POLICY_SET, u8::from(req.up_required), now_ms);
+    session
+        .consume_uv_auth()
+        .map_err(|_| CtapError::PinTokenExpired)?;
+    Ok(())
 }
 
 /// CTAP Reset composed here (owner T-FD-04): requires bound UP, then wipes
@@ -957,5 +1095,381 @@ mod tests {
         let e = format!("{:?}", CtapError::PinAuthInvalid);
         assert!(e.contains("0x33"));
         assert!(!e.contains("cd"));
+    }
+
+    fn ga_req(cred_id: Vec<u8>, pin_auth_ok: bool) -> GetAssertionRequest {
+        GetAssertionRequest {
+            rp_id_hash: [0x11u8; 32],
+            client_data_hash: [0x22u8; 32],
+            cred_id,
+            require_uv: false,
+            uv_performed: false,
+            pin_auth_ok,
+        }
+    }
+
+    fn make_one(
+        st: &mut SecureStorage<MockFlashBackend>,
+        gate: &PinUvGate,
+        ses: &mut PinUvSession,
+        policy: &UpPolicy,
+        rng: &mut TestRng,
+        op_byte: u8,
+        now_ms: u64,
+    ) -> Vec<u8> {
+        let mut g = policy.issue(op(op_byte), now_ms);
+        let mut ctx = call(
+            st,
+            gate,
+            ses,
+            policy,
+            &mut g,
+            op(op_byte),
+            now_ms + 100,
+            rng,
+        );
+        make_credential(&mut ctx, &mc_req(true), 64)
+            .unwrap()
+            .cred_id
+    }
+
+    #[test]
+    fn per_cred_default_requires_touch() {
+        let mut st = test_storage();
+        let mut rng = TestRng(0xA11CE);
+        let mut ses = live_session(&mut st, &mut rng);
+        let gate = gate_ready();
+        let policy = UpPolicy::with_default_window();
+        let cred_id = make_one(&mut st, &gate, &mut ses, &policy, &mut rng, 0xA1, 1_000);
+        // Nova credencial nasce require-touch.
+        let label = label_for_cred_id(&cred_id);
+        assert!(cred_get(&st, &label).unwrap().up_required);
+        // Grant de outra operacao + sessao viva segue negando (fluxo UP
+        // existente, inalterado para o default).
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut g_other = policy.issue(op(0xB2), 2_000);
+        let mut ctx = call(
+            &mut st,
+            &gate,
+            &mut ses,
+            &policy,
+            &mut g_other,
+            op(0xA1),
+            2_100,
+            &mut rng,
+        );
+        assert_eq!(
+            get_assertion(&mut ctx, &ga_req(cred_id, true), 96).unwrap_err(),
+            CtapError::OperationDenied
+        );
+    }
+
+    #[test]
+    fn per_cred_opt_out_skips_up_but_needs_unlock() {
+        let mut st = test_storage();
+        let mut rng = TestRng(0xBEE5);
+        let mut ses = live_session(&mut st, &mut rng);
+        let gate = gate_ready();
+        let policy = UpPolicy::with_default_window();
+        let cred_id = make_one(&mut st, &gate, &mut ses, &policy, &mut rng, 0xC0, 1_000);
+        // Opt-out via management op (sessao desbloqueada).
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut fwlog = FwLog::new();
+        set_credential_up_policy(
+            &mut st,
+            &mut fwlog,
+            &mut ses,
+            &SetUpPolicyRequest {
+                cred_id: cred_id.clone(),
+                up_required: false,
+                pin_auth_ok: true,
+            },
+            2_000,
+        )
+        .unwrap();
+        // Grant de OUTRA operacao (= sem toque valido) + desbloqueio:
+        // assertion passa e o contador avanca.
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut g_wrong = policy.issue(op(0xFF), 3_000);
+        let mut ctx = call(
+            &mut st,
+            &gate,
+            &mut ses,
+            &policy,
+            &mut g_wrong,
+            op(0x00),
+            3_100,
+            &mut rng,
+        );
+        let a = get_assertion(&mut ctx, &ga_req(cred_id.clone(), true), 96).unwrap();
+        assert_eq!(a.sign_count, 1);
+        // O grant NAO foi consumido pelo opt-out: reutilizar no op
+        // original dele (com UP valida) passa.
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut ctx2 = call(
+            &mut st,
+            &gate,
+            &mut ses,
+            &policy,
+            &mut g_wrong,
+            op(0xFF),
+            3_200,
+            &mut rng,
+        );
+        make_credential(&mut ctx2, &mc_req(true), 64).unwrap();
+        // UV nativa out-of-band tambem conta como desbloqueio (sem sessao).
+        let mut dead = PinUvSession::new();
+        let mut g_any = policy.issue(op(0x77), 4_000);
+        let mut uv_req = ga_req(cred_id.clone(), false);
+        uv_req.uv_performed = true;
+        let mut ctx3 = call(
+            &mut st,
+            &gate,
+            &mut dead,
+            &policy,
+            &mut g_any,
+            op(0x78),
+            4_100,
+            &mut rng,
+        );
+        let a2 = get_assertion(&mut ctx3, &uv_req, 96).unwrap();
+        assert_eq!(a2.sign_count, 2);
+    }
+
+    #[test]
+    fn per_cred_locked_opt_out_denied() {
+        let mut st = test_storage();
+        let mut rng = TestRng(0x10CC);
+        let mut ses = live_session(&mut st, &mut rng);
+        let gate = gate_ready();
+        let policy = UpPolicy::with_default_window();
+        let cred_id = make_one(&mut st, &gate, &mut ses, &policy, &mut rng, 0xD0, 1_000);
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut fwlog = FwLog::new();
+        set_credential_up_policy(
+            &mut st,
+            &mut fwlog,
+            &mut ses,
+            &SetUpPolicyRequest {
+                cred_id: cred_id.clone(),
+                up_required: false,
+                pin_auth_ok: true,
+            },
+            2_000,
+        )
+        .unwrap();
+        // Travado (sem sessao, sem UV) + grant valido: nega PinRequired.
+        let mut dead = PinUvSession::new();
+        let mut g = policy.issue(op(0xC1), 3_000);
+        let mut ctx = call(
+            &mut st,
+            &gate,
+            &mut dead,
+            &policy,
+            &mut g,
+            op(0xC1),
+            3_100,
+            &mut rng,
+        );
+        assert_eq!(
+            get_assertion(&mut ctx, &ga_req(cred_id.clone(), false), 96).unwrap_err(),
+            CtapError::PinRequired
+        );
+        // Flag do host sem sessao viva no RAM tambem nega.
+        let mut ctx2 = call(
+            &mut st,
+            &gate,
+            &mut dead,
+            &policy,
+            &mut g,
+            op(0xC1),
+            3_200,
+            &mut rng,
+        );
+        assert_eq!(
+            get_assertion(&mut ctx2, &ga_req(cred_id.clone(), true), 96).unwrap_err(),
+            CtapError::PinRequired
+        );
+        // As negacoes nao consumiram o grant: com desbloqueio, o MESMO
+        // grant autoriza.
+        let mut ses2 = PinUvSession::new();
+        pin_uv::pin_verify(&mut st, &mut ses2, b"1234").unwrap();
+        let mut ctx3 = call(
+            &mut st,
+            &gate,
+            &mut ses2,
+            &policy,
+            &mut g,
+            op(0xC1),
+            3_300,
+            &mut rng,
+        );
+        let a = get_assertion(&mut ctx3, &ga_req(cred_id, true), 96).unwrap();
+        assert_eq!(a.sign_count, 1);
+    }
+
+    #[test]
+    fn per_cred_legacy_record_defaults_require_touch() {
+        use crate::cred_store::{cred_put_raw, encode_record_v1};
+        let mut st = test_storage();
+        let mut rng = TestRng(0x1E6AC);
+        let mut ses = live_session(&mut st, &mut rng);
+        let gate = gate_ready();
+        let policy = UpPolicy::with_default_window();
+        // Planta bytes v1 (sem o campo): registro antigo no flash.
+        let rec = CredRecord {
+            flags: CTAP_FLAG_RESIDENT,
+            sign_count: 0,
+            rp_id_hash: [0x11u8; 32],
+            cred_id: alloc::vec![0xAAu8; 16],
+            priv_blob: alloc::vec![0xBBu8; 32],
+            up_required: true,
+        };
+        let label = label_for_cred_id(&rec.cred_id);
+        cred_put_raw(&mut st, &label, &encode_record_v1(&rec)).unwrap();
+        assert!(cred_get(&st, &label).unwrap().up_required);
+        // Sem toque valido nega, mesmo com sessao viva (default seguro).
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut g_other = policy.issue(op(0xE1), 2_000);
+        let mut ctx = call(
+            &mut st,
+            &gate,
+            &mut ses,
+            &policy,
+            &mut g_other,
+            op(0xE2),
+            2_100,
+            &mut rng,
+        );
+        assert_eq!(
+            get_assertion(&mut ctx, &ga_req(rec.cred_id.clone(), true), 96).unwrap_err(),
+            CtapError::OperationDenied
+        );
+        // Com o grant certo + desbloqueio, passa e promove para v2.
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        let mut g_ok = policy.issue(op(0xE3), 3_000);
+        let mut ctx2 = call(
+            &mut st,
+            &gate,
+            &mut ses,
+            &policy,
+            &mut g_ok,
+            op(0xE3),
+            3_100,
+            &mut rng,
+        );
+        let a = get_assertion(&mut ctx2, &ga_req(rec.cred_id.clone(), true), 96).unwrap();
+        assert_eq!(a.sign_count, 1);
+    }
+
+    #[test]
+    fn per_cred_set_requires_unlock_and_audits() {
+        let mut st = test_storage();
+        let mut rng = TestRng(0x5E77);
+        let mut ses = live_session(&mut st, &mut rng);
+        let gate = gate_ready();
+        let policy = UpPolicy::with_default_window();
+        let cred_id = make_one(&mut st, &gate, &mut ses, &policy, &mut rng, 0xF0, 1_000);
+        let mut fwlog = FwLog::new();
+        // Travado: nega antes de tocar no storage, sem auditar.
+        let mut dead = PinUvSession::new();
+        assert_eq!(
+            set_credential_up_policy(
+                &mut st,
+                &mut fwlog,
+                &mut dead,
+                &SetUpPolicyRequest {
+                    cred_id: cred_id.clone(),
+                    up_required: false,
+                    pin_auth_ok: false,
+                },
+                2_000,
+            )
+            .unwrap_err(),
+            CtapError::PinRequired
+        );
+        assert_eq!(
+            set_credential_up_policy(
+                &mut st,
+                &mut fwlog,
+                &mut dead,
+                &SetUpPolicyRequest {
+                    cred_id: cred_id.clone(),
+                    up_required: false,
+                    pin_auth_ok: true,
+                },
+                2_100,
+            )
+            .unwrap_err(),
+            CtapError::PinRequired
+        );
+        let label = label_for_cred_id(&cred_id);
+        assert!(cred_get(&st, &label).unwrap().up_required);
+        assert!(fwlog.is_empty(), "negativa nao audita");
+        // Slot ausente com sessao viva: NoCredentials (fail-closed), sem
+        // consumir a sessao (retry sem novo verify).
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        assert_eq!(
+            set_credential_up_policy(
+                &mut st,
+                &mut fwlog,
+                &mut ses,
+                &SetUpPolicyRequest {
+                    cred_id: alloc::vec![0xDEu8; 16],
+                    up_required: false,
+                    pin_auth_ok: true,
+                },
+                2_200,
+            )
+            .unwrap_err(),
+            CtapError::NoCredentials
+        );
+        assert!(ses.is_live(), "negativa nao consome a sessao");
+        assert!(fwlog.is_empty());
+        // Sucesso opt-out: muda, consome a sessao e audita (ARG=0).
+        set_credential_up_policy(
+            &mut st,
+            &mut fwlog,
+            &mut ses,
+            &SetUpPolicyRequest {
+                cred_id: cred_id.clone(),
+                up_required: false,
+                pin_auth_ok: true,
+            },
+            2_300,
+        )
+        .unwrap();
+        assert!(!cred_get(&st, &label).unwrap().up_required);
+        assert!(!ses.is_live(), "SET consome a sessao de uso unico");
+        let raw = fwlog.render_ascii(512);
+        let s = alloc::string::String::from_utf8(raw).expect("ascii");
+        assert!(
+            s.contains("EV=18 ARG=0"),
+            "auditoria do opt-out, got: {}",
+            s
+        );
+        // Volta a exigir toque: audita ARG=1, sem segredo no log.
+        pin_uv::pin_verify(&mut st, &mut ses, b"1234").unwrap();
+        set_credential_up_policy(
+            &mut st,
+            &mut fwlog,
+            &mut ses,
+            &SetUpPolicyRequest {
+                cred_id: cred_id.clone(),
+                up_required: true,
+                pin_auth_ok: true,
+            },
+            2_400,
+        )
+        .unwrap();
+        assert!(cred_get(&st, &label).unwrap().up_required);
+        let raw = fwlog.render_ascii(4096);
+        let s = alloc::string::String::from_utf8(raw).expect("ascii");
+        assert!(
+            s.contains("EV=18 ARG=1"),
+            "auditoria do re-arme, got: {}",
+            s
+        );
+        assert!(!s.contains("aa"), "log sem eco de credId");
     }
 }

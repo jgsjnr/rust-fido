@@ -345,6 +345,7 @@ mod tests {
             large_blob_key: None,
             cred_blob: None,
             hmac_secret_key: None,
+            up_required: true,
         };
         s.save(rec).unwrap();
         assert_eq!(s.increment_sign_count(&[9, 9, 9]).unwrap(), 1);
