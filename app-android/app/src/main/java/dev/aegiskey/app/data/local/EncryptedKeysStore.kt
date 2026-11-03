@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.domain.model.AccessKeyType
+import dev.aegiskey.app.domain.model.ActiveTransport
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.SecurityToggles
@@ -75,12 +76,14 @@ class EncryptedKeysStore(private val context: Context?) {
             val list = mutableListOf<ConnectedKeyDevice>()
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                val transportName = obj.optString("transportType", ConnectionTransportType.BLE.name)
-                val transport = try {
-                    ConnectionTransportType.valueOf(transportName)
-                } catch (_: IllegalArgumentException) {
-                    ConnectionTransportType.BLE
-                }
+                val hardwareId = obj.optString("hardwareAddressOrId", "")
+                // Never default a missing or corrupt transport name to Bluetooth:
+                // infer from the hardware identifier, keeping Bluetooth only as
+                // a legacy fallback for records that predate per-link identity.
+                // The live header label is resolved from the active link anyway.
+                val transport = ActiveTransport.parseStoredOrNull(obj.optString("transportType", ""))
+                    ?: ActiveTransport.inferFromHardwareId(hardwareId)
+                    ?: ConnectionTransportType.BLE
                 list.add(
                     ConnectedKeyDevice(
                         id = obj.getString("id"),

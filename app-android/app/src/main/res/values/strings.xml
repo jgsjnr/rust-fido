@@ -21,6 +21,7 @@
     <string name="transport_usb">USB Cable</string>
     <string name="transport_wifi">Wi-Fi</string>
     <string name="transport_simulator">Virtual Simulator</string>
+    <string name="transport_unknown">Connection</string>
 
     <!-- Secure Guard Authority -->
     <string name="guard_title">Secure Guard</string>
@@ -43,6 +44,13 @@
     <string name="guard_selective_wipe">Selective Wipe</string>
     <string name="guard_max_attempts_reached">Maximum attempts limit reached</string>
     <string name="guard_recovery_desc">Secure Guard is locked for security. Enter your 16-character Recovery Code to restore access.</string>
+    <string name="guard_error_locked_title">Recovery needed — secure record unreadable</string>
+    <string name="guard_error_locked_desc">The secure record on the key is stale or unreadable, so the key rejects every request before checking any PIN. This is not a wrong PIN.</string>
+    <string name="guard_error_locked_no_retry">Do not retry the PIN: every attempt fails and the counters do not change.</string>
+    <string name="guard_error_locked_frozen">Attempts frozen: %1$d / %2$d — counters locked by the key</string>
+    <string name="guard_error_locked_recovery_btn">Use recovery code</string>
+    <string name="guard_error_locked_reprovision_hint">Without a recovery code, the firmware only offers reprovisioning after the NVS record area is cleared. See the firmware recovery documentation for the NVS-clear procedure, then set up the key as new. This screen never clears key storage.</string>
+    <string name="guard_error_locked_vault_hint">Secure Guard reports ErrorLocked. Use the recovery panel in the Secure Guard card above. PIN entry is disabled.</string>
     <string name="guard_check_connection">Check Security Key Connection</string>
     <string name="guard_recovery_code_label">Emergency Recovery Code:</string>
     <string name="guard_recovery_code_hint">Store this recovery code in a secure offline location.</string>

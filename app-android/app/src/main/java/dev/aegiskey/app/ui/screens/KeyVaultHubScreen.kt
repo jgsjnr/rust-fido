@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
+import dev.aegiskey.app.domain.model.ErrorLockedRecovery
+import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.ui.atomic.molecules.VaultEntryCardMolecule
@@ -80,6 +82,7 @@ import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
 fun KeyVaultHubScreen(
     viewModel: KeyVaultViewModel,
     secureGuardViewModel: SecureGuardViewModel? = null,
+    sessionTransport: ConnectionTransportType? = null,
     onNavigateToBackup: () -> Unit = {},
     onNavigateToOta: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -202,7 +205,7 @@ fun KeyVaultHubScreen(
                 HardwareManagerSummaryPanel(
                     diagnostics = uiState.hardwareDiagnostics,
                     totalOccupied = uiState.entries.size,
-                    activeTransport = uiState.activeKey?.transportType,
+                    activeTransport = sessionTransport,
                     isExpanded = isDiagnosticsExpanded,
                     onToggleExpand = {
                         isDiagnosticsExpanded = !isDiagnosticsExpanded
@@ -357,7 +360,9 @@ fun KeyVaultHubScreen(
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            if (secureGuardViewModel != null) {
+                            if (secureGuardViewModel != null && sgUiState != null &&
+                                !ErrorLockedRecovery.isErrorLocked(sgUiState.status.state)
+                           ) {
                                 Button(
                                     onClick = { secureGuardViewModel.openUnlockPrompt() },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -367,6 +372,15 @@ fun KeyVaultHubScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(stringResource(R.string.guard_btn_unlock_session))
                                 }
+                            }
+                            if (sgUiState != null && ErrorLockedRecovery.isErrorLocked(sgUiState.status.state)) {
+                                Text(
+                                    text = stringResource(R.string.guard_error_locked_vault_hint),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }
@@ -556,7 +570,7 @@ private fun HardwareManagerSummaryPanel(
         ConnectionTransportType.USB -> stringResource(R.string.transport_usb)
         ConnectionTransportType.WIFI -> stringResource(R.string.transport_wifi)
         ConnectionTransportType.SIMULATOR -> stringResource(R.string.transport_simulator)
-        null -> stringResource(R.string.default_security_key_name)
+        null -> stringResource(R.string.transport_unknown)
     }
     val freeSlots = diagnostics?.freeSlotsRemaining ?: (16 - totalOccupied).coerceAtLeast(0)
 

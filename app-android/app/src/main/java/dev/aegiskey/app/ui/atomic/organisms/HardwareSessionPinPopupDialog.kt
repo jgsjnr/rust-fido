@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.R
+import dev.aegiskey.app.domain.model.ErrorLockedRecovery
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
 import dev.aegiskey.app.ui.atomic.atoms.SecureGuardBadgeAtom
@@ -99,6 +100,10 @@ fun HardwareSessionPinPopupDialog(
     val isWipe = operationType == HardwareSessionOperationType.WIPE_SELECTIVE
     val isUnprovisioned = status.state == SecureGuardStateEnum.UNPROVISIONED || !status.isProvisioned
     val isRateLimited = status.state == SecureGuardStateEnum.RATE_LIMITED
+    // ErrorLocked must never render a PIN form: no PIN can succeed while
+    // the secure record is unreadable, so the dialog shows recovery
+    // guidance instead of PIN entry.
+    val isErrorLocked = ErrorLockedRecovery.isErrorLocked(status.state)
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismissRequest() },
@@ -141,7 +146,9 @@ fun HardwareSessionPinPopupDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Operation Context Description
-                val desc = when (operationType) {
+                val desc = if (isErrorLocked) {
+                    stringResource(R.string.guard_error_locked_desc)
+                } else when (operationType) {
                     HardwareSessionOperationType.UNLOCK_SESSION -> stringResource(R.string.guard_session_pin_desc_unlock)
                     HardwareSessionOperationType.PROVISION_SESSION -> stringResource(R.string.guard_unprovisioned_desc)
                     HardwareSessionOperationType.WIPE_SELECTIVE -> stringResource(R.string.guard_session_pin_desc_wipe)
@@ -181,7 +188,7 @@ fun HardwareSessionPinPopupDialog(
                             )
                         }
                     }
-                } else {
+                } else if (!isErrorLocked) {
                     // Synchronized Telemetry Status Bar (Hardware state & attempts)
                     Row(
                         modifier = Modifier
@@ -203,6 +210,18 @@ fun HardwareSessionPinPopupDialog(
                             color = if (status.remainingAttempts <= 2) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
                         )
                     }
+                } else {
+                    // Frozen counters: hide live values, label them frozen.
+                    Text(
+                        text = stringResource(
+                            R.string.guard_error_locked_frozen,
+                            status.remainingAttempts,
+                            status.maxAttempts
+                        ),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
 
                 // Rate limit notice if active
@@ -244,17 +263,34 @@ fun HardwareSessionPinPopupDialog(
                     }
                 }
 
-                // Masked PIN entry keypad molecule
-                SecurePinKeypadMolecule(
-                    label = if (isUnprovisioned) stringResource(R.string.guard_new_pin) else stringResource(R.string.guard_unlock_pin),
-                    buttonText = stringResource(operationType.confirmBtnRes),
-                    enabled = !isLoading && !isRateLimited && (!isWipe || confirmationTokenInput == "CONFIRM_WIPE_AEGIS_GUARD"),
-                    errorMessage = errorMessage,
-                    onSubmit = { pin ->
-                        val token = if (isWipe) confirmationTokenInput else null
-                        onConfirmPin(pin, token)
-                    }
-                )
+                // Masked PIN entry keypad molecule. Never rendered for
+                // ErrorLocked: PIN entry cannot succeed, so show the
+                // firmware-supported exits instead.
+                if (isErrorLocked) {
+                    Text(
+                        text = stringResource(R.string.guard_error_locked_no_retry),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = stringResource(R.string.guard_error_locked_reprovision_hint),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 15.sp
+                    )
+                } else {
+                    SecurePinKeypadMolecule(
+                        label = if (isUnprovisioned) stringResource(R.string.guard_new_pin) else stringResource(R.string.guard_unlock_pin),
+                        buttonText = stringResource(operationType.confirmBtnRes),
+                        enabled = !isLoading && !isRateLimited && (!isWipe || confirmationTokenInput == "CONFIRM_WIPE_AEGIS_GUARD"),
+                        errorMessage = errorMessage,
+                        onSubmit = { pin ->
+                            val token = if (isWipe) confirmationTokenInput else null
+                            onConfirmPin(pin, token)
+                        }
+                    )
+                }
 
                 if (isLoading) {
                     Row(

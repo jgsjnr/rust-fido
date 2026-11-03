@@ -50,8 +50,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.R
+import dev.aegiskey.app.domain.model.ErrorLockedRecovery
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
+import dev.aegiskey.app.domain.model.SecureGuardStatus
 import dev.aegiskey.app.ui.atomic.atoms.SecureGuardBadgeAtom
 import dev.aegiskey.app.ui.atomic.molecules.RateLimitTimerMolecule
 import dev.aegiskey.app.ui.atomic.molecules.SessionExpiryTimerMolecule
@@ -180,12 +182,27 @@ fun SecureGuardCardOrganism(
                     )
                 }
 
-                Text(
-                    text = "[ ${status.remainingAttempts} / ${status.maxAttempts} ]",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (status.remainingAttempts <= 2) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
-                )
+                // Attempt counters: ErrorLocked freezes them on-device, so label
+                // them frozen with reason instead of showing live values.
+                if (ErrorLockedRecovery.isAttemptsCounterFrozen(status.state)) {
+                    Text(
+                        text = stringResource(
+                            R.string.guard_error_locked_frozen,
+                            status.remainingAttempts,
+                            status.maxAttempts
+                        ),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else {
+                    Text(
+                        text = "[ ${status.remainingAttempts} / ${status.maxAttempts} ]",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (status.remainingAttempts <= 2) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
 
             // Live Timers (Rate Limit or Session Expiry)
@@ -340,6 +357,15 @@ fun SecureGuardCardOrganism(
                             }
                         }
                     }
+                }
+
+                SecureGuardStateEnum.ERROR_LOCKED -> {
+                    // Dedicated recovery screen: the secure record is stale or
+                    // unreadable, so no PIN can succeed. Never offer PIN retry.
+                    ErrorLockedRecoveryPanel(
+                        onUseRecoveryCode = { showRecoverDialog = true },
+                        onRefresh = onRefresh,
+                    )
                 }
 
                 else -> {
@@ -525,32 +551,94 @@ fun SecureGuardCardOrganism(
     }
 
     // Modal Popup de PIN por Sessão Sincronizada
-    activePopupOperation?.let { opType ->
-        HardwareSessionPinPopupDialog(
-            isOpen = true,
-            status = status,
-            operationType = opType,
-            isLoading = uiState.isLoading,
-            errorMessage = uiState.errorMessage,
-            onDismissRequest = { activePopupOperation = null },
-            onConfirmPin = { pin, token ->
-                val prevOp = opType
-                activePopupOperation = null
-                when (prevOp) {
-                    HardwareSessionOperationType.PROVISION_SESSION -> {
-                        onProvision(pin, null, null)
-                    }
-                    HardwareSessionOperationType.UNLOCK_SESSION -> {
-                        onUnlock(pin)
-                    }
-                    HardwareSessionOperationType.WIPE_SELECTIVE -> {
-                        onWipeSelective(0, token ?: "CONFIRM_WIPE_AEGIS_GUARD")
-                    }
-                    else -> {
-                        onUnlock(pin)
+    // Never opened for ErrorLocked: that state routes to the recovery
+    // panel above instead of any PIN entry.
+    if (!ErrorLockedRecovery.isErrorLocked(status.state)) {
+        activePopupOperation?.let { opType ->
+            HardwareSessionPinPopupDialog(
+                isOpen = true,
+                status = status,
+                operationType = opType,
+                isLoading = uiState.isLoading,
+                errorMessage = uiState.errorMessage,
+                onDismissRequest = { activePopupOperation = null },
+                onConfirmPin = { pin, token ->
+                    val prevOp = opType
+                    activePopupOperation = null
+                    when (prevOp) {
+                        HardwareSessionOperationType.PROVISION_SESSION -> {
+                            onProvision(pin, null, null)
+                        }
+                        HardwareSessionOperationType.UNLOCK_SESSION -> {
+                            onUnlock(pin)
+                        }
+                        HardwareSessionOperationType.WIPE_SELECTIVE -> {
+                            onWipeSelective(0, token ?: "CONFIRM_WIPE_AEGIS_GUARD")
+                        }
+                        else -> {
+                            onUnlock(pin)
+                        }
                     }
                 }
-            }
+            )
+        }
+    }
+}
+
+/**
+ * Dedicated ErrorLocked recovery panel. Explains the frozen state and
+ * offers only the firmware-supported exits: the recovery-code flow, or
+ * documented reprovisioning after an NVS clear. Executes nothing
+ * destructive from here and never suggests retrying the PIN.
+ */
+@Composable
+private fun ErrorLockedRecoveryPanel(
+    onUseRecoveryCode: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF450A0A).copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFFDC2626).copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.guard_error_locked_title),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFDC2626)
         )
+        Text(
+            text = stringResource(R.string.guard_error_locked_desc),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = stringResource(R.string.guard_error_locked_no_retry),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.error
+        )
+        Button(
+            onClick = onUseRecoveryCode,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.guard_error_locked_recovery_btn))
+        }
+        Text(
+            text = stringResource(R.string.guard_error_locked_reprovision_hint),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 15.sp
+        )
+        OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+            Icon(imageVector = Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(stringResource(R.string.guard_refresh), fontSize = 12.sp)
+        }
     }
 }

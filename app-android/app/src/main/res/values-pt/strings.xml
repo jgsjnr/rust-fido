@@ -21,6 +21,7 @@
     <string name="transport_usb">Cabo USB</string>
     <string name="transport_wifi">Wi-Fi</string>
     <string name="transport_simulator">Simulador Virtual</string>
+    <string name="transport_unknown">Conexão</string>
 
     <!-- Secure Guard Authority -->
     <string name="guard_title">Secure Guard</string>
@@ -43,6 +44,13 @@
     <string name="guard_selective_wipe">Limpeza Seletiva</string>
     <string name="guard_max_attempts_reached">Limite de tentativas excedido</string>
     <string name="guard_recovery_desc">Secure Guard bloqueado por segurança. Digite o código de recuperação de 16 caracteres para restaurar o acesso.</string>
+    <string name="guard_error_locked_title">Recuperação necessária — registro seguro ilegível</string>
+    <string name="guard_error_locked_desc">O registro seguro na chave está desatualizado ou ilegível, por isso a chave rejeita toda solicitação antes de verificar qualquer PIN. Não se trata de um PIN incorreto.</string>
+    <string name="guard_error_locked_no_retry">Não tente o PIN novamente: toda tentativa falha e os contadores não mudam.</string>
+    <string name="guard_error_locked_frozen">Tentativas congeladas: %1$d / %2$d — contadores bloqueados pela chave</string>
+    <string name="guard_error_locked_recovery_btn">Usar código de recuperação</string>
+    <string name="guard_error_locked_reprovision_hint">Sem o código de recuperação, o firmware só oferece o reprovisionamento após limpar a área de registros da NVS. Consulte a documentação de recuperação do firmware para o procedimento de limpeza da NVS e configure a chave como nova. Esta tela nunca apaga o armazenamento da chave.</string>
+    <string name="guard_error_locked_vault_hint">Secure Guard informa ErrorLocked. Use o painel de recuperação no cartão Secure Guard acima. A entrada de PIN está desativada.</string>
     <string name="guard_check_connection">Verificar Conexão da Chave</string>
     <string name="guard_recovery_code_label">Código de Recuperação de Emergência:</string>
     <string name="guard_recovery_code_hint">Guarde este código em local seguro e offline.</string>

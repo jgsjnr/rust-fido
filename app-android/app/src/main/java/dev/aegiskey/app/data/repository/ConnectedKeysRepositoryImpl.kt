@@ -165,14 +165,18 @@ class ConnectedKeysRepositoryImpl(
         } ?: _activeKey.value ?: currentKeys.firstOrNull()
 
         val updated = if (existing != null) {
+            // tryAutoPairBle runs on status polls carried by the live link (USB
+            // included). A USB record must keep its USB transport: relabeling a
+            // live USB session as Bluetooth is what mislabels the header.
+            val keepUsbLink = existing.transportType == ConnectionTransportType.USB
             existing.copy(
-                displayName = if (existing.displayName.contains("USB", ignoreCase = true) || existing.displayName.isBlank()) {
+                displayName = if (existing.displayName.isBlank()) {
                     bleName.ifBlank { "AegisKey" }
                 } else {
                     existing.displayName
                 },
-                hardwareAddressOrId = trimmedMac,
-                transportType = ConnectionTransportType.BLE,
+                hardwareAddressOrId = if (keepUsbLink) existing.hardwareAddressOrId else trimmedMac,
+                transportType = if (keepUsbLink) ConnectionTransportType.USB else ConnectionTransportType.BLE,
                 isCurrentlyConnected = true,
                 lastConnectedEpochMs = System.currentTimeMillis()
             )

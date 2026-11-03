@@ -28,6 +28,7 @@ import androidx.navigation.compose.rememberNavController
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AppThemeMode
+import dev.aegiskey.app.domain.model.ActiveTransport
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.ota2.Ota2Screen
@@ -140,12 +141,22 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                 else -> HubDestination.VAULT
             }
 
-            val transportLabel = when (activeKey?.transportType) {
+            // Connection badge label comes from the link actually carrying
+            // the session (USB HID wins over a stale stored BLE value).
+            // Null resolves to a neutral interface name, never a wrong one.
+            val usbAttached by container.usbCtaphid.isHardwareAttached.collectAsState()
+            val bleUiState by client.state.collectAsState()
+            val sessionTransport = ActiveTransport.resolve(
+                stored = activeKey?.transportType,
+                usbPresent = usbAttached,
+                bleReady = bleUiState.connection == AegisBleClient.Connection.READY,
+            )
+            val transportLabel = when (sessionTransport) {
                 ConnectionTransportType.BLE -> stringResource(R.string.transport_ble)
                 ConnectionTransportType.USB -> stringResource(R.string.transport_usb)
                 ConnectionTransportType.WIFI -> stringResource(R.string.transport_wifi)
                 ConnectionTransportType.SIMULATOR -> stringResource(R.string.transport_simulator)
-                null -> stringResource(R.string.default_security_key_name)
+                null -> stringResource(R.string.transport_unknown)
             }
 
             MainHubScaffoldTemplate(
@@ -182,6 +193,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                         KeyVaultHubScreen(
                             viewModel = vaultViewModel,
                             secureGuardViewModel = secureGuardViewModel,
+                            sessionTransport = sessionTransport,
                             onNavigateToBackup = {
                                 nav.navigate(HubDestination.SETTINGS.route) {
                                     popUpTo(nav.graph.findStartDestination().id) { saveState = true }
