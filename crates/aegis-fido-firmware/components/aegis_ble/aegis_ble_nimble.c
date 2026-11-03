@@ -39,6 +39,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
+#include "host/ble_sm.h"
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
@@ -74,6 +75,11 @@ static const char *TAG = "aegis_ble";
 void ble_store_config_init(void);
 int ble_store_clear(void);
 
+/* OOB (definidos na secao API abaixo; usados pelo `gap_event`). */
+int aegis_ble_arm_oob(const uint8_t *tk);
+int aegis_ble_clear_oob(void);
+int aegis_ble_oob_armed(void);
+
 static uint8_t s_inited = 0;
 static uint8_t s_synced = 0;
 static uint8_t s_advertising = 0;
@@ -102,6 +108,35 @@ static uint8_t s_notify_on = 0;
 /* FFF1 pendente (1 fragmento; task NimBLE produz, loop Rust consome). */
 static uint8_t s_rx_buf[AEGIS_RX_BUF_MAX];
 static int s_rx_len = -1; /* -1 = fila vazia */
+
+/* --- OOB-assisted pairing (MITM sem display; op vendor 0x42 via USB) ----
+ *
+ * O latch abaixo e a contraparte de radio da politica host-testavel em
+ * `crates/.../src/ble/oob.rs` (+ `ble_nimble.rs esp_ble_arm_oob`). O Rust
+ * valida gates (binding -> UP -> sessao) e o corpo de 16 B; este C guarda
+ * o TK, levanta `ble_hs_cfg.sm_oob_data_flag` para o PROXIMO pareamento e
+ * injeta no `PASSKEY_ACTION`. Sem latch armado, OOB falha fechado
+ * (`BLE_SM_ERR_OOB` no SM) e o MITM segue exigido — nunca JustWorks.
+ *
+ * One-shot: consome no inject (legado ou SC), limpa no disconnect e no
+ * `clear`. Re-arm sobrescreve (last-wins). `sm_oob_data_flag` e lido live
+ * pelo SM a cada `Pairing Req/Rsp` (NimBLE `ble_sm.c`), sem re-init.
+ *
+ * LESC-SC (`IOACT_OOB_SC`, peer moderno com SC): o SM exige o par
+ * `(r_remote, c_remote)` e checa `f4(peer_pub,peer_pub,r) == c`
+ * (`ble_sm_sc.c`). Com 16 B (so o `r` do peer), o glue injeta
+ * `remote = { r: TK, c: TK }` + local fresco: a checagem falha fechado
+ * rapido (`CONFIRM_MISMATCH`, sem bonding, sem retry) em vez de travar
+ * em timeout. OOB-SC pleno (par real de 32 B) e follow-up (op 0x42
+ * estendida); o caminho legado `IOACT_OOB` (peer sem SC) completa com
+ * os 16 B. MITM intacto: sem o TK OOB, o atacante nao passa.
+ */
+static uint8_t s_oob_armed = 0;
+static uint8_t s_oob_tk[16] = { 0 };
+/* LESC OOB-SC precisa de local+remote residentes ate o fim do pairing
+ * (o SM guarda PONTEIROS, nao copia — `ble_sm.c` inject `OOB_SC`). */
+static struct ble_sm_sc_oob_data s_oob_local;
+static struct ble_sm_sc_oob_data s_oob_remote;
 
 /* FFF3 sombra (espelhada pelo Rust via aegis_ble_set_pending_len). */
 static uint16_t s_pending_len = 0;
@@ -388,6 +423,9 @@ gap_event(struct ble_gap_event *event, void *arg)
         s_advertising = 0;
         s_notify_on = 0;
         s_status = 0;
+        /* One-shot por conexao: TK armado nao sobrevive ao disconnect
+         * (proximo pareamento exige novo arming via USB 0x42). */
+        aegis_ble_clear_oob();
         set_evt(AEGIS_EVT_DISCONNECTED);
         return 0;
 
@@ -419,6 +457,67 @@ gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_MTU:
+        return 0;
+
+    case BLE_GAP_EVENT_PASSKEY_ACTION:
+        /* OOB do SM (mesmo padrao do exemplo oficial IDF v5.3.1
+         * `bleprph`: inject via `ble_sm_inject_io`). Sem latch armado:
+         * sem inject — o SM falha fechado (timeout/`ERR_OOB`), sem
+         * bonding, MITM intacto. Acoes com display/teclado (DISP/INPUT/
+         * NUMCMP) nunca ocorrem (`NO_INPUT_NO_OUTPUT`) e sao ignoradas
+         * fail-closed aqui (sem inject). */
+        {
+            int prc;
+            uint8_t tk[16];
+            int have = 0;
+            taskENTER_CRITICAL(&s_lock);
+            if (s_oob_armed) {
+                memcpy(tk, s_oob_tk, sizeof(tk));
+                have = 1;
+            }
+            taskEXIT_CRITICAL(&s_lock);
+            if (!have) {
+                ESP_LOGW(TAG, "passkey action %d sem OOB armado (fail-closed; sem inject)",
+                         event->passkey.params.action);
+                return 0;
+            }
+            if (event->passkey.params.action == BLE_SM_IOACT_OOB) {
+                struct ble_sm_io pkey;
+                memset(&pkey, 0, sizeof(pkey));
+                pkey.action = BLE_SM_IOACT_OOB;
+                memcpy(pkey.oob, tk, sizeof(tk));
+                prc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
+                ESP_LOGI(TAG, "oob legacy inject rc=%d", prc);
+                /* One-shot: consumiu (ok ou nao, o pairing decidiu). */
+                aegis_ble_clear_oob();
+                return 0;
+            }
+            if (event->passkey.params.action == BLE_SM_IOACT_OOB_SC) {
+                struct ble_sm_io pkey;
+                memset(&pkey, 0, sizeof(pkey));
+                prc = ble_sm_sc_oob_generate_data(&s_oob_local);
+                if (prc != 0) {
+                    ESP_LOGE(TAG, "oob_sc local gen rc=%d (fail-closed; sem inject)", prc);
+                    return 0;
+                }
+                memcpy(s_oob_remote.r, tk, sizeof(tk));
+                /* PLACEHOLDER fail-fast: sem o `c` real do peer (16 B so
+                 * carregam o `r`), a checagem `f4 == c` falha fechado com
+                 * `CONFIRM_MISMATCH` (ver comentario no topo). OOB-SC
+                 * pleno = follow-up 32 B. Nunca vazio fingindo ok. */
+                memcpy(s_oob_remote.c, tk, sizeof(tk));
+                pkey.action = BLE_SM_IOACT_OOB_SC;
+                pkey.oob_sc_data.local = &s_oob_local;
+                pkey.oob_sc_data.remote = &s_oob_remote;
+                prc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
+                ESP_LOGI(TAG, "oob_sc inject rc=%d (confirm do peer checado pelo SM)", prc);
+                /* One-shot: consumiu (ok ou nao, o pairing decidiu). */
+                aegis_ble_clear_oob();
+                return 0;
+            }
+            ESP_LOGW(TAG, "passkey action %d sem metodo OOB (fail-closed; sem inject)",
+                     event->passkey.params.action);
+        }
         return 0;
 
     default:
@@ -620,6 +719,44 @@ static int ensure_init(void)
 
 /* Pré-init no boot (heap fresco), sem anunciar. Idempotente via s_inited;
  * falha retorna o código sem retry aqui (o gate Rust faz backoff). */
+/* OOB-assisted pairing (op vendor 0x42 via USB; ver comentario no topo).
+ * `aegis_ble_arm_oob` copia o TK de 16 B e levanta `sm_oob_data_flag`
+ * para o proximo pareamento (lido live pelo SM; sem re-init). `clear`
+ * zeroiza e derruba o flag. Retorna 0 ok, negativo = erro. */
+int aegis_ble_arm_oob(const uint8_t *tk)
+{
+    if (tk == NULL) {
+        return -1;
+    }
+    taskENTER_CRITICAL(&s_lock);
+    memcpy(s_oob_tk, tk, sizeof(s_oob_tk));
+    s_oob_armed = 1;
+    taskEXIT_CRITICAL(&s_lock);
+    ble_hs_cfg.sm_oob_data_flag = 1;
+    return 0;
+}
+
+int aegis_ble_clear_oob(void)
+{
+    taskENTER_CRITICAL(&s_lock);
+    memset(s_oob_tk, 0, sizeof(s_oob_tk));
+    memset(&s_oob_local, 0, sizeof(s_oob_local));
+    memset(&s_oob_remote, 0, sizeof(s_oob_remote));
+    s_oob_armed = 0;
+    taskEXIT_CRITICAL(&s_lock);
+    ble_hs_cfg.sm_oob_data_flag = 0;
+    return 0;
+}
+
+int aegis_ble_oob_armed(void)
+{
+    int armed;
+    taskENTER_CRITICAL(&s_lock);
+    armed = s_oob_armed ? 1 : 0;
+    taskEXIT_CRITICAL(&s_lock);
+    return armed;
+}
+
 int aegis_ble_preinit(void)
 {
     return ensure_init();

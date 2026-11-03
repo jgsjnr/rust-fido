@@ -73,6 +73,16 @@ where
         }
         return super::vendor_keys::exec_key_sign(keys, storage, payload, up);
     }
+    // BLE OOB ARM (0x42, serial/USB only): fora da faixa 0x20-0x27 de
+    // proposito (`authorize_vendor_op` rejeitaria como InvalidOpcode; a
+    // faixa pertence ao BLE). Gate proprio classe CONFIG sensivel
+    // (binding -> UP -> sessao, ordem canonica; sem latch UP consumido
+    // aqui) + corpo de 16 B; sucesso = `(0x00, [])` e o FUNIL serial
+    // arma o latch de radio (C/shim) — nunca o BLE (o reassembler
+    // rejeita 0x42, ver `ble::oob`). Diet: radio inerte (shim -1).
+    if crate::ble::oob::is_ble_oob_op(op) {
+        return crate::ble::oob::exec_ble_oob(op, payload, binding_ok, pin_ok, up);
+    }
     if let Err(e) = authorize_vendor_op(op, binding_ok, pin_ok, up) {
         return (e.to_vendor_status(), Vec::new());
     }

@@ -319,3 +319,76 @@ o if is_vendor_sign_op(o) => { binding + UP; exec_vendor_op(...) }
 #   como opcode de fragmento.
 ```
 
+## 10. OOB-assisted BLE pairing (BLE_OOB_ARM `0x42`)
+
+Causa raiz (provada no hardware): a SM NimBLE exige MITM (`sm_mitm=1`,
+LESC + bonding, Sec. F-01) mas o device nao tem display/teclado
+(`NO_INPUT_NO_OUTPUT`): telefone consent-only (sem metodo de
+confirmacao) nao completa o bonding — JustWorks e rejeitado
+fail-closed (`AUTH_REQUIREMENTS`). Sem enfraquecer o MITM, a saida e
+OOB: a chave temporaria viaja pelo canal USB/serial ja confiavel
+(posse fisica + sessao desbloqueada + vinculo) e o BLE completa
+LESC+OOB. Sem flash nesta etapa (validacao host primeiro; placa
+intacta).
+
+### 10.1 Disponibilidade OOB no IDF v5.3.1 pinado (verificada, nao assumida)
+
+Headers locais `C:\.embuild\espressif\esp-idf\v5.3.1` (esp-nimble
+`2cf7edd`, `ble_hs.h` + `ble_sm.h`): `ble_hs_cfg.sm_oob_data_flag`,
+`sm_mitm`, `sm_sc`, `sm_our_key_dist`, `sm_their_key_dist`;
+`BLE_SM_IOACT_OOB` (=1, TK legado 16 B) + `BLE_SM_IOACT_OOB_SC` (=5,
+`oob_sc_data.{local,remote}`), `struct ble_sm_sc_oob_data {r[16],c[16]}`,
+`ble_sm_sc_oob_generate_data()` + `ble_sm_inject_io()` (guard
+`NIMBLE_BLE_SM`, sempre ON com bonding). Mesmo padrao do exemplo
+oficial `bleprph` v5.3.1 (`PASSKEY_ACTION` + `inject`). NAO ha gap:
+nenhum downgrade para JustWorks (F-01 intacto).
+
+### 10.2 Prova da escolha do opcode
+
+`0x42` = primeiro byte livre apos `VENDOR_SIGN 0x41`; nenhuma
+definicao de opcode na arvore (soma de auditoria: vizinhos `0x3F`
+GET_CAPS, `0x40` SET_UP_POLICY, `0x41` VENDOR_SIGN travados em teste;
+predicados de funil existentes nao engolem `0x42`; reassembler BLE o
+rejeita `InvalidOpcode` — serial/USB only por construcao).
+
+### 10.3 Contrato wire (legivel em `crates/.../src/ble/oob.rs`)
+
+- Request `CMD_MSG`: `[0x42, tk0..tk15]` — opcode + EXATAMENTE 16 B
+  (random OOB do peer / TK legado). Outro comprimento (incl. vazio e
+  32 B) ou TK todo-zero nega fail-closed (`0x04`, corpo vazio, sem
+  armar; sem vazamento).
+- Response status-first: `[status]` (`0x00` ok + corpo vazio; `0x05`
+  sem janela/vinculo | `0x01` sem UP | `0x02` travado | `0x04` forma
+  ou radio sem latch).
+- Gates (classe CONFIG sensivel, ordem canonica): janela de
+  pareamento (funil serial, `0x05` fechada) -> binding (`0x05`) -> UP
+  fisico por operacao (`0x01`, NUNCA pulado: o `on_link_secured`
+  continua exigindo o latch no `ENC_CHANGE`) -> sessao PIN viva
+  (`0x02`). Sucesso consome o latch UP; negacoes nao tocam estado.
+- Transporte: SOMENTE serial/USB. O BLE nunca serve `0x42`.
+- Radio (componente C `aegis_ble`): latch one-shot (consome no
+  inject, limpa no disconnect, re-arm last-wins); `sm_oob_data_flag`
+  levantado so com latch (lido live pelo SM; sem latch, OOB falha
+  fechado e o MITM segue exigido).
+- LESC-SC honesto: com 16 B o glue injeta `remote = {r: TK, c: TK}`
+  + local fresco — a checagem de confirm do SM falha fechado rapido
+  (`CONFIRM_MISMATCH`, sem bonding) em vez de travar em timeout.
+  OOB-SC pleno (par `(r,c)` real do peer, 32 B) e follow-up
+  documentado (op `0x42` estendida ou nova op); o caminho legado
+  (`IOACT_OOB`) completa com os 16 B. Sem o TK OOB, MITM nao passa.
+- Dieta: `0x42` valida+gates em todos os presets (`vendor-mgmt`);
+  o latch de radio so existe no `full` (BLE inerte na dieta: shim
+  `-1`, funil nega `0x04`). `unsupported_count` do GET_CAPS
+  inalterado.
+
+Fiacao dos funis (ramo dedicado `is_ble_oob_op`, mesma severidade do
+vendor CONFIG; BLE sem braco — cai no default `0x04`):
+
+```
+# USB serial Freertos + legado (secao D): janela + binding -> UP -> sessao;
+# sucesso arma via esp_ble_arm_oob e consome o latch UP:
+if crate::ble::oob::is_ble_oob_op(op) { /* gates; exec_vendor_op; arm; */ }
+# Executor compartilhado (vendor_dispatch.rs): braco ANTES do authorize_vendor_op
+# (0x42 fora da faixa 0x20-0x27), sem efeito colateral — o funil serial arma.
+```
+

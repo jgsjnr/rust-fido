@@ -44,6 +44,11 @@ use super::gatt_core::{
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
 use crate::pairing::{PairingManager, PairingState};
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// Nome curto anunciado (cabe no legacy adv de 31B junto com o resto).
 pub const BLE_DEVICE_NAME: &str = "AegisKey";
@@ -379,7 +384,10 @@ pub fn on_link_secured(
 // (mesmo padrao dos `aegis_usb_*` no `main.rs`; sem bindgen, sem novos deps).
 // ---------------------------------------------------------------------------
 
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 extern "C" {
     fn aegis_ble_start(pairing_flag: i32, coex_slow: i32) -> i32;
     fn aegis_ble_preinit() -> i32;
@@ -397,7 +405,10 @@ extern "C" {
 /// `pairing_open`: flag de pareamento no service-data.
 /// `wifi_active`: intervalo lento (WiFi ativo; BLE cede airtime).
 /// Retorna `0` ok, negativo = `esp_err_t`/codigo NimBLE.
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_start(pairing_open: bool, wifi_active: bool) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "ble-adv");
     unsafe { aegis_ble_start(i32::from(pairing_open), i32::from(wifi_active)) }
@@ -410,19 +421,28 @@ pub fn esp_ble_start(pairing_open: bool, wifi_active: bool) -> i32 {
 /// retry a cada poll, vazavam o controlador ate o panic). Falha aqui nao
 /// trava o boot: o [`BleStartGate`] do loop tenta de novo com backoff.
 /// Retorna `0` ok, negativo = codigo do backend C.
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_preinit() -> i32 {
     unsafe { aegis_ble_preinit() }
 }
 /// Shim sem radio (host ou diet): preinit indisponivel, erro fail-closed.
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_preinit() -> i32 {
     -1
 }
 
 /// Para o advertising (chamar ao parear, no timeout e ao trocar p/ AP).
 /// Retorna `0` ok.
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_stop() -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "ble-adv");
     unsafe { aegis_ble_stop() }
@@ -434,41 +454,214 @@ pub fn esp_ble_stop() -> i32 {
 /// o LTK do NVS para o peer velho nao reencriptar; re-parear exige
 /// janela + UP + MITM. Sem stack = no-op 0; rc != 0 = falha do store
 /// (politica ja derrubou o flag em RAM; radio segue sem o vinculo).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_forget_bonds() -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "ble-forget");
     unsafe { aegis_ble_forget_bonds() }
 }
 
+// ---------------------------------------------------------------------------
+// OOB-assisted pairing (MITM sem display, op vendor `0x42` via USB/serial).
+//
+// Espelho host-testavel do latch de radio em
+// `components/aegis_ble/aegis_ble_nimble.c` (`aegis_ble_arm_oob` /
+// `aegis_ble_clear_oob` / `s_oob_armed` + `sm_oob_data_flag` one-shot):
+// - `esp_ble_arm_oob` copia o TK de 16 B para o latch do C e levanta
+//   `sm_oob_data_flag` para o PROXIMO pareamento (lido live pelo SM).
+// - O C consome de uso unico no `PASSKEY_ACTION` (inject), limpa no
+//   disconnect e no `clear`; sem latch, OOB falha fechado (`ERR_OOB`)
+//   e o MITM segue exigido (nunca cai para JustWorks).
+// - UP segue exigido no `on_link_secured` acima: o OOB autentica o
+//   link, nao dispensa o toque (sem UP-bypass).
+// - Host (sem radio): modelo funcional com atomicos (mesma semantica
+//   validar -> armar -> consultar -> limpar) para os testes de funil;
+//   dieta-ESP: shim `-1` (radio inerte, fail-closed no funil).
+// ---------------------------------------------------------------------------
+
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
+extern "C" {
+    fn aegis_ble_arm_oob(tk: *const u8) -> i32;
+    fn aegis_ble_clear_oob() -> i32;
+    fn aegis_ble_oob_armed() -> i32;
+}
+
+/// Arma o TK OOB de 16 B para o proximo pareamento (`0` ok).
+///
+/// Fail-closed: `tk.len() != 16` nega sem tocar no latch. No host,
+/// registra no modelo atomico; no ESP, delega ao componente C.
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
+pub fn esp_ble_arm_oob(tk: &[u8]) -> i32 {
+    if tk.len() != super::oob::OOB_TK_LEN {
+        return -1;
+    }
+    // SAFETY: `tk` tem 16 B validos (checados acima); o C copia sob
+    // critical section e nunca retém o ponteiro.
+    unsafe { aegis_ble_arm_oob(tk.as_ptr()) }
+}
+
+/// Limpa o latch OOB (zeroiza o TK, derruba `sm_oob_data_flag`).
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
+pub fn esp_ble_clear_oob() -> i32 {
+    // SAFETY: chamada FFI sem ponteiros; o C zeroiza sob critical section.
+    unsafe { aegis_ble_clear_oob() }
+}
+
+/// `true` quando ha TK OOB armado para o proximo pareamento.
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
+pub fn esp_ble_oob_armed() -> bool {
+    // SAFETY: chamada FFI sem ponteiros; leitura sob critical section no C.
+    unsafe { aegis_ble_oob_armed() == 1 }
+}
+
+/// Modelo host do latch OOB (sem radio; semantica validar->armar->ler).
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+static HOST_OOB_ARMED: AtomicBool = AtomicBool::new(false);
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+static HOST_OOB_TK: [AtomicU8; OOB_TK_LEN_HOST] = [const { AtomicU8::new(0) }; OOB_TK_LEN_HOST];
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+const OOB_TK_LEN_HOST: usize = 16;
+
+/// Shim host/dieta de `esp_ble_arm_oob` (radio inerte ou ausente).
+///
+/// Host (`not(espidf)`): valida 16 B e registra no modelo atomico
+/// (observavel via `esp_ble_oob_armed` nos testes de funil).
+/// Dieta-ESP: radio inerte — sempre `-1` (o funil nega `0x04`).
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+pub fn esp_ble_arm_oob(tk: &[u8]) -> i32 {
+    #[cfg(all(
+        target_os = "espidf",
+        any(feature = "cap-fido-only", feature = "cap-fido-totp")
+    ))]
+    {
+        let _ = tk;
+        return -1;
+    }
+    #[cfg(not(target_os = "espidf"))]
+    {
+        if tk.len() != super::oob::OOB_TK_LEN {
+            return -1;
+        }
+        for (i, b) in tk.iter().enumerate() {
+            HOST_OOB_TK[i].store(*b, Ordering::SeqCst);
+        }
+        HOST_OOB_ARMED.store(true, Ordering::SeqCst);
+        0
+    }
+}
+
+/// Shim host/dieta de `esp_ble_clear_oob`.
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+pub fn esp_ble_clear_oob() -> i32 {
+    #[cfg(not(target_os = "espidf"))]
+    {
+        for b in HOST_OOB_TK.iter() {
+            b.store(0, Ordering::SeqCst);
+        }
+        HOST_OOB_ARMED.store(false, Ordering::SeqCst);
+        0
+    }
+    #[cfg(all(
+        target_os = "espidf",
+        any(feature = "cap-fido-only", feature = "cap-fido-totp")
+    ))]
+    {
+        -1
+    }
+}
+
+/// Shim host/dieta de `esp_ble_oob_armed` (dieta: sempre `false`).
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
+pub fn esp_ble_oob_armed() -> bool {
+    #[cfg(not(target_os = "espidf"))]
+    {
+        HOST_OOB_ARMED.load(Ordering::SeqCst)
+    }
+    #[cfg(all(
+        target_os = "espidf",
+        any(feature = "cap-fido-only", feature = "cap-fido-totp")
+    ))]
+    {
+        false
+    }
+}
+
 /// Consome 1 evento pendente do backend (`BLE_EVT_*`; `NONE` = sem evento).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_poll_event() -> i32 {
     unsafe { aegis_ble_poll_event() }
 }
 
 /// Copia 1 fragmento FFF1 pendente (`>0` = bytes, `0` = fila vazia,
 /// `<0` = backend sem init). `out` deve ter `>= BLE_RX_FRAGMENT_MAX`.
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_fetch_rx(out: &mut [u8]) -> i32 {
     let max = out.len().min(i32::MAX as usize) as i32;
     unsafe { aegis_ble_fetch_rx(out.as_mut_ptr(), max) }
 }
 
 /// Enfileira 1 notify FFF2 (`0` ok, `<0` = sem conexao/inscrito ou erro).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_notify(data: &[u8]) -> i32 {
     let len = data.len().min(i32::MAX as usize) as i32;
     unsafe { aegis_ble_notify(data.as_ptr(), len) }
 }
 
 /// Espelha o `read_len` no backend C (serve FFF3 entre polls do Rust).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_set_pending_len(value: u16) {
     unsafe { aegis_ble_set_pending_len(value) }
 }
 
 /// `true` quando ha central conectada (para logs/heartbeat).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_ble_conn_active() -> bool {
     unsafe { aegis_ble_conn_active() == 1 }
 }
@@ -477,7 +670,10 @@ pub fn esp_ble_conn_active() -> bool {
 ///
 /// `None` com stack down (init/sync pendente ou erro do C): o chamador NAO
 /// anuncia (fail-closed, mesma semantica de `proximity_adv_allowed`).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn own_addr() -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let rc = unsafe { aegis_ble_own_addr(out.as_mut_ptr()) };
@@ -489,41 +685,68 @@ pub fn own_addr() -> Option<[u8; 6]> {
 }
 
 // Shims host (sem radio): erro fail-closed, nunca 0=ok.
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_start(_pairing_open: bool, _wifi_active: bool) -> i32 {
     -1
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_stop() -> i32 {
     -1
 }
 
 /// Shim host: sem bonds no host; esquecer e no-op ok (0).
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_forget_bonds() -> i32 {
     0
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_poll_event() -> i32 {
     BLE_EVT_NONE
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_fetch_rx(_out: &mut [u8]) -> i32 {
     -1
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_notify(_data: &[u8]) -> i32 {
     -1
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_set_pending_len(_value: u16) {}
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_ble_conn_active() -> bool {
     false
 }
 
 /// Shim host do MAC BLE (sem radio): sempre `None` (fail-closed, sem adv).
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn own_addr() -> Option<[u8; 6]> {
     None
 }

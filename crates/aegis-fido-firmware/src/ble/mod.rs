@@ -3,3 +3,4 @@
 pub mod dispatch_bind;
 pub mod gatt_core;
 pub mod nimble_backend;
+pub mod oob;

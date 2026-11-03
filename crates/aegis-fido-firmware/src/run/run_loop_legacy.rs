@@ -294,9 +294,15 @@ pub fn run_authenticator() {
     let mut wifi_radio_on = false;
     let mut last_sta_attempt_ms: Option<u64> = None;
     // TOTP sem bateria (ver `time_sync`): ancora NVS + SNTP quando a station up.
-    #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+    #[cfg(any(
+        feature = "cap-fido-totp",
+        not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+    ))]
     let mut time_state = crate::time_sync::TimeSyncState::load(&storage);
-    #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+    #[cfg(any(
+        feature = "cap-fido-totp",
+        not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+    ))]
     let mut last_time_sync_attempt_ms: Option<u64> = None;
     // WAVE8: sem TOTP literal — o display mostra SO codigos calculados no device
     // via `OathApplet::device_code` (contas do NVS via PUT). Sem contas -> "sem contas".
@@ -540,7 +546,10 @@ pub fn run_authenticator() {
         );
         // TOTP sem bateria: SNTP quando a station esta up; ancora NVS
         // sobrevive ao reboot (max() + fail-closed). Ver `time_sync`.
-        #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+        #[cfg(any(
+            feature = "cap-fido-totp",
+            not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+        ))]
         crate::time_sync::poll_time_sync(
             &mut storage,
             &mut time_state,
@@ -1219,7 +1228,11 @@ pub fn run_authenticator() {
                                             kprintln!("[USB][SG] op 0x{:02X} error (status 0x{:02X}): ErrorFlash.", op, st);
                                         }
                                         None => {
-                                            kprintln!("[USB][SG] op 0x{:02X} (status 0x{:02X}).", op, st);
+                                            kprintln!(
+                                                "[USB][SG] op 0x{:02X} (status 0x{:02X}).",
+                                                op,
+                                                st
+                                            );
                                         }
                                     }
                                     let mut resp = Vec::with_capacity(1 + body.len());
@@ -1746,6 +1759,85 @@ pub fn run_authenticator() {
                                     }
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
+                                    && crate::ble::oob::is_ble_oob_op(msg.payload[0])
+                                {
+                                    // BLE OOB ARM 0x42 over serial (USB; o BLE
+                                    // rejeita no reassembler, ver `ble::oob`):
+                                    // classe CONFIG (janela + binding -> UP ->
+                                    // sessao, sem bypass de presenca). Sucesso
+                                    // arma o latch de radio e consome o latch
+                                    // UP; negacoes nao tocam estado (fail-closed:
+                                    // 0x05 sem janela/vinculo, 0x01 sem UP,
+                                    // 0x02 travado, 0x04 forma ou radio sem latch).
+                                    let op = msg.payload[0];
+                                    let pin_live = ctap_engine.pin_state.has_valid_pin_uv_session()
+                                        || (cfg!(feature = "test-mode")
+                                            && (pairing_mgr.is_pairing_window_open(now_ms)
+                                                || touch_latched));
+                                    let (st, body) = if !pairing_mgr.is_pairing_window_open(now_ms)
+                                    {
+                                        (0x05, Vec::new())
+                                    } else {
+                                        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                        crate::vendor_exec::exec_vendor_op(
+                                            &mut key_mgr,
+                                            &mut oath_applet,
+                                            &mut storage,
+                                            op,
+                                            &msg.payload[1..],
+                                            binding_mgr.is_claimed(),
+                                            pin_live,
+                                            touch_latched,
+                                            now_secs,
+                                            &mut rng,
+                                        )
+                                    };
+                                    if st == 0x00 {
+                                        // `exec` validou 16 B; re-fatia
+                                        // defensivo antes do radio.
+                                        let tk = &msg.payload[1..];
+                                        if tk.len() == crate::ble::oob::OOB_TK_LEN
+                                            && crate::ble::nimble_backend::esp_ble_arm_oob(tk) == 0
+                                        {
+                                            touch_latched = false;
+                                            rescue_engine.set_user_presence(true);
+                                            kprintln!(
+                                                "[SERIAL] BLE OOB 0x42 armado (latch radio ok)."
+                                            );
+                                            let mut resp = Vec::with_capacity(1 + body.len());
+                                            resp.push(st);
+                                            resp.extend_from_slice(&body);
+                                            for p in CtapHidFramer::frame_message(
+                                                msg.cid, msg.cmd, &resp,
+                                            ) {
+                                                serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                            }
+                                        } else {
+                                            // Radio nao latchou: fail-closed.
+                                            for p in CtapHidFramer::frame_message(
+                                                msg.cid,
+                                                msg.cmd,
+                                                &[0x04],
+                                            ) {
+                                                serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                            }
+                                        }
+                                    } else {
+                                        kprintln!(
+                                            "[SERIAL] BLE OOB 0x42 negado (status 0x{:02X}).",
+                                            st
+                                        );
+                                        let mut resp = Vec::with_capacity(1 + body.len());
+                                        resp.push(st);
+                                        resp.extend_from_slice(&body);
+                                        for p in
+                                            CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp)
+                                        {
+                                            serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
                                     && legacy_sg_dispatch::is_legacy_sg_op(msg.payload[0])
                                 {
                                     // Secure Guard 0x3A-0x3E over serial: parity
@@ -1899,11 +1991,15 @@ pub fn run_authenticator() {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
                                             let (st, body) = if is_wallet_op(op) {
-                                                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                                                #[cfg(not(any(
+                                                    feature = "cap-fido-only",
+                                                    feature = "cap-fido-totp"
+                                                )))]
                                                 {
                                                     // Carteira Fase7: executa de verdade
                                                     // (gate pairing+UP já passou acima).
-                                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                                    let mut rng =
+                                                        rand_core::UnwrapErr(getrandom::SysRng);
                                                     use crate::wallet_exec as w;
                                                     match op {
                                                         OP_WALLET_GEN => w::wallet_gen(
@@ -1925,7 +2021,10 @@ pub fn run_authenticator() {
                                                     }
                                                 }
                                                 // Diet: carteira fora da capability (fail-closed, 0x06).
-                                                #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+                                                #[cfg(any(
+                                                    feature = "cap-fido-only",
+                                                    feature = "cap-fido-totp"
+                                                ))]
                                                 {
                                                     (crate::UNSUPPORTED_FEATURE, Vec::new())
                                                 }
@@ -1933,7 +2032,8 @@ pub fn run_authenticator() {
                                                 // F2: executor real on-device
                                                 // (gate pairing+UP já passou;
                                                 // PIN via plumbing ClientPIN).
-                                                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                                let mut rng =
+                                                    rand_core::UnwrapErr(getrandom::SysRng);
                                                 let (st, body) = crate::vendor_exec::exec_vendor_op(
                                                     &mut key_mgr,
                                                     &mut oath_applet,

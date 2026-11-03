@@ -259,7 +259,73 @@ pub fn dispatch_serial_vendor_msg(
         resp.push(st);
         resp.extend_from_slice(&body);
         return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
-    } // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
+    } // BLE OOB ARM 0x42 (serial/USB only; o reassembler BLE rejeita
+      // 0x42, ver `ble::oob`): classe CONFIG sensivel (janela de
+      // pareamento + binding -> UP -> sessao, sem bypass de presenca).
+      // Sucesso arma o latch de radio (C no ESP, modelo atomico no host)
+      // e consome o latch UP; qq falha nega fail-closed sem tocar estado
+      // (0x05 sem janela/vinculo, 0x01 sem UP, 0x02 travado, 0x04 forma
+      // ou radio sem latch). Sem barreira SecureGuard dedicada: opcode
+      // desconhecido passa livre la (`Unknown`); SG unlocked conta como
+      // sessao/presenca efetivas (mesma regra do ramo vendor).
+    if crate::ble::oob::is_ble_oob_op(op) {
+        let sg_unlocked = ctx
+            .secure_guard
+            .as_ref()
+            .map(|sg| sg.is_unlocked())
+            .unwrap_or(false);
+        if !(ctx.pairing_open || sg_unlocked) {
+            return Some((
+                CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x05]),
+                false,
+            ));
+        }
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        let binding_claimed_effective = ctx.binding.is_claimed() || sg_unlocked || ctx.pairing_open;
+        let pin_effective = ctx.pin_uv_session
+            || ctx.pin_verified
+            || sg_unlocked
+            || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
+        let up_effective = ctx.up_latched || sg_unlocked;
+        let (st, body) = crate::vendor_exec::exec_vendor_op(
+            ctx.key_mgr,
+            ctx.oath,
+            ctx.storage,
+            op,
+            &payload[1..],
+            binding_claimed_effective,
+            pin_effective,
+            up_effective,
+            ctx.now_secs,
+            &mut rng,
+        );
+        if st == 0x00 {
+            // `exec` validou 16 B; re-fatia defensivo antes do radio.
+            let tk = &payload[1..];
+            if tk.len() == crate::ble::oob::OOB_TK_LEN
+                && crate::ble::nimble_backend::esp_ble_arm_oob(tk) == 0
+            {
+                ctx.rescue.set_user_presence(true);
+                let mut resp = Vec::with_capacity(1 + body.len());
+                resp.push(st);
+                resp.extend_from_slice(&body);
+                return Some((
+                    CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
+                    !sg_unlocked,
+                ));
+            }
+            // Radio nao latchou (dieta/shim -1): fail-closed, sem consumo.
+            return Some((
+                CtapHidFramer::frame_message(msg.cid, msg.cmd, &[0x04]),
+                false,
+            ));
+        }
+        let mut resp = Vec::with_capacity(1 + body.len());
+        resp.push(st);
+        resp.extend_from_slice(&body);
+        return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
+    }
+    // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
     if crate::ble_gatt::is_secure_guard_op(op) {
         if let Some(ref mut sg) = ctx.secure_guard {
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
@@ -360,9 +426,13 @@ pub fn dispatch_serial_vendor_msg(
                         use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
                         use crate::wallet_exec as w;
                         match op {
-                            OP_WALLET_GEN => {
-                                w::wallet_gen(ctx.wallet, &payload[1..], ctx.now_secs, true, &mut rng)
-                            }
+                            OP_WALLET_GEN => w::wallet_gen(
+                                ctx.wallet,
+                                &payload[1..],
+                                ctx.now_secs,
+                                true,
+                                &mut rng,
+                            ),
                             OP_WALLET_LIST => w::wallet_list(ctx.wallet, true),
                             OP_WALLET_ADDR => w::wallet_addr(ctx.wallet, &payload[1..], true),
                             _ => (0x04, Vec::new()),
@@ -392,7 +462,10 @@ pub fn dispatch_serial_vendor_msg(
                 resp.push(st);
                 resp.extend_from_slice(&body);
                 let consumed = !sg_unlocked;
-                return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), consumed));
+                return Some((
+                    CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
+                    consumed,
+                ));
             }
         }
     }
@@ -540,10 +613,12 @@ pub fn route_ctaphid_event(
                         let arm_up = ctx.arm_up;
                         let pin_verified = ctx.pin_verified;
                         if let Some(pin_bytes) = ctx.verified_pin.take() {
-                            engine.pin_state.pin_hash = Some(aegis_fido_core::crypto::pin_hash(&pin_bytes));
+                            engine.pin_state.pin_hash =
+                                Some(aegis_fido_core::crypto::pin_hash(&pin_bytes));
                             engine.pin_state.pin_retries = 8;
                             engine.pin_state.power_cycle_state = false;
-                            let _ = crate::vendor_exec::save_pin_state(ctx.storage, &engine.pin_state);
+                            let _ =
+                                crate::vendor_exec::save_pin_state(ctx.storage, &engine.pin_state);
                             log::info!("[FIDO2] Secure Guard PIN sincronizado com CTAP2 Client PIN (clientPin ativo)!");
                         }
                         return CtaphidDispatch {
@@ -907,6 +982,172 @@ mod tests {
         assert!(!out.consumed_up, "latch não deve ser consumido na negação");
         assert_eq!(out.responses.len(), 1);
         assert_eq!(out.responses[0][7], 0x05);
+    }
+
+    /// BLE OOB ARM (`0x42`) no funil serial/USB: gates classe CONFIG + latch.
+    ///
+    /// - Janela fechada nega `0x05` sem consumir o latch.
+    /// - Janela aberta + sem vinculo arma (paridade com o ramo vendor
+    ///   CONFIG do funil: janela aberta = vinculo efetivo no serial);
+    ///   a negacao `0x05` por vinculo puro vive no executor (coberta no
+    ///   teste unitario `ble::oob`, onde locked/unbound → denied).
+    /// - Vinculado + sem UP nega `0x01`: o OOB autentica o link, NAO
+    ///   dispensa presenca (sem bypass de UP — o `on_link_secured`
+    ///   continua exigindo o latch fisico no `ENC_CHANGE`).
+    /// - Vinculado + UP + sessao travada nega `0x02`.
+    /// - Vinculado + UP + sessao viva arma (`0x00`, corpo vazio), marca
+    ///   `esp_ble_oob_armed()` (modelo host do latch de radio) e consome
+    ///   o latch UP.
+    /// - Lixo (corpo != 16 B, TK todo-zero) nega `0x04` sem armar
+    ///   (fail-closed, sem vazamento no corpo).
+    /// - BLE nunca serve `0x42` (reassembler rejeita `InvalidOpcode`;
+    ///   sem braco em `ble_dispatch_complete`).
+    #[test]
+    fn oob_arm_funil_serial_com_gates_e_latch() {
+        use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
+        use crate::ble::oob::{is_ble_oob_op, OOB_TK_LEN, OP_BLE_OOB};
+        use crate::fw_log::FwLog;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
+        use p256::ecdsa::SigningKey;
+
+        const TK: [u8; OOB_TK_LEN] = [0x5A; OOB_TK_LEN];
+
+        fn oob_body(tk: &[u8]) -> Vec<u8> {
+            let mut v = Vec::with_capacity(1 + tk.len());
+            v.push(OP_BLE_OOB);
+            v.extend_from_slice(tk);
+            v
+        }
+
+        fn deframe(packets: &[[u8; CTAPHID_PACKET_SIZE]]) -> (u8, Vec<u8>) {
+            assert!(!packets.is_empty());
+            let total = ((packets[0][5] as usize) << 8) | packets[0][6] as usize;
+            let mut out = Vec::new();
+            let first = total.min(CTAPHID_PACKET_SIZE - 7);
+            out.extend_from_slice(&packets[0][7..7 + first]);
+            assert_eq!(out.len(), total);
+            (out[0], out[1..].to_vec())
+        }
+
+        fn claimed_binding() -> BindingManager {
+            let sk = SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
+            let pt = sk.verifying_key().to_sec1_point(false);
+            let mut sec1 = [0u8; BIND_PUB_LEN];
+            sec1.copy_from_slice(pt.as_bytes());
+            let mut m = BindingManager::new();
+            m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true)
+                .expect("claim ok");
+            m
+        }
+
+        fn dispatch_case(
+            binding: &mut BindingManager,
+            pairing_open: bool,
+            up_latched: bool,
+            pin_uv_session: bool,
+            body: Vec<u8>,
+        ) -> (u8, Vec<u8>, bool) {
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let mut wallet = WalletStore::new();
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let mut fwlog = FwLog::new();
+            let mut rescue = RescueEngine::new();
+            let mut pairing = PairingManager::new();
+            let mut vendor = SerialVendorCtx {
+                pairing_open,
+                up_latched,
+                now_ms: 7,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding,
+                storage: &mut storage,
+                wallet: &mut wallet,
+                key_mgr: &mut key_mgr,
+                oath: &mut oath,
+                fwlog: &mut fwlog,
+                rescue: &mut rescue,
+                pairing: &mut pairing,
+                pin_uv_session,
+                secure_guard: None,
+                verified_pin: None,
+            };
+            let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
+            let (packets, consumed) =
+                dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x42 tratado no funil");
+            let (st, resp) = deframe(&packets);
+            (st, resp, consumed)
+        }
+
+        assert!(is_ble_oob_op(OP_BLE_OOB));
+        crate::ble::nimble_backend::esp_ble_clear_oob();
+        assert!(!crate::ble::nimble_backend::esp_ble_oob_armed());
+
+        // Janela fechada: 0x05, sem consumo, sem latch.
+        let mut binding = BindingManager::new();
+        let (st, resp, consumed) = dispatch_case(&mut binding, false, true, true, oob_body(&TK));
+        assert_eq!(st, 0x05);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        assert!(!crate::ble::nimble_backend::esp_ble_oob_armed());
+
+        // Janela aberta + sem vinculo: o funil serial trata janela aberta
+        // como vinculo efetivo (paridade com o ramo vendor CONFIG:
+        // `is_claimed || sg_unlocked || pairing_open`) — posse do cabo +
+        // cerimonia aberta. Logo `0x00` + latch; a negacao `0x05` por
+        // vinculo vive no executor (teste unitario em `ble::oob`).
+        let (st, resp, consumed) = dispatch_case(&mut binding, true, true, true, oob_body(&TK));
+        assert_eq!(st, 0x00);
+        assert!(resp.is_empty());
+        assert!(consumed);
+        assert!(crate::ble::nimble_backend::esp_ble_oob_armed());
+        crate::ble::nimble_backend::esp_ble_clear_oob();
+
+        // Vinculado + sem UP: 0x01 (OOB nunca pula presenca).
+        let mut claimed = claimed_binding();
+        let (st, resp, consumed) = dispatch_case(&mut claimed, true, false, true, oob_body(&TK));
+        assert_eq!(st, 0x01);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        assert!(!crate::ble::nimble_backend::esp_ble_oob_armed());
+
+        // Vinculado + UP + sessao travada: 0x02.
+        let (st, resp, consumed) = dispatch_case(&mut claimed, true, true, false, oob_body(&TK));
+        assert_eq!(st, 0x02);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        assert!(!crate::ble::nimble_backend::esp_ble_oob_armed());
+
+        // Lixo com gates ok: 0x04 fail-closed, sem armar.
+        for garbage in [
+            vec![OP_BLE_OOB],
+            oob_body(&TK[..OOB_TK_LEN - 1]),
+            oob_body(&[0xA5u8; OOB_TK_LEN + 1]),
+            oob_body(&[0u8; OOB_TK_LEN]),
+        ] {
+            let (st, resp, consumed) = dispatch_case(&mut claimed, true, true, true, garbage);
+            assert_eq!(st, 0x04);
+            assert!(resp.is_empty());
+            assert!(!consumed);
+            assert!(!crate::ble::nimble_backend::esp_ble_oob_armed());
+        }
+
+        // Vinculado + UP + sessao viva: 0x00 + latch armado + UP consumido.
+        let (st, resp, consumed) = dispatch_case(&mut claimed, true, true, true, oob_body(&TK));
+        assert_eq!(st, 0x00);
+        assert!(resp.is_empty());
+        assert!(consumed, "arming consome o latch UP");
+        assert!(crate::ble::nimble_backend::esp_ble_oob_armed());
+        crate::ble::nimble_backend::esp_ble_clear_oob();
+        assert!(!crate::ble::nimble_backend::esp_ble_oob_armed());
     }
 
     /// GET_CAPS (`0x3F`) atravessa os 3 funis sem gates e volta CBOR bem-formado.
@@ -1688,7 +1929,12 @@ mod tests {
         );
         assert!(vendor.secure_guard.as_ref().unwrap().is_unlocked());
         assert!(vendor.secure_guard.as_ref().unwrap().is_provisioned());
-        vendor.secure_guard.as_mut().unwrap().lock_now(1001).unwrap();
+        vendor
+            .secure_guard
+            .as_mut()
+            .unwrap()
+            .lock_now(1001)
+            .unwrap();
         assert_eq!(
             vendor.secure_guard.as_ref().unwrap().state(),
             SecureGuardState::Locked
