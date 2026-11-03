@@ -39,13 +39,13 @@ All items below land in ONE commit so no intermediate state mixes licenses.
   inherits or overrides it must be updated in the same commit.
 - [ ] 1.3 README strings — the 3 spots (all in root `README.md`):
   - `README.md:3` badge:
-    `[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)`
+    `[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](../../LICENSE)`
     -> proprietary badge/label pointing at the new `LICENSE`.
   - `README.md:17`: `> **License:** GNU General Public License v3.0 (GPLv3).`
     -> proprietary license line.
   - `README.md:278-281` (`## 9. License` section: "free software licensed
     under the GNU General Public License v3.0 (GPLv3)" + `See the
-    [LICENSE](LICENSE) file...`) -> proprietary wording, keep the pointer
+    [LICENSE](../../LICENSE) file...`) -> proprietary wording, keep the pointer
     at the `LICENSE` file.
 - [ ] 1.4 `docs/project/ARCHITECTURE-MAP.html:1991`:
   `Document Standard: ... License: GPLv3` -> new license label. Regenerate
