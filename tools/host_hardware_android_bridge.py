@@ -2053,6 +2053,100 @@ def parse_tlv_records(data: bytes) -> list[tuple[int, bytes]]:
     return records
 
 
+STATUS_NEED_UP = 0x01
+STATUS_NEED_PIN = 0x02
+STATUS_NEED_BINDING = 0x05
+STATUS_PIN_REQUIRED = 0x36
+
+STATUS_LABELS = {
+    0x00: "OK",
+    0x01: "NEED_UP",
+    0x02: "NEED_PIN",
+    0x05: "NEED_BINDING",
+    0x36: "CTAP2_ERR_PIN_REQUIRED",
+}
+
+
+def map_list_device_result(status: int, resp: Optional[bytes]) -> dict:
+    """Honestly maps a raw device list-read (status + payload) to an HTTP body.
+
+    Fail-open guard (Finding A2): a device denial (e.g. NEED_UP 0x01) must NEVER
+    be reported as ``ok:true`` with an empty list. ``[]`` is only returned for
+    genuine empty-but-authorized reads (status 0x00). Denials return
+    ``ok:false`` with the device status code plus a NEED_UP flag when the
+    device denied for lack of presence. Never fabricates entries.
+    """
+    label = STATUS_LABELS.get(status, f"STATUS_0x{status:02X}")
+    if status == STATUS_NEED_UP:
+        return {
+            "ok": False,
+            "status": status,
+            "error": "NEED_UP",
+            "need_up": True,
+            "message": "Device denied list read: user presence required (tap key), then retry.",
+        }
+    if status != 0x00:
+        body = {
+            "ok": False,
+            "status": status,
+            "error": label,
+            "message": f"Device denied list read with {label} (0x{status:02X}).",
+        }
+        if status in (STATUS_NEED_BINDING,):
+            body["need_binding"] = True
+        if status in (STATUS_NEED_PIN, STATUS_PIN_REQUIRED):
+            body["need_pin"] = True
+        return body
+    return {"ok": True, "status": 0x00, "empty": not bool(resp)}
+
+
+def run_offline_self_test() -> int:
+    """Offline unit-test of map_list_device_result with canned device responses.
+
+    No hardware required. Returns 0 on success, 1 on failure.
+    """
+    failures = []
+
+    def check(name: str, cond: bool, detail: str = ""):
+        print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + (f" — {detail}" if detail and not cond else ""))
+        if not cond:
+            failures.append(name)
+
+    print("=== OFFLINE SELF-TEST: map_list_device_result (no hardware) ===")
+    # 1. NEED_UP denial must NOT become ok:true + [].
+    r = map_list_device_result(0x01, b"")
+    check("NEED_UP -> ok:false", r.get("ok") is False, repr(r))
+    check("NEED_UP -> status 0x01", r.get("status") == 0x01, repr(r))
+    check("NEED_UP -> need_up flag", r.get("need_up") is True, repr(r))
+    # 1b. NEED_UP denial with stray payload still denied.
+    r = map_list_device_result(0x01, b"\x01\x01\x00")
+    check("NEED_UP+payload -> ok:false", r.get("ok") is False, repr(r))
+
+    # 2. Genuine empty-but-authorized read stays ok:true.
+    r = map_list_device_result(0x00, b"")
+    check("EMPTY ok:true", r.get("ok") is True and r.get("empty") is True, repr(r))
+    r = map_list_device_result(0x00, None)
+    check("NONE ok:true empty", r.get("ok") is True and r.get("empty") is True, repr(r))
+
+    # 3. Authorized non-empty read stays ok:true.
+    r = map_list_device_result(0x00, b"\x01\x01\x00\x02\x03abc")
+    check("DATA ok:true non-empty", r.get("ok") is True and r.get("empty") is False, repr(r))
+
+    # 4. Other denials propagate honestly (no empty-list masquerade).
+    r = map_list_device_result(0x05, b"")
+    check("NEED_BINDING -> ok:false", r.get("ok") is False and r.get("status") == 0x05, repr(r))
+    r = map_list_device_result(0x36, b"")
+    check("PIN_REQUIRED -> ok:false", r.get("ok") is False and r.get("need_pin") is True, repr(r))
+    r = map_list_device_result(0x02, b"")
+    check("NEED_PIN -> ok:false", r.get("ok") is False and r.get("need_pin") is True, repr(r))
+
+    if failures:
+        print(f"OFFLINE SELF-TEST FAILED: {failures}")
+        return 1
+    print("OFFLINE SELF-TEST PASSED (7 checks).")
+    return 0
+
+
 def extract_keys_from_tlv(raw: bytes):
     tlvs = parse_tlv_records(raw)
     keys = []
@@ -2199,24 +2293,43 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             keys_count = 0
             wallets_count = 0
             oath_count = 0
+            # Fail-open guard (Finding A2): a NEED_UP denial must not masquerade
+            # as an authoritative zero count (which swings with UP expiry).
+            need_up = False
+            slots_authoritative = True
             try:
                 st, resp = HW_MANAGER.send_vendor(0x22, b"")
-                if st == 0x00 and resp:
+                verdict = map_list_device_result(st, resp)
+                if not verdict.get("ok"):
+                    slots_authoritative = False
+                    if verdict.get("need_up"):
+                        need_up = True
+                elif resp:
                     keys_count = len(resp) // 18 if len(resp) >= 18 else (1 if len(resp) > 0 else 0)
             except Exception:
-                pass
+                slots_authoritative = False
             try:
                 st, resp = HW_MANAGER.send_vendor(0x36, b"")
-                if st == 0x00 and resp:
+                verdict = map_list_device_result(st, resp)
+                if not verdict.get("ok"):
+                    slots_authoritative = False
+                    if verdict.get("need_up"):
+                        need_up = True
+                elif resp:
                     wallets_count = len(resp) // 32 if len(resp) >= 32 else (1 if len(resp) > 0 else 0)
             except Exception:
-                pass
+                slots_authoritative = False
             try:
                 st, resp = HW_MANAGER.send_vendor(0x25, b"")
-                if st == 0x00 and resp:
+                verdict = map_list_device_result(st, resp)
+                if not verdict.get("ok"):
+                    slots_authoritative = False
+                    if verdict.get("need_up"):
+                        need_up = True
+                elif resp:
                     oath_count = len([x for x in resp.split(b"\x00") if x])
             except Exception:
-                pass
+                slots_authoritative = False
 
             self.send_json({
                 "ok": True,
@@ -2247,6 +2360,8 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                     "keys_count": keys_count,
                     "wallets_count": wallets_count,
                     "oath_count": oath_count,
+                    "authoritative": slots_authoritative,
+                    "need_up": need_up,
                 },
                 "pairing_window_active": True,
             })
@@ -2631,7 +2746,15 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             wallets_out = []
             try:
                 st, resp = HW_MANAGER.send_vendor(0x36, b"")
-                if st == 0x00 and resp:
+                verdict = map_list_device_result(st, resp)
+                if not verdict.get("ok"):
+                    # Fail-open guard (Finding A2): propagate denial honestly;
+                    # never report a denial as ok:true + [].
+                    body = dict(verdict)
+                    body["wallets"] = []
+                    self.send_json(body, status_code=428 if verdict.get("need_up") else 502)
+                    return
+                if resp:
                     wallets = extract_wallets_from_tlv(resp)
                     for slot, label, addr in wallets:
                         wallets_out.append({"slot": slot, "label": label, "address": addr})
@@ -2656,7 +2779,15 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             accounts_out = []
             try:
                 st, resp = HW_MANAGER.send_vendor(0x25, b"")
-                if st == 0x00 and resp:
+                verdict = map_list_device_result(st, resp)
+                if not verdict.get("ok"):
+                    # Fail-open guard (Finding A2): propagate denial honestly;
+                    # never report a denial as ok:true + [].
+                    body = dict(verdict)
+                    body["accounts"] = []
+                    self.send_json(body, status_code=428 if verdict.get("need_up") else 502)
+                    return
+                if resp:
                     raw_accs = extract_oath_from_tlv(resp)
                     for tipo, name in raw_accs:
                         name_b = name.encode("utf-8")
@@ -4131,6 +4262,7 @@ def main():
     parser.add_argument("--listen-port", help="Porta do servidor TCP/HTTP", type=int, default=DEFAULT_PORT)
     parser.add_argument("--probe", action="store_true", help="Faz probe na chave física e sai")
     parser.add_argument("--self-test", action="store_true", help="Executa testes locais e remotos na chave física")
+    parser.add_argument("--offline-self-test", action="store_true", help="Executa self-test offline (sem hardware) do mapeamento NEED_UP")
     args = parser.parse_args()
 
     if args.port:
@@ -4142,6 +4274,9 @@ def main():
         info = HW_MANAGER.get_info()
         print(json.dumps(info, indent=2))
         sys.exit(0 if ok else 1)
+
+    if args.offline_self_test:
+        sys.exit(run_offline_self_test())
 
     if args.self_test:
         code = run_self_test()
