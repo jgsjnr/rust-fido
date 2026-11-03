@@ -300,6 +300,24 @@ class SimulatedRenodeTransport(
                 }
                 byteArrayOf(0x27.toByte(), 0x00.toByte())
             }
+            // Key Sign dedicado (0x41): request 0x01 slot + 0x74 msg.
+            // Simulador determinístico (testes offline): deriva 64B pseudo-aleatórios
+            // de (slot || msg) via SHA-256 dupla. Nunca afirma ser assinatura de hardware.
+            VendorOps.OP_KEY_SIGN -> {
+                val records = VendorOps.parseTlvRecords(payload)
+                val slot = VendorOps.findTlv(records, VendorOps.TAG_SLOT)?.firstOrNull()?.toInt()?.and(0xFF) ?: 0
+                val msg = VendorOps.findTlv(records, VendorOps.TAG_OATH_CHALLENGE) ?: ByteArray(0)
+                if (msg.isEmpty()) {
+                    byteArrayOf(0x41.toByte(), VendorOps.STATUS_BAD_ENVELOPE.toByte())
+                } else {
+                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                    md.update(byteArrayOf(slot.toByte()))
+                    val h1 = md.digest(msg)
+                    md.reset()
+                    val h2 = md.digest(h1 + slot.toByte())
+                    byteArrayOf(0x41.toByte(), 0x00.toByte()) + h1 + h2
+                }
+            }
             // FW Log (0x38)
             VendorOps.OP_FW_LOG -> {
                 val logText = "0001 EV=01 ARG=00 T=120\n0002 EV=02 ARG=01 T=240\n0003 EV=10 ARG=00 T=400\n"

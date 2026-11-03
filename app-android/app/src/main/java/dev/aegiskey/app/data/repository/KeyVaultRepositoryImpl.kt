@@ -721,15 +721,19 @@ class KeyVaultRepositoryImpl(
             require(current.any { it.slotId == slotId }) { "Slot #$slotId não encontrado no cofre" }
 
             val msgBytes = messageOrTx.toByteArray(Charsets.UTF_8)
-            val req = VendorOps.writeTlv(VendorOps.TAG_SLOT, byteArrayOf(slotId.toByte())) +
-                VendorOps.writeTlv(VendorOps.TAG_OATH_CHALLENGE, msgBytes)
+            // SIGN dedicado (0x41): envelope 0x01 slot + 0x74 msg.
+            // Nunca via GEN 0x20 (geração) nem via OP_MSG genérico.
+            val req = VendorOps.signRequest(slotId, msgBytes)
 
-            val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
-                ?: sendMsg(req)
+            val resp = sendVendor(VendorOps.OP_KEY_SIGN, req)
                 ?: throw IllegalStateException("Sem resposta da chave física para assinatura")
 
             if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                throw IllegalStateException("Chave recusou a assinatura: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                val code = resp[1].toInt() and 0xFF
+                if (code == VendorOps.STATUS_BAD_ENVELOPE) {
+                    throw IllegalStateException("Falha na operação de assinatura (operation failed)")
+                }
+                throw IllegalStateException("Chave recusou a assinatura: " + VendorOps.statusLabel(code))
             }
 
             val sigTlv = if (resp.size > 2) resp.copyOfRange(2, resp.size) else byteArrayOf(0x01, 0x02, 0x03)

@@ -50,6 +50,11 @@ object BleContract {
     // Enrollment PIV / smartcard (0x39, F4).
     const val OP_PIV_ENROLL = 0x39
 
+    // Assinatura dedicada (0x41, primeiro livre apos SET_UP_POLICY 0x40;
+    // 0x2F e o trigger de pareamento, nunca reuse). Request 0x01 slot +
+    // 0x74 msg; resposta [0x41, status, sig...]. Contrato eeb3e93.
+    const val OP_KEY_SIGN = 0x41
+
     // Board capabilities (0x3F GET_CAPS, read-only, no auth): first free
     // byte after the Secure Guard range 0x3A-0x3E. Empty request, reply
     // (0x00 + CBOR {fw_version, preset, caps[], unsupported_count}).

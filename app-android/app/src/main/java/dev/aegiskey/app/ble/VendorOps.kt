@@ -36,6 +36,15 @@ object VendorOps {
     /** Log da firmware (0x38): resposta `0x00 + ASCII`, sem PII/segredos. */
     const val OP_FW_LOG: Int = 0x38
 
+    /**
+     * Assinatura dedicada (0x41, primeiro livre após SET_UP_POLICY 0x40;
+     * 0x2F é o trigger de pareamento, nunca reuse).
+     * Request `0x01 slot + 0x74 msg`. Resposta `[0x41, status, sig...]`
+     * com a assinatura crua no corpo. Contrato da firmware (SIGN dedicado);
+     * nunca rotear sign via GEN 0x20.
+     */
+    const val OP_KEY_SIGN: Int = 0x41
+
     /** Enrollment PIV / smartcard (0x39): request `[pin_len:1, pin, puk:8]`. */
     const val OP_PIV_ENROLL: Int = 0x39
 
@@ -169,6 +178,17 @@ object VendorOps {
             req += writeTlv(TAG_USAGE_HINT, byteArrayOf(usageMask.toByte()))
         }
         return req
+    }
+
+    /**
+     * Request SIGN dedicado (0x41): 0x01 slot + 0x74 mensagem/desafio.
+     * A chave nunca sai do hardware; só a assinatura volta no corpo.
+     */
+    fun signRequest(slot: Int, message: ByteArray): ByteArray {
+        require(slot in 0..255) { "slot fora de 0..255" }
+        require(message.isNotEmpty() && message.size <= 0xFFFF) { "mensagem 1..65535 bytes" }
+        return writeTlv(TAG_SLOT, byteArrayOf(slot.toByte())) +
+            writeTlv(TAG_OATH_CHALLENGE, message)
     }
 
     /**

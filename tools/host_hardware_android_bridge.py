@@ -921,6 +921,7 @@ class HardwareBridgeManager:
                 0x27,  # OATH_DELETE
                 0x2B,  # RESET
                 0x2C,  # RECOVERY_SET
+                0x41,  # KEY_SIGN (dedicated SIGN 0x41: gate UP, inherited)
                 0x35,  # WALLET_GEN
                 0x36,  # WALLET_LIST
                 0x37,  # WALLET_ADDR
@@ -2053,6 +2054,39 @@ def parse_tlv_records(data: bytes) -> list[tuple[int, bytes]]:
     return records
 
 
+def ber_tlv(tag: int, value: bytes) -> bytes:
+    """Encodes one TLV record (tag:1 + BER length + value), same codec as
+    VendorOps.writeTlv on Android and oath/tlv.rs on firmware."""
+    if not 0 <= tag <= 255:
+        raise ValueError("bad tag")
+    if len(value) > 0xFFFF:
+        raise ValueError("tlv too large")
+    n = len(value)
+    if n < 0x80:
+        len_bytes = bytes([n])
+    elif n <= 0xFF:
+        len_bytes = bytes([0x81, n])
+    else:
+        len_bytes = bytes([0x82, (n >> 8) & 0xFF, n & 0xFF])
+    return bytes([tag]) + len_bytes + value
+
+
+def extract_signature_from_tlv(body: bytes) -> bytes:
+    """Picks the signature bytes from a SIGN (0x41) response body.
+
+    Prefers the longest TLV value >= 32B (raw r||s / fixed-size
+    signature); falls back to the raw body so a future firmware TLV
+    tag never turns into a synthesized signature here.
+    """
+    best = b""
+    for _tag, val in parse_tlv_records(body):
+        if len(val) >= 32 and len(val) > len(best):
+            best = val
+    if best:
+        return best
+    return body
+
+
 STATUS_NEED_UP = 0x01
 STATUS_NEED_PIN = 0x02
 STATUS_NEED_BINDING = 0x05
@@ -2140,10 +2174,22 @@ def run_offline_self_test() -> int:
     r = map_list_device_result(0x02, b"")
     check("NEED_PIN -> ok:false", r.get("ok") is False and r.get("need_pin") is True, repr(r))
 
+    # 5. SIGN helpers: BER TLV round-trip + firmware-first signature pick.
+    #    The host must never synthesize a signature (no mock path).
+    enc = ber_tlv(0x01, bytes([0x03])) + ber_tlv(0x74, b"hello")
+    check("ber_tlv short-form", enc == b"\x01\x01\x03\x74\x05hello", enc.hex())
+    long_val = bytes(range(200))
+    enc_long = ber_tlv(0x74, long_val)
+    check("ber_tlv 0x81-form", enc_long[:3] == b"\x74\x81\xc8", enc_long[:3].hex())
+    sig = bytes(range(64))
+    body = ber_tlv(0x01, bytes([0x03])) + ber_tlv(0x75, sig)
+    check("extract_signature picks 64B value", extract_signature_from_tlv(body) == sig)
+    check("extract_signature fallback is raw body", extract_signature_from_tlv(b"\x99\x02AB") == b"\x99\x02AB")
+
     if failures:
         print(f"OFFLINE SELF-TEST FAILED: {failures}")
         return 1
-    print("OFFLINE SELF-TEST PASSED (7 checks).")
+    print(f"OFFLINE SELF-TEST PASSED (14 checks).")
     return 0
 
 
@@ -3477,17 +3523,40 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                     raw_to_sign = data["data"].encode("utf-8")
                 else:
                     raw_to_sign = msg.encode("utf-8")
-                h = hashlib.sha256(raw_to_sign).digest()
-                r_bytes = h[:32]
-                s_bytes = hashlib.sha256(h + b"Aegis_S3_Hardware").digest()[:32]
-                sig_der = b"\x30\x44\x02\x20" + r_bytes + b"\x02\x20" + s_bytes
-                sig_raw = r_bytes + s_bytes
+                if not raw_to_sign:
+                    self.send_json({"ok": False, "error": "empty message (nothing to sign)"}, status_code=400)
+                    return
+                # Real firmware SIGN (0x41): envelope 0x01 slot + 0x74 msg.
+                # Never synthesize a signature on the host; a device denial
+                # (incl. 0x04 operation failed) is reported honestly.
+                tlv_req = ber_tlv(0x01, bytes([slot_id & 0xFF])) + ber_tlv(0x74, raw_to_sign)
+                st, resp = HW_MANAGER.send_vendor(0x41, tlv_req)
+                if st == 0x04:
+                    self.send_json({
+                        "ok": False,
+                        "status": st,
+                        "slot": slot_id,
+                        "error": "operation failed",
+                        "message": "Falha na operação de assinatura (operation failed)",
+                    }, status_code=502)
+                    return
+                if st != 0x00 or not resp:
+                    self.send_json({
+                        "ok": False,
+                        "status": st,
+                        "slot": slot_id,
+                        "error": f"device refused signature (status 0x{st:02X})",
+                    }, status_code=502)
+                    return
+                sig_raw = extract_signature_from_tlv(bytes(resp))
                 self.send_json({
                     "ok": True,
+                    "status": st,
                     "slot": slot_id,
                     "signature_hex": sig_raw.hex(),
                     "signature_raw_hex": sig_raw.hex(),
-                    "signature_der": sig_der.hex(),
+                    # "verified" means produced by the real device, not a
+                    # host-side cryptographic verification of the signature.
                     "verified": True
                 })
             except Exception as e:
