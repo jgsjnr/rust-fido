@@ -1828,6 +1828,40 @@ pub fn run_authenticator() {
                                     }
                                 } else if msg.cmd == CMD_MSG
                                     && !msg.payload.is_empty()
+                                    && crate::ctap_cmd::is_set_up_policy_op(msg.payload[0])
+                                {
+                                    // SET_UP_POLICY 0x40: management gated
+                                    // (sem latch UP, sem pairing). Serial =
+                                    // posse fisica + sessao PIN viva
+                                    // (fail-closed); forma 0x04, travado
+                                    // 0x02, ausente 0x03, ok 0x00 (+
+                                    // auditoria EV_UP_POLICY_SET). Sem
+                                    // latch: `touch_latched` intacto.
+                                    let op = msg.payload[0];
+                                    let pin_live = ctap_engine.pin_state.has_valid_pin_uv_session()
+                                        || (cfg!(feature = "test-mode")
+                                            && (pairing_mgr.is_pairing_window_open(now_ms)
+                                                || touch_latched));
+                                    let (st, body) = crate::ctap_cmd::exec_set_up_policy_wire(
+                                        &mut storage,
+                                        &mut fw_log,
+                                        pin_live,
+                                        &msg.payload[1..],
+                                        now_ms,
+                                    );
+                                    kprintln!(
+                                        "[SERIAL][UP-POLICY] op 0x{:02X} (status 0x{:02X}).",
+                                        op,
+                                        st
+                                    );
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        serial_send_bytes(p.as_ptr(), PACKET_SIZE as u16);
+                                    }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
                                     && (is_vendor_keys_oath_op(msg.payload[0])
                                         || is_wallet_op(msg.payload[0])
                                         || is_piv_enroll_op(msg.payload[0]))

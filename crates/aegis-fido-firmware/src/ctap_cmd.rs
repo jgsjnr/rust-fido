@@ -464,6 +464,74 @@ pub fn set_credential_up_policy<B: FlashStorageBackend>(
     Ok(())
 }
 
+/// Transport opcode of the per-credential UP-policy management op.
+///
+/// First free byte after `GET_CAPS 0x3F` (neighbor audit: `0x20-0x27`
+/// vendor keys/OATH, `0x28-0x2D` bind-mgmt, `0x2E` rescue-as-payload,
+/// `0x2F` reserved, `0x30-0x34` OTA, `0x35-0x37` wallet, `0x38` fw-log,
+/// `0x39` PIV enroll, `0x3A-0x3E` Secure Guard, `0x3F` GET_CAPS).
+/// Routed ONLY by the transport funnels
+/// (`freertos_route::dispatch_serial_vendor_msg`, legacy serial section D,
+/// `ble_dispatch_complete`, BLE reassembler); the executor above stays
+/// transport-agnostic.
+pub const OP_SET_UP_POLICY: u8 = 0x40;
+
+/// `true` for the SET_UP_POLICY opcode (funnel-routing helper).
+///
+/// Transport funnels OR this in next to `is_get_caps_op` /
+/// `is_vendor_keys_oath_op`: unlike GET_CAPS the arm is GATED (BLE =
+/// binding + live PIN session; serial/USB = live PIN session; never the
+/// UP latch) via `exec_set_up_policy_wire` below.
+pub fn is_set_up_policy_op(op: u8) -> bool {
+    op == OP_SET_UP_POLICY
+}
+
+/// Wire adapter SET_UP_POLICY over `CMD_MSG`/BLE-vendor transports.
+///
+/// Parses the transport body `[up_flag:1][cred_id_len:1][cred_id]` and runs
+/// the executor. Returns status-first `(wire_status, body)` in the vendor
+/// namespace (Sec.9.5): `0x00` ok (executor audited `EV_UP_POLICY_SET`) |
+/// `0x02` NEED_PIN (device travado) | `0x03` NO_SLOT (ausente) |
+/// `0x04` falha (forma/storage).
+///
+/// `pin_live` MUST mirror a live `pinUvAuth` session already verified by
+/// the caller (funnel gate). The per-call bridge session below only adapts
+/// that verified state to the executor (single-use within the call); it
+/// never invents liveness: `false` denies before touching storage, and the
+/// executor re-checks liveness fail-closed.
+pub fn exec_set_up_policy_wire<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    fwlog: &mut FwLog,
+    pin_live: bool,
+    payload: &[u8],
+    now_ms: u64,
+) -> (u8, Vec<u8>) {
+    if payload.len() < 2 {
+        return (0x04, Vec::new());
+    }
+    let up_flag = payload[0];
+    let id_len = payload[1] as usize;
+    if up_flag > 1 || id_len == 0 || id_len > CRED_ID_MAX_BYTES || payload.len() != 2 + id_len {
+        return (0x04, Vec::new());
+    }
+    if !pin_live {
+        return (0x02, Vec::new());
+    }
+    let mut session = PinUvSession::new();
+    session.mark_live();
+    let req = SetUpPolicyRequest {
+        cred_id: payload[2..].to_vec(),
+        up_required: up_flag == 1,
+        pin_auth_ok: true,
+    };
+    match set_credential_up_policy(storage, fwlog, &mut session, &req, now_ms) {
+        Ok(()) => (0x00, Vec::new()),
+        Err(CtapError::PinRequired) => (0x02, Vec::new()),
+        Err(CtapError::NoCredentials) => (0x03, Vec::new()),
+        Err(_) => (0x04, Vec::new()),
+    }
+}
+
 /// CTAP Reset composed here (owner T-FD-04): requires bound UP, then wipes
 /// the durable PIN/UV truth, the RAM gate and every listed credential slot.
 /// Absent slots are idempotent (no error); corrupt slots fail closed.

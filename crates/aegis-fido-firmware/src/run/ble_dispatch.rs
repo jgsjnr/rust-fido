@@ -196,6 +196,25 @@ pub(crate) fn ble_dispatch_complete(
             );
             ble::notify_frame(o, st, &body)
         }
+        o if crate::ctap_cmd::is_set_up_policy_op(o) => {
+            // SET_UP_POLICY 0x40: management gated (sem latch UP).
+            // BLE = binding valido + sessao PIN viva (fail-closed);
+            // sem vinculo 0x05; travado 0x02; forma 0x04; ausente 0x03;
+            // ok 0x00 (+ auditoria EV_UP_POLICY_SET no executor).
+            let effective_claimed = binding_mgr.is_claimed() || secure_guard.is_unlocked();
+            if !effective_claimed {
+                ble::notify_frame(o, g::BleGattError::NeedBinding.to_vendor_status(), &[])
+            } else {
+                let pin_ok =
+                    ctap_engine.pin_state.has_valid_pin_uv_session() || secure_guard.is_unlocked();
+                let (st, body) =
+                    crate::ctap_cmd::exec_set_up_policy_wire(storage, fwlog, pin_ok, p, now_ms);
+                if st == 0x00 {
+                    kprintln!("[BLE] SET_UP_POLICY 0x40 executada.");
+                }
+                ble::notify_frame(o, st, &body)
+            }
+        }
         o if g::is_vendor_keys_oath_op(o) || g::is_piv_enroll_op(o) => {
             // F2: executor real on-device (GEN/LIST/DELETE + OATH
             // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04

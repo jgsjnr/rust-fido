@@ -234,7 +234,32 @@ pub fn dispatch_serial_vendor_msg(
         resp.extend_from_slice(&body);
         return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
     }
-    // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
+    // SET_UP_POLICY 0x40: management gated (sem latch UP, sem pairing).
+    // Serial/USB = posse fisica + sessao PIN viva (fail-closed); forma
+    // fail-closed 0x04; travado 0x02; slot ausente 0x03; ok 0x00 (+
+    // auditoria EV_UP_POLICY_SET no executor). Nunca consome o latch UP.
+    if crate::ctap_cmd::is_set_up_policy_op(op) {
+        let sg_unlocked = ctx
+            .secure_guard
+            .as_ref()
+            .map(|sg| sg.is_unlocked())
+            .unwrap_or(false);
+        let pin_effective = ctx.pin_uv_session
+            || ctx.pin_verified
+            || sg_unlocked
+            || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
+        let (st, body) = crate::ctap_cmd::exec_set_up_policy_wire(
+            ctx.storage,
+            ctx.fwlog,
+            pin_effective,
+            &payload[1..],
+            ctx.now_ms,
+        );
+        let mut resp = Vec::with_capacity(1 + body.len());
+        resp.push(st);
+        resp.extend_from_slice(&body);
+        return Some((CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp), false));
+    } // Secure Guard 0x3A-0x3E: protocolo CBOR de status, provisionamento, unlock, lock, config e wipe.
     if crate::ble_gatt::is_secure_guard_op(op) {
         if let Some(ref mut sg) = ctx.secure_guard {
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
@@ -1111,6 +1136,410 @@ mod tests {
         }
     }
 
+    /// SET_UP_POLICY (`0x40`) atravessa os 4 funis com gates por transporte.
+    ///
+    /// - FreeRTOS USB serial (`dispatch_serial_vendor_msg`): travado nega
+    ///   `0x02` sem tocar no storage; formas invalidas negam `0x04`; slot
+    ///   ausente com sessao viva nega `0x03`; slot conhecido + sessao viva
+    ///   responde `0x00`, vira o flag e audita `EV_UP_POLICY_SET (18)`;
+    ///   nunca consome o latch UP.
+    /// - Serial legada (secao D): mesmo predicado `is_set_up_policy_op` +
+    ///   chamada `exec_set_up_policy_wire` com os mesmos args sem-latch do
+    ///   ramo (o ramo e `cfg(target_os = "espidf")`; aqui exercemos o
+    ///   predicado e o executor com os args do ramo).
+    /// - BLE: `is_ble_fragment_opcode(0x40)` abre transacao, o reassembler
+    ///   completa o fragmento unico, e `ble_dispatch_complete` nega `0x05`
+    ///   sem vinculo, `0x02` vinculado+travado, e executa `0x00` + auditoria
+    ///   vinculado+desbloqueado.
+    #[test]
+    fn set_up_policy_atravessa_funis_com_gates() {
+        use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
+        use crate::cred_store::{cred_put, CredRecord};
+        use crate::freertos_sched::CTAPHID_PACKET_SIZE;
+        use crate::fw_log::FwLog;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::ctap::client_pin::PinUvTokenSession;
+        use aegis_fido_core::ctap::CtapEngine;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
+        use p256::ecdsa::SigningKey;
+
+        const CRED_ID: [u8; 16] = [
+            0xC0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F,
+        ];
+
+        fn hex_label(bytes: &[u8]) -> String {
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            let mut s = String::with_capacity(bytes.len() * 2);
+            for b in bytes {
+                s.push(HEX[(b >> 4) as usize] as char);
+                s.push(HEX[(b & 0x0F) as usize] as char);
+            }
+            s
+        }
+
+        fn deframe(packets: &[[u8; CTAPHID_PACKET_SIZE]]) -> (u8, Vec<u8>) {
+            assert!(!packets.is_empty());
+            let total = ((packets[0][5] as usize) << 8) | packets[0][6] as usize;
+            let mut out = Vec::new();
+            let first = total.min(CTAPHID_PACKET_SIZE - 7);
+            out.extend_from_slice(&packets[0][7..7 + first]);
+            for p in &packets[1..] {
+                let want = (total - out.len()).min(CTAPHID_PACKET_SIZE - 5);
+                out.extend_from_slice(&p[5..5 + want]);
+            }
+            assert_eq!(out.len(), total);
+            (out[0], out[1..].to_vec())
+        }
+
+        // Payload do funnel (apos o opcode): [up_flag, cred_id_len, cred_id...].
+        fn wire_payload(up_flag: u8, cred_id: &[u8]) -> Vec<u8> {
+            let mut v = Vec::with_capacity(2 + cred_id.len());
+            v.push(up_flag);
+            v.push(cred_id.len() as u8);
+            v.extend_from_slice(cred_id);
+            v
+        }
+
+        fn wire_body(up_flag: u8, cred_id: &[u8]) -> Vec<u8> {
+            let mut v = Vec::with_capacity(3 + cred_id.len());
+            v.push(crate::ctap_cmd::OP_SET_UP_POLICY);
+            v.extend_from_slice(&wire_payload(up_flag, cred_id));
+            v
+        }
+
+        fn seed_storage() -> (SecureStorage<PlatformFlashBackend>, String) {
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let label = hex_label(&CRED_ID);
+            let rec = CredRecord {
+                flags: 0,
+                sign_count: 0,
+                rp_id_hash: [0x11u8; 32],
+                cred_id: CRED_ID.to_vec(),
+                priv_blob: vec![0xAAu8; 32],
+                up_required: true,
+            };
+            cred_put(&mut storage, &label, &rec).expect("seed do slot");
+            (storage, label)
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn serial_ctx<'a>(
+            binding: &'a mut BindingManager,
+            storage: &'a mut SecureStorage<PlatformFlashBackend>,
+            wallet: &'a mut WalletStore,
+            key_mgr: &'a mut KeyManager,
+            oath: &'a mut OathApplet,
+            fwlog: &'a mut FwLog,
+            rescue: &'a mut RescueEngine,
+            pairing: &'a mut PairingManager,
+            pin_uv_session: bool,
+        ) -> SerialVendorCtx<'a> {
+            SerialVendorCtx {
+                pairing_open: false,
+                up_latched: false,
+                now_ms: 7,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding,
+                storage,
+                wallet,
+                key_mgr,
+                oath,
+                fwlog,
+                rescue,
+                pairing,
+                pin_uv_session,
+                secure_guard: None,
+                verified_pin: None,
+            }
+        }
+
+        fn dispatch_locked(body: Vec<u8>) -> (u8, Vec<u8>, bool) {
+            let mut pairing = PairingManager::new();
+            let mut binding = BindingManager::new();
+            let (mut storage, _) = seed_storage();
+            let mut wallet = WalletStore::new();
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let mut fwlog = FwLog::new();
+            let mut rescue = RescueEngine::new();
+            let mut vendor = serial_ctx(
+                &mut binding,
+                &mut storage,
+                &mut wallet,
+                &mut key_mgr,
+                &mut oath,
+                &mut fwlog,
+                &mut rescue,
+                &mut pairing,
+                false,
+            );
+            let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
+            let (packets, consumed) =
+                dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x40 tratado no funnel");
+            let (st, resp) = deframe(&packets);
+            (st, resp, consumed)
+        }
+
+        // --- FreeRTOS USB serial: travado nega 0x02 sem tocar no storage ---
+        let (st, resp, consumed) = dispatch_locked(wire_body(0, &CRED_ID));
+        assert_eq!(st, 0x02);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        {
+            let (storage, label) = seed_storage();
+            assert!(
+                crate::cred_store::up_required_for_label(&storage, &label),
+                "travado nao toca no slot"
+            );
+        }
+
+        // --- FreeRTOS USB serial: formas invalidas negam 0x04 (sessao viva) ---
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let (mut storage, label) = seed_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut vendor = serial_ctx(
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            true,
+        );
+        // [opcode] sozinho (corpo vazio), up_flag=2, len=0, truncado, sobra.
+        let mut too_long = vec![crate::ctap_cmd::OP_SET_UP_POLICY, 0x01, 129u8];
+        too_long.extend_from_slice(&[0xEEu8; 129]);
+        let malformed: Vec<Vec<u8>> = vec![
+            vec![crate::ctap_cmd::OP_SET_UP_POLICY],
+            wire_body(0x02, &CRED_ID),
+            wire_body(0x00, &[]),
+            {
+                let mut v = vec![crate::ctap_cmd::OP_SET_UP_POLICY, 0x00, 0x10];
+                v.push(0xAA);
+                v
+            },
+            {
+                let mut v = wire_body(0x00, &[0xAA]);
+                v.push(0xBB);
+                v
+            },
+            too_long,
+        ];
+        for bad in &malformed {
+            let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, bad.clone());
+            let (packets, consumed) =
+                dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x40 malformado tratado");
+            assert_eq!(deframe(&packets).0, 0x04);
+            assert!(!consumed);
+        }
+        // Slot ausente com sessao viva nega 0x03.
+        let ghost = [0xD0u8; 16];
+        let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, wire_body(0, &ghost));
+        let (packets, consumed) =
+            dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x40 sem slot tratado");
+        assert_eq!(deframe(&packets).0, 0x03);
+        assert!(!consumed);
+        // Slot conhecido + sessao viva: 0x00, vira o flag, audita EV=18.
+        let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, wire_body(0, &CRED_ID));
+        let (packets, consumed) =
+            dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x40 valido tratado");
+        let (st, resp) = deframe(&packets);
+        assert_eq!(st, 0x00);
+        assert!(resp.is_empty());
+        assert!(!consumed, "0x40 nunca consome o latch UP");
+        assert!(
+            !crate::cred_store::up_required_for_label(vendor.storage, &label),
+            "opt-out aplicado no slot"
+        );
+        let rendered = vendor.fwlog.render_ascii(1024);
+        let text = core::str::from_utf8(&rendered).expect("fwlog ascii");
+        assert!(
+            text.contains(" EV=18 ARG=0 "),
+            "auditoria EV_UP_POLICY_SET: {}",
+            text
+        );
+
+        // --- Serial legada (secao D): predicado + executor com args do ramo ---
+        assert!(crate::ctap_cmd::is_set_up_policy_op(0x40));
+        assert!(!crate::ctap_cmd::is_set_up_policy_op(0x3F));
+        assert!(!crate::ctap_cmd::is_set_up_policy_op(0x2F));
+        {
+            let (mut storage, label) = seed_storage();
+            let mut fwlog = FwLog::new();
+            // Travado (ramo usa has_valid_pin_uv_session): 0x02.
+            let (st, _) = crate::ctap_cmd::exec_set_up_policy_wire(
+                &mut storage,
+                &mut fwlog,
+                false,
+                &wire_payload(0, &CRED_ID),
+                9,
+            );
+            assert_eq!(st, 0x02);
+            assert!(crate::cred_store::up_required_for_label(&storage, &label));
+            // Forma invalida com sessao viva: 0x04.
+            let (st, _) = crate::ctap_cmd::exec_set_up_policy_wire(
+                &mut storage,
+                &mut fwlog,
+                true,
+                &[0x02, 0x01, 0xAA],
+                9,
+            );
+            assert_eq!(st, 0x04);
+            // Slot ausente com sessao viva: 0x03.
+            let (st, _) = crate::ctap_cmd::exec_set_up_policy_wire(
+                &mut storage,
+                &mut fwlog,
+                true,
+                &wire_payload(1, &ghost),
+                9,
+            );
+            assert_eq!(st, 0x03);
+            // Sucesso: 0x00 + flag + auditoria.
+            let (st, body) = crate::ctap_cmd::exec_set_up_policy_wire(
+                &mut storage,
+                &mut fwlog,
+                true,
+                &wire_payload(1, &CRED_ID),
+                9,
+            );
+            assert_eq!((st, body.as_slice()), (0x00, &[][..]));
+            assert!(crate::cred_store::up_required_for_label(&storage, &label));
+        }
+
+        // --- BLE: reassembler aceita 0x40 e completa o fragmento unico ---
+        assert!(crate::ble_gatt::is_ble_fragment_opcode(
+            crate::ctap_cmd::OP_SET_UP_POLICY
+        ));
+        assert!(!crate::ble_gatt::is_ble_fragment_opcode(0x2F));
+        {
+            let payload = wire_payload(0, &CRED_ID);
+            let mut frag = Vec::with_capacity(3 + payload.len());
+            frag.push(crate::ctap_cmd::OP_SET_UP_POLICY);
+            frag.push(((payload.len() >> 8) & 0xFF) as u8);
+            frag.push((payload.len() & 0xFF) as u8);
+            frag.extend_from_slice(&payload);
+            let mut r = crate::ble::gatt_core::BleReassembler::new();
+            let done = r
+                .feed(&frag)
+                .expect("0x40 abre transacao")
+                .expect("fragmento unico completa");
+            assert_eq!(done.opcode, crate::ctap_cmd::OP_SET_UP_POLICY);
+            assert_eq!(done.payload, payload);
+        }
+
+        // --- BLE dispatch: gates binding -> sessao, depois execucao ---
+        fn claimed_binding() -> BindingManager {
+            let sk = SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
+            let pt = sk.verifying_key().to_sec1_point(false);
+            let mut sec1 = [0u8; BIND_PUB_LEN];
+            sec1.copy_from_slice(pt.as_bytes());
+            let mut m = BindingManager::new();
+            m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true)
+                .expect("claim ok");
+            m
+        }
+
+        fn ble_case(
+            binding: &mut BindingManager,
+            storage: &mut SecureStorage<PlatformFlashBackend>,
+            engine: &mut CtapEngine,
+            payload: Vec<u8>,
+            bonded: bool,
+        ) -> String {
+            let mut rescue = RescueEngine::new();
+            let mut wallet = WalletStore::new();
+            let mut fwlog = FwLog::new();
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let policy = aegis_fido_core::secure_guard::SecureGuardPolicy {
+                pbkdf2_iterations: 10,
+                session_duration_ms: 1000,
+                inactivity_timeout_ms: 500,
+                ..Default::default()
+            };
+            let mut sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(policy);
+            crate::run::ble_dispatch::ble_dispatch_complete(
+                crate::ble::gatt_core::BleCompleteMessage {
+                    opcode: crate::ctap_cmd::OP_SET_UP_POLICY,
+                    payload,
+                },
+                false,
+                false,
+                0,
+                engine,
+                binding,
+                storage,
+                &mut rescue,
+                &mut wallet,
+                bonded,
+                11,
+                &mut fwlog,
+                &mut key_mgr,
+                &mut oath,
+                &mut sg,
+            );
+            core::str::from_utf8(&fwlog.render_ascii(2048))
+                .expect("fwlog ascii")
+                .to_string()
+        }
+
+        let (mut storage, label) = seed_storage();
+        let mut engine = CtapEngine::new([0x11; 32], 0);
+        // Sem vinculo: 0x05 (NEED_BINDING), mesmo com resto zerado.
+        let mut unclaimed = BindingManager::new();
+        let text = ble_case(
+            &mut unclaimed,
+            &mut storage,
+            &mut engine,
+            wire_payload(0, &CRED_ID),
+            false,
+        );
+        assert!(text.contains(" EV=10 ARG=5 "), "BLE sem vinculo: {}", text);
+        // Vinculado + travado: 0x02, slot intacto.
+        let mut claimed = claimed_binding();
+        let text = ble_case(
+            &mut claimed,
+            &mut storage,
+            &mut engine,
+            wire_payload(0, &CRED_ID),
+            true,
+        );
+        assert!(text.contains(" EV=10 ARG=2 "), "BLE travado: {}", text);
+        assert!(crate::cred_store::up_required_for_label(&storage, &label));
+        // Vinculado + desbloqueado: 0x00 + auditoria EV=18 + flag virado.
+        engine.pin_state.active_session = Some(PinUvTokenSession {
+            token: [0x5Au8; 32],
+            protocol: 2,
+            permissions: 0xFF,
+            rp_id: None,
+        });
+        let text = ble_case(
+            &mut claimed,
+            &mut storage,
+            &mut engine,
+            wire_payload(0, &CRED_ID),
+            true,
+        );
+        assert!(text.contains(" EV=10 ARG=0 "), "BLE sucesso: {}", text);
+        assert!(text.contains(" EV=18 ARG=0 "), "BLE auditoria: {}", text);
+        assert!(!crate::cred_store::up_required_for_label(&storage, &label));
+    }
     #[test]
     fn gaps_t8_espelhados_como_externally_blocked() {
         // Espelho documental dos 7 gaps canonicos (sem importar TrustFacade:
