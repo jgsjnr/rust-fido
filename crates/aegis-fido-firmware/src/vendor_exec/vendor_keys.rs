@@ -14,7 +14,29 @@ use aegis_fido_core::crypto::curves::CoseAlgorithm;
 use aegis_fido_core::oath::tlv::{
     find_tlv, parse_tlv_records, write_tlv, TAG_ALG_HINT, TAG_LABEL, TAG_SLOT, TAG_USAGE_HINT,
 };
+use aegis_fido_core::oath::types::TAG_CHALLENGE;
 use alloc::vec::Vec;
+
+/// Dedicated SIGN opcode (`0x41`, first free byte after `SET_UP_POLICY`
+/// `0x40`).
+///
+/// Opcode audit (first byte of `CMD_MSG` payload / BLE vendor message):
+/// `0x2F` is TAKEN by `pairing::OP_HOST_PAIRING_OPEN` (product pairing
+/// trigger on USB/serial), `0x40` is TAKEN by `ctap_cmd::OP_SET_UP_POLICY`.
+/// `0x41` has no opcode definition anywhere in tree (only magic bytes,
+/// test padding and font bitmaps); it is the documented next-free byte.
+pub(crate) const OP_VENDOR_SIGN: u8 = 0x41;
+
+/// `true` for the `VENDOR_SIGN` opcode (funnel-routing helper).
+///
+/// Transport funnels OR this in next to `is_vendor_keys_oath_op` /
+/// `is_get_caps_op` / `is_set_up_policy_op` and route through the shared
+/// `exec_vendor_op` WITH the standard gates (binding + UP, no PIN --
+/// exactly the GEN `0x20` class, never weaker). The BLE reassembler must
+/// additionally accept `0x41` as a fragment opcode.
+pub(crate) fn is_vendor_sign_op(op: u8) -> bool {
+    op == OP_VENDOR_SIGN
+}
 
 pub(crate) fn km_status(e: KeyManagerError) -> u8 {
     e.status()
@@ -159,5 +181,54 @@ pub(crate) fn parse_slot(payload: &[u8]) -> Option<u8> {
     match find_tlv(&records, TAG_SLOT) {
         Some(v) if v.len() == 1 => Some(v[0]),
         _ => None,
+    }
+}
+
+/// SIGN dedicado (`0x41`): assina com a chave do slot via `KeyManager::sign`.
+///
+/// Request TLV: `TAG_SLOT` (`0x01`, 1 B, obrigatório) + `TAG_CHALLENGE`
+/// (`0x74`, mensagem/desafio não-vazio, obrigatório). Qualquer outra forma
+/// nega fail-closed (`0x04`); em particular o shape legado da app
+/// `{0x01 slot, 0x74 challenge}` SEM `TAG_LABEL` (`0x02`) continua `0x04`
+/// no GEN `0x20` (semântica do GEN intacta) e só assina no `0x41`.
+///
+/// Gates idênticos ao GEN `0x20` (classe CONFIG sem PIN): binding + UP,
+/// verificados pelo dispatcher ANTES desta chamada; `KeyManager::sign`
+/// re-checa UP internamente (defense in depth). Erros do `KeyManager`
+/// mapeiam via `km_status` (`NeedUp` → `0x01`, `NoSlot` → `0x03`).
+/// O bump de `sign_count` (clone detection) persiste em NVS com rollback
+/// via snapshot se o save falhar (mesmo padrão do DELETE).
+pub(crate) fn exec_key_sign<B>(
+    keys: &mut KeyManager,
+    storage: &mut SecureStorage<B>,
+    payload: &[u8],
+    presence_confirmed: bool,
+) -> (u8, Vec<u8>)
+where
+    B: FlashStorageBackend,
+{
+    let records = match parse_tlv_records(payload) {
+        Ok(r) => r,
+        Err(_) => return (0x04, Vec::new()),
+    };
+    let slot = match find_tlv(&records, TAG_SLOT) {
+        Some(v) if v.len() == 1 => v[0],
+        _ => return (0x04, Vec::new()),
+    };
+    let message = match find_tlv(&records, TAG_CHALLENGE) {
+        Some(v) if !v.is_empty() => v,
+        _ => return (0x04, Vec::new()),
+    };
+    let snap = keys.export_state();
+    match keys.sign(slot, message, presence_confirmed) {
+        Ok(sig) => {
+            if super::vendor_store::save_keys_result(storage, keys).is_ok() {
+                (0x00, sig)
+            } else {
+                let _ = keys.import_state(&snap);
+                (0x04, Vec::new())
+            }
+        }
+        Err(e) => (km_status(e), Vec::new()),
     }
 }

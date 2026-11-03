@@ -8,6 +8,7 @@ use crate::persistence::{MockFlashBackend, SecureStorage};
 mod caps;
 mod pin;
 mod piv;
+mod sign;
 mod store;
 
 fn test_storage() -> SecureStorage<MockFlashBackend> {

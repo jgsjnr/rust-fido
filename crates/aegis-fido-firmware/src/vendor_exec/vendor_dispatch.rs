@@ -14,7 +14,8 @@ use aegis_fido_core::oath::applet::OathApplet;
 use aegis_fido_core::oath::tlv::{write_tlv, TAG_LABEL, TAG_SLOT};
 use alloc::vec::Vec;
 
-/// Executa uma op vendor `0x20-0x27` (gates + persistência) ou `GET_CAPS`
+/// Executa uma op vendor `0x20-0x27` (gates + persistência), `VENDOR_SIGN`
+/// `0x41` (gate próprio classe GEN: binding -> UP, sem PIN) ou `GET_CAPS`
 /// `0x3F` (pré-gate, sem auth).
 /// Retorna `(wire_status, body)` status-first como o BLE.
 #[allow(clippy::too_many_arguments)]
@@ -53,6 +54,24 @@ where
     // gate (como PIV ENROLL acima); binding/UP/PIN nunca consultados.
     if op == super::vendor_caps::OP_GET_CAPS {
         return super::vendor_caps::exec_get_caps(payload);
+    }
+    // VENDOR_SIGN (0x41): SIGN dedicado -- fora da faixa 0x20-0x27 de
+    // propósito (`authorize_vendor_op` rejeitaria como InvalidOpcode; a
+    // faixa pertence ao BLE e a este arquivo é vedado tocá-la). Gate
+    // próprio idêntico ao GEN 0x20 (classe CONFIG sem PIN: binding -> UP,
+    // ordem canônica, app alheio sempre vê NEED_BINDING; nunca mais fraco
+    // que o GEN). PIN nunca exigido aqui (GEN também não exige).
+    if super::vendor_keys::is_vendor_sign_op(op) {
+        if !crate::binding::binding_bypass_enabled() && !binding_ok {
+            return (BleGattError::NeedBinding.to_vendor_status(), Vec::new());
+        }
+        if !up {
+            return (
+                BleGattError::PresenceRequired.to_vendor_status(),
+                Vec::new(),
+            );
+        }
+        return super::vendor_keys::exec_key_sign(keys, storage, payload, up);
     }
     if let Err(e) = authorize_vendor_op(op, binding_ok, pin_ok, up) {
         return (e.to_vendor_status(), Vec::new());

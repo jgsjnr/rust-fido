@@ -259,3 +259,63 @@ commit):
 - Invariante repetida no fio: `up_flag = 0` NUNCA autoriza uso com
   device travado; o desbloqueio e verificado no executor, nao no host.
 
+## 9. SIGN dedicado (VENDOR_SIGN `0x41`)
+
+Causa raiz (verificada): a app enviava sign para o GEN `0x20` com TLV
+`{0x01 slot, 0x74 challenge}`, mas o GEN exige `TAG_LABEL` (`0x02`) e
+negava deterministico (`0x04`). `KeyManager::sign` existia sem nenhum
+braco no dispatcher que o chamasse. `VENDOR_SIGN` recebe exatamente
+aquele shape e chama `KeyManager::sign`; a semantica do GEN `0x20`
+fica intacta (inclusive o `0x04` sem label, com teste de regressao).
+
+### 9.1 Prova da escolha do opcode
+
+O `0x2F` da tarefa esta OCUPADO e foi rejeitado com prova em codigo:
+
+- `0x2F` = `pairing::OP_HOST_PAIRING_OPEN` (trigger de pareamento
+  produto no USB/serial; `is_host_pairing_msg` exige payload vazio).
+  Reutilizar no executor compartilhado (USB + BLE) colidiria com o
+  trigger no path serial. Teste `opcode_audit_sign_is_first_free_after_set_up_policy`
+  fixa `OP_HOST_PAIRING_OPEN == 0x2F`.
+- `0x40` = `ctap_cmd::OP_SET_UP_POLICY` (implementado e fiado nos 4
+  funis + reassembler). Teste fixa `OP_SET_UP_POLICY == 0x40`.
+- `0x41` = primeiro byte livre apos `0x40`; nenhuma outra definicao
+  de opcode em arvore (só magic bytes, padding de teste e bitmaps de
+  fonte). Auditoria vizinha completa no header de
+  `crates/aegis-fido-firmware/src/vendor_exec/vendor_keys.rs` e no
+  teste de auditoria acima (predicados de funil existentes nao
+  engolem `0x41`).
+
+### 9.2 Contrato wire (legivel por maquina em `scripts/capability-catalog.json#wire_contract.vendor_sign`)
+
+- Request TLV: `TAG_SLOT` `0x01` (1 B, obrigatorio) + `TAG_CHALLENGE`
+  `0x74` (mensagem/desafio nao-vazio, obrigatorio). Qualquer outra
+  forma nega fail-closed (`0x04`, corpo vazio).
+- Response: `(0x00, bytes da assinatura)` no sucesso; negacoes
+  `0x01` NEED_UP (sem presenca) | `0x03` NO_SLOT (slot desconhecido) |
+  `0x04` BAD_ENVELOPE (TLV malformado) | `0x05` NEED_BINDING (sem vinculo).
+- Auth: classe CONFIG sem PIN, EXATAMENTE o GEN `0x20` (binding valido
+  com bypass test-mode + ltrace, depois UP; ordem canonica binding ->
+  UP; PIN nunca exigido, nunca mais fraco que o GEN).
+  `KeyManager::sign` re-checa UP internamente (defense in depth).
+- Persistencia: o bump de `sign_count` (clone detection) salva em NVS
+  com rollback via snapshot se o save falhar (mesmo padrao do DELETE);
+  roundtrip coberto em teste.
+- Dieta: sem capability nova — pega carona em `vendor-mgmt` nos tres
+  presets (`full`, `fido-only`, `fido-totp`); `unsupported_count`
+  inalterado.
+
+Fiacao dos funis (follow-up dos donos dos transportes; o executor
+compartilhado `exec_vendor_op` ja atende o `0x41` com gate):
+
+```
+# USB serial (freertos_route::dispatch_serial_vendor_msg + loop legado):
+# incluir o predicado e exigir binding + UP (classe GEN, sem PIN):
+if is_vendor_keys_oath_op(op) || ... || crate::vendor_exec::...is_vendor_sign_op(op) { ... }
+
+# BLE (ble_dispatch_complete): novo braco com gates (como GEN, nao como fw-log):
+o if is_vendor_sign_op(o) => { binding + UP; exec_vendor_op(...) }
+# + BLE reassembler (is_ble_fragment_opcode em gatt_core.rs): aceitar 0x41
+#   como opcode de fragmento.
+```
+

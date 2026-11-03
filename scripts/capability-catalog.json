@@ -496,6 +496,22 @@
         }
       },
       "preset_caps_source": "presets.<preset>.includes (this file); the firmware table in vendor_caps.rs::capability_ids() is its compiled-in projection"
+    },
+    "vendor_sign": {
+      "op": 65,
+      "op_hex": "0x41",
+      "name": "VENDOR_SIGN dedicated SIGN opcode (gated, calls KeyManager::sign)",
+      "firmware_source": "crates/aegis-fido-firmware/src/vendor_exec/vendor_keys.rs (exec_key_sign) + vendor_dispatch.rs (pre-gate arm)",
+      "opcode_audit": "0x2F is TAKEN by pairing::OP_HOST_PAIRING_OPEN (USB/serial pairing trigger, never reusable); 0x40 is TAKEN by ctap_cmd::OP_SET_UP_POLICY. 0x41 is the first free byte after 0x40; no other opcode definition exists anywhere in tree (only magic bytes, test padding and font bitmaps). Occupied neighbors: 0x20-0x27 vendor keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue (OP_MSG payload only), 0x2F pairing trigger, 0x30-0x34 OTA, 0x35-0x37 wallet, 0x38 fw-log, 0x39 PIV enroll, 0x3A-0x3E Secure Guard, 0x3F GET_CAPS, 0x40 SET_UP_POLICY. Handled in exec_vendor_op BEFORE authorize_vendor_op (which only accepts 0x20-0x27) with a GEN-identical gate, so the BLE/serial funnel ranges are untouched.",
+      "request": "TLV: TAG_SLOT 0x01 (1 byte, required) + TAG_CHALLENGE 0x74 (message/challenge, non-empty, required). Any other shape fails closed with wire status 0x04. The legacy app shape {slot, challenge} without TAG_LABEL 0x02 keeps denying 0x04 on GEN 0x20 (GEN semantics untouched).",
+      "response": "wire status 0x00 + raw signature bytes body",
+      "response_schema": {
+        "success": "0x00 + signature bytes (slot alg, ES256/ES512; sign_count clone-detection bump persisted to NVS with snapshot rollback on save failure)",
+        "denials": "0x01 NEED_UP (no presence) | 0x03 NO_SLOT (unknown slot) | 0x04 BAD_ENVELOPE (malformed TLV) | 0x05 NEED_BINDING (no binding)"
+      },
+      "auth": "CONFIG class without PIN, exactly GEN 0x20: binding valid (test-mode bypass with ltrace) then UP, canonical order; PIN never required and never weaker than GEN. KeyManager::sign re-checks UP internally (defense in depth).",
+      "transport": "USB serial + BLE vendor funnels call the shared executor exec_vendor_op, which answers 0x41 with the GEN-class gate. Funnel follow-up (transport owners): OR is_vendor_sign_op() next to is_vendor_keys_oath_op/is_get_caps_op/is_set_up_policy_op and require binding + UP (no PIN); BLE GATT reassembler must additionally accept the 0x41 fragment opcode.",
+      "preset_caps_source": "No new capability: rides vendor-mgmt in all presets (full, fido-only, fido-totp); diet gating unchanged, unsupported_count unchanged"
     }
   }
 }

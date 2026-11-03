@@ -5,13 +5,19 @@
 //! - `0x28-0x2D` bind-mgmt (Sec.11, all taken).
 //! - `0x2E` rescue transport (travels ONLY as `OP_MSG` payload, never a
 //!   fragment opcode -- must stay untouched).
-//! - `0x2F` reserved (reassembler/tests assert fail-closed rejection).
+//! - `0x2F` product pairing trigger (`pairing::OP_HOST_PAIRING_OPEN`,
+//!   USB/serial only -- NEVER reuse for vendor ops; reassembler/tests
+//!   assert fail-closed rejection on the BLE path).
 //! - `0x30-0x34` OTA (`OP_OTA_BEGIN..OP_OTA_ABORT`, canonical in `ota`).
 //! - `0x35-0x37` wallet (`OP_WALLET_GEN/LIST/ADDR`).
 //! - `0x38` fw-log (`OP_FW_LOG`).
 //! - `0x39` PIV enroll (`OP_PIV_ENROLL`).
 //! - `0x3A-0x3E` Secure Guard (STATUS/UNLOCK/LOCK/CONFIG/WIPE_SELECTIVE).
-//! - `0x3F` GET_CAPS (this module): first free byte after the SG range.
+//! - `0x3F` GET_CAPS (this module).
+//! - `0x40` SET_UP_POLICY (`ctap_cmd::OP_SET_UP_POLICY`, funnel-routed,
+//!   executor in `ctap_cmd`).
+//! - `0x41` VENDOR_SIGN (`vendor_keys::OP_VENDOR_SIGN`, dedicated SIGN;
+//!   first free byte after `0x40`).
 //!   No collision with the SG range, wallet, OATH, or CCID dispatch
 //!   (CCID is APDU-framed `CLA/INS/P1/P2` -- a different namespace; the
 //!   `0x3F` values in PIV APDUs / CTAP status codes live in those
@@ -178,10 +184,7 @@ pub(crate) fn exec_get_caps(payload: &[u8]) -> (u8, Vec<u8>) {
             Value::Text(String::from("preset")),
             Value::Text(String::from(preset_name())),
         ),
-        (
-            Value::Text(String::from("caps")),
-            Value::Array(caps),
-        ),
+        (Value::Text(String::from("caps")), Value::Array(caps),),
         (
             Value::Text(String::from("unsupported_count")),
             Value::from(unsupported_count()),
@@ -293,7 +296,10 @@ mod tests {
             "fido-only" => {
                 assert_eq!(capability_ids().len(), 7);
                 assert_eq!(unsupported_count(), 7);
-                assert_eq!(diet_gated_ops(), &[0x24, 0x25, 0x26, 0x27, 0x35, 0x36, 0x37]);
+                assert_eq!(
+                    diet_gated_ops(),
+                    &[0x24, 0x25, 0x26, 0x27, 0x35, 0x36, 0x37]
+                );
                 assert!(!capability_ids().contains(&"wallet"));
                 assert!(!capability_ids().contains(&"oath-totp"));
                 assert!(capability_ids().contains(&"vendor-mgmt"));
