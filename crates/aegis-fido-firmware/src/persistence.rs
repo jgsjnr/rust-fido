@@ -52,6 +52,18 @@ pub fn derive_storage_key(master_key: &[u8; 32], salt: &[u8; 32], info: &[u8]) -
     key
 }
 
+/// NVS key for the device-key-INDEPENDENT Secure Guard recovery envelope
+/// blob (`sg_recovery_v1`, 14 chars within the 15-char ESP-IDF NVS limit).
+///
+/// Plaintext on purpose (internal CRC32 + KEK-bound HMAC inside the envelope;
+/// without the recovery code it reveals nothing): it MUST live OUTSIDE the
+/// AES-GCM `SecureStorage` envelope so a device-key rotation (fresh ephemeral
+/// TRNG keys on DEV boards without eFuse provisioning) cannot take the rescue
+/// path down with the encrypted `sg_record_v1`. Never route this key through
+/// `SecureStorage::store` / `NamespacedStore` (both encrypt); use the raw
+/// helpers below, which bypass the AES envelope via the raw backend.
+pub const RECOVERY_ENVELOPE_NVS_KEY: &str = "sg_recovery_v1";
+
 /// Errors originating during encrypted persistence operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
@@ -204,6 +216,46 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
+
+/// Writes the recovery envelope blob as PLAINTEXT via the raw backend,
+/// bypassing the AES-GCM `SecureStorage` envelope.
+///
+/// The caller (Secure Guard storage layer) passes the fixed-size
+/// `RECOVERY_ENVELOPE_SIZE` wire form with internal CRC32; this helper
+/// performs no framing of its own so the blob stays readable after a
+/// device-key rotation that invalidates every encrypted record.
+pub fn save_recovery_envelope<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    envelope_bytes: &[u8],
+) -> Result<(), StorageError> {
+    storage
+        .backend_mut()
+        .write_raw(RECOVERY_ENVELOPE_NVS_KEY, envelope_bytes)
+}
+
+/// Reads the plaintext recovery envelope blob (raw backend, no device key).
+///
+/// `KeyNotFound` = never provisioned with envelope support; any other error
+/// (or a short blob, checked by the caller) fails closed upstream.
+pub fn load_recovery_envelope<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+) -> Result<Vec<u8>, StorageError> {
+    storage.backend().read_raw(RECOVERY_ENVELOPE_NVS_KEY)
+}
+
+/// Destroys the recovery envelope blob. Idempotent (absent = `Ok`).
+///
+/// Wipe/factory paths MUST call this: the engine already drops its cached
+/// envelope on wipe, and a lingering NVS blob would resurrect wiped
+/// credentials through the envelope rescue path.
+pub fn delete_recovery_envelope<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+) -> Result<(), StorageError> {
+    match storage.backend_mut().delete_raw(RECOVERY_ENVELOPE_NVS_KEY) {
+        Ok(()) | Err(StorageError::KeyNotFound) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
 
 /// Teto por slot dos namespaces com orçamento (OATH/vault: TLV total <=512B).
 pub const NAMESPACED_SLOT_MAX_BYTES: usize = 512;

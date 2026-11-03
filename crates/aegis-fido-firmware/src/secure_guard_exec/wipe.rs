@@ -106,6 +106,17 @@ pub(crate) fn handle_wipe_selective<B: FlashStorageBackend>(
 
     crate::hmac_cr_compat_layer::set_secure_guard_unlocked(false);
     let _ = save_secure_guard_record(storage, engine);
+    // Sem ressurreicao: com wipe real o engine ja descartou o envelope em cache,
+    // entao o blob `sg_recovery_v1` cai junto. No wipe simulado (modo de teste)
+    // o material segue em cache e o `save` acima o re-persiste: nao apagar.
+    if !engine.last_wipe_simulated() {
+        if let Err(e) = crate::secure_guard_storage::destroy_recovery_envelope(storage) {
+            log::error!(
+                "[SECURE_GUARD] Falha ao destruir envelope de recuperacao: {:?}",
+                e
+            );
+        }
+    }
 
     let out_map = vec![
         (Value::Text("wiped".into()), Value::Bool(true)),

@@ -187,13 +187,17 @@ pub use led::MockLedOutput;
 pub use led::{Color, LedEffect, LedOutput, Ws2812Controller};
 #[cfg(any(test, not(target_os = "espidf")))]
 pub use persistence::MockFlashBackend;
-pub use persistence::{FlashStorageBackend, PlatformFlashBackend, SecureStorage, StorageError};
+pub use persistence::{
+    delete_recovery_envelope, load_recovery_envelope, save_recovery_envelope, FlashStorageBackend,
+    PlatformFlashBackend, SecureStorage, StorageError, RECOVERY_ENVELOPE_NVS_KEY,
+};
 pub use secure_guard_exec::exec_secure_guard_op;
 pub use secure_guard_sched::{
     tick_secure_guard, SecureGuardSupervisor, SECURE_GUARD_TASK_PRIO, SECURE_GUARD_TASK_STACK,
 };
 pub use secure_guard_storage::{
-    load_secure_guard_record, save_secure_guard_record, NVS_SECURE_GUARD_RECORD,
+    destroy_recovery_envelope, load_secure_guard_record, recover_error_locked_with_envelope,
+    save_secure_guard_record, NVS_SECURE_GUARD_RECORD,
 };
 pub use usb_descriptors::*;
 pub use watchdog::{StaticBuf, Watchdog};

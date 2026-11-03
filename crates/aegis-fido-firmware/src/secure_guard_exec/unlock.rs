@@ -265,6 +265,10 @@ where
         let mut new_salt = [0u8; 16];
         rng.fill_bytes(&mut new_salt);
 
+        // GAP documentado (nao inventar protocolo): o payload do change_pin nao
+        // carrega o codigo de recuperacao, entao o envelope `sg_recovery_v1` NAO
+        // e re-selado aqui; o `save` abaixo re-persiste o envelope anterior, que
+        // ainda resgata o PIN pre-troca. A proxima rotacao (op recover) re-sela.
         let res = engine.change_pin(&current_pin, &new_pin, new_salt, now_ms);
         let _ = save_secure_guard_record(storage, engine);
 
@@ -304,14 +308,10 @@ where
             }
         }
     } else if is_recover {
-        // --- 3. RECOVER WITH CODE ---
+        // --- 3. RECOVER WITH CODE / ENVELOPE (resgate pos-reboot DEV) ---
         let recovery_code = match get_field(&entries, "recovery_code").and_then(extract_bytes) {
             Some(r) => r,
             None => return (0x04, to_cbor_bytes(&cbor_err("missing_recovery_code"))),
-        };
-        let new_pin = match get_field(&entries, "new_pin").and_then(extract_bytes) {
-            Some(p) => p,
-            None => return (0x04, to_cbor_bytes(&cbor_err("missing_new_pin"))),
         };
 
         // Decodifica hex se tiver 32 chars
@@ -321,35 +321,76 @@ where
             recovery_code
         };
 
-        let mut new_rec_salt = [0u8; 16];
-        rng.fill_bytes(&mut new_rec_salt);
-
-        let res = engine.recover_with_code(&rec_bytes, &new_pin, new_rec_salt, now_ms);
-        let _ = save_secure_guard_record(storage, engine);
-
-        match res {
-            Ok(new_state) => {
-                let mut out_map = Vec::new();
-                out_map.push((
-                    Value::Text("status".into()),
-                    Value::Text("recovered".into()),
-                ));
-                out_map.push((
-                    Value::Text("state".into()),
-                    Value::from(new_state.wire_code()),
-                ));
-                if let Some(rotated) = engine.last_rotated_recovery_code() {
-                    out_map.push((
-                        Value::Text("new_recovery_code".into()),
-                        Value::Text(hex_encode(&rotated)),
-                    ));
+        // Resgate ErrorLocked via envelope: o boot com chaves de dispositivo
+        // rotacionadas deixa o engine em `ErrorLocked` (verificadores zerados),
+        // onde `recover_with_code` nada tem a checar e rejeita o estado. O blob
+        // `sg_recovery_v1` (plaintext, fora do envelope AES) + o codigo capturado
+        // no provisionamento restauram `Locked` SEM chaves de dispositivo; o PIN
+        // original destrava em seguida. `new_pin` e opcional aqui e ignorado
+        // quando presente: o PIN do provisionamento e restaurado, nao trocado.
+        // Fail-closed em codigo errado/blob adulterado/ausente (sem transicao).
+        if engine.state() == SecureGuardState::ErrorLocked {
+            match crate::secure_guard_storage::recover_error_locked_with_envelope(
+                engine, storage, &rec_bytes, now_ms,
+            ) {
+                Ok(new_state) => {
+                    let out_map = vec![
+                        (
+                            Value::Text("status".into()),
+                            Value::Text("recovered".into()),
+                        ),
+                        (
+                            Value::Text("state".into()),
+                            Value::from(new_state.wire_code()),
+                        ),
+                        (
+                            Value::Text("state_name".into()),
+                            Value::Text(format!("{:?}", new_state)),
+                        ),
+                    ];
+                    (0x00, to_cbor_bytes(&Value::Map(out_map)))
                 }
-                (0x00, to_cbor_bytes(&Value::Map(out_map)))
+                Err(e) => (
+                    CTAP2_ERR_PIN_AUTH_INVALID,
+                    to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+                ),
             }
-            Err(e) => (
-                CTAP2_ERR_PIN_AUTH_INVALID,
-                to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
-            ),
+        } else {
+            let new_pin = match get_field(&entries, "new_pin").and_then(extract_bytes) {
+                Some(p) => p,
+                None => return (0x04, to_cbor_bytes(&cbor_err("missing_new_pin"))),
+            };
+
+            let mut new_rec_salt = [0u8; 16];
+            rng.fill_bytes(&mut new_rec_salt);
+
+            let res = engine.recover_with_code(&rec_bytes, &new_pin, new_rec_salt, now_ms);
+            let _ = save_secure_guard_record(storage, engine);
+
+            match res {
+                Ok(new_state) => {
+                    let mut out_map = Vec::new();
+                    out_map.push((
+                        Value::Text("status".into()),
+                        Value::Text("recovered".into()),
+                    ));
+                    out_map.push((
+                        Value::Text("state".into()),
+                        Value::from(new_state.wire_code()),
+                    ));
+                    if let Some(rotated) = engine.last_rotated_recovery_code() {
+                        out_map.push((
+                            Value::Text("new_recovery_code".into()),
+                            Value::Text(hex_encode(&rotated)),
+                        ));
+                    }
+                    (0x00, to_cbor_bytes(&Value::Map(out_map)))
+                }
+                Err(e) => (
+                    CTAP2_ERR_PIN_AUTH_INVALID,
+                    to_cbor_bytes(&cbor_err(&format!("{:?}", e))),
+                ),
+            }
         }
     } else if action_str == Some("ecdh_handshake") {
         // --- 4. ECDH HANDSHAKE (GAP-02) ---
