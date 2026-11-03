@@ -44,3 +44,9 @@
 - HW-NEEDED: 10 (validate_aegiskey + 9 explicit skips)
 - NOT-AVAILABLE: 1 (QEMU)
 - Code/config/tool/other-report edits: none. Only this file created.
+
+## Follow-up (sweep findings closed)
+- depcheck.py: rewritten to resolve compile_commands.json at runtime (--compile-db override, exit 2 BLOCKED with guidance when absent). Re-run: RC=0 (aegis_usb.c recompiles via xtensa-esp-elf).
+- check-release-clean.py download_mode: false positive proven (dis_download_mode/download_mode_disabled rlib metadata only; ack anchored). Re-run exit 0, commit 811ec0d.
+- vendor_tests god 26.21: split into vendor_tests/{pin,piv,store,caps}.rs, all below threshold, dep-track leg exit 0, commit 44b7570.
+
