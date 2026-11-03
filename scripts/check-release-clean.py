@@ -23,7 +23,13 @@ CRATE = "aegis-fido-firmware"
 FORBIDDEN = [
     b"source=software",      # TEST_UP / TEST_PAIRING_OPEN ack
     b"up_latched source=software",  # TEST_UP ack (ancorado; "up_latched" nu pega meta rlib)
-    b"download_mode",        # TEST_DOWNLOAD ack (nunca em release)
+    b"download_mode source=software",  # TEST_DOWNLOAD ack (nunca em release;
+    # NOTA: padrao ancorado no ack (como os demais). O nu "download_mode"
+    # Moi pegaria identificadores legitimos de release presentes como
+    # metadados inertes no rlib: `dis_download_mode` (campo de
+    # SecureBootV2Rsa3072Spec, crates/aegis-fido-firmware/src/efuse_safety_lock.rs)
+    # e `download_mode_disabled` (campo de EfuseSafetyStatusReport, mesmo
+    # arquivo) — especificacao de eFuse Secure Boot, sem comportamento.
     b"pairing_open window_s=",  # TEST_PAIRING_OPEN ack (ancorado; nu pega meta rlib)
     b"led_set ",             # TEST_LED_* ack (+ espaço p/ não pegar led_setting*)
     b"led_state screen=",    # TEST_LED_STATE
