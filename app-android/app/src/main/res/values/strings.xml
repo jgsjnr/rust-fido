@@ -256,6 +256,10 @@
     <string name="totp_card_next_code">Next Code (+1)</string>
     <string name="totp_card_copy">Copy code</string>
     <string name="totp_card_counter">Counter #%1$d</string>
+    <string name="totp_source_device">On-device code</string>
+    <string name="totp_source_local">Local code — touch the key to refresh from the device</string>
+    <string name="totp_presence_body">The device denied the code read: presence required. Touch the key, then retry.</string>
+    <string name="presence_retry">Retry after touch</string>
 
     <!-- Key card -->
     <string name="key_card_active">Active</string>
@@ -345,6 +349,7 @@
     <string name="gate_bind_action">Bind device</string>
     <string name="gate_up_title">Press physical button</string>
     <string name="gate_up_body">Hardware device requires User Presence (UP) verification.</string>
+    <string name="keygen_presence_body">The device denied the request: touch the key to prove presence, then retry.</string>
     <string name="gate_pin_title">PIN authentication required</string>
     <string name="gate_pin_body">Hardware device requires PIN authentication.</string>
 
@@ -602,9 +607,9 @@
     <string name="set_backup_dkek">DKEK Quorum</string>
     <string name="set_backup_open">Open Backup Central</string>
 
-    <!-- Settings: OTA -->
+    <!-- Settings: OTA (channel metadata — NOT the connected key version) -->
     <string name="set_ota_title">OTA Firmware Update</string>
-    <string name="set_ota_fw">Firmware v3.4.0-esp32s3</string>
+    <string name="set_ota_fw">Firmware channel %1$s</string>
     <string name="set_ota_desc">Ed25519 signature and anti-rollback verification active.</string>
     <string name="set_ota_channel">Channel:</string>
     <string name="ota_stable">Stable (Production)</string>
@@ -612,9 +617,9 @@
     <string name="ota_check">Check for Updates</string>
     <string name="ota_checking">Checking...</string>
     <string name="ota_open">Open OTA Panel</string>
-    <string name="ota_status_initial">Firmware v3.4.0-esp32s3 signed and verified.</string>
+    <string name="ota_status_initial">Channel release %1$s signed and verified.</string>
     <string name="ota_checking_manifest">Checking signed server manifest...</string>
-    <string name="ota_latest">Security key runs the latest firmware (v3.4.0-esp32s3, %1$s).</string>
+    <string name="ota_latest">Channel release %1$s is the latest signed firmware (%2$s).</string>
 
     <!-- Settings: rescue -->
     <string name="set_rescue_section">Rescue Diagnostics and Audit</string>
@@ -675,8 +680,8 @@
     <string name="set_piv_title">Smart Card (PIV / Certificates)</string>
     <string name="set_piv_desc">Digital certificates and authentication slots (NIST SP 800-73-4).</string>
 
-    <!-- Settings: footer -->
-    <string name="set_foot_app">AegisKey App · v0.1.0</string>
+    <!-- Settings: footer (app version injected from BuildConfig — never hardcoded) -->
+    <string name="set_foot_app">AegisKey App · v%1$s</string>
     <string name="set_foot_tag">Hardware security with complete transparency and open source.</string>
 
     <!-- Settings: hardware PIN dialog -->
@@ -769,6 +774,37 @@
     <string name="touch_need_pin">PIN required. Unlock the session to change touch.</string>
     <string name="touch_no_slot">Credential not found on the key.</string>
     <string name="touch_fail">Touch not changed: %1$s</string>
+    <!-- Click-through F1: onboarding errors (were hardcoded PT in ViewModel) -->
+    <string name="onb_err_no_selection">No security key selected. Choose your AegisKey from the list below.</string>
+    <string name="onb_err_connect_failed">Could not connect to the security key. Check that it is powered on and near the phone.</string>
+    <string name="onb_err_usb">Error connecting USB key: %1$s</string>
+    <string name="onb_err_usb_default">Check the OTG connection.</string>
+    <string name="onb_err_bind_failed">Could not bind the security key: %1$s</string>
+    <string name="onb_err_bind_default">Try again by pressing the key button.</string>
+    <!-- Click-through F1: OATH repository errors (were hardcoded PT in repository) -->
+    <string name="oath_err_secret_size">OATH secret must contain between 10 and 64 bytes</string>
+    <string name="oath_err_no_response_enroll">No response from the security key for OATH enrollment</string>
+    <string name="oath_err_rejected_enroll">Security key rejected OATH enrollment: %1$s</string>
+    <string name="oath_err_no_response_delete">No response from the security key for TOTP deletion</string>
+    <string name="oath_err_rejected_delete">Security key rejected TOTP deletion: %1$s</string>
+    <string name="oath_err_not_found">OATH account not found</string>
+    <string name="oath_err_hot_only">Only counter-based HOTP accounts support manual increment</string>
+    <string name="oath_err_no_key">Connect your AegisKey before adding a code.</string>
+    <string name="oath_err_enroll_failed">Could not enroll the code: %1$s</string>
+    <string name="oath_err_delete_failed">Could not delete: %1$s</string>
+    <!-- Click-through F4: fail-closed key generation while locked -->
+    <string name="vault_err_guard_locked">Secure Guard is locked. Unlock Secure Guard to generate keys.</string>
+    <string name="vault_generate_locked_hint">Unlock Secure Guard to generate keys. Key generation stays disabled while locked.</string>
+    <!-- Click-through F3: Wi-Fi test surfaces networks seen -->
+    <string name="set_wifi_nets_seen">Networks seen: %1$s</string>
+    <string name="set_wifi_nets_none">No networks seen.</string>
+    <string name="set_wifi_fail_hint">No response at 192.168.4.1. Connect to AegisKey-AP. %1$s</string>
+    <!-- Click-through F2: PIV destination -->
+    <string name="piv_title">Smart Card (PIV)</string>
+    <string name="piv_desc">NIST SP 800-73-4 slots on this security key. Read-only list; PIN/PUK enrollment happens per slot.</string>
+    <string name="piv_empty">No PIV slots reported by the security key.</string>
+    <string name="piv_slot_label">Slot %1$s</string>
+    <string name="piv_enroll_hint">Select a vault entry to enroll the PIV PIN/PUK for that slot.</string>
     <!-- OOB-assisted BLE pairing (0x42, CAPABILITY_DIET §10) -->
     <string name="wizard_title_oob">Automatic Secure Exchange</string>
     <string name="wizard_desc_oob">The phone and key exchange a one-time code over USB.</string>

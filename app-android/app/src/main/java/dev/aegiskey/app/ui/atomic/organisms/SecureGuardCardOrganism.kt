@@ -221,9 +221,9 @@ fun SecureGuardCardOrganism(
                     fontWeight = FontWeight.Medium
                 )
             }
-            if (uiState.successMessage != null) {
+            if (uiState.successMessage != null || uiState.successResId != null) {
                 Text(
-                    text = uiState.successMessage,
+                    text = uiState.successResId?.let { stringResource(it) } ?: uiState.successMessage.orEmpty(),
                     color = Color(0xFF16A34A),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium

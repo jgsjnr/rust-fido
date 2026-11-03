@@ -3,6 +3,7 @@ package dev.aegiskey.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.aegiskey.app.ble.DevicePresence.isNeedUpDenial
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
@@ -11,6 +12,7 @@ import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.ConnectionTransportType
+import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
@@ -56,9 +58,22 @@ data class KeyVaultUiState(
     val healthCheckStatus: String? = null,
     val userMessage: String? = null,
     val errorMessage: String? = null,
+    /**
+     * Click-through F1/F4: fail-closed denials resolve through `strings.xml`
+     * (EN + values-pt). [errorResId] wins when set; [errorMessage] stays as
+     * the dynamic fallback (exception detail) so unit tests can assert the
+     * resource without a Context.
+     */
+    val errorResId: Int? = null,
     val isKeyConnected: Boolean = false,
     val isGuardUnlocked: Boolean = true,
     val guardState: SecureGuardStateEnum = SecureGuardStateEnum.UNLOCKED,
+    /**
+     * Finding A3: outstanding device presence request. While non-null the
+     * key-gen sheet stays open showing the "touch the key" prompt; success
+     * and error messages stay null so nothing closes or succeeds silently.
+     */
+    val presenceRequest: PresenceRequest? = null,
     /**
      * Per-key touch toggle state. While a SET is in flight
      * [isTouchActionLoading] is true; [touchOutcome] carries the structured
@@ -81,8 +96,20 @@ private data class KeyVaultInternalState(
     val healthCheckStatus: String? = null,
     val userMessage: String? = null,
     val errorMessage: String? = null,
+    val errorResId: Int? = null,
+    val presenceRequest: PresenceRequest? = null,
+    val pendingKeyGen: PendingKeyGen? = null,
     val touchActionSlot: Int? = null,
     val touchOutcome: TouchPolicy.TouchOutcome? = null
+)
+
+/** Key-gen params retained so the user can retry after touching the key. */
+private data class PendingKeyGen(
+    val keyId: String,
+    val label: String,
+    val type: AccessKeyType,
+    val algorithmOrCurve: String,
+    val extraParam: String
 )
 
 class KeyVaultViewModel(
@@ -139,9 +166,11 @@ class KeyVaultViewModel(
             healthCheckStatus = internal.healthCheckStatus,
             userMessage = internal.userMessage,
             errorMessage = internal.errorMessage,
+            errorResId = internal.errorResId,
             isKeyConnected = isConnected,
             isGuardUnlocked = isGuardUnlocked,
             guardState = guardStatus?.state ?: SecureGuardStateEnum.UNLOCKED,
+            presenceRequest = internal.presenceRequest,
             isTouchActionLoading = internal.touchActionSlot != null,
             touchOutcome = internal.touchOutcome,
         )
@@ -173,7 +202,7 @@ class KeyVaultViewModel(
     }
 
     fun clearMessages() {
-        _internalState.update { it.copy(userMessage = null, errorMessage = null) }
+        _internalState.update { it.copy(userMessage = null, errorMessage = null, errorResId = null) }
     }
 
     fun openKeyDetail(slotId: Int) {
@@ -221,15 +250,25 @@ class KeyVaultViewModel(
         val currentKey = activeKey.value
         val targetKeyId = currentKey?.id ?: "default-aegis-key"
 
+        // Click-through F4: fail-closed while LOCKED. Key generation never
+        // reaches the wire on a locked session; the screen disables the
+        // button and explains via strings.xml (vault_generate_locked_hint).
+        // This branch is the second gate for programmatic callers.
         val guardStatus = guardStatusFlow.value
         val isGuardUnlocked = guardStatus == null || guardStatus.isUnlocked || guardStatus.state == SecureGuardStateEnum.UNLOCKED || SecureGuardRepositoryImpl.lastVerifiedSessionPin != null
         if (!isGuardUnlocked) {
-            _internalState.update { it.copy(errorMessage = "Secure Guard está bloqueado. Desbloqueie o Secure Guard para gerar chaves.") }
+            _internalState.update { it.copy(errorMessage = null, errorResId = dev.aegiskey.app.R.string.vault_err_guard_locked) }
             return
         }
 
         viewModelScope.launch {
-            _internalState.update { it.copy(isLoading = true) }
+            _internalState.update {
+                it.copy(
+                    isLoading = true,
+                    // A new attempt supersedes any outstanding presence prompt.
+                    presenceRequest = null
+                )
+            }
             try {
                 val result = generateAccessKeyUseCase(
                     keyId = targetKeyId,
@@ -240,19 +279,61 @@ class KeyVaultViewModel(
                 )
                 result.onSuccess { entry ->
                     _internalState.update {
-                        it.copy(userMessage = "Chave \"${entry.label}\" gerada e protegida com sucesso no cofre!")
+                        it.copy(
+                            userMessage = "Chave \"${entry.label}\" gerada e protegida com sucesso no cofre!",
+                            presenceRequest = null,
+                            pendingKeyGen = null
+                        )
                     }
                     refreshVault()
                     loadHardwareDiagnostics()
                 }.onFailure { err ->
-                    _internalState.update {
-                        it.copy(errorMessage = "Não foi possível gerar a chave: ${err.localizedMessage ?: "Verifique a chave física."}")
+                    // Finding A3: NEED_UP keeps the sheet open with the
+                    // presence prompt (pending params retained for retry);
+                    // anything else closes with an honest error.
+                    if (err.isNeedUpDenial()) {
+                        _internalState.update {
+                            it.copy(
+                                presenceRequest = PresenceRequest(op = "key-gen"),
+                                pendingKeyGen = PendingKeyGen(
+                                    keyId = targetKeyId,
+                                    label = label,
+                                    type = type,
+                                    algorithmOrCurve = algorithmOrCurve,
+                                    extraParam = extraParam
+                                )
+                            )
+                        }
+                    } else {
+                        _internalState.update {
+                            it.copy(
+                                errorMessage = "Não foi possível gerar a chave: ${err.localizedMessage ?: "Verifique a chave física."}",
+                                pendingKeyGen = null
+                            )
+                        }
                     }
                 }
             } finally {
                 _internalState.update { it.copy(isLoading = false) }
             }
         }
+    }
+
+    /** Retries the denied key-gen after the user touched the key. */
+    fun retryPendingKeyGen() {
+        val pending = _internalState.value.pendingKeyGen ?: return
+        _internalState.update { it.copy(presenceRequest = null) }
+        createNewKey(
+            label = pending.label,
+            type = pending.type,
+            algorithmOrCurve = pending.algorithmOrCurve,
+            extraParam = pending.extraParam
+        )
+    }
+
+    /** Dismisses the presence prompt (user cancelled; pending gen dropped). */
+    fun dismissPresenceRequest() {
+        _internalState.update { it.copy(presenceRequest = null, pendingKeyGen = null) }
     }
 
     fun generateKey(

@@ -263,7 +263,8 @@ class EncryptedKeysStore(private val context: Context?) {
                         requiresTouchToRefresh = obj.optBoolean("requiresTouchToRefresh", false),
                         isHotp = obj.optBoolean("isHotp", false),
                         counter = obj.optLong("counter", 0L),
-                        algorithm = obj.optString("algorithm", "SHA1")
+                        algorithm = obj.optString("algorithm", "SHA1"),
+                        isOnDeviceBacked = obj.optBoolean("onDeviceBacked", false)
                     )
                 )
             }
@@ -289,6 +290,7 @@ class EncryptedKeysStore(private val context: Context?) {
                 put("isHotp", item.isHotp)
                 put("counter", item.counter)
                 put("algorithm", item.algorithm)
+                put("onDeviceBacked", item.isOnDeviceBacked)
             }
             array.put(obj)
         }

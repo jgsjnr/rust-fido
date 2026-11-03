@@ -1,5 +1,6 @@
 package dev.aegiskey.app.data.repository
 
+import dev.aegiskey.app.ble.DevicePresence
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.cbor.SecureGuardCbor
@@ -11,6 +12,7 @@ import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
+import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
@@ -358,11 +360,18 @@ class KeyVaultRepositoryImpl(
                 return Pair(slot, resp)
             }
 
-            // Se for erro de permissão/PIN (0x36, 0x02, 0x05, 0x01) ou resposta nula:
+            // Finding A3: a NEED_UP denial must surface as a presence request
+            // (typed carrier for the "touch the key" prompt). It must never
+            // fabricate a success below or close the sheet silently.
+            if (DevicePresence.isNeedUpStatus(status)) {
+                throw DevicePresence.NeedUpRequiredException("key-gen")
+            }
+
+            // Se for erro de permissão/PIN (0x36, 0x02, 0x05) ou resposta nula:
+            // (NEED_UP nunca chega aqui: lançado acima como presença.)
             if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED ||
                 status == VendorOps.STATUS_NEED_PIN ||
                 status == VendorOps.STATUS_NEED_BINDING ||
-                status == VendorOps.STATUS_NEED_UP ||
                 status == VendorOps.STATUS_OPERATION_DENIED ||
                 resp == null
             ) {
@@ -503,6 +512,10 @@ class KeyVaultRepositoryImpl(
                         } else if (respStatus == VendorOps.STATUS_NO_SLOT) {
                             // Slot ocupado no chip físico; tenta o próximo slot livre
                             continue
+                        } else if (DevicePresence.isNeedUpStatus(respStatus)) {
+                            // Finding A3: presença negada — mesma sheet de
+                            // geração, mesmo prompt "toque na chave".
+                            throw DevicePresence.NeedUpRequiredException("wallet-gen")
                         } else {
                             throw IllegalStateException("Erro ao gerar carteira: " + VendorOps.statusLabel(respStatus))
                         }
@@ -515,7 +528,12 @@ class KeyVaultRepositoryImpl(
                         val resp = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
                             ?: throw IllegalStateException("Sem resposta da chave para criação de carteira")
                         if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                            throw IllegalStateException("Erro ao criar carteira: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                            val wStatus = resp[1].toInt() and 0xFF
+                            // Finding A3: presença negada vira prompt, nunca erro genérico silencioso.
+                            if (DevicePresence.isNeedUpStatus(wStatus)) {
+                                throw DevicePresence.NeedUpRequiredException("wallet-gen")
+                            }
+                            throw IllegalStateException("Erro ao criar carteira: " + VendorOps.statusLabel(wStatus))
                         }
                     }
 
@@ -903,7 +921,7 @@ class KeyVaultRepositoryImpl(
             )
 
             HardwareDeviceDiagnostics(
-                firmwareVersion = "v2.4.1-rc1",
+                firmwareVersion = firmwareVersion,
                 transportChannel = transportChannel,
                 totalVaultItems = totalItems,
                 freeSlotsRemaining = freeSlots,

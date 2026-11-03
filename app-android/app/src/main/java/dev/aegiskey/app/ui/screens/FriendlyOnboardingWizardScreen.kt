@@ -203,7 +203,7 @@ fun FriendlyOnboardingWizardScreen(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        if (!uiState.errorMessage.isNullOrBlank()) {
+        if (!uiState.errorMessage.isNullOrBlank() || uiState.errorResId != null) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
@@ -221,7 +221,11 @@ fun FriendlyOnboardingWizardScreen(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = uiState.errorMessage ?: "",
+                        text = uiState.errorResId?.let { resId ->
+                            val args = uiState.errorArgs
+                            if (args.isEmpty()) stringResource(resId)
+                            else stringResource(resId, args.joinToString("; "))
+                        } ?: uiState.errorMessage ?: "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         maxLines = 2,

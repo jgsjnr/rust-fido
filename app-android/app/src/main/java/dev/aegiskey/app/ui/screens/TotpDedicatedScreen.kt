@@ -51,7 +51,9 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import dev.aegiskey.app.R
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.TotpAccountItem
+import dev.aegiskey.app.ui.atomic.molecules.PhysicalButtonPromptCardMolecule
 import dev.aegiskey.app.ui.atomic.molecules.TotpCodeCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.AddTotpAccountDialogOrganism
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
@@ -105,6 +107,8 @@ fun TotpDedicatedScreen(
 
     LaunchedEffect(uiState.feedbackMessage) {
         uiState.feedbackMessage?.let {
+            // Finding A3: add success closes the sheet (it stayed open while saving).
+            if (showAddDialog && uiState.presenceRequest == null) showAddDialog = false
             snackbarHostState.showSnackbar(it)
             viewModel.clearFeedback()
         }
@@ -112,6 +116,24 @@ fun TotpDedicatedScreen(
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
+            // Finding A3: hard failures close the sheet; NEED_UP never lands
+            // here (it keeps presenceRequest set and the sheet open).
+            if (showAddDialog && uiState.presenceRequest == null) showAddDialog = false
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearFeedback()
+        }
+    }
+
+    // Click-through F1: typed device failures resolve via strings.xml
+    // (EN + values-pt) in the active locale.
+    val localizedError = uiState.errorResId?.let { resId ->
+        val args = uiState.errorArgs
+        if (args.isEmpty() || args.all { it.isBlank() }) stringResource(resId)
+        else stringResource(resId, args.joinToString("; "))
+    }
+    LaunchedEffect(localizedError) {
+        localizedError?.let {
+            if (showAddDialog && uiState.presenceRequest == null) showAddDialog = false
             snackbarHostState.showSnackbar(it)
             viewModel.clearFeedback()
         }
@@ -225,6 +247,39 @@ fun TotpDedicatedScreen(
                 }
             }
 
+            // Finding A3: outstanding device presence request — the existing
+            // "touch the key" prompt instead of silent codes.
+            if (uiState.presenceRequest != null) {
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PhysicalButtonPromptCardMolecule(
+                            instruction = stringResource(R.string.totp_presence_body),
+                            title = stringResource(R.string.gate_up_title),
+                            isSimulatedMode = uiState.activeKey?.transportType == ConnectionTransportType.SIMULATOR,
+                            onSimulateTouch = { viewModel.refreshCodes() },
+                        )
+                        Button(
+                            onClick = { viewModel.retryAfterPresence() },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.presence_retry),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+
             // Empty State
             if (uiState.accounts.isEmpty() && !uiState.isLoading) {
                 item {
@@ -280,6 +335,7 @@ fun TotpDedicatedScreen(
                     onDeleteAccount = {
                         accountToDelete = item
                     },
+                    isOnDeviceBacked = item.isOnDeviceBacked,
                 )
             }
 
@@ -306,8 +362,14 @@ fun TotpDedicatedScreen(
     // Add TOTP Dialog
     if (showAddDialog) {
         AddTotpAccountDialogOrganism(
-            onDismissRequest = { showAddDialog = false },
+            onDismissRequest = {
+                // Finding A3: dismissing with a pending presence drops it.
+                if (uiState.presenceRequest != null) viewModel.dismissPresence()
+                showAddDialog = false
+            },
             onSaveTotp = { issuer, account, secretOrUri, digits, periodSeconds, isHotp ->
+                // Finding A3: no optimistic close; outcome effects close the
+                // sheet on success/hard failure and keep it open on NEED_UP.
                 viewModel.addAccount(
                     issuer = issuer,
                     accountName = account,
@@ -316,7 +378,6 @@ fun TotpDedicatedScreen(
                     periodSeconds = periodSeconds,
                     isHotp = isHotp
                 )
-                showAddDialog = false
             },
             isLoading = uiState.isAddingAccount,
             initialIssuer = scannedIssuer,
@@ -325,6 +386,10 @@ fun TotpDedicatedScreen(
             initialDigits = scannedDigits,
             initialPeriodSeconds = scannedPeriodSeconds,
             initialIsHotp = scannedIsHotp,
+            presenceRequest = uiState.presenceRequest,
+            onRetryAfterPresence = { viewModel.retryAfterPresence() },
+            isSimulatedMode = uiState.activeKey?.transportType == ConnectionTransportType.SIMULATOR,
+            onSimulateTouch = { viewModel.refreshCodes() },
         )
     }
 

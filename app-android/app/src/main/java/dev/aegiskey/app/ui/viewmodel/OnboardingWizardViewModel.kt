@@ -44,7 +44,15 @@ data class OnboardingWizardUiState(
     val keyAlias: String = "Minha Chave Principal",
     val recoveryPin: String = "",
     val errorMessage: String? = null,
-    val isCompleted: Boolean = false
+    /**
+     * Click-through F1: user-facing errors resolve through `strings.xml`
+     * (EN + values-pt). [errorResId] wins when set; [errorMessage] stays as
+     * the dynamic fallback (exception detail) so unit tests can assert the
+     * resource without a Context.
+     */
+    val errorResId: Int? = null,
+    val errorArgs: List<String> = emptyList(),
+    val isCompleted: Boolean = false,
     /**
      * OOB-assisted BLE pairing (`0x42`, CAPABILITY_DIET §10): truthful
      * device answer of the last automatic exchange attempt. Non-blocking:
@@ -111,7 +119,7 @@ class OnboardingWizardViewModel(
     }
 
     fun selectTransport(type: ConnectionTransportType) {
-        _uiState.update { it.copy(selectedTransport = type, errorMessage = null) }
+        _uiState.update { it.copy(selectedTransport = type, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
         val step = _uiState.value.currentStep
         if (step == OnboardingStep.HOLD_PHYSICAL_BUTTON || step == OnboardingStep.DISCOVER_AND_CONNECT) {
             viewModelScope.launch {
@@ -126,34 +134,36 @@ class OnboardingWizardViewModel(
     fun refreshDiscovery() {
         viewModelScope.launch {
             val transport = _uiState.value.selectedTransport
-            _uiState.update { it.copy(errorMessage = null) }
+            _uiState.update { it.copy(errorMessage = null, errorResId = null, errorArgs = emptyList()) }
             stopDiscoveryUseCase()
             startDiscoveryUseCase(transport)
         }
     }
 
     fun setKeyAlias(alias: String) {
-        _uiState.update { it.copy(keyAlias = alias, errorMessage = null) }
+        _uiState.update { it.copy(keyAlias = alias, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
     }
 
     fun setRecoveryPin(pin: String) {
         val sanitized = pin.filter { it.isDigit() }.take(6)
-        _uiState.update { it.copy(recoveryPin = sanitized, errorMessage = null) }
+        _uiState.update { it.copy(recoveryPin = sanitized, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
     }
 
     fun clearError() {
-        _uiState.update { it.copy(errorMessage = null) }
+        _uiState.update { it.copy(errorMessage = null, errorResId = null, errorArgs = emptyList()) }
     }
 
     fun simulateButtonHold5s() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isConnecting = true, errorMessage = null) }
+            _uiState.update { it.copy(isConnecting = true, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
             val result = simulateButtonHoldUseCase()
             _uiState.update {
                 it.copy(
                     isConnecting = false,
                     buttonHoldDetected = result.isSuccess,
-                    errorMessage = result.exceptionOrNull()?.localizedMessage
+                    errorMessage = result.exceptionOrNull()?.localizedMessage,
+                    errorResId = null,
+                    errorArgs = emptyList()
                 )
             }
         }
@@ -165,7 +175,9 @@ class OnboardingWizardViewModel(
             _uiState.update {
                 it.copy(
                     buttonTouchDetected = result.isSuccess,
-                    errorMessage = result.exceptionOrNull()?.localizedMessage
+                    errorMessage = result.exceptionOrNull()?.localizedMessage,
+                    errorResId = null,
+                    errorArgs = emptyList()
                 )
             }
         }
@@ -173,12 +185,14 @@ class OnboardingWizardViewModel(
 
     fun selectCandidateAndConnect(candidate: DiscoveredKeyCandidate) {
         viewModelScope.launch {
-            _uiState.update { it.copy(selectedCandidate = candidate, isConnecting = true, errorMessage = null) }
+            _uiState.update { it.copy(selectedCandidate = candidate, isConnecting = true, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
             val result = connectCandidateUseCase(candidate)
             _uiState.update {
                 it.copy(
                     isConnecting = false,
-                    errorMessage = result.exceptionOrNull()?.localizedMessage
+                    errorMessage = result.exceptionOrNull()?.localizedMessage,
+                    errorResId = null,
+                    errorArgs = emptyList()
                 )
             }
         }
@@ -189,7 +203,7 @@ class OnboardingWizardViewModel(
         when (current) {
             OnboardingStep.WELCOME_TRANSPORT -> {
                 val transport = _uiState.value.selectedTransport
-                _uiState.update { it.copy(currentStep = OnboardingStep.HOLD_PHYSICAL_BUTTON, errorMessage = null) }
+                _uiState.update { it.copy(currentStep = OnboardingStep.HOLD_PHYSICAL_BUTTON, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
                 // Inicia a busca antecipadamente no Passo 2 para que no Passo 3 os dispositivos já estejam presentes
                 viewModelScope.launch {
                     startDiscoveryUseCase(transport)
@@ -201,7 +215,9 @@ class OnboardingWizardViewModel(
                     it.copy(
                         currentStep = OnboardingStep.DISCOVER_AND_CONNECT,
                         buttonHoldDetected = true,
-                        errorMessage = null
+                        errorMessage = null,
+                        errorResId = null,
+                        errorArgs = emptyList()
                     )
                 }
                 viewModelScope.launch {
@@ -223,14 +239,15 @@ class OnboardingWizardViewModel(
                         candidate = DebugHardwareChipMock.getCandidateForTransport(transport)
                     }
                     if (candidate == null) {
-                        // Se não encontrou nenhuma chave ainda, informa de modo amigável
+                        // Fail-closed: no selection keeps the wizard on this step.
+                        // User text resolves via strings.xml (EN + values-pt).
                         _uiState.update {
-                            it.copy(errorMessage = "Nenhuma chave selecionada. Escolha sua AegisKey na lista abaixo.")
+                            it.copy(errorMessage = null, errorResId = R.string.onb_err_no_selection, errorArgs = emptyList())
                         }
                         return@launch
                     }
 
-                    _uiState.update { it.copy(selectedCandidate = candidate, isConnecting = true, errorMessage = null) }
+                    _uiState.update { it.copy(selectedCandidate = candidate, isConnecting = true, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
                     val connectResult = connectCandidateUseCase(candidate)
                     val isMockCandidate = DebugHardwareChipMock.IS_MOCK_ENABLED && DebugHardwareChipMock.isMockCandidate(candidate.id)
                     if (connectResult.isSuccess || isMockCandidate) {
@@ -249,7 +266,9 @@ class OnboardingWizardViewModel(
                         _uiState.update {
                             it.copy(
                                 isConnecting = false,
-                                errorMessage = "Não foi possível conectar à chave. Verifique se ela está ligada e próxima ao celular."
+                                errorMessage = null,
+                                errorResId = R.string.onb_err_connect_failed,
+                                errorArgs = emptyList()
                             )
                         }
                     }
@@ -262,6 +281,10 @@ class OnboardingWizardViewModel(
                 _uiState.update {
                     it.copy(
                         currentStep = OnboardingStep.TOUCH_AND_BIOMETRIC_BIND,
+                        errorMessage = null
+                    )
+                }
+            }
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> {
                 _uiState.update {
                     it.copy(
@@ -301,7 +324,7 @@ class OnboardingWizardViewModel(
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> OnboardingStep.OOB_AUTO_EXCHANGE
             OnboardingStep.NAME_AND_FINISH -> OnboardingStep.TOUCH_AND_BIOMETRIC_BIND
         }
-        _uiState.update { it.copy(currentStep = previous, errorMessage = null) }
+        _uiState.update { it.copy(currentStep = previous, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
     }
 
     fun restoreState(step: OnboardingStep, transport: ConnectionTransportType) {
@@ -323,17 +346,29 @@ class OnboardingWizardViewModel(
 
     fun connectUsbDeviceAndOpenVault(onFinished: () -> Unit) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isConnecting = true, errorMessage = null) }
+            _uiState.update { it.copy(isConnecting = true, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
             val result = pairingWizardRepository.connectUsbDeviceAndRegister()
             result.onSuccess {
                 _uiState.update { it.copy(isConnecting = false, isCompleted = true) }
                 onFinished()
             }.onFailure { error ->
+                val detail = error.localizedMessage?.take(120)?.trim().orEmpty()
                 _uiState.update {
-                    it.copy(
-                        isConnecting = false,
-                        errorMessage = "Erro ao conectar chave USB: ${error.localizedMessage ?: "Verifique a conexão OTG."}"
-                    )
+                    if (detail.isEmpty()) {
+                        it.copy(
+                            isConnecting = false,
+                            errorMessage = null,
+                            errorResId = R.string.onb_err_usb_default,
+                            errorArgs = emptyList()
+                        )
+                    } else {
+                        it.copy(
+                            isConnecting = false,
+                            errorMessage = null,
+                            errorResId = R.string.onb_err_usb,
+                            errorArgs = listOf(detail)
+                        )
+                    }
                 }
             }
         }
@@ -377,26 +412,44 @@ class OnboardingWizardViewModel(
                             OobArmState.Failed(R.string.oob_err_envelope)
                         OobPairing.ArmResult.TransportFailure ->
                             OobArmState.Failed(R.string.oob_err_transport)
+                    }
+                )
+            }
+        }
+    }
+
     fun performBiometricBinding(
         alias: String,
         recoveryPin: String?,
         onCompleted: (ConnectedKeyDevice) -> Unit
     ) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBinding = true, errorMessage = null) }
+            _uiState.update { it.copy(isBinding = true, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
             val cleanAlias = alias.trim().ifBlank { "Minha Chave Principal" }
             val cleanPin = recoveryPin?.trim()?.ifBlank { null }
 
             val result = performBiometricBindingUseCase(cleanAlias, cleanPin)
             result.onSuccess { device ->
-                _uiState.update { it.copy(isBinding = false, isCompleted = true, errorMessage = null) }
+                _uiState.update { it.copy(isBinding = false, isCompleted = true, errorMessage = null, errorResId = null, errorArgs = emptyList()) }
                 onCompleted(device)
             }.onFailure { error ->
+                val detail = error.localizedMessage?.take(120)?.trim().orEmpty()
                 _uiState.update {
-                    it.copy(
-                        isBinding = false,
-                        errorMessage = "Não foi possível vincular a chave: ${error.localizedMessage ?: "Tente novamente pressionando o botão da chave."}"
-                    )
+                    if (detail.isEmpty()) {
+                        it.copy(
+                            isBinding = false,
+                            errorMessage = null,
+                            errorResId = R.string.onb_err_bind_default,
+                            errorArgs = emptyList()
+                        )
+                    } else {
+                        it.copy(
+                            isBinding = false,
+                            errorMessage = null,
+                            errorResId = R.string.onb_err_bind_failed,
+                            errorArgs = listOf(detail)
+                        )
+                    }
                 }
             }
         }

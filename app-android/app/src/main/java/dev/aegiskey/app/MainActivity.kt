@@ -37,10 +37,12 @@ import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.atomic.templates.HubDestination
 import dev.aegiskey.app.ui.atomic.templates.MainHubScaffoldTemplate
+import dev.aegiskey.app.ui.navigation.AppRoutes
 import dev.aegiskey.app.ui.screens.ConnectedKeysRepositoryScreen
 import dev.aegiskey.app.ui.screens.FriendlySettingsAndThemeScreen
 import dev.aegiskey.app.ui.screens.KeyVaultHubScreen
 import dev.aegiskey.app.ui.screens.OnboardingWizardScreen
+import dev.aegiskey.app.ui.screens.PivScreen
 import dev.aegiskey.app.ui.screens.TotpDedicatedScreen
 
 class MainActivity : ComponentActivity() {
@@ -217,28 +219,32 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                     }
 
                     // 3. Devices Tab
-                    composable(HubDestination.KEYS.route) {
+                    composable(AppRoutes.KEYS) {
                         ConnectedKeysRepositoryScreen(
                             viewModel = keysViewModel,
-                            onConnectNewKey = { nav.navigate("onboarding-wizard") }
+                            onConnectNewKey = { nav.navigate(AppRoutes.ONBOARDING_WIZARD) }
                         )
                     }
 
                     // 4. Settings Tab
-                    composable(HubDestination.SETTINGS.route) {
+                    composable(AppRoutes.SETTINGS) {
                         FriendlySettingsAndThemeScreen(
                             themeViewModel = themeViewModel,
                             keysViewModel = keysViewModel,
                             client = client,
                             localeStore = container.localeStore,
-                            onNavigateToOnboarding = { nav.navigate("onboarding-wizard") },
-                            onNavigateToOta2 = { nav.navigate("ota2") },
-                            onNavigateToCaps = { nav.navigate("caps") }
+                            onNavigateToOnboarding = { nav.navigate(AppRoutes.ONBOARDING_WIZARD) },
+                            onNavigateToOta2 = { nav.navigate(AppRoutes.OTA2) },
+                            onNavigateToCaps = { nav.navigate(AppRoutes.CAPS) },
+                            // Click-through F2: previously defaulted to `{}` —
+                            // the PIV card was dead navigation. Now routes to
+                            // the real PIV destination below.
+                            onNavigateToPiv = { nav.navigate(AppRoutes.PIV) }
                         )
                     }
 
                     // Offline firmware update (ota2 engine, no COMMIT)
-                    composable("ota2") {
+                    composable(AppRoutes.OTA2) {
                         val otaTransport =
                             if (client.isReady()) container.bleTransport else container.usbTransport
                         Ota2Screen(
@@ -248,7 +254,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                     }
 
                     // Board capabilities (GET_CAPS 0x3F, read-only, no auth)
-                    composable("caps") {
+                    composable(AppRoutes.CAPS) {
                         val capsTransport =
                             if (client.isReady()) container.bleTransport else container.usbTransport
                         CapsScreen(
@@ -256,8 +262,16 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                         )
                     }
 
+                    // Smart Card (PIV / certificates, NIST SP 800-73-4).
+                    composable(AppRoutes.PIV) {
+                        PivScreen(
+                            viewModel = vaultViewModel,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
                     // Pairing Wizard flow
-                    composable("onboarding-wizard") {
+                    composable(AppRoutes.ONBOARDING_WIZARD) {
                         FriendlyOnboardingWizardScreen(
                             viewModel = onboardingViewModel,
                             onFinished = {

@@ -109,6 +109,7 @@ import androidx.compose.ui.platform.LocalContext
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.di.AppContainer
+import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.ui.RescueOps
 import java.text.SimpleDateFormat
@@ -178,7 +179,7 @@ fun FriendlySettingsAndThemeScreen(
 
     // OTA Firmware Update States
     var otaChecking by remember { mutableStateOf(false) }
-    val otaInitialStatus = stringResource(R.string.ota_status_initial)
+    val otaInitialStatus = stringResource(R.string.ota_status_initial, FirmwareVersion.OTA_CHANNEL_LATEST)
     var otaStatusMessage by remember(otaInitialStatus) { mutableStateOf<String?>(otaInitialStatus) }
     var otaSelectedChannel by remember { mutableStateOf("Stable") }
 
@@ -197,12 +198,14 @@ fun FriendlySettingsAndThemeScreen(
     var showLogsDialog by remember { mutableStateOf(false) }
 
     // Rescue Diagnostics Subsystem States
+    // Click-through F7: version fallback is the documented single source of
+    // truth (FirmwareVersion: device-reported wins, app version otherwise).
     var diagNvsOk by remember { mutableStateOf(true) }
     var diagCryptoOk by remember { mutableStateOf(true) }
     var diagTrngOk by remember { mutableStateOf(true) }
     var diagButtonOk by remember { mutableStateOf(true) }
     var diagCounterOps by remember { mutableLongStateOf(1420L) }
-    var diagFirmwareVersion by remember { mutableStateOf("v0.2.1-esp32s3") }
+    var diagFirmwareVersion by remember { mutableStateOf(FirmwareVersion.appVersion) }
     var diagLastReport by remember { mutableStateOf<FriendlySettingsAndThemeScreenAuditReport?>(null) }
 
     suspend fun executeAuditDiagnostics(): FriendlySettingsAndThemeScreenAuditReport = withContext(Dispatchers.IO) {
@@ -211,7 +214,9 @@ fun FriendlySettingsAndThemeScreen(
         var trngOk = true
         var buttonOk = true
         var counterOps = 1420L
-        var fwVersion = "v0.2.1-esp32s3"
+        // Click-through F7: no stale per-screen default; app version is the
+        // fallback until the live board reports its version below.
+        var fwVersion = FirmwareVersion.appVersion
         var statusText = "Auto-teste 0x2E concluído"
         var panicCount = 0L
         var wipeCount = 0L
@@ -685,13 +690,21 @@ fun FriendlySettingsAndThemeScreen(
                                     wifiTesting = true
                                     wifiTestResult = res.getString(R.string.set_wifi_testing)
                                     try {
-                                        val reachable = withContext(Dispatchers.IO) {
-                                            WifiApi.testConnection("http://192.168.4.1")
+                                        // Click-through F3: bounded detailed probe — a
+                                        // visible success/fail line plus which networks
+                                        // the key sees, never a silent hang.
+                                        val report = withContext(Dispatchers.IO) {
+                                            WifiApi.testConnectionDetailed("http://192.168.4.1")
                                         }
-                                        wifiTestResult = if (reachable) {
-                                            res.getString(R.string.set_wifi_ok)
+                                        val netsLine = if (report.networksSeen.isEmpty()) {
+                                            res.getString(R.string.set_wifi_nets_none)
                                         } else {
-                                            res.getString(R.string.set_wifi_fail)
+                                            res.getString(R.string.set_wifi_nets_seen, report.networksSeen.take(8).joinToString(", "))
+                                        }
+                                        wifiTestResult = if (report.reachable) {
+                                            res.getString(R.string.set_wifi_ok) + " " + netsLine
+                                        } else {
+                                            res.getString(R.string.set_wifi_fail_hint, netsLine)
                                         }
                                     } catch (e: Exception) {
                                         wifiTestResult = res.getString(R.string.set_wifi_test_fail, e.message?.take(48) ?: res.getString(R.string.set_wifi_unknown))
@@ -972,7 +985,9 @@ fun FriendlySettingsAndThemeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = stringResource(R.string.set_ota_fw),
+                                // Click-through F7: channel metadata labeled as
+                                // such — never presented as the key version.
+                                text = stringResource(R.string.set_ota_fw, FirmwareVersion.OTA_CHANNEL_LATEST),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -1039,7 +1054,7 @@ fun FriendlySettingsAndThemeScreen(
                                         withContext(Dispatchers.IO) {
                                             kotlinx.coroutines.delay(600)
                                         }
-                                        otaStatusMessage = res.getString(R.string.ota_latest, otaSelectedChannel)
+                                        otaStatusMessage = res.getString(R.string.ota_latest, FirmwareVersion.OTA_CHANNEL_LATEST, otaSelectedChannel)
                                     } finally {
                                         otaChecking = false
                                     }
@@ -1404,7 +1419,9 @@ fun FriendlySettingsAndThemeScreen(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.set_foot_app),
+                        // Click-through F7: app version from BuildConfig —
+                        // the single fallback source, never hardcoded here.
+                        text = stringResource(R.string.set_foot_app, FirmwareVersion.appVersion),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

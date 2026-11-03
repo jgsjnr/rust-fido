@@ -1,8 +1,10 @@
 package dev.aegiskey.app.data.repository
 
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.ble.DevicePresence
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.bridge.AegisBridge
+import dev.aegiskey.app.R
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.transport.BleKeyTransport
@@ -10,6 +12,7 @@ import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.model.ConnectionTransportType
+import dev.aegiskey.app.domain.model.DeviceError
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.TotpRepository
@@ -60,6 +63,20 @@ class TotpRepositoryImpl(
     private val _remainingSeconds = MutableStateFlow(AegisBridge.remainingSeconds(System.currentTimeMillis() / 1000L))
     override val remainingSeconds: StateFlow<Int> = _remainingSeconds.asStateFlow()
 
+    private val _needUpOp = MutableStateFlow<String?>(null)
+    override val needUpOp: StateFlow<String?> = _needUpOp.asStateFlow()
+
+    override fun clearNeedUpOp() {
+        _needUpOp.value = null
+    }
+
+    /**
+     * Finding A3: deterministic transport seam for unit tests. When set, it
+     * answers vendor ops instead of the real transports. Production leaves it
+     * null (real hardware path unchanged).
+     */
+    internal var vendorOverride: (suspend (opcode: Int, payload: ByteArray) -> ByteArray?)? = null
+
     // Segredos mantidos em memória volátil da sessão para recálculo local dos códigos
     private val volatileSecrets = mutableMapOf<String, ByteArray>()
 
@@ -78,6 +95,9 @@ class TotpRepositoryImpl(
     }
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
+        // Finding A3 test seam: deterministic answers before real transports.
+        vendorOverride?.let { return it(opcode, payload) }
+
         val activeKey = connectedKeysRepository.activeKey.value
         if (activeKey?.isCurrentlyConnected == false) {
             return null
@@ -108,24 +128,48 @@ class TotpRepositoryImpl(
         }
     }
 
-    private suspend fun requestHardwareOtpCode(accountName: String, counterOrTimeStep: Long, digits: Int): String? {
+    /**
+     * Finding A3: honest outcome of an on-device code read. A NEED_UP denial
+     * is reported distinctly so locally-computed codes are never shown as if
+     * they came from the device.
+     */
+    private sealed interface HardwareOtpResult {
+        data class OnDevice(val code: String) : HardwareOtpResult
+        data object NeedUp : HardwareOtpResult
+        data object Unavailable : HardwareOtpResult
+    }
+
+    private fun markNeedUp(op: String) {
+        _needUpOp.value = op
+    }
+
+    private suspend fun requestHardwareOtpCode(accountName: String, counterOrTimeStep: Long, digits: Int): HardwareOtpResult {
         return try {
             val req = VendorOps.oathCodeRequest(name = accountName, challenge = counterOrTimeStep, digits = digits)
-            val resp = sendVendor(VendorOps.OP_OATH_CODE, req) ?: return null
+            val resp = sendVendor(VendorOps.OP_OATH_CODE, req) ?: return HardwareOtpResult.Unavailable
             if (resp.size >= 2 && resp[1].toInt() == VendorOps.STATUS_OK) {
                 val tlv = resp.copyOfRange(2, resp.size)
-                VendorOps.parseOathCodeResponse(tlv)
+                val code = VendorOps.parseOathCodeResponse(tlv)
+                if (code != null) HardwareOtpResult.OnDevice(code) else HardwareOtpResult.Unavailable
+            } else if (DevicePresence.isNeedUpResponse(resp)) {
+                HardwareOtpResult.NeedUp
             } else {
-                null
+                HardwareOtpResult.Unavailable
             }
         } catch (_: Throwable) {
-            null
+            HardwareOtpResult.Unavailable
         }
     }
 
     override suspend fun refreshAccountsAndCodes(keyId: String): Result<List<TotpAccountItem>> = withContext(Dispatchers.IO) {
         runCatching {
             val raw = sendVendor(VendorOps.OP_OATH_LIST, ByteArray(0))
+            // Finding A3: a list denial for lack of presence must surface as
+            // a presence request, never as an empty (or cached-as-fresh) list.
+            if (DevicePresence.isNeedUpResponse(raw)) {
+                markNeedUp("oath-list")
+                throw DevicePresence.NeedUpRequiredException("oath-list")
+            }
             val currentCached = keysStore.loadTotpAccounts(keyId).associateBy { it.id }
 
             val nowSeconds = System.currentTimeMillis() / 1000L
@@ -137,7 +181,16 @@ class TotpRepositoryImpl(
                 val deviceEntries = VendorOps.parseOathList(tlv)
 
                 val resultList = deviceEntries.map { entry ->
-                    val existing = currentCached.values.firstOrNull { it.accountName == entry.name }
+                    // The device reports the composite "issuer:account" name;
+                    // cached items store the split parts (as written by
+                    // addAccount), so match either shape. A missed match
+                    // would silently drop the cached code/counter and mint a
+                    // new id on every refresh.
+                    val existing = currentCached.values.firstOrNull { cached ->
+                        cached.accountName == entry.name ||
+                            (cached.issuer.isNotBlank() &&
+                                "${cached.issuer}:${cached.accountName}" == entry.name)
+                    }
                     val id = existing?.id ?: UUID.randomUUID().toString()
                     val parts = entry.name.split(":", limit = 2)
                     val issuer = if (parts.size > 1) parts[0].trim() else existing?.issuer ?: ""
@@ -151,16 +204,39 @@ class TotpRepositoryImpl(
 
                     val secret = volatileSecrets[id]
                     val timeStepOrCounter = if (isHotp) counter else (nowSeconds / period)
-                    val hwCode = requestHardwareOtpCode(entry.name, timeStepOrCounter, digits)
-
-                    val code = hwCode ?: if (secret != null) {
-                        if (isHotp) {
-                            calculateHotpCode(secret, counter, digits)
-                        } else {
-                            calculateTotpCode(secret, nowSeconds, period, digits)
+                    // Finding A3: label the code source honestly. Only a code
+                    // just returned by the device is on-device-backed; a
+                    // NEED_UP denial falls back to local computation (or the
+                    // cached value) flagged for touch-to-refresh.
+                    var onDeviceBacked = false
+                    var touchToRefresh = false
+                    val code = when (val hw = requestHardwareOtpCode(entry.name, timeStepOrCounter, digits)) {
+                        is HardwareOtpResult.OnDevice -> {
+                            onDeviceBacked = true
+                            hw.code
                         }
-                    } else {
-                        existing?.currentCode ?: "------"
+                        is HardwareOtpResult.NeedUp -> {
+                            markNeedUp("oath-code")
+                            touchToRefresh = true
+                            if (secret != null) {
+                                if (isHotp) {
+                                    calculateHotpCode(secret, counter, digits)
+                                } else {
+                                    calculateTotpCode(secret, nowSeconds, period, digits)
+                                }
+                            } else {
+                                existing?.currentCode ?: "------"
+                            }
+                        }
+                        is HardwareOtpResult.Unavailable -> if (secret != null) {
+                            if (isHotp) {
+                                calculateHotpCode(secret, counter, digits)
+                            } else {
+                                calculateTotpCode(secret, nowSeconds, period, digits)
+                            }
+                        } else {
+                            existing?.currentCode ?: "------"
+                        }
                     }
                     val formatted = formatTotpCode(code)
 
@@ -173,10 +249,11 @@ class TotpRepositoryImpl(
                         remainingSeconds = if (isHotp) 0 else remSecs,
                         periodSeconds = period,
                         digits = digits,
-                        requiresTouchToRefresh = false,
+                        requiresTouchToRefresh = touchToRefresh,
                         isHotp = isHotp,
                         counter = counter,
-                        algorithm = algorithm
+                        algorithm = algorithm,
+                        isOnDeviceBacked = onDeviceBacked
                     )
                 }
 
@@ -220,7 +297,7 @@ class TotpRepositoryImpl(
         runCatching {
             val (resolvedIssuer, resolvedAccount, rawSecret) = parseSecretInput(issuer, accountName, secretOrUri)
             val secretBytes = decodeBase32(rawSecret)
-            require(secretBytes.size in 10..64) { "O segredo OATH deve conter entre 10 e 64 bytes" }
+            if (secretBytes.size !in 10..64) throw DeviceError(R.string.oath_err_secret_size)
 
             val compositeName = if (resolvedIssuer.isNotBlank()) {
                 "$resolvedIssuer:$resolvedAccount"
@@ -243,21 +320,43 @@ class TotpRepositoryImpl(
             )
 
             val resp = sendVendor(VendorOps.OP_OATH_PUT, req)
-                ?: throw IllegalStateException("Sem resposta da chave para cadastro OATH")
+                ?: throw DeviceError(R.string.oath_err_no_response_enroll)
+            // Finding A3: presence denial surfaces as a prompt, never as a
+            // silent close of the add sheet.
+            if (DevicePresence.isNeedUpResponse(resp)) {
+                markNeedUp("oath-put")
+                throw DevicePresence.NeedUpRequiredException("oath-put")
+            }
             if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                throw IllegalStateException("Chave rejeitou o cadastro OATH: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                throw DeviceError(R.string.oath_err_rejected_enroll, VendorOps.statusLabel(resp[1].toInt() and 0xFF))
             }
 
             val nowSeconds = System.currentTimeMillis() / 1000L
             val remSecs = if (isHotp) 0 else AegisBridge.remainingSeconds(nowSeconds)
 
             val timeStepOrCounter = if (isHotp) 0L else (nowSeconds / periodSeconds)
-            val hwCode = requestHardwareOtpCode(compositeName, timeStepOrCounter, digits)
-
-            val code = hwCode ?: if (isHotp) {
-                calculateHotpCode(secretBytes, 0L, digits)
-            } else {
-                calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
+            // Finding A3: honest source labeling for the first code too.
+            var onDeviceBacked = false
+            var touchToRefresh = false
+            val code = when (val hw = requestHardwareOtpCode(compositeName, timeStepOrCounter, digits)) {
+                is HardwareOtpResult.OnDevice -> {
+                    onDeviceBacked = true
+                    hw.code
+                }
+                is HardwareOtpResult.NeedUp -> {
+                    markNeedUp("oath-code")
+                    touchToRefresh = true
+                    if (isHotp) {
+                        calculateHotpCode(secretBytes, 0L, digits)
+                    } else {
+                        calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
+                    }
+                }
+                is HardwareOtpResult.Unavailable -> if (isHotp) {
+                    calculateHotpCode(secretBytes, 0L, digits)
+                } else {
+                    calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
+                }
             }
 
             val accountId = UUID.randomUUID().toString()
@@ -273,10 +372,11 @@ class TotpRepositoryImpl(
                 remainingSeconds = remSecs,
                 periodSeconds = periodSeconds,
                 digits = digits,
-                requiresTouchToRefresh = false,
+                requiresTouchToRefresh = touchToRefresh,
                 isHotp = isHotp,
                 counter = 0L,
-                algorithm = algorithm
+                algorithm = algorithm,
+                isOnDeviceBacked = onDeviceBacked
             )
 
             _accounts.update { current ->
@@ -293,24 +393,46 @@ class TotpRepositoryImpl(
         runCatching {
             val currentList = _accounts.value
             val target = currentList.firstOrNull { it.id == accountId }
-                ?: throw IllegalArgumentException("Conta OATH não encontrada")
-            require(target.isHotp) { "Apenas contas HOTP baseadas em contador suportam incremento manual" }
+                ?: throw DeviceError(R.string.oath_err_not_found)
+            if (!target.isHotp) throw DeviceError(R.string.oath_err_hot_only)
 
             val nextCounter = target.counter + 1
             val compositeName = if (target.issuer.isNotBlank()) "${target.issuer}:${target.accountName}" else target.accountName
-            val hwCode = requestHardwareOtpCode(compositeName, nextCounter, target.digits)
-
-            val secret = volatileSecrets[accountId]
-            val code = hwCode ?: if (secret != null) {
-                calculateHotpCode(secret, nextCounter, target.digits)
-            } else {
-                target.currentCode
+            // Finding A3: a NEED_UP denial here must not silently keep the
+            // stale code; with no local secret there is honestly no new code.
+            var hotpOnDevice = false
+            var hotpTouch = false
+            val code = when (val hw = requestHardwareOtpCode(compositeName, nextCounter, target.digits)) {
+                is HardwareOtpResult.OnDevice -> {
+                    hotpOnDevice = true
+                    hw.code
+                }
+                is HardwareOtpResult.NeedUp -> {
+                    markNeedUp("oath-code")
+                    val secret = volatileSecrets[accountId]
+                    if (secret != null) {
+                        hotpTouch = true
+                        calculateHotpCode(secret, nextCounter, target.digits)
+                    } else {
+                        throw DevicePresence.NeedUpRequiredException("oath-code")
+                    }
+                }
+                is HardwareOtpResult.Unavailable -> {
+                    val secret = volatileSecrets[accountId]
+                    if (secret != null) {
+                        calculateHotpCode(secret, nextCounter, target.digits)
+                    } else {
+                        target.currentCode
+                    }
+                }
             }
 
             val updatedItem = target.copy(
                 counter = nextCounter,
                 currentCode = code,
-                formattedCode = formatTotpCode(code)
+                formattedCode = formatTotpCode(code),
+                requiresTouchToRefresh = hotpTouch,
+                isOnDeviceBacked = hotpOnDevice
             )
 
             _accounts.update { list ->
@@ -330,9 +452,14 @@ class TotpRepositoryImpl(
                 val compositeName = if (target.issuer.isNotBlank()) "${target.issuer}:${target.accountName}" else target.accountName
                 val req = VendorOps.writeTlv(VendorOps.TAG_OATH_NAME, compositeName.toByteArray(Charsets.UTF_8))
                 val resp = sendVendor(VendorOps.OP_OATH_DELETE, req)
-                    ?: throw IllegalStateException("Sem resposta da chave para exclusão TOTP")
+                    ?: throw DeviceError(R.string.oath_err_no_response_delete)
+                // Finding A3: presence denial surfaces as a prompt.
+                if (DevicePresence.isNeedUpResponse(resp)) {
+                    markNeedUp("oath-delete")
+                    throw DevicePresence.NeedUpRequiredException("oath-delete")
+                }
                 if (resp.size >= 2 && resp[1].toInt() != VendorOps.STATUS_OK) {
-                    throw IllegalStateException("Chave rejeitou a exclusão TOTP: " + VendorOps.statusLabel(resp[1].toInt() and 0xFF))
+                    throw DeviceError(R.string.oath_err_rejected_delete, VendorOps.statusLabel(resp[1].toInt() and 0xFF))
                 }
             }
 

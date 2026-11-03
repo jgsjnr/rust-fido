@@ -250,6 +250,23 @@ class HostUsbUartBridgeClient(
             }
 
             val code = conn.responseCode
+            if (code == 428) {
+                // Finding A2/A3: the host bridge honestly reports a presence
+                // denial as HTTP 428 with {"need_up": true, "status": 1}.
+                // Surface it as raw [op, status] bytes so repository status
+                // checks see NEED_UP instead of a null (transport miss).
+                // Any unparseable body falls back to null (flag tolerated).
+                val needUp = try {
+                    val errBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    val errJson = JSONObject(errBody)
+                    errJson.optBoolean("need_up", errJson.optInt("status", -1) == 0x01)
+                } catch (_: Throwable) {
+                    false
+                }
+                conn.disconnect()
+                if (needUp) return@withContext byteArrayOf(opcode.toByte(), 0x01.toByte())
+                return@withContext null
+            }
             if (code !in 200..299) {
                 conn.disconnect()
                 return@withContext null
@@ -262,7 +279,17 @@ class HostUsbUartBridgeClient(
                 val respBody = conn.inputStream.bufferedReader().use { it.readText() }.trim()
                 if (respBody.startsWith("{")) {
                     val respJson = JSONObject(respBody)
-                    when {
+                    // Finding A2/A3: a denial body carries no payload fields,
+                    // only {"ok": false, "status": 1, "need_up": true}. Map it
+                    // to [op, status] instead of null so NEED_UP surfaces.
+                    if (respJson.optBoolean("need_up", false) &&
+                        !respJson.has("response_hex") &&
+                        !respJson.has("data_hex") &&
+                        !respJson.has("payload_hex")
+                    ) {
+                        val denialStatus = respJson.optInt("status", 0x01)
+                        byteArrayOf(opcode.toByte(), denialStatus.toByte())
+                    } else when {
                         respJson.has("response_hex") -> respJson.getString("response_hex").hexToByteArray()
                         respJson.has("data_hex") -> respJson.getString("data_hex").hexToByteArray()
                         respJson.has("payload_hex") -> {

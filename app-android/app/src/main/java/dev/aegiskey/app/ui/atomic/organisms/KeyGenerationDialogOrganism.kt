@@ -29,6 +29,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
+import dev.aegiskey.app.ui.atomic.molecules.PhysicalButtonPromptCardMolecule
+import dev.aegiskey.app.ui.viewmodel.PresenceRequest
 
 data class KeyTypeOption(
     val type: AccessKeyType,
@@ -153,6 +156,15 @@ fun KeyGenerationDialogOrganism(
     onDismissRequest: () -> Unit,
     onConfirm: (label: String, type: AccessKeyType, algorithmOrCurve: String, extraParam: String) -> Unit,
     isLoading: Boolean = false,
+    /**
+     * Finding A3: outstanding device presence request. While non-null the
+     * dialog stays open and shows the existing "touch the key" prompt with a
+     * retry action instead of closing silently.
+     */
+    presenceRequest: PresenceRequest? = null,
+    onRetryAfterPresence: (() -> Unit)? = null,
+    isSimulatedMode: Boolean = false,
+    onSimulateTouch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var accountName by remember { mutableStateOf("") }
@@ -192,6 +204,30 @@ fun KeyGenerationDialogOrganism(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (presenceRequest != null) {
+                    PhysicalButtonPromptCardMolecule(
+                        instruction = stringResource(R.string.keygen_presence_body),
+                        title = stringResource(R.string.gate_up_title),
+                        isSimulatedMode = isSimulatedMode,
+                        onSimulateTouch = onSimulateTouch,
+                    )
+                    if (onRetryAfterPresence != null) {
+                        OutlinedButton(
+                            onClick = onRetryAfterPresence,
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().height(38.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.presence_retry),
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value = accountName,

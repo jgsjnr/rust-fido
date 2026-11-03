@@ -2,6 +2,7 @@ package dev.aegiskey.app.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
@@ -28,6 +29,13 @@ data class SecureGuardUiState(
     val status: SecureGuardStatus = SecureGuardStatus(),
     val errorMessage: String? = null,
     val successMessage: String? = null,
+    /**
+     * Click-through F1: success text resolves through `strings.xml`
+     * (EN + values-pt). [successResId] wins when set; [successMessage]
+     * stays as the dynamic fallback so unit tests can assert the resource
+     * without a Context.
+     */
+    val successResId: Int? = null,
     val generatedRecoveryCode: String? = null,
     val isUnlockPromptOpen: Boolean = false
 )
@@ -214,14 +222,15 @@ class SecureGuardViewModel(
 
     fun provision(pin: String, recoveryCode: String? = null, policy: SecureGuardPolicy? = null) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null, successResId = null) }
             provisionSecureGuardUseCase(pin, recoveryCode, policy)
                 .onSuccess { rc ->
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             generatedRecoveryCode = rc,
-                            successMessage = "Secure Guard provisionado com sucesso!",
+                            successMessage = null,
+                            successResId = R.string.guard_provision_success,
                             isUnlockPromptOpen = false,
                             status = it.status.copy(
                                 state = SecureGuardStateEnum.UNLOCKED,
@@ -244,7 +253,7 @@ class SecureGuardViewModel(
 
     fun unlock(pin: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null, successResId = null) }
             unlockSecureGuardUseCase(pin)
                 .onSuccess { st ->
                     _uiState.update {
@@ -255,7 +264,8 @@ class SecureGuardViewModel(
                             status = st,
                             generatedRecoveryCode = st.lastGeneratedRecoveryCode
                                 ?: it.generatedRecoveryCode,
-                            successMessage = if (st.isUnlocked) "Cofre desbloqueado com sucesso!" else null,
+                            successMessage = null,
+                            successResId = if (st.isUnlocked) R.string.guard_unlock_success else null,
                             isUnlockPromptOpen = false
                         )
                     }
@@ -412,6 +422,6 @@ class SecureGuardViewModel(
     }
 
     fun clearMessages() {
-        _uiState.update { it.copy(errorMessage = null, successMessage = null) }
+        _uiState.update { it.copy(errorMessage = null, successMessage = null, successResId = null) }
     }
 }

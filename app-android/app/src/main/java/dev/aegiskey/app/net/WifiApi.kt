@@ -176,24 +176,59 @@ object WifiApi {
      * Teste de conexão com fallback rápido (1200ms por host) para suportar
      * tanto conexões diretas ao SoftAP (192.168.4.1) quanto emulador (10.0.2.2:5678).
      */
-    fun testConnection(baseUrl: String = DEFAULT_BASE_URL): Boolean {
+    fun testConnection(baseUrl: String = DEFAULT_BASE_URL): Boolean =
+        testConnectionDetailed(baseUrl).reachable
+
+    /**
+     * Click-through F3: bounded Wi-Fi test that ALWAYS surfaces a visible
+     * result. Returns reachability plus which endpoint answered and which
+     * networks the key currently sees (best-effort `GET /wifi/nets`).
+     * Per-attempt timeouts are short and the whole probe is capped so the
+     * settings card never hangs silently past the observation window.
+     */
+    data class WifiTestReport(
+        val reachable: Boolean,
+        val endpoint: String? = null,
+        val latencyMs: Long = 0L,
+        val networksSeen: List<String> = emptyList(),
+    )
+
+    fun testConnectionDetailed(
+        baseUrl: String = DEFAULT_BASE_URL,
+        perAttemptTimeoutMs: Int = 900,
+        overallTimeoutMs: Long = 4000L,
+    ): WifiTestReport {
+        val deadline = System.currentTimeMillis() + overallTimeoutMs
         for (targetUrl in candidateUrls(baseUrl)) {
             val endpoints = listOf("/status", "/bridge/info", "/wifi/nets")
             for (ep in endpoints) {
+                if (System.currentTimeMillis() > deadline) {
+                    return WifiTestReport(reachable = false, networksSeen = emptyList())
+                }
+                val start = System.currentTimeMillis()
                 try {
                     val conn = open("$targetUrl$ep", "GET", "application/json").apply {
-                        connectTimeout = 1200
-                        readTimeout = 1200
+                        connectTimeout = perAttemptTimeoutMs
+                        readTimeout = perAttemptTimeoutMs
                     }
                     val code = conn.responseCode
                     conn.disconnect()
                     if (code in 200..599) {
-                        return true
+                        val nets = runCatching {
+                            if (System.currentTimeMillis() > deadline) emptyList()
+                            else getWifiNets(baseUrl)
+                        }.getOrDefault(emptyList())
+                        return WifiTestReport(
+                            reachable = true,
+                            endpoint = "$targetUrl$ep",
+                            latencyMs = System.currentTimeMillis() - start,
+                            networksSeen = nets,
+                        )
                     }
                 } catch (_: Exception) {}
             }
         }
-        return false
+        return WifiTestReport(reachable = false, networksSeen = emptyList())
     }
 
     private fun <T> executeWithFallback(baseUrl: String, block: (String) -> T): T {

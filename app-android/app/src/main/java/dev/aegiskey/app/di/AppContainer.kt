@@ -385,6 +385,7 @@ class AppContainer(val context: Context) {
             securityService = securityService,
             incrementHotpCounterUseCase = incrementHotpCounterUseCase,
             keysStore = keysStore,
+            totpRepository = totpRepository,
         )
     }
 

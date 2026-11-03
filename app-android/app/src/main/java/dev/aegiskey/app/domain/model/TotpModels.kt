@@ -12,5 +12,12 @@ data class TotpAccountItem(
     val requiresTouchToRefresh: Boolean = false,
     val isHotp: Boolean = false,
     val counter: Long = 0L,
-    val algorithm: String = "SHA1"
+    val algorithm: String = "SHA1",
+    /**
+     * Finding A3: true only when [currentCode] was just returned by the
+     * device (OP_OATH_CODE). False (fail-safe default, including all cached
+     * items of unknown provenance) means the code was computed locally or is
+     * stale: the UI must label it honestly instead of implying device origin.
+     */
+    val isOnDeviceBacked: Boolean = false
 )

@@ -59,9 +59,11 @@ import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.ErrorLockedRecovery
+import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.HardwareDeviceDiagnostics
 import dev.aegiskey.app.domain.model.VaultKeyEntry
+import dev.aegiskey.app.touchpolicy.TouchPolicy
 import dev.aegiskey.app.ui.atomic.molecules.VaultEntryCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.organisms.KeyGenerationDialogOrganism
@@ -105,6 +107,9 @@ fun KeyVaultHubScreen(
 
     LaunchedEffect(uiState.userMessage) {
         uiState.userMessage?.let {
+            // Finding A3: key-gen success closes the sheet (it stayed open
+            // while loading instead of closing silently on confirm).
+            if (showCreateDialog && uiState.presenceRequest == null) showCreateDialog = false
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessages()
         }
@@ -112,9 +117,48 @@ fun KeyVaultHubScreen(
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
+            // Finding A3: hard failures close the sheet; NEED_UP never lands
+            // here (it keeps presenceRequest set and the sheet open).
+            if (showCreateDialog && uiState.presenceRequest == null) showCreateDialog = false
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessages()
         }
+    }
+
+    // Per-key touch outcome: structured result rendered via strings.xml
+    // (PT+EN); NEED_PIN surfaces through the existing unlock flow.
+    val touchAppliedOnText = stringResource(R.string.touch_on_ok)
+    val touchAppliedOffText = stringResource(R.string.touch_off_ok)
+    val touchNeedPinText = stringResource(R.string.touch_need_pin)
+    val touchNoSlotText = stringResource(R.string.touch_no_slot)
+    val touchFailFormat = stringResource(R.string.touch_fail)
+    val guardLockedError = uiState.errorResId?.let { stringResource(it) }
+    LaunchedEffect(guardLockedError) {
+        guardLockedError?.let {
+            // Click-through F4: fail-closed denial surfaces the localized
+            // explanation; the sheet never opens while locked.
+            if (showCreateDialog && uiState.presenceRequest == null) showCreateDialog = false
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessages()
+        }
+    }
+    LaunchedEffect(uiState.touchOutcome) {
+        val outcome = uiState.touchOutcome ?: return@LaunchedEffect
+        when (outcome) {
+            is TouchPolicy.TouchOutcome.Applied ->
+                snackbarHostState.showSnackbar(
+                    if (outcome.requireTouch) touchAppliedOnText else touchAppliedOffText
+                )
+            TouchPolicy.TouchOutcome.NeedPin -> {
+                snackbarHostState.showSnackbar(touchNeedPinText)
+                secureGuardViewModel?.openUnlockPrompt()
+            }
+            TouchPolicy.TouchOutcome.NoSlot ->
+                snackbarHostState.showSnackbar(touchNoSlotText)
+            is TouchPolicy.TouchOutcome.Failed ->
+                snackbarHostState.showSnackbar(touchFailFormat.format(outcome.label))
+        }
+        viewModel.consumeTouchOutcome()
     }
 
     // Auto-reload from hardware when key connects and Secure Guard is unlocked
@@ -223,7 +267,11 @@ fun KeyVaultHubScreen(
             }
 
             // 3. Primary Button: Generate New Key in Hardware (synchronized PIN prompt if session locked)
+            // Click-through F4: fail-closed while LOCKED — the button is
+            // disabled on connection alone; it enables only when the guard
+            // session is unlocked, with the hint below explaining why.
             item {
+                val canGenerate = uiState.isKeyConnected && uiState.isGuardUnlocked && !uiState.isLoading
                 Button(
                     onClick = {
                         if (!uiState.isGuardUnlocked && secureGuardViewModel != null) {
@@ -232,7 +280,7 @@ fun KeyVaultHubScreen(
                             showCreateDialog = true
                         }
                     },
-                    enabled = uiState.isKeyConnected && !uiState.isLoading,
+                    enabled = canGenerate,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -255,6 +303,16 @@ fun KeyVaultHubScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                if (uiState.isKeyConnected && !uiState.isGuardUnlocked) {
+                    Text(
+                        text = stringResource(R.string.vault_generate_locked_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                    )
                 }
             }
 
@@ -479,12 +537,22 @@ fun KeyVaultHubScreen(
     // Key Generation Dialog
     if (showCreateDialog) {
         KeyGenerationDialogOrganism(
-            onDismissRequest = { showCreateDialog = false },
-            onConfirm = { label, type, curve, extra ->
-                viewModel.generateKey(label, type, curve, extra)
+            onDismissRequest = {
+                // Finding A3: dismissing with a pending presence drops it.
+                if (uiState.presenceRequest != null) viewModel.dismissPresenceRequest()
                 showCreateDialog = false
             },
+            onConfirm = { label, type, curve, extra ->
+                // Finding A3: no optimistic close here; the outcome effects
+                // above close the sheet on success/hard failure and keep it
+                // open with the "touch the key" prompt on NEED_UP.
+                viewModel.generateKey(label, type, curve, extra)
+            },
             isLoading = uiState.isGeneratingKey,
+            presenceRequest = uiState.presenceRequest,
+            onRetryAfterPresence = { viewModel.retryPendingKeyGen() },
+            isSimulatedMode = uiState.activeKey?.transportType == ConnectionTransportType.SIMULATOR,
+            onSimulateTouch = { viewModel.simulateTouchIfNeeded() },
         )
     }
 
@@ -571,7 +639,10 @@ private fun HardwareManagerSummaryPanel(
     onToggleExpand: () -> Unit,
     onRunQuickCheck: () -> Unit,
 ) {
-    val fwVersion = diagnostics?.firmwareVersion ?: "v0.2.1-esp32s3"
+    // Click-through F7: single source of truth — device-reported wins,
+    // app version is the documented fallback (never a stale per-screen
+    // default). Slots derive from FirmwareVersion.MAX_SLOTS (32).
+    val fwVersion = FirmwareVersion.resolve(diagnostics?.firmwareVersion)
     val channel = when (activeTransport) {
         ConnectionTransportType.BLE -> stringResource(R.string.transport_ble)
         ConnectionTransportType.USB -> stringResource(R.string.transport_usb)
@@ -579,7 +650,7 @@ private fun HardwareManagerSummaryPanel(
         ConnectionTransportType.SIMULATOR -> stringResource(R.string.transport_simulator)
         null -> stringResource(R.string.transport_unknown)
     }
-    val freeSlots = diagnostics?.freeSlotsRemaining ?: (16 - totalOccupied).coerceAtLeast(0)
+    val freeSlots = diagnostics?.freeSlotsRemaining ?: FirmwareVersion.freeSlots(totalOccupied)
 
     OutlinedCard(
         shape = RoundedCornerShape(14.dp),

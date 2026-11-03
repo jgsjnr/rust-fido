@@ -44,6 +44,8 @@ import dev.aegiskey.app.R
 import dev.aegiskey.app.bridge.AegisBridge
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.ui.atomic.atoms.PrimaryNextButton
+import dev.aegiskey.app.ui.atomic.molecules.PhysicalButtonPromptCardMolecule
+import dev.aegiskey.app.ui.viewmodel.PresenceRequest
 
 /**
  * Add TOTP / HOTP account dialog organism.
@@ -66,6 +68,15 @@ fun AddTotpAccountDialogOrganism(
     initialDigits: Int = 6,
     initialPeriodSeconds: Int = 30,
     initialIsHotp: Boolean = false,
+    /**
+     * Finding A3: outstanding device presence request. While non-null the
+     * dialog stays open and shows the existing "touch the key" prompt with a
+     * retry action instead of closing silently.
+     */
+    presenceRequest: PresenceRequest? = null,
+    onRetryAfterPresence: (() -> Unit)? = null,
+    isSimulatedMode: Boolean = false,
+    onSimulateTouch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var issuer by remember(initialIssuer) { mutableStateOf(initialIssuer) }
@@ -121,6 +132,33 @@ fun AddTotpAccountDialogOrganism(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+
+                if (presenceRequest != null) {
+                    PhysicalButtonPromptCardMolecule(
+                        instruction = stringResource(R.string.totp_presence_body),
+                        title = stringResource(R.string.gate_up_title),
+                        isSimulatedMode = isSimulatedMode,
+                        onSimulateTouch = onSimulateTouch,
+                    )
+                    if (onRetryAfterPresence != null) {
+                        OutlinedButton(
+                            onClick = onRetryAfterPresence,
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.presence_retry),
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
 
                 // Scan QR Code Button
                 Button(

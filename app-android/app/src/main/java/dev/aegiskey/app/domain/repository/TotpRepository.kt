@@ -7,6 +7,16 @@ interface TotpRepository {
     val accounts: StateFlow<List<TotpAccountItem>>
     val remainingSeconds: StateFlow<Int>
 
+    /**
+     * Finding A3: outstanding device User Presence request. Holds the denied
+     * op label ("oath-list" / "oath-code" / "oath-put" / ...) while the user
+     * has not touched the key, or null when no presence is outstanding.
+     */
+    val needUpOp: StateFlow<String?>
+
+    /** Dismisses the outstanding presence request (user cancelled). */
+    fun clearNeedUpOp()
+
     suspend fun refreshAccountsAndCodes(keyId: String): Result<List<TotpAccountItem>>
     suspend fun addAccount(
         keyId: String,

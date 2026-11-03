@@ -256,6 +256,10 @@
     <string name="totp_card_next_code">Próximo código (+1)</string>
     <string name="totp_card_copy">Copiar código</string>
     <string name="totp_card_counter">Contador #%1$d</string>
+    <string name="totp_source_device">Código do dispositivo</string>
+    <string name="totp_source_local">Código local — toque na chave para atualizar pelo dispositivo</string>
+    <string name="totp_presence_body">O dispositivo recusou a leitura dos códigos: presença necessária. Toque na chave e tente de novo.</string>
+    <string name="presence_retry">Tentar de novo após o toque</string>
 
     <!-- Cartão de chave -->
     <string name="key_card_active">Ativa</string>
@@ -345,6 +349,7 @@
     <string name="gate_bind_action">Vincular dispositivo</string>
     <string name="gate_up_title">Pressione o botão físico</string>
     <string name="gate_up_body">Hardware exige presença do usuário (UP).</string>
+    <string name="keygen_presence_body">O dispositivo recusou o pedido: toque na chave para provar presença e tente de novo.</string>
     <string name="gate_pin_title">PIN exigido</string>
     <string name="gate_pin_body">Hardware exige autenticação por PIN.</string>
 
@@ -602,9 +607,9 @@
     <string name="set_backup_dkek">Quorum DKEK</string>
     <string name="set_backup_open">Abrir Central de Backup</string>
 
-    <!-- Configurações: OTA -->
+    <!-- Configurações: OTA (metadados do canal — NÃO a versão da chave conectada) -->
     <string name="set_ota_title">Atualização de Firmware OTA</string>
-    <string name="set_ota_fw">Firmware v3.4.0-esp32s3</string>
+    <string name="set_ota_fw">Canal de firmware %1$s</string>
     <string name="set_ota_desc">Assinatura Ed25519 e anti-rollback ativos.</string>
     <string name="set_ota_channel">Canal:</string>
     <string name="ota_stable">Estável (Produção)</string>
@@ -612,9 +617,9 @@
     <string name="ota_check">Verificar Atualizações</string>
     <string name="ota_checking">Verificando...</string>
     <string name="ota_open">Abrir Painel OTA</string>
-    <string name="ota_status_initial">Firmware v3.4.0-esp32s3 assinado e verificado.</string>
+    <string name="ota_status_initial">Release %1$s do canal assinada e verificada.</string>
     <string name="ota_checking_manifest">Verificando manifesto assinado...</string>
-    <string name="ota_latest">Chave com firmware atual (v3.4.0-esp32s3, %1$s).</string>
+    <string name="ota_latest">Release %1$s do canal é o firmware assinado mais novo (%2$s).</string>
 
     <!-- Configurações: resgate -->
     <string name="set_rescue_section">Diagnóstico de Resgate e Auditoria</string>
@@ -675,8 +680,8 @@
     <string name="set_piv_title">Smartcard (PIV / Certificados)</string>
     <string name="set_piv_desc">Certificados digitais e slots de autenticação (NIST SP 800-73-4).</string>
 
-    <!-- Configurações: rodapé -->
-    <string name="set_foot_app">AegisKey App · v0.1.0</string>
+    <!-- Configurações: rodapé (versão do app via BuildConfig — nunca fixa) -->
+    <string name="set_foot_app">AegisKey App · v%1$s</string>
     <string name="set_foot_tag">Segurança de hardware aberta e transparente.</string>
 
     <!-- Configurações: diálogo PIN -->
@@ -769,6 +774,37 @@
     <string name="touch_need_pin">PIN exigido. Desbloqueie a sessão para alterar o toque.</string>
     <string name="touch_no_slot">Credencial não encontrada na chave.</string>
     <string name="touch_fail">Toque não alterado: %1$s</string>
+    <!-- Click-through F1: erros do assistente (antes literais no ViewModel) -->
+    <string name="onb_err_no_selection">Nenhuma chave selecionada. Escolha sua AegisKey na lista abaixo.</string>
+    <string name="onb_err_connect_failed">Não foi possível conectar à chave. Verifique se ela está ligada e próxima ao celular.</string>
+    <string name="onb_err_usb">Erro ao conectar chave USB: %1$s</string>
+    <string name="onb_err_usb_default">Verifique a conexão OTG.</string>
+    <string name="onb_err_bind_failed">Não foi possível vincular a chave: %1$s</string>
+    <string name="onb_err_bind_default">Tente novamente pressionando o botão da chave.</string>
+    <!-- Click-through F1: erros OATH do repositório (antes literais no repositório) -->
+    <string name="oath_err_secret_size">O segredo OATH deve conter entre 10 e 64 bytes</string>
+    <string name="oath_err_no_response_enroll">Sem resposta da chave para cadastro OATH</string>
+    <string name="oath_err_rejected_enroll">Chave rejeitou o cadastro OATH: %1$s</string>
+    <string name="oath_err_no_response_delete">Sem resposta da chave para exclusão TOTP</string>
+    <string name="oath_err_rejected_delete">Chave rejeitou a exclusão TOTP: %1$s</string>
+    <string name="oath_err_not_found">Conta OATH não encontrada</string>
+    <string name="oath_err_hot_only">Apenas contas HOTP baseadas em contador suportam incremento manual</string>
+    <string name="oath_err_no_key">Conecte sua AegisKey antes de adicionar um código.</string>
+    <string name="oath_err_enroll_failed">Não foi possível cadastrar o código: %1$s</string>
+    <string name="oath_err_delete_failed">Falha ao remover: %1$s</string>
+    <!-- Click-through F4: geração de chave bloqueada enquanto guardião travado -->
+    <string name="vault_err_guard_locked">Secure Guard bloqueado. Desbloqueie o Secure Guard para gerar chaves.</string>
+    <string name="vault_generate_locked_hint">Desbloqueie o Secure Guard para gerar chaves. A geração fica desativada enquanto bloqueado.</string>
+    <!-- Click-through F3: teste Wi-Fi exibe redes vistas -->
+    <string name="set_wifi_nets_seen">Redes vistas: %1$s</string>
+    <string name="set_wifi_nets_none">Nenhuma rede vista.</string>
+    <string name="set_wifi_fail_hint">Sem resposta em 192.168.4.1. Conecte ao AegisKey-AP. %1$s</string>
+    <!-- Click-through F2: destino PIV -->
+    <string name="piv_title">Smartcard (PIV)</string>
+    <string name="piv_desc">Slots NIST SP 800-73-4 nesta chave. Lista somente leitura; PIN/PUK por slot.</string>
+    <string name="piv_empty">Nenhum slot PIV informado pela chave.</string>
+    <string name="piv_slot_label">Slot %1$s</string>
+    <string name="piv_enroll_hint">Selecione um item do cofre para gravar o PIN/PUK PIV daquele slot.</string>
     <!-- Pareamento BLE assistido por OOB (0x42, CAPABILITY_DIET §10) -->
     <string name="wizard_title_oob">Troca Automática Segura</string>
     <string name="wizard_desc_oob">O celular e a chave trocam um código único via USB.</string>

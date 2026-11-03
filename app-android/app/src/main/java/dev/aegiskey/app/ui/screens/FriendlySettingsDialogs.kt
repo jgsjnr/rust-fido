@@ -89,6 +89,7 @@ import dev.aegiskey.app.ble.BindingOps
 import dev.aegiskey.app.ble.VendorOps
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
 import dev.aegiskey.app.domain.model.AppThemeMode
+import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.net.WifiApi
 import dev.aegiskey.app.security.RecoveryBackup
 import dev.aegiskey.app.ui.atomic.molecules.EfuseSafetyNoticeMolecule
@@ -912,7 +913,8 @@ internal fun RescueDiagnosticsModalDialog(
                 } else {
                     val rep = report ?: FriendlySettingsAndThemeScreenAuditReport(
                         nvsOk = true, cryptoHwOk = true, trngOk = true, buttonOk = true,
-                        counterOps = 1420L, firmwareVersion = "v0.2.1-esp32s3",
+                        // Click-through F7: documented fallback, not a stale default.
+                        counterOps = 1420L, firmwareVersion = FirmwareVersion.appVersion,
                         statusText = stringResource(R.string.set_diag_default)
                     )
 

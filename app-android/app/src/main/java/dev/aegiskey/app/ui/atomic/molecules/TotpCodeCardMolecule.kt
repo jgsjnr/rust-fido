@@ -57,6 +57,12 @@ fun TotpCodeCardMolecule(
     onCopyCode: (String) -> Unit,
     onIncrementHotp: (() -> Unit)? = null,
     onDeleteAccount: (() -> Unit)? = null,
+    /**
+     * Finding A3: honest code provenance. True only when [code] was just
+     * returned by the device; false (fail-safe) labels it as local so the
+     * user never mistakes a locally-computed code for a device-backed one.
+     */
+    isOnDeviceBacked: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val formattedCode = formatGroupedDigits(code)
@@ -131,6 +137,18 @@ fun TotpCodeCardMolecule(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    Text(
+                        text = stringResource(
+                            if (isOnDeviceBacked) R.string.totp_source_device
+                            else R.string.totp_source_local
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isOnDeviceBacked) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
