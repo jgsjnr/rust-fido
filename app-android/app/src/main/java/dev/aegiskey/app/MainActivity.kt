@@ -31,6 +31,7 @@ import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.ota2.Ota2Screen
+import dev.aegiskey.app.caps.CapsScreen
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AegisTheme
 import dev.aegiskey.app.ui.atomic.templates.HubDestination
@@ -219,7 +220,8 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                             client = client,
                             localeStore = container.localeStore,
                             onNavigateToOnboarding = { nav.navigate("onboarding-wizard") },
-                            onNavigateToOta2 = { nav.navigate("ota2") }
+                            onNavigateToOta2 = { nav.navigate("ota2") },
+                            onNavigateToCaps = { nav.navigate("caps") }
                         )
                     }
 
@@ -230,6 +232,15 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                         Ota2Screen(
                             transport = otaTransport,
                             currentVersion = activeKey?.firmwareRevision?.toLong() ?: 0L,
+                        )
+                    }
+
+                    // Board capabilities (GET_CAPS 0x3F, read-only, no auth)
+                    composable("caps") {
+                        val capsTransport =
+                            if (client.isReady()) container.bleTransport else container.usbTransport
+                        CapsScreen(
+                            transport = capsTransport,
                         )
                     }
 

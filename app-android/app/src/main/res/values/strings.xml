@@ -717,4 +717,36 @@
     <string name="lang_system">System</string>
     <string name="lang_en">English</string>
     <string name="lang_pt">Português (Brasil)</string>
+
+    <!-- Board capabilities (GET_CAPS 0x3F, read-only) -->
+    <string name="caps_nav_title">Board capabilities</string>
+    <string name="caps_nav_desc">Firmware preset and feature list. Read-only.</string>
+    <string name="caps_title">Board capabilities</string>
+    <string name="caps_refresh">Refresh</string>
+    <string name="caps_querying">Reading board…</string>
+    <string name="caps_unknown">Unknown — key predates this query</string>
+    <string name="caps_fw">Firmware %1$s</string>
+    <string name="caps_preset">Preset %1$s</string>
+    <string name="caps_list">Features on board</string>
+    <string name="caps_empty">No features reported.</string>
+    <string name="caps_unsupported">%1$d not on this preset</string>
+    <string name="caps_unsupported_desc">Missing commands answer 0x06. The app changes nothing.</string>
+    <string name="caps_name_ctap_makecred">Passkey create</string>
+    <string name="caps_name_ctap_getassert">Passkey assert</string>
+    <string name="caps_name_ctap_clientpin">Client PIN</string>
+    <string name="caps_name_ccid">Smartcard USB</string>
+    <string name="caps_name_piv">PIV slots</string>
+    <string name="caps_name_openpgp">OpenPGP</string>
+    <string name="caps_name_oath_totp">TOTP codes</string>
+    <string name="caps_name_oath_hotp">HOTP codes</string>
+    <string name="caps_name_otp_challenge_response">Challenge response</string>
+    <string name="caps_name_wallet">Crypto wallet</string>
+    <string name="caps_name_vault">Vault items</string>
+    <string name="caps_name_ble">Bluetooth</string>
+    <string name="caps_name_wifi_sntp">Wi-Fi clock</string>
+    <string name="caps_name_display">Display</string>
+    <string name="caps_name_proximity">Proximity lock</string>
+    <string name="caps_name_vendor_mgmt">Device control</string>
+    <string name="caps_name_debug_terminal">Debug lines</string>
+    <string name="caps_name_test_hooks">Test hooks</string>
 </resources>

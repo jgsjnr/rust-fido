@@ -717,4 +717,36 @@
     <string name="lang_system">Sistema</string>
     <string name="lang_en">Inglês</string>
     <string name="lang_pt">Português (Brasil)</string>
+
+    <!-- Capacidades da placa (GET_CAPS 0x3F, somente leitura) -->
+    <string name="caps_nav_title">Capacidades da placa</string>
+    <string name="caps_nav_desc">Preset do firmware e lista de recursos. Somente leitura.</string>
+    <string name="caps_title">Capacidades da placa</string>
+    <string name="caps_refresh">Atualizar</string>
+    <string name="caps_querying">Lendo placa…</string>
+    <string name="caps_unknown">Desconhecido — chave anterior a esta consulta</string>
+    <string name="caps_fw">Firmware %1$s</string>
+    <string name="caps_preset">Preset %1$s</string>
+    <string name="caps_list">Recursos da placa</string>
+    <string name="caps_empty">Nenhum recurso informado.</string>
+    <string name="caps_unsupported">%1$d fora deste preset</string>
+    <string name="caps_unsupported_desc">Comandos ausentes respondem 0x06. O app não muda nada.</string>
+    <string name="caps_name_ctap_makecred">Criar passkey</string>
+    <string name="caps_name_ctap_getassert">Autenticar passkey</string>
+    <string name="caps_name_ctap_clientpin">PIN do cliente</string>
+    <string name="caps_name_ccid">Smartcard USB</string>
+    <string name="caps_name_piv">Slots PIV</string>
+    <string name="caps_name_openpgp">OpenPGP</string>
+    <string name="caps_name_oath_totp">Códigos TOTP</string>
+    <string name="caps_name_oath_hotp">Códigos HOTP</string>
+    <string name="caps_name_otp_challenge_response">Desafio-resposta</string>
+    <string name="caps_name_wallet">Carteira cripto</string>
+    <string name="caps_name_vault">Itens do cofre</string>
+    <string name="caps_name_ble">Bluetooth</string>
+    <string name="caps_name_wifi_sntp">Relógio Wi-Fi</string>
+    <string name="caps_name_display">Tela</string>
+    <string name="caps_name_proximity">Bloqueio por proximidade</string>
+    <string name="caps_name_vendor_mgmt">Controle do dispositivo</string>
+    <string name="caps_name_debug_terminal">Linhas de debug</string>
+    <string name="caps_name_test_hooks">Ganchos de teste</string>
 </resources>

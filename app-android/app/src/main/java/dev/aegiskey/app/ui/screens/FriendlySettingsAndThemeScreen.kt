@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhonelinkSetup
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -140,6 +141,7 @@ fun FriendlySettingsAndThemeScreen(
     onNavigateToTransfer: () -> Unit = {},
     onNavigateToOta: () -> Unit = {},
     onNavigateToOta2: () -> Unit = {},
+    onNavigateToCaps: () -> Unit = {},
     onNavigateToRescue: () -> Unit = {},
     onNavigateToPiv: () -> Unit = {},
     onNavigateToLogs: () -> Unit = {},
@@ -1376,6 +1378,16 @@ fun FriendlySettingsAndThemeScreen(
                 description = stringResource(R.string.ota2_nav_desc),
                 icon = Icons.Filled.SystemUpdate,
                 onClick = onNavigateToOta2,
+            )
+        }
+
+        // --- 8.2 Board capabilities (GET_CAPS 0x3F, read-only) ---
+        item {
+            SettingsNavigationItemCard(
+                title = stringResource(R.string.caps_nav_title),
+                description = stringResource(R.string.caps_nav_desc),
+                icon = Icons.Filled.Memory,
+                onClick = onNavigateToCaps,
             )
         }
 
