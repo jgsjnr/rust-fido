@@ -250,15 +250,12 @@ class SecureGuardViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            status = st.copy(
-                                state = SecureGuardStateEnum.UNLOCKED,
-                                isUnlocked = true,
-                                isProvisioned = true,
-                                failedAttempts = 0,
-                                remainingAttempts = 5,
-                                sessionRemainingMs = 300_000L
-                            ),
-                            successMessage = "Cofre desbloqueado com sucesso!",
+                            // Estado honesto: espelha o estado reportado pelo dispositivo,
+                            // nunca forja UNLOCKED.
+                            status = st,
+                            generatedRecoveryCode = st.lastGeneratedRecoveryCode
+                                ?: it.generatedRecoveryCode,
+                            successMessage = if (st.isUnlocked) "Cofre desbloqueado com sucesso!" else null,
                             isUnlockPromptOpen = false
                         )
                     }

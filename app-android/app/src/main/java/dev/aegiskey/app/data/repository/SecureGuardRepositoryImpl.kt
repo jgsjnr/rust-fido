@@ -117,6 +117,13 @@ class SecureGuardRepositoryImpl(
         return null
     }
 
+    private fun unlockFailureMessage(unlockRes: SecureGuardCbor.UnlockResult): String {
+        return unlockRes.errorMessage ?: (
+            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
+            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
+        )
+    }
+
     private fun sanitizeStatus(status: SecureGuardStatus): SecureGuardStatus {
         if (lastVerifiedSessionPin == null && _statusFlow.value.state == SecureGuardStateEnum.LOCKED) {
             if (status.state == SecureGuardStateEnum.RATE_LIMITED || status.rateLimitRemainingMs > 0) {
@@ -325,13 +332,17 @@ class SecureGuardRepositoryImpl(
 
             var hardwareUnlocked = false
             var hardwareError: String? = null
+            // Falhas por transporte (USB -> BLE -> bridge -> fallback genérico).
+            // Nenhuma falha individual interrompe as tentativas seguintes: o erro
+            // agregado só é lançado após TODOS os transportes falharem.
+            val transportErrors = mutableListOf<String>()
             val pinBytes = pin.toByteArray(Charsets.UTF_8)
             val encReq = SecureGuardCbor.encodeUnlockRequest(pinBytes)
 
             // Sincroniza diretamente com o transporte físico USB OTG se disponível
             val usb = usbCtaphid
             if (usb != null && usb.isUsbPhysicallyPresent()) {
-                val resp = usb.sendVendor(0x3B, encReq)
+                val resp = runCatching { usb.sendVendor(0x3B, encReq) }.getOrNull()
                 if (resp != null && resp.isNotEmpty()) {
                     val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
                     val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
@@ -339,19 +350,17 @@ class SecureGuardRepositoryImpl(
                         hardwareUnlocked = true
                         usb.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
                     } else {
-                        val err = unlockRes.errorMessage ?: (
-                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
-                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
-                        )
-                        throw SecurityException(err)
+                        transportErrors += "USB: " + unlockFailureMessage(unlockRes)
                     }
+                } else {
+                    transportErrors += "USB: sem resposta do hardware"
                 }
             }
 
             // Sincroniza diretamente com o transporte BLE se disponível
             val ble = bleKeyTransport
             if (ble != null && ble.client.state.value.connection == AegisBleClient.Connection.READY) {
-                val resp = ble.sendVendor(0x3B, encReq)
+                val resp = runCatching { ble.sendVendor(0x3B, encReq) }.getOrNull()
                 if (resp != null && resp.isNotEmpty()) {
                     val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
                     val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
@@ -359,12 +368,10 @@ class SecureGuardRepositoryImpl(
                         hardwareUnlocked = true
                         ble.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
                     } else {
-                        val err = unlockRes.errorMessage ?: (
-                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
-                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
-                        )
-                        throw SecurityException(err)
+                        transportErrors += "BLE: " + unlockFailureMessage(unlockRes)
                     }
+                } else {
+                    transportErrors += "BLE: sem resposta do hardware"
                 }
             }
 
@@ -373,11 +380,12 @@ class SecureGuardRepositoryImpl(
             val bridgeSuccess = json != null && (json.optBoolean("success", false) || json.optBoolean("ok", false))
             if (json != null && !bridgeSuccess && !hardwareUnlocked) {
                 hardwareError = json.optString("error", "PIN incorreto")
+                transportErrors += "Bridge: $hardwareError"
             }
 
             // Fallback para outros transportes via sendHardwareVendor se nem USB nem BLE responderam
             if (!hardwareUnlocked && !bridgeSuccess && (usb == null || !usb.isUsbPhysicallyPresent()) && (ble == null || ble.client.state.value.connection != AegisBleClient.Connection.READY)) {
-                val resp = sendHardwareVendor(0x3B, encReq)
+                val resp = runCatching { sendHardwareVendor(0x3B, encReq) }.getOrNull()
                 if (resp != null && resp.isNotEmpty()) {
                     val frame = SecureGuardCbor.parseTransportFrame(0x3B, resp)
                     val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
@@ -385,20 +393,17 @@ class SecureGuardRepositoryImpl(
                         hardwareUnlocked = true
                         sendHardwareVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
                     } else {
-                        val err = unlockRes.errorMessage ?: (
-                            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
-                            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
-                        )
-                        throw SecurityException(err)
+                        transportErrors += "Hardware: " + unlockFailureMessage(unlockRes)
                     }
+                } else {
+                    transportErrors += "Hardware: sem resposta dos transportes"
                 }
             }
 
             if (!hardwareUnlocked && !bridgeSuccess) {
-                if (hardwareError != null) {
-                    throw SecurityException(hardwareError)
-                }
-                throw SecurityException("Chave não respondeu ou PIN incorreto. Verifique a conexão.")
+                val detail = transportErrors.filter { it.isNotBlank() }.joinToString(" | ")
+                val base = hardwareError ?: "Chave não respondeu ou PIN incorreto. Verifique a conexão."
+                throw SecurityException(if (detail.isNotBlank()) "$base ($detail)" else base)
             }
 
             lastVerifiedSessionPin = pin

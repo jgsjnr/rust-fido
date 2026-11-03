@@ -87,6 +87,15 @@ fun KeyVaultHubScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Coletor único do SecureGuard (hoisted): um único collectAsState acima da
+    // lista; os blocos abaixo recebem apenas valores simples. Evita recomposição
+    // em cascata e refreshVault redundante por emissão.
+    val sgUiState = if (secureGuardViewModel != null) {
+        secureGuardViewModel.uiState.collectAsState().value
+    } else {
+        null
+    }
+
     var showCreateDialog by remember { mutableStateOf(false) }
     var entryToDelete by remember { mutableStateOf<VaultKeyEntry?>(null) }
     var isDiagnosticsExpanded by remember { mutableStateOf(false) }
@@ -154,9 +163,9 @@ fun KeyVaultHubScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 1. Secure Guard Authority Card
-            if (secureGuardViewModel != null) {
+            if (secureGuardViewModel != null && sgUiState != null) {
+                val sgState = sgUiState
                 item {
-                    val sgState by secureGuardViewModel.uiState.collectAsState()
                     SecureGuardCardOrganism(
                         uiState = sgState,
                         onProvision = { pin, rc, pol ->
@@ -506,8 +515,8 @@ fun KeyVaultHubScreen(
     }
 
     // Modal Popup de PIN por Sessão Sincronizada com a Hardwallet
-    if (secureGuardViewModel != null) {
-        val sgState by secureGuardViewModel.uiState.collectAsState()
+    if (secureGuardViewModel != null && sgUiState != null) {
+        val sgState = sgUiState
         LaunchedEffect(sgState.status.isUnlocked, sgState.status.state) {
             if (sgState.status.isUnlocked || sgState.status.state == dev.aegiskey.app.domain.model.SecureGuardStateEnum.UNLOCKED) {
                 secureGuardViewModel.dismissUnlockPrompt()

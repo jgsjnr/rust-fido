@@ -1,6 +1,11 @@
 package dev.aegiskey.app
 
 import dev.aegiskey.app.data.cbor.SecureGuardCbor
+import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
+import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
+import java.net.ServerSocket
+import java.nio.charset.StandardCharsets
+import java.util.concurrent.Executors
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
@@ -310,6 +315,219 @@ class SecureGuardRepositoryAndCborTest {
         assertFalse("Status no ViewModel deve estar bloqueado imediatamente", vm.uiState.value.status.isUnlocked)
         assertEquals(SecureGuardStateEnum.LOCKED, vm.uiState.value.status.state)
         assertEquals(0L, vm.uiState.value.status.sessionRemainingMs)
+    }
+
+    @Test
+    fun viewModel_unlockSurfacesDeviceReportedStatusVerbatim() = runTest(testDispatcher) {
+        // O dispositivo responde sucesso com valores próprios (sessão curta,
+        // tentativas restantes 4, recovery code gerado): o ViewModel deve
+        // espelhá-los em vez de forjar UNLOCKED/300s/5 tentativas.
+        val deviceStatus = SecureGuardStatus(
+            state = SecureGuardStateEnum.UNLOCKED,
+            isProvisioned = true,
+            isUnlocked = true,
+            failedAttempts = 0,
+            remainingAttempts = 4,
+            sessionRemainingMs = 12_345L,
+            lastGeneratedRecoveryCode = "RC-DEVICE-1"
+        )
+
+        val repo = object : dev.aegiskey.app.domain.repository.SecureGuardRepository {
+            override val statusFlow = kotlinx.coroutines.flow.MutableStateFlow(deviceStatus)
+            override suspend fun getStatus() = Result.success(deviceStatus)
+            override suspend fun provision(pin: String, recoveryCode: String?, policy: SecureGuardPolicy?) = Result.success("RC")
+            override suspend fun unlock(pin: String) = Result.success(deviceStatus)
+            override suspend fun lock() = Result.success(Unit)
+            override suspend fun changePin(currentPin: String, newPin: String) = Result.success(Unit)
+            override suspend fun recover(recoveryCode: String, newPin: String) = Result.success(null)
+            override suspend fun updatePolicy(policy: SecureGuardPolicy) = Result.success(policy)
+            override suspend fun wipeSelective(scope: Int, confirmationToken: String) = Result.success(false)
+        }
+
+        val vm = SecureGuardViewModel(
+            getSecureGuardStatusUseCase = GetSecureGuardStatusUseCase(repo),
+            provisionSecureGuardUseCase = ProvisionSecureGuardUseCase(repo),
+            unlockSecureGuardUseCase = UnlockSecureGuardUseCase(repo),
+            lockSecureGuardUseCase = LockSecureGuardUseCase(repo),
+            changeSecureGuardPinUseCase = ChangeSecureGuardPinUseCase(repo),
+            recoverSecureGuardUseCase = RecoverSecureGuardUseCase(repo),
+            updateSecureGuardPolicyUseCase = UpdateSecureGuardPolicyUseCase(repo),
+            triggerSelectiveWipeTestUseCase = TriggerSelectiveWipeTestUseCase(repo)
+        )
+
+        vm.unlock("1234")
+        testScheduler.runCurrent()
+
+        val st = vm.uiState.value.status
+        assertTrue("Deve refletir desbloqueio real", st.isUnlocked)
+        assertEquals(SecureGuardStateEnum.UNLOCKED, st.state)
+        assertEquals("Deve preservar sessão reportada pelo dispositivo", 12_345L, st.sessionRemainingMs)
+        assertEquals("Deve preservar tentativas reportadas pelo dispositivo", 4, st.remainingAttempts)
+        assertEquals("RC-DEVICE-1", vm.uiState.value.generatedRecoveryCode)
+    }
+
+    @Test
+    fun viewModel_unlockSuccessWithLockedDevice_doesNotForgeUnlocked() = runTest(testDispatcher) {
+        // Transporte OK mas dispositivo segue bloqueado: sucesso honesto
+        // nunca pode forjar UNLOCKED.
+        val deviceStatus = SecureGuardStatus(
+            state = SecureGuardStateEnum.LOCKED,
+            isProvisioned = true,
+            isUnlocked = false,
+            failedAttempts = 1,
+            remainingAttempts = 4,
+            sessionRemainingMs = 0L
+        )
+
+        val repo = object : dev.aegiskey.app.domain.repository.SecureGuardRepository {
+            override val statusFlow = kotlinx.coroutines.flow.MutableStateFlow(deviceStatus)
+            override suspend fun getStatus() = Result.success(deviceStatus)
+            override suspend fun provision(pin: String, recoveryCode: String?, policy: SecureGuardPolicy?) = Result.success("RC")
+            override suspend fun unlock(pin: String) = Result.success(deviceStatus)
+            override suspend fun lock() = Result.success(Unit)
+            override suspend fun changePin(currentPin: String, newPin: String) = Result.success(Unit)
+            override suspend fun recover(recoveryCode: String, newPin: String) = Result.success(null)
+            override suspend fun updatePolicy(policy: SecureGuardPolicy) = Result.success(policy)
+            override suspend fun wipeSelective(scope: Int, confirmationToken: String) = Result.success(false)
+        }
+
+        val vm = SecureGuardViewModel(
+            getSecureGuardStatusUseCase = GetSecureGuardStatusUseCase(repo),
+            provisionSecureGuardUseCase = ProvisionSecureGuardUseCase(repo),
+            unlockSecureGuardUseCase = UnlockSecureGuardUseCase(repo),
+            lockSecureGuardUseCase = LockSecureGuardUseCase(repo),
+            changeSecureGuardPinUseCase = ChangeSecureGuardPinUseCase(repo),
+            recoverSecureGuardUseCase = RecoverSecureGuardUseCase(repo),
+            updateSecureGuardPolicyUseCase = UpdateSecureGuardPolicyUseCase(repo),
+            triggerSelectiveWipeTestUseCase = TriggerSelectiveWipeTestUseCase(repo)
+        )
+
+        vm.openUnlockPrompt()
+        vm.unlock("1234")
+        testScheduler.runCurrent()
+
+        assertFalse("Prompt deve fechar", vm.uiState.value.isUnlockPromptOpen)
+        assertEquals("Deve espelhar LOCKED do dispositivo", SecureGuardStateEnum.LOCKED, vm.uiState.value.status.state)
+        assertFalse("Nunca forjar desbloqueio", vm.uiState.value.status.isUnlocked)
+        assertNull("Sem mensagem de sucesso quando segue bloqueado", vm.uiState.value.successMessage)
+    }
+
+    /**
+     * Stub HTTP mínimo sobre ServerSocket puro (sem módulos jdk.* que o
+     * classpath de unit tests não expõe). Responde /bridge/info, status,
+     * unlock e /bridge/vendor com JSON fixo.
+     */
+    private class StubBridgeServer(val unlockBody: String, val statusBody: String) {
+        private val serverSocket = ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"))
+        private val executor = Executors.newCachedThreadPool { r -> Thread(r).also { it.isDaemon = true } }
+        val port: Int get() = serverSocket.localPort
+
+        fun start() {
+            executor.execute {
+                while (!serverSocket.isClosed) {
+                    try {
+                        val socket = serverSocket.accept()
+                        executor.execute { handle(socket) }
+                    } catch (_: Throwable) {
+                        break
+                    }
+                }
+            }
+        }
+
+        fun stop() {
+            runCatching { serverSocket.close() }
+            executor.shutdownNow()
+        }
+
+        private fun handle(socket: java.net.Socket) {
+            socket.use { s ->
+                val input = s.getInputStream()
+                val output = s.getOutputStream()
+                val reader = input.bufferedReader(StandardCharsets.UTF_8)
+                val requestLine = reader.readLine() ?: return
+                val path = requestLine.split(" ").getOrNull(1) ?: "/"
+                var contentLength = 0
+                while (true) {
+                    val header = reader.readLine() ?: break
+                    if (header.isBlank()) break
+                    if (header.startsWith("Content-Length:", ignoreCase = true)) {
+                        contentLength = header.substringAfter(":").trim().toIntOrNull() ?: 0
+                    }
+                }
+                if (contentLength > 0) {
+                    val remaining = CharArray(contentLength)
+                    var read = 0
+                    while (read < contentLength) {
+                        val n = reader.read(remaining, read, contentLength - read)
+                        if (n <= 0) break
+                        read += n
+                    }
+                }
+                val body = when {
+                    path.startsWith("/bridge/info") -> """{"connected":true}"""
+                    path.startsWith("/api/secure-guard/status") -> statusBody
+                    path.startsWith("/api/secure-guard/unlock") -> unlockBody
+                    else -> """{}"""
+                }
+                val bytes = body.toByteArray(StandardCharsets.UTF_8)
+                val head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                output.write(head.toByteArray(StandardCharsets.UTF_8))
+                output.write(bytes)
+                output.flush()
+            }
+        }
+    }
+
+    private fun stubBridgeServer(
+        unlockBody: String,
+        statusBody: String = """{"ok":true,"state":1,"state_name":"Locked","provisioned":true,"unlocked":false,"failed_attempts":0,"remaining_attempts":5,"max_attempts":5,"rate_limit_remaining_ms":0,"session_remaining_ms":0,"wipe_on_5_failures":false,"session_duration_ms":300000,"inactivity_timeout_ms":300000,"protect_keys_and_aegn":true,"protect_oath":false,"test_mode_non_destructive_wipe":false,"last_wipe_simulated":false,"audit_count":0}"""
+    ): StubBridgeServer {
+        return StubBridgeServer(unlockBody, statusBody).also { it.start() }
+    }
+
+    @Test
+    fun repository_unlockAggregatesFailuresAfterTryingAllTransports() = runTest(testDispatcher) {
+        // Bridge alcançável mas recusa o PIN; sem USB/BLE. O unlock deve tentar
+        // bridge + fallback e lançar UM SecurityException agregado (nunca
+        // curto-circuitar e nunca silenciar o erro da bridge).
+        val server = stubBridgeServer("""{"ok":false,"error":"PIN incorreto"}""")
+        try {
+            val bridge = HostUsbUartBridgeClient(listOf("http://127.0.0.1:${server.port}"))
+            val repo = SecureGuardRepositoryImpl(hostBridgeClient = bridge, usbCtaphid = null, bleKeyTransport = null)
+
+            val result = repo.unlock("1234")
+
+            assertTrue("Unlock deve falhar", result.isFailure)
+            val ex = result.exceptionOrNull()
+            assertTrue("Falha agregada deve ser SecurityException", ex is SecurityException)
+            val msg = ex!!.message ?: ""
+            assertTrue("Deve preservar o erro da bridge, mas era: $msg", msg.contains("PIN incorreto"))
+            assertTrue("Deve registrar a tentativa de bridge, mas era: $msg", msg.contains("Bridge"))
+            assertTrue("Deve registrar a tentativa de fallback, mas era: $msg", msg.contains("Hardware"))
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun repository_unlockViaBridgeSuccessPreserved() = runTest(testDispatcher) {
+        // Caminho de sucesso existente via bridge deve continuar desbloqueando.
+        val server = stubBridgeServer("""{"ok":true,"success":true}""")
+        try {
+            val bridge = HostUsbUartBridgeClient(listOf("http://127.0.0.1:${server.port}"))
+            val repo = SecureGuardRepositoryImpl(hostBridgeClient = bridge, usbCtaphid = null, bleKeyTransport = null)
+
+            val result = repo.unlock("1234")
+
+            assertTrue("Unlock via bridge deve ter sucesso, mas foi: ${result.exceptionOrNull()}", result.isSuccess)
+            val st = result.getOrThrow()
+            assertTrue(st.isUnlocked)
+            assertEquals(SecureGuardStateEnum.UNLOCKED, st.state)
+        } finally {
+            server.stop()
+        }
     }
 
     @Test
