@@ -1,6 +1,7 @@
 package dev.aegiskey.app.data.transport
 
 import dev.aegiskey.app.ble.AegisBleClient
+import dev.aegiskey.app.data.cbor.SecureGuardCbor
 import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import kotlinx.coroutines.CoroutineScope
@@ -125,12 +126,14 @@ class BleKeyTransport(
             }
         }
 
-        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica se houver PIN da sessão ativo
+        // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica via 0x3B + CBOR
+        // (mesma semântica do USB em UsbCtaphid.sendVendor rito 0/3). NUNCA
+        // 0x2D + PIN cru: 0x2D é recovery-unlock no firmware (wipe + re-claim).
         if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x02) {
             val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
             if (!sessionPin.isNullOrBlank()) {
-                val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
-                val verifyResp = if (bleReady) client.sendVendor(0x2D, pinBytes) else hostBridgeClient.sendVendor(0x2D, pinBytes)
+                val (verifyOp, verifyPayload) = pinVerifyRequest(sessionPin)
+                val verifyResp = if (bleReady) client.sendVendor(verifyOp, verifyPayload) else hostBridgeClient.sendVendor(verifyOp, verifyPayload)
                 val verifyStatus = if (verifyResp != null && verifyResp.size >= 2) verifyResp[1].toInt() and 0xFF else -1
                 if (verifyStatus == 0x00) {
                     resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
@@ -155,6 +158,19 @@ class BleKeyTransport(
     }
 
     val bridgeClient: HostUsbUartBridgeClient get() = hostBridgeClient
+
+    companion object {
+        /**
+         * Monta a requisição de verificação de PIN do rito 3: sempre
+         * 0x3B + `SecureGuardCbor.encodeUnlockRequest` (semântica USB em
+         * `UsbCtaphid.sendVendor` ritos 0/3). Nunca 0x2D + PIN cru:
+         * 0x2D é recovery-unlock no firmware (wipe + re-claim).
+         */
+        internal fun pinVerifyRequest(sessionPin: String): Pair<Int, ByteArray> {
+            val pinBytes = sessionPin.toByteArray(Charsets.UTF_8)
+            return 0x3B to SecureGuardCbor.encodeUnlockRequest(pinBytes)
+        }
+    }
 
     suspend fun fetchProximityStatus(): HostUsbUartBridgeClient.ProximityLockStatus =
         hostBridgeClient.fetchProximityStatus()

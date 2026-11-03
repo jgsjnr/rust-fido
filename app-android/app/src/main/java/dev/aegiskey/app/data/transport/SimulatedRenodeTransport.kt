@@ -1,6 +1,7 @@
 package dev.aegiskey.app.data.transport
 
 import dev.aegiskey.app.ble.VendorOps
+import dev.aegiskey.app.data.cbor.SecureGuardCbor
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.ui.BindingWire
 import dev.aegiskey.app.ui.RescueOps
@@ -43,6 +44,67 @@ class SimulatedRenodeTransport(
     // Simulação de banco de chaves e OATH em memória determinística
     private val mockKeys = mutableListOf<VendorOps.KeyEntry>()
     private val mockOathAccounts = mutableListOf<String>()
+
+    // --- Secure Guard mock determinístico (0x3A..0x3E, debug apenas) ---
+    @Volatile var sgProvisioned: Boolean = false
+    @Volatile var sgUnlocked: Boolean = false
+    @Volatile var sgFailedAttempts: Int = 0
+    @Volatile var sgSessionRemainingMs: Long = 0L
+
+    fun resetSecureGuardMock(provisioned: Boolean = false, unlocked: Boolean = false) {
+        sgProvisioned = provisioned
+        sgUnlocked = unlocked && provisioned
+        sgFailedAttempts = 0
+        sgSessionRemainingMs = if (sgUnlocked) 300_000L else 0L
+    }
+
+    private fun sgStatusPayload(): ByteArray {
+        val (code, name) = when {
+            !sgProvisioned -> 0x00 to "Unprovisioned"
+            sgUnlocked -> 0x04 to "Unlocked"
+            else -> 0x02 to "Locked"
+        }
+        return SecureGuardCbor.encodeMap(
+            linkedMapOf(
+                "state" to code,
+                "state_name" to name,
+                "provisioned" to sgProvisioned,
+                "unlocked" to (sgProvisioned && sgUnlocked),
+                "failed_attempts" to sgFailedAttempts,
+                "remaining_attempts" to (5 - sgFailedAttempts).coerceAtLeast(0),
+                "max_attempts" to 5,
+                "rate_limit_remaining_ms" to 0L,
+                "session_remaining_ms" to if (sgUnlocked) sgSessionRemainingMs else 0L,
+                "wipe_on_5_failures" to false,
+                "session_duration_ms" to 300_000L,
+                "inactivity_timeout_ms" to 300_000L,
+                "protect_keys_and_aegn" to true,
+                "protect_oath" to false,
+                "test_mode_non_destructive_wipe" to true,
+                "last_wipe_simulated" to true,
+                "audit_count" to 0L
+            )
+        )
+    }
+
+    private fun sgAuthPayload(recoveryCode: String): ByteArray {
+        return SecureGuardCbor.encodeMap(
+            linkedMapOf(
+                "success" to true,
+                "status" to "provisioned",
+                "recovery_code" to recoveryCode,
+                "new_recovery_code" to recoveryCode,
+                "state" to 4,
+                "state_name" to "Unlocked",
+                "provisioned" to true,
+                "unlocked" to true,
+                "failed_attempts" to 0,
+                "remaining_attempts" to 5,
+                "rate_limit_remaining_ms" to 0L,
+                "session_remaining_ms" to 300_000L
+            )
+        )
+    }
 
     init {
         // Inicializa com chaves de exemplo para testes locais do emulador
@@ -242,6 +304,83 @@ class SimulatedRenodeTransport(
             VendorOps.OP_FW_LOG -> {
                 val logText = "0001 EV=01 ARG=00 T=120\n0002 EV=02 ARG=01 T=240\n0003 EV=10 ARG=00 T=400\n"
                 byteArrayOf(0x38.toByte(), 0x00.toByte()) + logText.toByteArray(Charsets.UTF_8)
+            }
+            // Secure Guard STATUS (0x3A): envelope [op, status, CBOR] determinístico
+            0x3A -> {
+                byteArrayOf(0x3A.toByte(), 0x00.toByte()) + sgStatusPayload()
+            }
+            // Secure Guard AUTH (0x3B): provision / unlock / change_pin / recover
+            0x3B -> {
+                val decoded = SecureGuardCbor.decode(payload) as? Map<*, *>
+                when (decoded?.get("action") as? String) {
+                    "provision" -> {
+                        sgProvisioned = true
+                        sgUnlocked = true
+                        sgFailedAttempts = 0
+                        sgSessionRemainingMs = 300_000L
+                        byteArrayOf(0x3B.toByte(), 0x00.toByte()) + sgAuthPayload("MOCK-RC-3A3E-DETERMINISTICO")
+                    }
+                    "unlock" -> {
+                        sgProvisioned = true
+                        sgUnlocked = true
+                        sgFailedAttempts = 0
+                        sgSessionRemainingMs = 300_000L
+                        byteArrayOf(0x3B.toByte(), 0x00.toByte()) + sgAuthPayload("MOCK-RC-3A3E-DETERMINISTICO")
+                    }
+                    "change_pin" -> {
+                        byteArrayOf(0x3B.toByte(), 0x00.toByte()) + sgAuthPayload("MOCK-RC-3A3E-DETERMINISTICO")
+                    }
+                    "recover" -> {
+                        sgProvisioned = true
+                        sgUnlocked = true
+                        sgFailedAttempts = 0
+                        sgSessionRemainingMs = 300_000L
+                        byteArrayOf(0x3B.toByte(), 0x00.toByte()) + sgAuthPayload("MOCK-RC-RECOVERED-3A3E")
+                    }
+                    else -> {
+                        sgProvisioned = true
+                        sgUnlocked = true
+                        sgFailedAttempts = 0
+                        sgSessionRemainingMs = 300_000L
+                        byteArrayOf(0x3B.toByte(), 0x00.toByte()) + sgAuthPayload("MOCK-RC-3A3E-DETERMINISTICO")
+                    }
+                }
+            }
+            // Secure Guard LOCK (0x3C)
+            0x3C -> {
+                sgUnlocked = false
+                sgSessionRemainingMs = 0L
+                byteArrayOf(
+                    0x3C.toByte(), 0x00.toByte()
+                ) + SecureGuardCbor.encodeMap(
+                    linkedMapOf("success" to true, "state" to 2, "state_name" to "Locked")
+                )
+            }
+            // Secure Guard CONFIG (0x3D)
+            0x3D -> {
+                byteArrayOf(
+                    0x3D.toByte(), 0x00.toByte()
+                ) + SecureGuardCbor.encodeMap(
+                    linkedMapOf("success" to true, "state" to if (sgUnlocked) 4 else 2)
+                )
+            }
+            // Secure Guard WIPE (0x3E): volta a UNPROVISIONED (simulado, não destrutivo)
+            0x3E -> {
+                sgProvisioned = false
+                sgUnlocked = false
+                sgFailedAttempts = 0
+                sgSessionRemainingMs = 0L
+                byteArrayOf(
+                    0x3E.toByte(), 0x00.toByte()
+                ) + SecureGuardCbor.encodeMap(
+                    linkedMapOf(
+                        "success" to true,
+                        "status" to "wiped",
+                        "simulated" to true,
+                        "state" to 0,
+                        "state_name" to "Unprovisioned"
+                    )
+                )
             }
             else -> {
                 byteArrayOf(opcode.toByte(), 0x00.toByte())

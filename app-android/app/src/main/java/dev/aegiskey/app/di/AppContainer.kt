@@ -125,12 +125,21 @@ class AppContainer(val context: Context) {
             hostBridgeClient = hostUsbUartBridgeClient,
             usbCtaphid = usbCtaphid,
             bleKeyTransport = bleTransport,
-            connectedKeysRepository = connectedKeysRepository
+            connectedKeysRepository = connectedKeysRepository,
+            simulatedTransport = if (dev.aegiskey.app.BuildConfig.DEBUG) simulatedRenodeTransport else null
         ).also { repo ->
             usbCtaphid.addOnHardwareDetachedListener {
                 repo.onHardwareDetached()
             }
         }
+    }
+
+    /**
+     * Liga/desliga em tempo de execução o roteamento do Secure Guard pelo
+     * transporte simulado determinístico (debug apenas; release ignora).
+     */
+    fun setSecureGuardMockRouting(enabled: Boolean) {
+        SecureGuardRepositoryImpl.mockRoutingEnabled = enabled && dev.aegiskey.app.BuildConfig.DEBUG
     }
 
     val keyVaultRepository: KeyVaultRepository by lazy {

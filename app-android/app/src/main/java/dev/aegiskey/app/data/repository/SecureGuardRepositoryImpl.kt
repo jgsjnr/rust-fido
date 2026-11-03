@@ -4,6 +4,7 @@ import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.data.cbor.SecureGuardCbor
 import dev.aegiskey.app.data.transport.BleKeyTransport
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
+import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
@@ -35,12 +36,22 @@ class SecureGuardRepositoryImpl(
     private val hostBridgeClient: HostUsbUartBridgeClient,
     private val usbCtaphid: UsbCtaphid? = null,
     private val bleKeyTransport: BleKeyTransport? = null,
-    private val connectedKeysRepository: ConnectedKeysRepository? = null
+    private val connectedKeysRepository: ConnectedKeysRepository? = null,
+    private val simulatedTransport: SimulatedRenodeTransport? = null
 ) : SecureGuardRepository {
 
     companion object {
         const val OP_TRIGGER_PAIRING_OPEN: Int = 0x2F
         const val OP_RECOVERY_UNLOCK: Int = 0x2D
+
+        /**
+         * Chave mestra de mock em tempo de execução (builds debug apenas):
+         * quando true E [simulatedTransport] presente E `BuildConfig.DEBUG`,
+         * o Secure Guard é roteado pelo transporte simulado determinístico
+         * (respostas CBOR 0x3A..0x3E). Release ignora (fail-closed, hardware real).
+         */
+        @Volatile
+        var mockRoutingEnabled: Boolean = false
 
         @Volatile
         var lastVerifiedSessionPin: String? = null
@@ -49,6 +60,11 @@ class SecureGuardRepositoryImpl(
             lastVerifiedSessionPin = null
         }
     }
+
+    private fun isMockRoutingActive(): Boolean =
+        mockRoutingEnabled &&
+            simulatedTransport != null &&
+            dev.aegiskey.app.BuildConfig.DEBUG
 
     private val _statusFlow = MutableStateFlow(SecureGuardStatus())
     override val statusFlow: StateFlow<SecureGuardStatus> = _statusFlow.asStateFlow()
@@ -86,6 +102,12 @@ class SecureGuardRepositoryImpl(
     }
 
     private suspend fun sendHardwareVendor(opcode: Int, payload: ByteArray): ByteArray? {
+        // 0. Mock determinístico (debug apenas): simulador antes do hardware real.
+        if (isMockRoutingActive()) {
+            val resp = simulatedTransport?.sendVendor(opcode, payload)
+            if (resp != null && resp.isNotEmpty()) return resp
+        }
+
         // 1. Tenta USB OTG se conectado fisicamente
         val usb = usbCtaphid
         if (usb != null && usb.isUsbPhysicallyPresent()) {
@@ -145,8 +167,39 @@ class SecureGuardRepositoryImpl(
             val ble = bleKeyTransport
             val isBleConnected = ble?.client?.state?.value?.connection == AegisBleClient.Connection.READY
 
-            // Se o USB não estiver fisicamente presente e o BLE não estiver conectado, força LOCKED imediatamente
+            // Sem USB físico e sem BLE: consulta a bridge ANTES de forçar LOCKED.
+            // Só força LOCKED (e zera o PIN) se a bridge também não responder
+            // com autoridade — nunca pule o bridge quando ele detém a sessão.
             if (usb != null && !isUsbPresent && !isBleConnected) {
+                if (isMockRoutingActive()) {
+                    val mockResp = runCatching {
+                        simulatedTransport?.sendVendor(0x3A, SecureGuardCbor.encodeStatusRequest())
+                    }.getOrNull()
+                    if (mockResp != null && mockResp.isNotEmpty()) {
+                        val frame = SecureGuardCbor.parseTransportFrame(0x3A, mockResp)
+                        val parsed = SecureGuardCbor.parseStatus(frame.cborPayload)
+                        if (parsed != null) {
+                            val safe = sanitizeStatus(parsed)
+                            if (!safe.isUnlocked) {
+                                lastVerifiedSessionPin = null
+                                clearSessionPin()
+                            }
+                            _statusFlow.value = safe
+                            return@runCatching safe
+                        }
+                    }
+                }
+                val bridgeJson = runCatching { hostBridgeClient.fetchSecureGuardStatus() }.getOrNull()
+                if (bridgeJson != null && (bridgeJson.optBoolean("ok", true) || bridgeJson.has("state") || bridgeJson.has("state_name"))) {
+                    val parsed = parseStatusFromJson(bridgeJson)
+                    val safe = sanitizeStatus(parsed)
+                    if (!safe.isUnlocked) {
+                        lastVerifiedSessionPin = null
+                        clearSessionPin()
+                    }
+                    _statusFlow.value = safe
+                    return@runCatching safe
+                }
                 lastVerifiedSessionPin = null
                 val forcedLocked = _statusFlow.value.copy(
                     state = SecureGuardStateEnum.LOCKED,
@@ -320,13 +373,62 @@ class SecureGuardRepositoryImpl(
         }
     }
 
+    /**
+     * Confirma o estado do dispositivo via round-trip real 0x3A (USB/BLE/
+     * bridge-vendor ou JSON da bridge). Retorna null quando NENHUM transporte
+     * responde com autoridade — nesse caso o estado local (incluindo LOCKED
+     * forçado ou UNPROVISIONED inicial) NÃO é confiável para provisionar.
+     */
+    private suspend fun fetchConfirmedDeviceStatus(): SecureGuardStatus? {
+        val usb = usbCtaphid
+        if (usb != null && usb.isUsbPhysicallyPresent()) {
+            val resp = runCatching { usb.sendVendor(0x3A, SecureGuardCbor.encodeStatusRequest()) }.getOrNull()
+            if (resp != null && resp.isNotEmpty()) {
+                val parsed = runCatching {
+                    SecureGuardCbor.parseStatus(SecureGuardCbor.parseTransportFrame(0x3A, resp).cborPayload)
+                }.getOrNull()
+                if (parsed != null) return parsed
+            }
+        }
+
+        val ble = bleKeyTransport
+        if (ble != null && ble.client.state.value.connection == AegisBleClient.Connection.READY) {
+            val resp = runCatching { ble.sendVendor(0x3A, SecureGuardCbor.encodeStatusRequest()) }.getOrNull()
+            if (resp != null && resp.isNotEmpty()) {
+                val parsed = runCatching {
+                    SecureGuardCbor.parseStatus(SecureGuardCbor.parseTransportFrame(0x3A, resp).cborPayload)
+                }.getOrNull()
+                if (parsed != null) return parsed
+            }
+        }
+
+        val json = runCatching { hostBridgeClient.fetchSecureGuardStatus() }.getOrNull()
+        if (json != null && (json.optBoolean("ok", true) || json.has("state") || json.has("state_name"))) {
+            val parsed = runCatching { parseStatusFromJson(json) }.getOrNull()
+            if (parsed != null) return parsed
+        }
+
+        val resp = runCatching { sendHardwareVendor(0x3A, SecureGuardCbor.encodeStatusRequest()) }.getOrNull()
+        if (resp != null && resp.isNotEmpty()) {
+            val parsed = runCatching {
+                SecureGuardCbor.parseStatus(SecureGuardCbor.parseTransportFrame(0x3A, resp).cborPayload)
+            }.getOrNull()
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
     override suspend fun unlock(pin: String): Result<SecureGuardStatus> = withContext(Dispatchers.IO) {
         runCatching {
             if (pin.length < 4) throw IllegalArgumentException("PIN deve ter no mínimo 4 caracteres")
 
-            // Auto-provisionamento transparente: se estiver Unprovisioned, provisiona com o PIN informado
-            val currentStatus = runCatching { getStatus().getOrNull() }.getOrNull() ?: _statusFlow.value
-            if (currentStatus.state == SecureGuardStateEnum.UNPROVISIONED || !currentStatus.isProvisioned) {
+            // Auto-provisionamento transparente SOMENTE com UNPROVISIONED confirmado
+            // por round-trip real 0x3A. Estado local forçado (LOCKED sem transporte,
+            // UNPROVISIONED inicial sem resposta) nunca dispara provision — sem isso,
+            // um device inalcançável cairia em `IllegalStateException("Falha ao
+            // provisionar…")` em vez de ventilar os transportes.
+            val confirmed = runCatching { fetchConfirmedDeviceStatus() }.getOrNull()
+            if (confirmed != null && (confirmed.state == SecureGuardStateEnum.UNPROVISIONED || !confirmed.isProvisioned)) {
                 provision(pin = pin, recoveryCode = null, policy = null).getOrThrow()
             }
 
