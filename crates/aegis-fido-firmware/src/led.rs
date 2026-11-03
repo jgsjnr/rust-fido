@@ -231,10 +231,68 @@ impl<O: LedOutput> Ws2812Controller<O> {
     }
 }
 
+/// RMT peripheral clock resolution for the WS2812 driver.
+///
+/// 10 MHz => 100 ns per RMT tick. Every WS2812 phase below is an exact
+/// multiple of one tick, so no rounding error is introduced.
+pub const WS2812_RMT_RESOLUTION_HZ: u32 = 10_000_000;
+/// HIGH phase of a `0` bit, in RMT ticks (400 ns).
+pub const WS2812_T0H_TICKS: u16 = 4;
+/// LOW phase of a `0` bit, in RMT ticks (1000 ns; 1400 ns period).
+pub const WS2812_T0L_TICKS: u16 = 10;
+/// HIGH phase of a `1` bit, in RMT ticks (800 ns).
+pub const WS2812_T1H_TICKS: u16 = 8;
+/// LOW phase of a `1` bit, in RMT ticks (600 ns; 1400 ns period).
+pub const WS2812_T1L_TICKS: u16 = 6;
+
+/// Packs one RMT symbol into its 32-bit wire value.
+///
+/// Layout (see `rmt_symbol_word_t`): `duration0[14:0] | level0[15] |
+/// duration1[30:16] | level1[31]`. WS2812 symbols idle LOW, so `level0 = 1`
+/// and `level1 = 0`.
+pub fn rmt_symbol_word_value(hi: u16, lo: u16) -> u32 {
+    (hi as u32) | (1u32 << 15) | ((lo as u32) << 16)
+}
+
+/// Encodes 3 GRB bytes into 24 RMT `(high_ticks, low_ticks)` symbols.
+///
+/// Bits travel MSB-first within each byte, in GRB order, matching what the
+/// RMT bytes encoder (`msb_first = 1`) emits on the wire.
+pub fn encode_grb_to_rmt_ticks(grb: [u8; 3]) -> [(u16, u16); 24] {
+    let t0 = (WS2812_T0H_TICKS, WS2812_T0L_TICKS);
+    let t1 = (WS2812_T1H_TICKS, WS2812_T1L_TICKS);
+    let mut out = [t0; 24];
+    for (i, &byte) in grb.iter().enumerate() {
+        for bit in 0..8 {
+            let is_one = (byte >> (7 - bit)) & 1 == 1;
+            out[i * 8 + bit] = if is_one { t1 } else { t0 };
+        }
+    }
+    out
+}
+
 /// Real hardware driver for WS2812 RGB LED on ESP32-S3 (GPIO 48).
+/// Raw RMT driver handles owned by [`EspWs2812Output`].
+///
+/// The RMT TX channel owns the GPIO pin for the life of the process. Handles
+/// are only touched through `&mut self` from the single-owner LED task, so no
+/// sharing or teardown race is possible.
+#[cfg(target_os = "espidf")]
+#[derive(Debug, Clone, Copy)]
+struct RmtHandles {
+    channel: esp_idf_sys::rmt_channel_handle_t,
+    encoder: esp_idf_sys::rmt_encoder_handle_t,
+}
+
+/// Real hardware driver for WS2812 RGB LED on ESP32-S3 (GPIO 48).
+///
+/// Bits are clocked by the RMT peripheral (jitter-free); the CPU only queues
+/// the GRB payload and spins 80 us for the reset window.
 pub struct EspWs2812Output {
     #[cfg_attr(not(target_os = "espidf"), allow(dead_code))]
     gpio: u32,
+    #[cfg(target_os = "espidf")]
+    rmt: Option<RmtHandles>,
     initialized: bool,
 }
 
@@ -242,36 +300,75 @@ impl EspWs2812Output {
     pub fn new(gpio: u32) -> Self {
         Self {
             gpio,
+            #[cfg(target_os = "espidf")]
+            rmt: None,
             initialized: false,
         }
     }
 
     pub fn init_hardware(&mut self) {
         #[cfg(target_os = "espidf")]
-        unsafe {
-            // Configure GPIO pin as output with pullup/pulldown disabled
-            let conf = esp_idf_sys::gpio_config_t {
-                pin_bit_mask: 1u64 << self.gpio,
-                mode: esp_idf_sys::gpio_mode_t_GPIO_MODE_OUTPUT,
-                pull_up_en: esp_idf_sys::gpio_pullup_t_GPIO_PULLUP_DISABLE,
-                pull_down_en: esp_idf_sys::gpio_pulldown_t_GPIO_PULLDOWN_DISABLE,
-                intr_type: esp_idf_sys::gpio_int_type_t_GPIO_INTR_DISABLE,
-            };
-            esp_idf_sys::gpio_config(&conf);
-
-            // Explicitly set output enable register for GPIO Bank 1 (GPIO 32-48)
-            if self.gpio >= 32 {
-                const GPIO_ENABLE1_W1TS: *mut u32 = 0x6000_4030 as *mut u32;
-                core::ptr::write_volatile(GPIO_ENABLE1_W1TS, 1 << (self.gpio - 32));
-            } else {
-                const GPIO_ENABLE_W1TS: *mut u32 = 0x6000_4024 as *mut u32;
-                core::ptr::write_volatile(GPIO_ENABLE_W1TS, 1 << self.gpio);
-            }
-
-            esp_idf_sys::gpio_set_level(self.gpio as i32, 0);
+        {
+            // Best-effort eager RMT setup; `write_color` retries lazily.
+            let _ = self.setup_rmt();
         }
         self.initialized = true;
         let _ = self.write_color(Color::SECURE_GUARD_UNPROVISIONED);
+    }
+
+    /// Creates and enables the RMT TX channel plus bytes encoder (idempotent).
+    ///
+    /// Each failure step undoes the previous ones, so a later retry starts
+    /// from a clean slate. The RMT channel owns the GPIO pin from here on:
+    /// no GPIO bit-bang pokes are used anywhere in this driver.
+    #[cfg(target_os = "espidf")]
+    fn setup_rmt(&mut self) -> Result<(), &'static str> {
+        if self.rmt.is_some() {
+            return Ok(());
+        }
+        // SAFETY: exclusive `&mut self` access from the single-owner LED task.
+        // Config structs are zero-initialised via `Default` then fully
+        // populated with valid values before each driver call; partially
+        // created handles are deleted on every failure path below.
+        unsafe {
+            let mut channel: esp_idf_sys::rmt_channel_handle_t = core::ptr::null_mut();
+            let mut tx_config = esp_idf_sys::rmt_tx_channel_config_t::default();
+            tx_config.gpio_num = self.gpio as esp_idf_sys::gpio_num_t;
+            tx_config.clk_src = esp_idf_sys::soc_periph_rmt_clk_src_t_RMT_CLK_SRC_DEFAULT;
+            tx_config.resolution_hz = WS2812_RMT_RESOLUTION_HZ;
+            tx_config.mem_block_symbols = 64;
+            tx_config.trans_queue_depth = 4;
+            if esp_idf_sys::rmt_new_tx_channel(&tx_config, &mut channel) != esp_idf_sys::ESP_OK
+                || channel.is_null()
+            {
+                return Err("ws2812: rmt tx channel");
+            }
+
+            let mut encoder: esp_idf_sys::rmt_encoder_handle_t = core::ptr::null_mut();
+            let mut enc_config = esp_idf_sys::rmt_bytes_encoder_config_t::default();
+            enc_config.bit0 = esp_idf_sys::rmt_symbol_word_t {
+                val: rmt_symbol_word_value(WS2812_T0H_TICKS, WS2812_T0L_TICKS),
+            };
+            enc_config.bit1 = esp_idf_sys::rmt_symbol_word_t {
+                val: rmt_symbol_word_value(WS2812_T1H_TICKS, WS2812_T1L_TICKS),
+            };
+            enc_config.flags.set_msb_first(1);
+            if esp_idf_sys::rmt_new_bytes_encoder(&enc_config, &mut encoder) != esp_idf_sys::ESP_OK
+                || encoder.is_null()
+            {
+                esp_idf_sys::rmt_del_channel(channel);
+                return Err("ws2812: rmt bytes encoder");
+            }
+
+            if esp_idf_sys::rmt_enable(channel) != esp_idf_sys::ESP_OK {
+                esp_idf_sys::rmt_del_encoder(encoder);
+                esp_idf_sys::rmt_del_channel(channel);
+                return Err("ws2812: rmt enable");
+            }
+
+            self.rmt = Some(RmtHandles { channel, encoder });
+            Ok(())
+        }
     }
 }
 
@@ -283,72 +380,46 @@ impl LedOutput for EspWs2812Output {
             self.init_hardware();
         }
 
+        // SAFETY: handles in `self.rmt` are owned exclusively by `self` and
+        // only touched through `&mut self` from the single-owner LED task
+        // (ESP-IDF build only). The GRB payload is a stack local that outlives
+        // `rmt_transmit` + `rmt_tx_wait_all_done`, satisfying the driver's
+        // validity requirement; the trailing 80 us reset spin only reads the
+        // cycle counter and masks no interrupt.
         #[cfg(target_os = "espidf")]
         unsafe {
+            if self.rmt.is_none() {
+                self.setup_rmt()?;
+            }
+            let handles = self.rmt.ok_or("ws2812: rmt unavailable")?;
             let grb = color.to_grb_bytes();
-
-            // GPIO 48 register addresses on ESP32-S3 (bank 1, bit 16):
-            const GPIO_OUT1_W1TS: *mut u32 = 0x6000_4014 as *mut u32;
-            const GPIO_OUT1_W1TC: *mut u32 = 0x6000_4018 as *mut u32;
-            const PIN_MASK: u32 = 1 << 16; // 48 - 32 = 16
-
-            let freq_mhz: u32 = esp_idf_sys::esp_rom_get_cpu_ticks_per_us();
-            let freq_mhz: u32 = if freq_mhz > 0 { freq_mhz } else { 160 };
-
-            // Calibrated WS2812 cycle counts for ESP32-S3, CENTERED in the
-            // datasheet window (T0H 200-500ns, T1H 550-850ns, period ~1250ns+):
-            // old code aimed at the bottom edge (T0H~200ns/T1H~550ns), so any
-            // jitter (ISR, flash cache) flipped bits and colors flickered.
-            // Register writes over the APB bus to GPIO_OUT1_W1TS take ~25-28
-            // CPU cycles, discounted from the HIGH phase.
-            // Bit 0: HIGH 400ns total. Bit 1: HIGH 800ns total. Period 1400ns.
-            const WRITE_OVERHEAD_CYCLES: u32 = 28;
-            let t0h_cycles: u32 = (400 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
-            let t0_tot_cycles: u32 = 1400 * freq_mhz / 1000;
-            let t1h_cycles: u32 = (800 * freq_mhz / 1000).saturating_sub(WRITE_OVERHEAD_CYCLES);
-            let t1_tot_cycles: u32 = 1400 * freq_mhz / 1000;
-
-            #[inline(always)]
-            unsafe fn get_ccount() -> u32 {
-                esp_idf_sys::xthal_get_ccount() as u32
+            let tx_config = esp_idf_sys::rmt_transmit_config_t {
+                loop_count: 0,
+                flags: Default::default(),
+            };
+            if esp_idf_sys::rmt_transmit(
+                handles.channel,
+                handles.encoder,
+                grb.as_ptr() as *const core::ffi::c_void,
+                grb.len(),
+                &tx_config,
+            ) != esp_idf_sys::ESP_OK
+            {
+                return Err("ws2812: rmt transmit");
             }
-
-            #[inline(always)]
-            unsafe fn delay_cycles(cycles: u32) {
-                let start = get_ccount();
-                while get_ccount().wrapping_sub(start) < cycles {
-                    core::hint::spin_loop();
-                }
+            if esp_idf_sys::rmt_tx_wait_all_done(handles.channel, 100) != esp_idf_sys::ESP_OK {
+                return Err("ws2812: rmt wait done");
             }
-
-            // Suspend FreeRTOS task switching during the pulse train (~34us).
-            // NOTE: xt_ints_off/on bricked the boot (WDT loop) on this IDF
-            // revision, so no CPU-interrupt mask here: centered timings
-            // (T0H 400ns / T1H 800ns) give enough margin for short ISRs.
-            esp_idf_sys::vTaskSuspendAll();
-
-            for &byte in &grb {
-                for bit_idx in (0..8).rev() {
-                    let bit = (byte >> bit_idx) & 1;
-                    if bit == 1 {
-                        core::ptr::write_volatile(GPIO_OUT1_W1TS, PIN_MASK);
-                        delay_cycles(t1h_cycles);
-                        core::ptr::write_volatile(GPIO_OUT1_W1TC, PIN_MASK);
-                        delay_cycles(t1_tot_cycles.saturating_sub(t1h_cycles));
-                    } else {
-                        core::ptr::write_volatile(GPIO_OUT1_W1TS, PIN_MASK);
-                        delay_cycles(t0h_cycles);
-                        core::ptr::write_volatile(GPIO_OUT1_W1TC, PIN_MASK);
-                        delay_cycles(t0_tot_cycles.saturating_sub(t0h_cycles));
-                    }
-                }
+            // WS2812 reset window (> 50 us): busy-spin 80 us on the cycle
+            // counter. No scheduler suspend or interrupt masking is needed:
+            // the RMT peripheral already clocked the bits out jitter-free.
+            let ticks_per_us = esp_idf_sys::esp_rom_get_cpu_ticks_per_us();
+            let ticks_per_us = if ticks_per_us > 0 { ticks_per_us } else { 160 };
+            let start = esp_idf_sys::xthal_get_ccount();
+            let wait = 80u32.saturating_mul(ticks_per_us);
+            while esp_idf_sys::xthal_get_ccount().wrapping_sub(start) < wait {
+                core::hint::spin_loop();
             }
-
-            // Hold LOW for reset time (> 50 us -> 80 us)
-            core::ptr::write_volatile(GPIO_OUT1_W1TC, PIN_MASK);
-            delay_cycles(80 * freq_mhz);
-
-            esp_idf_sys::xTaskResumeAll();
         }
 
         Ok(())
@@ -432,6 +503,56 @@ mod tests {
 
         ctrl.update(Duration::from_millis(600)).unwrap();
         assert_eq!(ctrl.output.last_color, Color::BLACK);
+    }
+
+    #[test]
+    fn rmt_symbol_encoding_matches_ws2812_spec() {
+        // 10 MHz RMT resolution => 100 ns per tick.
+        const NS_PER_TICK: u32 = 100;
+        let t0h_ns = u32::from(WS2812_T0H_TICKS) * NS_PER_TICK;
+        let t1h_ns = u32::from(WS2812_T1H_TICKS) * NS_PER_TICK;
+        // Datasheet windows (WS2812/WS2812B): T0H 200-500 ns, T1H 550-850 ns.
+        assert!(
+            (200..=500).contains(&t0h_ns),
+            "T0H {t0h_ns}ns outside window"
+        );
+        assert!(
+            (550..=850).contains(&t1h_ns),
+            "T1H {t1h_ns}ns outside window"
+        );
+        // Both symbols share a 1400 ns period.
+        let period0 = (u32::from(WS2812_T0H_TICKS) + u32::from(WS2812_T0L_TICKS)) * NS_PER_TICK;
+        let period1 = (u32::from(WS2812_T1H_TICKS) + u32::from(WS2812_T1L_TICKS)) * NS_PER_TICK;
+        assert_eq!(period0, 1400);
+        assert_eq!(period1, 1400);
+
+        // RED (255, 0, 0) travels as GRB bytes [0, 255, 0]: 8x T0, 8x T1, 8x T0.
+        let t0 = (WS2812_T0H_TICKS, WS2812_T0L_TICKS);
+        let t1 = (WS2812_T1H_TICKS, WS2812_T1L_TICKS);
+        let red = encode_grb_to_rmt_ticks(Color::RED.to_grb_bytes());
+        assert!(
+            red[..8].iter().all(|&s| s == t0),
+            "green byte must be all T0"
+        );
+        assert!(
+            red[8..16].iter().all(|&s| s == t1),
+            "red byte must be all T1"
+        );
+        assert!(
+            red[16..].iter().all(|&s| s == t0),
+            "blue byte must be all T0"
+        );
+
+        // 0xA5 = 0b1010_0101, MSB-first.
+        let a5 = encode_grb_to_rmt_ticks([0xA5, 0x00, 0x00]);
+        assert_eq!(&a5[..8], &[t1, t0, t1, t0, t0, t1, t0, t1]);
+
+        // Word layout: duration0[14:0] | level0[15] | duration1[30:16] | level1[31].
+        let word = rmt_symbol_word_value(WS2812_T1H_TICKS, WS2812_T1L_TICKS);
+        assert_eq!(word & 0x7FFF, u32::from(WS2812_T1H_TICKS));
+        assert_eq!((word >> 15) & 1, 1);
+        assert_eq!((word >> 16) & 0x7FFF, u32::from(WS2812_T1L_TICKS));
+        assert_eq!((word >> 31) & 1, 0);
     }
 
     #[test]
