@@ -1,0 +1,14 @@
+# SHA256SUMS — 1.0.0-wave (hashes only, no binaries committed)
+
+# Fresh APK (build-only rebuild 2026-11-03, app-android/app/build/outputs/apk/debug/app-debug.apk, 61912002 bytes)
+D487E29276350D0547D377AE839ACD6DE2FAB0707F986A878396274BDD451035  app-debug.apk (fresh :app:assembleDebug)
+
+# Firmware .bin on disk (dist/aegis-firmware-esp32s3.bin, 2091408 bytes, 2026-11-02)
+13C894FB1FDB3981AA717BBB6D4BF23B0259E405CB85AACB7D793FE808DF0580  dist/aegis-firmware-esp32s3.bin
+
+# Catalog-measured preset builds 2026-11-02 (recorded in scripts/capability-catalog.json; .bin files not present in repo)
+747691BCA6D67CAB40FF2AADDECAFB2AB5BA5CAA1A12C1E14411E50769F86F40  aegis-app-esp32s3-devkitc.bin (full preset, 1902288 B)
+36CA330DC23CEF56D7716BFE08871D5A0CE562666716D13C555A9B2DCFD188AE  aegis-app-esp32s3-devkitc-fido-only.bin (1128144 B)
+55AC03BC49C18C2DB09175BE0D5246B0103CAE369EDB554F79D800F0B0AE9FDC  aegis-app-esp32s3-devkitc-fido-totp.bin (1251632 B)
+
+# Expected prefix 620D611E... : NO FILE MATCHES (open mismatch, see RELEASE_NOTES.md / GO_NOGO.md item 3)
