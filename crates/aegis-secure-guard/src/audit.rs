@@ -48,6 +48,12 @@ pub enum SecureGuardAuditEventType {
     RecoverySuccess,
     /// Recovery code verification failed.
     RecoveryFailed { failed_attempts: u8 },
+    /// DEV-only automatic recovery from the on-device code cache attempted.
+    ///
+    /// Compiled and emitted ONLY under `test-mode`; release builds never
+    /// contain this event. Carries no secrets (success flag only).
+    #[cfg(feature = "test-mode")]
+    DevAutoRecovery { success: bool },
     /// Transactional PIN change completed.
     PinChanged,
     /// Active session unlocked with deadline.

@@ -10,6 +10,8 @@ extern crate alloc;
 
 pub mod audit;
 pub mod crypto;
+#[cfg(feature = "test-mode")]
+pub mod dev_recovery_cache;
 pub mod engine;
 pub mod error;
 pub mod glitch_guard;
@@ -28,6 +30,11 @@ pub use crypto::{
     constant_time_eq_32, crc32, derive_verifier, derive_verifier_hardware_anchored, hkdf_sha256,
     hmac_sha256, pbkdf2_hmac_sha256, HardwareHmacPeripheral, SimulatedDevHardwareHmac,
     DO_NOT_BURN_EFUSE_BLOCK7_WARNING, PBKDF2_DEFAULT_ITERATIONS,
+};
+#[cfg(feature = "test-mode")]
+pub use dev_recovery_cache::{
+    DevRecoveryCodeCache, DEV_RECOVERY_CODE_BLOB_SIZE, DEV_RECOVERY_CODE_LEN,
+    DEV_RECOVERY_CODE_MAGIC, DEV_RECOVERY_CODE_VERSION,
 };
 pub use engine::SecureGuardEngine;
 pub use error::SecureGuardError;
@@ -686,5 +693,17 @@ mod tests {
             "Sessão deve permanecer Unlocked"
         );
         assert!(!engine.ble_proximity_away());
+    }
+
+    /// Compile-time gate proof: the DEV recovery-code cache module is declared
+    /// ONLY under `#[cfg(feature = "test-mode")]`, so any release-path
+    /// reference to it is a compile error. This test pins the release side:
+    /// without the feature, no DEV auto-recovery path exists.
+    #[cfg(not(feature = "test-mode"))]
+    #[test]
+    fn release_build_contains_no_dev_auto_recovery_path() {
+        // Compile-time gate proof, not a runtime check: fails the build if
+        // `test-mode` ever leaks into a release configuration.
+        const { assert!(!cfg!(feature = "test-mode")) };
     }
 }

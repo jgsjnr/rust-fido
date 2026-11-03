@@ -20,7 +20,11 @@ proximity = []
 # Wave7: lifetime monitor lines (default OFF; release = ltrace! no-op).
 debug-terminal = ["aegis-fido-core/debug-terminal"]
 # Wave7: TEST_LIFETIME_DUMP serial diagnostic (default OFF; absent without it).
-test-mode = []
+# DEV-only Secure Guard auto-recovery wiring: propagates the dev gate to
+# `aegis-secure-guard/test-mode` so the on-device code cache
+# (`sg_dev_code_v1`) and its single-attempt auto-recover path exist ONLY in
+# test-mode builds. No default or release profile enables this.
+test-mode = ["aegis-secure-guard/test-mode"]
 # GAP-04: Strict production mode: disallows test hooks, simulated touch, and debug bypasses
 prod-strict = []
 # Variante FreeRTOS em Rust (tasks + queue + event-group; ver src/freertos.rs).

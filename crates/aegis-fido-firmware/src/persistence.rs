@@ -257,6 +257,65 @@ pub fn delete_recovery_envelope<B: FlashStorageBackend>(
     }
 }
 
+/// DEV-ONLY on-device recovery-code cache NVS key (`sg_dev_code_v1`).
+///
+/// Compiled ONLY under `test-mode` (see crate feature `test-mode`, which
+/// propagates `aegis-secure-guard/test-mode`). Release builds contain no such
+/// key and no code referencing it.
+///
+/// The task-assigned full name `sg_dev_recovery_code` exceeds the 15-char
+/// ESP-IDF NVS key limit, so the on-wire key is the 14-char truncation
+/// `sg_dev_code_v1`. Plaintext on purpose (DEV-only downgrade, same rationale
+/// as `sg_recovery_v1`): it MUST live OUTSIDE the AES-GCM envelope via the raw
+/// backend so a device-key rotation cannot take the DEV rescue path down with
+/// the encrypted `sg_record_v1`. NEVER enable outside `test-mode`; release
+/// uses eFuse-provisioned keys and eFuse burns require an explicit owner
+/// ceremony. No eFuse operation is performed here (read-only audit: this file
+/// contains no `efuse`/`burn`/`BLOCK7` call site).
+#[cfg(feature = "test-mode")]
+pub const DEV_RECOVERY_CODE_NVS_KEY: &str = "sg_dev_code_v1";
+
+/// Writes the DEV recovery-code cache blob as PLAINTEXT via the raw backend.
+///
+/// Compiled ONLY under `test-mode`. Called ONLY at provision / rotation /
+/// recovery inside test-mode builds (see `secure_guard_storage`). No framing
+/// of its own; the blob carries internal magic + version + CRC32.
+#[cfg(feature = "test-mode")]
+pub fn save_dev_recovery_code<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    blob: &[u8; aegis_fido_core::secure_guard::dev_recovery_cache::DEV_RECOVERY_CODE_BLOB_SIZE],
+) -> Result<(), StorageError> {
+    storage
+        .backend_mut()
+        .write_raw(DEV_RECOVERY_CODE_NVS_KEY, blob)
+}
+
+/// Reads the DEV recovery-code cache blob (raw backend, no device key).
+///
+/// Compiled ONLY under `test-mode`. `KeyNotFound` = never cached; any other
+/// error (or a bad length, checked by the caller) fails closed upstream.
+#[cfg(feature = "test-mode")]
+pub fn load_dev_recovery_code<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+) -> Result<Vec<u8>, StorageError> {
+    storage.backend().read_raw(DEV_RECOVERY_CODE_NVS_KEY)
+}
+
+/// Destroys the DEV recovery-code cache blob. Idempotent (absent = `Ok`).
+///
+/// Compiled ONLY under `test-mode`. Wipe/factory paths MUST call this (via
+/// `destroy_recovery_envelope`): a lingering code blob would resurrect wiped
+/// credentials through the DEV auto-recover path.
+#[cfg(feature = "test-mode")]
+pub fn delete_dev_recovery_code<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+) -> Result<(), StorageError> {
+    match storage.backend_mut().delete_raw(DEV_RECOVERY_CODE_NVS_KEY) {
+        Ok(()) | Err(StorageError::KeyNotFound) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Teto por slot dos namespaces com orçamento (OATH/vault: TLV total <=512B).
 pub const NAMESPACED_SLOT_MAX_BYTES: usize = 512;
 

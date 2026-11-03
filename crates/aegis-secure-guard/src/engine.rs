@@ -1101,9 +1101,8 @@ impl SecureGuardEngine {
     ) -> Result<SecureGuardState, SecureGuardError> {
         let envelope = SecureGuardRecoveryEnvelope::from_bytes(envelope_bytes)?;
 
-        let (pin_salt, pin_verifier) = envelope
-            .verify_and_unwrap(recovery_code)
-            .inspect_err(|_| {
+        let (pin_salt, pin_verifier) =
+            envelope.verify_and_unwrap(recovery_code).inspect_err(|_| {
                 self.failed_attempts = self.failed_attempts.saturating_add(1);
                 self.audit_log.push(
                     now_ms,
@@ -1143,6 +1142,78 @@ impl SecureGuardEngine {
             .push(now_ms, SecureGuardAuditEventType::RecoverySuccess);
 
         Ok(SecureGuardState::Locked)
+    }
+
+    /// Returns the DEV-only cached recovery-code blob for NVS persistence.
+    ///
+    /// Compiled ONLY under `test-mode`. Encodes the last recovery code issued
+    /// at provision / rotation (`recover_with_code`) so firmware can persist
+    /// it in a separate plaintext NVS blob outside the device-key envelope.
+    /// `None` when no code is cached (absent cache is `None`, never zeroes).
+    /// Release builds contain no such path.
+    #[cfg(feature = "test-mode")]
+    pub fn dev_recovery_code_blob_bytes(
+        &self,
+    ) -> Option<[u8; super::dev_recovery_cache::DEV_RECOVERY_CODE_BLOB_SIZE]> {
+        self.last_rotated_recovery_code
+            .map(|code| super::dev_recovery_cache::DevRecoveryCodeCache::new(code).to_bytes())
+    }
+
+    /// DEV-ONLY single-attempt automatic recovery from the on-device code cache.
+    ///
+    /// Compiled ONLY under `#[cfg(feature = "test-mode")]`; release builds
+    /// contain no such path (any release reference is a compile error).
+    /// NEVER enable outside `test-mode`: release uses eFuse-provisioned keys
+    /// and eFuse burns require an explicit owner ceremony. This method performs
+    /// NO eFuse operation of any kind.
+    ///
+    /// Requires `ErrorLocked`; parses the cached-code blob, then attempts one
+    /// `recover_with_envelope` using the cached code. Audit-logged as
+    /// dev-auto-recovery (`DevAutoRecovery { success }`, no secrets). A wrong
+    /// or tampered cache fails closed to normal `ErrorLocked` with no retry
+    /// loop — the caller must not loop on failure.
+    #[cfg(feature = "test-mode")]
+    pub fn try_dev_auto_recover(
+        &mut self,
+        code_blob: &[u8; super::dev_recovery_cache::DEV_RECOVERY_CODE_BLOB_SIZE],
+        envelope_bytes: &[u8; RECOVERY_ENVELOPE_SIZE],
+        now_ms: u64,
+    ) -> Result<SecureGuardState, SecureGuardError> {
+        if self.state != SecureGuardState::ErrorLocked {
+            return Err(SecureGuardError::InvalidStateForOperation {
+                current: self.state,
+                expected: "ErrorLocked",
+            });
+        }
+        let mut code = match super::dev_recovery_cache::DevRecoveryCodeCache::from_bytes(code_blob)
+        {
+            Ok(cache) => cache.code(),
+            Err(err) => {
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::DevAutoRecovery { success: false },
+                );
+                return Err(err);
+            }
+        };
+        let res = self.recover_with_envelope(&code, envelope_bytes, now_ms);
+        code.zeroize();
+        match res {
+            Ok(state) => {
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::DevAutoRecovery { success: true },
+                );
+                Ok(state)
+            }
+            Err(err) => {
+                self.audit_log.push(
+                    now_ms,
+                    SecureGuardAuditEventType::DevAutoRecovery { success: false },
+                );
+                Err(err)
+            }
+        }
     }
 
     /// Executes scoped wipe of protected resources.
@@ -1481,5 +1552,136 @@ mod tests {
         assert_eq!(engine.state(), SecureGuardState::Unprovisioned);
         // Rescue material is gone with the wipe: no resurrection.
         assert_eq!(engine.recovery_envelope_bytes(), None);
+    }
+
+    /// DEV reboot -> auto-recover -> unlocked with the ORIGINAL PIN.
+    ///
+    /// Provision captures the code blob + envelope (both persisted outside the
+    /// device-key envelope in test-mode builds); a reboot with rotated device
+    /// keys boots `ErrorLocked`; a single `try_dev_auto_recover` restores
+    /// `Locked` and the original PIN unlocks the session. Audit-logged as
+    /// dev-auto-recovery. No eFuse operation is involved at any step.
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn test_dev_reboot_auto_recover_unlocks_with_original_pin() {
+        use super::super::audit::SecureGuardAuditEventType;
+        use super::super::dev_recovery_cache::DevRecoveryCodeCache;
+
+        let mut engine = SecureGuardEngine::new(test_policy());
+        let rec_code = engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .expect("provision");
+        let code_blob = engine
+            .dev_recovery_code_blob_bytes()
+            .expect("DEV code blob cached at provision");
+        assert_eq!(
+            DevRecoveryCodeCache::from_bytes(&code_blob).unwrap().code(),
+            rec_code
+        );
+        let envelope_bytes = engine.recovery_envelope_bytes().expect("envelope");
+
+        // Reboot with rotated device keys: undecryptable record -> ErrorLocked.
+        let mut rebooted = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+
+        // Single auto-recovery attempt using the on-device cached code.
+        assert_eq!(
+            rebooted
+                .try_dev_auto_recover(&code_blob, &envelope_bytes, 1600)
+                .unwrap(),
+            SecureGuardState::Locked
+        );
+        assert_eq!(rebooted.state(), SecureGuardState::Locked);
+        assert!(matches!(
+            rebooted.audit_log().last().map(|e| &e.event_type),
+            Some(SecureGuardAuditEventType::DevAutoRecovery { success: true })
+        ));
+
+        // The ORIGINAL PIN unlocks the session.
+        rebooted
+            .unlock_with_pin(TEST_PIN, 1700)
+            .expect("original PIN");
+        assert_eq!(rebooted.state(), SecureGuardState::Unlocked);
+        assert!(rebooted.is_unlocked());
+    }
+
+    /// Tampered or wrong DEV cache stays `ErrorLocked`: no rescue, no retry.
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn test_dev_auto_recover_tampered_cache_stays_error_locked() {
+        use super::super::audit::SecureGuardAuditEventType;
+        use super::super::dev_recovery_cache::{DevRecoveryCodeCache, DEV_RECOVERY_CODE_BLOB_SIZE};
+
+        let mut engine = SecureGuardEngine::new(test_policy());
+        engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .unwrap();
+        let code_blob = engine.dev_recovery_code_blob_bytes().unwrap();
+        let envelope_bytes = engine.recovery_envelope_bytes().unwrap();
+
+        // 1. Tampered code blob (broken CRC, no fix): parse fails closed.
+        let mut tampered_blob = code_blob;
+        tampered_blob[12] ^= 0xFF;
+        let mut rebooted = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert!(rebooted
+            .try_dev_auto_recover(&tampered_blob, &envelope_bytes, 1600)
+            .is_err());
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        assert!(matches!(
+            rebooted.audit_log().last().map(|e| &e.event_type),
+            Some(SecureGuardAuditEventType::DevAutoRecovery { success: false })
+        ));
+        assert!(rebooted.unlock_with_pin(TEST_PIN, 1700).is_err());
+
+        // 2. Well-formed blob for the WRONG code: KEK check fails closed.
+        let wrong_blob = DevRecoveryCodeCache::new([0x77u8; 16]).to_bytes();
+        assert_eq!(wrong_blob.len(), DEV_RECOVERY_CODE_BLOB_SIZE);
+        let mut rebooted2 = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(
+            rebooted2.try_dev_auto_recover(&wrong_blob, &envelope_bytes, 1600),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(rebooted2.state(), SecureGuardState::ErrorLocked);
+
+        // 3. Tampered envelope with the RIGHT code: tag check fails closed.
+        let mut tampered_env = envelope_bytes;
+        tampered_env[70] ^= 0xFF;
+        let crc = super::super::crypto::crc32(&tampered_env[0..142]);
+        tampered_env[142..146].copy_from_slice(&crc.to_be_bytes());
+        let mut rebooted3 = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(
+            rebooted3.try_dev_auto_recover(&code_blob, &tampered_env, 1600),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(rebooted3.state(), SecureGuardState::ErrorLocked);
+    }
+
+    /// Release-build proof: no auto-recovery path exists without `test-mode`.
+    ///
+    /// Without the cached code, an `ErrorLocked` engine fails closed: an
+    /// attempt without a code is rejected and the state never leaves
+    /// `ErrorLocked`. (`try_dev_auto_recover` does not exist in this build;
+    /// any reference to it is a compile error.)
+    #[cfg(not(feature = "test-mode"))]
+    #[test]
+    fn test_release_build_has_no_dev_auto_recovery() {
+        // Compile-time gate proof, not a runtime check: fails the build if
+        // `test-mode` ever leaks into a release configuration.
+        const { assert!(!cfg!(feature = "test-mode")) };
+        let mut engine = SecureGuardEngine::new(test_policy());
+        engine
+            .provision_pin(TEST_PIN, TEST_PIN_SALT, b"", TEST_REC_SALT, 1000)
+            .unwrap();
+        let envelope_bytes = engine.recovery_envelope_bytes().unwrap();
+
+        let mut rebooted = SecureGuardEngine::from_persisted_bytes(&[0xFF; 256], 1500);
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        // Attempt without a code fails closed; no rescue, no transition.
+        assert_eq!(
+            rebooted.recover_with_envelope(b"", &envelope_bytes, 1600),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        assert!(rebooted.unlock_with_pin(TEST_PIN, 1700).is_err());
     }
 }

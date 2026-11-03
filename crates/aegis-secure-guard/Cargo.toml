@@ -18,3 +18,10 @@ rand_core = { workspace = true }
 
 [dev-dependencies]
 rand = "0.10"
+
+[features]
+# DEV-only gate for the on-device recovery-code cache (`dev_recovery_cache`).
+# Never enabled in release/default builds: the module is declared ONLY under
+# this feature, so any release-path reference fails compilation. No default
+# features exist in this crate, and no release profile enables `test-mode`.
+test-mode = []

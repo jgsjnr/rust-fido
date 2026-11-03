@@ -6,13 +6,19 @@
 //! sob qualquer sinal de corrupção ou erro de integridade, transiciona determinística
 //! para `ErrorLocked`.
 
+#[cfg(feature = "test-mode")]
+use crate::persistence::{
+    delete_dev_recovery_code, load_dev_recovery_code, save_dev_recovery_code,
+};
 use crate::persistence::{
     delete_recovery_envelope, load_recovery_envelope, save_recovery_envelope, FlashStorageBackend,
     SecureStorage, StorageError,
 };
+#[cfg(feature = "test-mode")]
+use aegis_fido_core::secure_guard::dev_recovery_cache::DEV_RECOVERY_CODE_BLOB_SIZE;
 use aegis_fido_core::secure_guard::{
     SecureGuardEngine, SecureGuardError, SecureGuardPolicy, SecureGuardState,
-    RECOVERY_ENVELOPE_SIZE, PERSISTENT_RECORD_SIZE,
+    PERSISTENT_RECORD_SIZE, RECOVERY_ENVELOPE_SIZE,
 };
 use zeroize::Zeroize;
 
@@ -41,6 +47,15 @@ pub fn save_secure_guard_record<B: FlashStorageBackend>(
     if let Some(envelope) = engine.recovery_envelope_bytes() {
         save_recovery_envelope(storage, &envelope)?;
     }
+    // DEV-only: persist the last recovery CODE next to the envelope, written
+    // ONLY at provision / rotation / recovery inside test-mode builds (the
+    // engine seals the code blob whenever a fresh code is in hand; absent
+    // cache simply leaves the stored blob untouched). Release builds contain
+    // no such path.
+    #[cfg(feature = "test-mode")]
+    if let Some(code_blob) = engine.dev_recovery_code_blob_bytes() {
+        save_dev_recovery_code(storage, &code_blob)?;
+    }
     Ok(())
 }
 
@@ -52,7 +67,13 @@ pub fn save_secure_guard_record<B: FlashStorageBackend>(
 pub fn destroy_recovery_envelope<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,
 ) -> Result<(), StorageError> {
-    delete_recovery_envelope(storage)
+    delete_recovery_envelope(storage)?;
+    // DEV-only cache dies with the envelope: a lingering code blob would
+    // resurrect wiped credentials through the DEV auto-recover path.
+    // Release builds contain no such path.
+    #[cfg(feature = "test-mode")]
+    delete_dev_recovery_code(storage)?;
+    Ok(())
 }
 
 /// Resgata um engine `ErrorLocked` via o envelope fora do envelope AES.
@@ -97,6 +118,62 @@ pub fn recover_error_locked_with_envelope<B: FlashStorageBackend>(
     save_secure_guard_record(storage, engine)
         .map_err(|_| SecureGuardError::PersistenceCorrupted("envelope rescue re-save failed"))?;
     Ok(state)
+}
+
+/// DEV-ONLY load with single-attempt automatic recovery from the on-device code cache.
+///
+/// Compiled ONLY under `test-mode`; release builds contain no such path (any
+/// release reference is a compile error). NEVER enable outside `test-mode`:
+/// release uses eFuse-provisioned keys and eFuse burns require an explicit
+/// owner ceremony. This function performs NO eFuse operation of any kind.
+///
+/// Behaves exactly like [`load_secure_guard_record`], except that an
+/// `ErrorLocked` engine triggers ONE automatic `try_dev_auto_recover` using
+/// the cached DEV code blob (`sg_dev_code_v1`) plus the envelope blob
+/// (`sg_recovery_v1`), audit-logged as dev-auto-recovery. A missing, wrong,
+/// or tampered cache fails closed to normal `ErrorLocked` with no retry loop.
+/// On success the record is re-saved under the CURRENT device key so the next
+/// boot loads `Locked` directly.
+///
+/// Boot wiring contract (firmware run-loop lane): test-mode boot should call
+/// this instead of `load_secure_guard_record` to get DEV reboot resilience.
+#[cfg(feature = "test-mode")]
+pub fn load_secure_guard_record_with_dev_auto_recovery<B: FlashStorageBackend>(
+    storage: &mut SecureStorage<B>,
+    now_ms: u64,
+) -> SecureGuardEngine {
+    let mut engine = load_secure_guard_record(storage, now_ms);
+    if engine.state() != SecureGuardState::ErrorLocked {
+        return engine;
+    }
+    // Single attempt, no retry loop. Absent/unreadable blobs (never cached)
+    // return the engine untouched without auditing; parse/crypto failures are
+    // audit-logged inside `try_dev_auto_recover` and stay `ErrorLocked`.
+    let code_raw = match load_dev_recovery_code(storage) {
+        Ok(raw) => raw,
+        Err(_) => return engine,
+    };
+    if code_raw.len() != DEV_RECOVERY_CODE_BLOB_SIZE {
+        return engine;
+    }
+    let env_raw = match load_recovery_envelope(storage) {
+        Ok(raw) => raw,
+        Err(_) => return engine,
+    };
+    if env_raw.len() != RECOVERY_ENVELOPE_SIZE {
+        return engine;
+    }
+    let mut code_blob = [0u8; DEV_RECOVERY_CODE_BLOB_SIZE];
+    code_blob.copy_from_slice(&code_raw);
+    let mut envelope_bytes = [0u8; RECOVERY_ENVELOPE_SIZE];
+    envelope_bytes.copy_from_slice(&env_raw);
+    let res = engine.try_dev_auto_recover(&code_blob, &envelope_bytes, now_ms);
+    code_blob.zeroize();
+    envelope_bytes.zeroize();
+    if res.is_ok() {
+        let _ = save_secure_guard_record(storage, &engine);
+    }
+    engine
 }
 
 /// Carrega o motor do Secure Guard a partir do armazenamento criptografado.
@@ -367,10 +444,21 @@ mod tests {
             .backend()
             .read_raw(RECOVERY_ENVELOPE_NVS_KEY)
             .is_ok());
+        // DEV-only: o blob do codigo cai junto com o envelope no wipe.
+        #[cfg(feature = "test-mode")]
+        assert!(storage
+            .backend()
+            .read_raw(crate::persistence::DEV_RECOVERY_CODE_NVS_KEY)
+            .is_ok());
         destroy_recovery_envelope(&mut storage).expect("destroy");
         assert!(storage
             .backend()
             .read_raw(RECOVERY_ENVELOPE_NVS_KEY)
+            .is_err());
+        #[cfg(feature = "test-mode")]
+        assert!(storage
+            .backend()
+            .read_raw(crate::persistence::DEV_RECOVERY_CODE_NVS_KEY)
             .is_err());
         // Idempotente: segunda chamada segue Ok.
         destroy_recovery_envelope(&mut storage).expect("destroy idempotent");
@@ -386,5 +474,106 @@ mod tests {
             ))
         );
         assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+    }
+
+    /// DEV reboot -> auto-recover -> unlocked com o PIN original (test-mode only).
+    ///
+    /// Provisionamento persiste envelope + blob do codigo fora do envelope
+    /// AES; reboot com chaves de dispositivo novas cai em `ErrorLocked`; o
+    /// load DEV faz UMA tentativa automatica com o codigo em cache, volta a
+    /// `Locked` (auditado como dev-auto-recovery) e o PIN original destrava.
+    /// Nenhuma operacao eFuse em nenhum passo.
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn dev_auto_recovery_reboot_unlocks_with_original_pin() {
+        use aegis_fido_core::secure_guard::dev_recovery_cache::DEV_RECOVERY_CODE_BLOB_SIZE;
+        use aegis_fido_core::secure_guard::SecureGuardAuditEventType;
+
+        let (_engine, storage_a, _rec_code) = provisioned_storage();
+
+        // Blob do codigo DEV persistido em plaintext, com magica intacta.
+        let code_raw = storage_a
+            .backend()
+            .read_raw(crate::persistence::DEV_RECOVERY_CODE_NVS_KEY)
+            .expect("dev code blob persisted");
+        assert_eq!(code_raw.len(), DEV_RECOVERY_CODE_BLOB_SIZE);
+        assert_eq!(&code_raw[0..8], b"AEGSGD01");
+
+        let backend_b = storage_a.backend().clone();
+        let mut storage_b = SecureStorage::new(backend_b, &[0xABu8; 32], &[0xCDu8; 32]);
+
+        // Sanidade: o load puro (sem auto) segue ErrorLocked.
+        let plain = load_secure_guard_record(&storage_b, 2000);
+        assert_eq!(plain.state(), SecureGuardState::ErrorLocked);
+
+        // Load DEV: tentativa unica automatica -> Locked...
+        let mut rebooted = load_secure_guard_record_with_dev_auto_recovery(&mut storage_b, 2100);
+        assert_eq!(rebooted.state(), SecureGuardState::Locked);
+        assert!(matches!(
+            rebooted.audit_log().last().map(|e| &e.event_type),
+            Some(SecureGuardAuditEventType::DevAutoRecovery { success: true })
+        ));
+
+        // ...e o PIN ORIGINAL destrava a sessao.
+        rebooted
+            .unlock_with_pin(REBOOT_PIN, 2200)
+            .expect("original PIN works after DEV auto-recovery");
+        assert_eq!(rebooted.state(), SecureGuardState::Unlocked);
+
+        // O resgate re-salvou sob a chave B: proximo boot e Locked direto.
+        let reloaded = load_secure_guard_record(&storage_b, 2300);
+        assert_eq!(reloaded.state(), SecureGuardState::Locked);
+    }
+
+    /// Cache DEV adulterado/ausente: permanece `ErrorLocked`, sem retry.
+    #[cfg(feature = "test-mode")]
+    #[test]
+    fn dev_auto_recovery_tampered_cache_stays_error_locked() {
+        let (_engine, storage_a, _rec_code) = provisioned_storage();
+        let backend_b = storage_a.backend().clone();
+        let mut storage_b = SecureStorage::new(backend_b, &[0xABu8; 32], &[0xCDu8; 32]);
+
+        // Adultera o blob do codigo (CRC quebrado, sem correcao).
+        let mut raw = storage_b
+            .backend()
+            .read_raw(crate::persistence::DEV_RECOVERY_CODE_NVS_KEY)
+            .expect("dev blob");
+        raw[12] ^= 0xFF;
+        storage_b
+            .backend_mut()
+            .write_raw(crate::persistence::DEV_RECOVERY_CODE_NVS_KEY, &raw)
+            .expect("tamper write");
+
+        let mut rebooted = load_secure_guard_record_with_dev_auto_recovery(&mut storage_b, 2000);
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        // Nem o PIN original destrava um engine nao resgatado.
+        assert!(rebooted.unlock_with_pin(REBOOT_PIN, 2100).is_err());
+
+        // Blob ausente tambem falha fechado, sem retry.
+        storage_b
+            .backend_mut()
+            .delete_raw(crate::persistence::DEV_RECOVERY_CODE_NVS_KEY)
+            .expect("delete dev blob");
+        let rebooted2 = load_secure_guard_record_with_dev_auto_recovery(&mut storage_b, 2200);
+        assert_eq!(rebooted2.state(), SecureGuardState::ErrorLocked);
+    }
+
+    /// Release (sem test-mode): sem cache, sem auto-recovery; tentativa sem
+    /// codigo falha fechado e nunca sai de `ErrorLocked`.
+    #[cfg(not(feature = "test-mode"))]
+    #[test]
+    fn release_has_no_dev_auto_recovery_without_code_fails_closed() {
+        let (_engine, storage_a, _rec_code) = provisioned_storage();
+        let backend_b = storage_a.backend().clone();
+        let mut storage_b = SecureStorage::new(backend_b, &[0xABu8; 32], &[0xCDu8; 32]);
+
+        let mut rebooted = load_secure_guard_record(&storage_b, 2000);
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        assert_eq!(
+            recover_error_locked_with_envelope(&mut rebooted, &mut storage_b, b"", 2100),
+            Err(SecureGuardError::InvalidRecoveryCode)
+        );
+        assert_eq!(rebooted.state(), SecureGuardState::ErrorLocked);
+        assert!(rebooted.unlock_with_pin(REBOOT_PIN, 2200).is_err());
     }
 }
