@@ -239,3 +239,29 @@ emergência guardado offline. Use somente em caso real de perda do PIN.
   cofre (capítulo 7) com a sessão ativa.
 - Botão `Abrir Painel OTA` sem resposta: ative a sessão antes e tente
   de novo. Não prossiga com flash sem orientação.
+
+## Nota de revisão — tour em telefone físico (2026-11-03)
+
+Tour somente leitura no aparelho físico (`moto g(60)`, app `0.1.0-wave5`).
+Emulador desligado. Nenhum PIN digitado. Nada instalado, nada apagado.
+
+Estado: cofre `UNPROVISIONED`, `Session Locked [ 5 / 5 ]`, ponte ligada
+(`Connection · Connected`). Fotos novas em `docs/manual/img/`:
+`01_open_locked.png` … `07_settings_language.png` (largura ≤720).
+
+Resultado: 7 de 8 passos PASS. `recovery-view` SKIP: sem cofre
+provisionado, a tela `Recuperação de Emergência` não aparece. Provisionar
+pede PIN novo. Sem PIN do dono, o passo fica BLOCKED-NEEDS-OWNER.
+
+Diferenças contra os capítulos:
+
+- Cap. 1: abertura fria às vezes mostra `Find Security Key`. Toque em
+  `Go to Vault` dispensa a folha, sem trocar nada.
+- Cap. 2: diálogo agora é variante `UNPROVISIONED` (`New Vault PIN`).
+  Só visto. `Cancel` fecha. Nada digitado.
+- Cap. 8: cartão OTA fica 3 rolagens abaixo do topo de `Settings`.
+  `Open OTA Panel` não tocado. Nenhum flash executado.
+- Cap. 9: `Language` fica no topo de `Settings` (`System`, `English`,
+  `Português (Brasil)`). Nada trocado.
+- Cap. 11: sem efeito neste estado (ver SKIP acima).
+- TOTP mostra conta `e2e-test`. Código da foto é transitório.

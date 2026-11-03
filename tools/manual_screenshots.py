@@ -80,18 +80,21 @@ STEPS: list[dict] = [
         "id": "unlock-view",
         "title": "Di\u00e1logo de PIN SOMENTE visualizado, sem digitar (manual ch.2)",
         "shot": "02_unlock_dialog.png",
-        "nav": [("tap", "Unlock Session"), ("tap", "Desbloquear Sess\u00e3o")],
+        "nav": [("tap", "Go to Vault"),
+                ("tap", "Unlock Session"), ("tap", "Desbloquear Sess\u00e3o")],
         "expect_any": [
             "Hardware Session Authentication", "Minimum 4 digits",
             "Tentativas Restantes", "Desbloquear", "Unlock", "Cancel",
         ],
-        "close": [("back",)],
+        # Cancel dismisses the dialog and stays in the app; BACK from the
+        # hub would exit to the launcher and cascade every later step.
+        "close": [("tap", "Cancel")],
     },
     {
         "id": "vault",
         "title": "Tela principal do cofre (manual ch.3/4)",
         "shot": "03_vault_hub.png",
-        "nav": [("back",)],
+        "nav": [],
         "expect_any": [
             "Generate Key in Security Key", "Gerar Chave",
             "Security Key Hardware Status", "Status do Hardware",
@@ -131,7 +134,7 @@ STEPS: list[dict] = [
         "title": "Cart\u00e3o OTA SOMENTE visualizado, sem instalar (manual ch.8)",
         "shot": "06_ota_card.png",
         "nav": [("tap", "Settings"), ("tap", "Configura\u00e7\u00f5es"),
-                ("swipe-up",)],
+                ("swipe-up",), ("swipe-up",), ("swipe-up",)],
         "expect_any": [
             "OTA Firmware Update", "Atualiza\u00e7\u00e3o de Firmware OTA",
             "Firmware v", "Open OTA Panel", "Abrir Painel OTA",
@@ -143,7 +146,9 @@ STEPS: list[dict] = [
         "id": "language",
         "title": "Configura\u00e7\u00f5es -- idioma SOMENTE visualizado (manual ch.9)",
         "shot": "07_settings_language.png",
-        "nav": [("swipe-up",)],
+        # Fresh cold entry lands on the Language row; tab re-entry would
+        # restore the deep OTA scroll offset, so restart instead of swiping.
+        "nav": [("start",), ("tap", "Go to Vault"), ("tap", "Settings")],
         "expect_any": [
             "Language", "Idioma", "English", "Ingl\u00eas",
             "Portugu\u00eas (Brasil)", "App language",
@@ -166,7 +171,8 @@ STEPS: list[dict] = [
             "Cancel", "Cancelar", "Emergency Recovery",
             "Recupera\u00e7\u00e3o de Emerg\u00eancia",
         ],
-        "close": [("back",)],
+        # Return to the hub tab instead of BACK (BACK exits to launcher).
+        "close": [("tap", "Vault")],
     },
 ]
 
@@ -256,20 +262,39 @@ def parse_bounds(center_text: str) -> tuple[int, int] | None:
 
 
 def find_center_for_text(dump_xml: str, needle: str) -> tuple[int, int] | None:
-    """Center of the first uiautomator node whose text contains ``needle``."""
+    """Center of the first uiautomator node whose text contains ``needle``.
+
+    Exact (case-insensitive, whole-text) hits win over substring hits, so a
+    tab label like ``Vault`` beats a sentence that merely mentions the vault
+    (e.g. a Settings description row) and the tap lands on real chrome.
+    """
     try:
         root = ET.fromstring(dump_xml)
     except ET.ParseError:
         return None
-    low = needle.lower()
+    want = needle.strip().lower()
+
+    def center(nodes: list) -> tuple[int, int] | None:
+        for node, _ in nodes:
+            c = parse_bounds(node.get("bounds") or "")
+            if c is not None:
+                return c
+        return None
+
+    exact, partial = [], []
     for node in root.iter("node"):
         for attr in ("text", "content-desc"):
             val = (node.get(attr) or "")
-            if val and low in val.lower():
-                c = parse_bounds(node.get("bounds") or "")
-                if c is not None:
-                    return c
-    return None
+            if not val:
+                continue
+            low = val.strip().lower()
+            if not low:
+                continue
+            if low == want:
+                exact.append((node, attr))
+            elif want in low:
+                partial.append((node, attr))
+    return center(exact) or center(partial)
 
 
 def dump_contains(dump_xml: str, markers: list[str]) -> str | None:
@@ -306,6 +331,7 @@ def list_devices() -> list[tuple[str, str]]:
 
 
 def ui_dump(serial: str) -> str:
+    do_wake(serial)  # re-assert display; wifi latency can outlast the timeout
     run_adb(serial, ["shell", "uiautomator", "dump", "/sdcard/tour_uidump.xml"],
             timeout=30)
     proc = run_adb(serial, ["shell", "cat", "/sdcard/tour_uidump.xml"], timeout=30)
@@ -313,6 +339,7 @@ def ui_dump(serial: str) -> str:
 
 
 def do_tap(serial: str, x: int, y: int) -> None:
+    do_wake(serial)  # re-assert display; wifi latency can outlast the timeout
     run_adb(serial, ["shell", "input", "tap", str(x), str(y)], timeout=15)
     time.sleep(1.2)
 
@@ -328,10 +355,36 @@ def do_swipe_up(serial: str) -> None:
     time.sleep(1.0)
 
 
+def do_wake(serial: str) -> None:
+    # Display wake only: no unlock, no typing, no secrets. The handset may
+    # sit in Doze/AOD (uiautomator then dumps com.motorola.motodisplay and
+    # screencap returns a black frame); wake first so dumps see the app.
+    run_adb(serial, ["shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            timeout=15)
+    time.sleep(1.0)
+
+
 def do_start(serial: str) -> None:
-    run_adb(serial, ["shell", "am", "start", "-n",
-                     f"{APP_PACKAGE}/{APP_ACTIVITY}"], timeout=30)
-    time.sleep(3.0)
+    do_wake(serial)
+    # Cold start for determinism: a leftover task (earlier probe or step)
+    # may sit on Settings/backup screens, which breaks step navigation.
+    # force-stop only ends the process; no user data, keys, or NVS touched.
+    run_adb(serial, ["shell", "am", "force-stop", APP_PACKAGE], timeout=30)
+    # A cold start occasionally needs a second nudge (verified, not blind:
+    # each attempt is followed by a dump asserting the app is foreground).
+    for attempt in range(1, 4):
+        run_adb(serial, ["shell", "am", "start", "-n", APP_ACTIVITY],
+                timeout=30)
+        time.sleep(3.0)
+        dump = ui_dump(serial)
+        try:
+            pkgs = sorted({n.get("package", "") or "?"
+                           for n in ET.fromstring(dump).iter("node")})
+        except ET.ParseError:
+            pkgs = ["<bad-xml>"]
+        print(f"do_start attempt {attempt}: pkgs={pkgs}")
+        if APP_PACKAGE in dump:
+            return
 
 
 def screencap(serial: str, dest: str) -> bool:
@@ -458,6 +511,7 @@ def run_live(serial: str, out_dir: str) -> int:
     failures = 0
     for i, step in enumerate(STEPS, 1):
         tag = f"{i:02d}_{step['id']}"
+        do_wake(serial)  # keep display off Doze/AOD so dumps see the app
         # Best-effort navigation (taps only on visible labels; never typing).
         dump = ""
         for action in step.get("nav", []):
@@ -497,6 +551,11 @@ def run_live(serial: str, out_dir: str) -> int:
         for action in step.get("close", []):
             if action[0] == "back":
                 do_back(serial)
+            elif action[0] == "tap":
+                dump = ui_dump(serial)
+                center = find_center_for_text(dump, action[1])
+                if center is not None:
+                    do_tap(serial, *center)
     print(f"\n==== TOUR: {len(STEPS) - failures}/{len(STEPS)} PASS ====")
     return 0 if failures == 0 else 1
 
