@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.VaultKeyEntry
+import dev.aegiskey.app.touchpolicy.TouchPolicyCard
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 import dev.aegiskey.app.ui.atomic.molecules.ClearSigningPreviewMolecule
 import dev.aegiskey.app.ui.theme.AegisAddressMonospaceStyle
@@ -85,6 +86,11 @@ fun KeyDetailManagementScreen(
     signatureResult: String? = null,
     exportedEnvelope: String? = null,
     isActionLoading: Boolean = false,
+    touchRequired: Boolean = true,
+    isTouchActionLoading: Boolean = false,
+    isGuardUnlocked: Boolean = true,
+    onTouchToggle: (Boolean) -> Unit = {},
+    onUnlockRequest: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -154,6 +160,17 @@ fun KeyDetailManagementScreen(
             // 1. Cabeçalho Principal do Hardware & Chave
             item {
                 KeyHeaderCard(entry = entry, onCopy = onCopy)
+            }
+
+            // 1b. Política de toque por credencial (0x40, CAPABILITY_DIET §8)
+            item {
+                TouchPolicyCard(
+                    requireTouch = touchRequired,
+                    isLoading = isTouchActionLoading,
+                    isGuardUnlocked = isGuardUnlocked,
+                    onToggle = onTouchToggle,
+                    onUnlockRequest = onUnlockRequest
+                )
             }
 
             // 2. Seções Customizadas por Tipo de Chave

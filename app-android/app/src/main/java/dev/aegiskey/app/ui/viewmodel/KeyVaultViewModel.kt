@@ -22,13 +22,16 @@ import dev.aegiskey.app.domain.usecase.ExportKeyEnvelopeAegnUseCase
 import dev.aegiskey.app.domain.usecase.FetchHardwareDiagnosticsUseCase
 import dev.aegiskey.app.domain.usecase.GenerateAccessKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetActiveKeyUseCase
+import dev.aegiskey.app.domain.usecase.GetKeyTouchRequiredUseCase
 import dev.aegiskey.app.domain.usecase.GetVaultEntriesUseCase
 import dev.aegiskey.app.domain.usecase.RefreshVaultUseCase
 import dev.aegiskey.app.domain.usecase.ResetHardwareVaultUseCase
 import dev.aegiskey.app.domain.usecase.RunHealthCheckUseCase
+import dev.aegiskey.app.domain.usecase.SetKeyTouchRequiredUseCase
 import dev.aegiskey.app.domain.usecase.SignChallengeOrTransactionUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonSingleTouchUseCase
 import dev.aegiskey.app.domain.usecase.UpdateKeySecurityTogglesUseCase
+import dev.aegiskey.app.touchpolicy.TouchPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +59,14 @@ data class KeyVaultUiState(
     val isKeyConnected: Boolean = false,
     val isGuardUnlocked: Boolean = true,
     val guardState: SecureGuardStateEnum = SecureGuardStateEnum.UNLOCKED,
+    /**
+     * Per-key touch toggle state. While a SET is in flight
+     * [isTouchActionLoading] is true; [touchOutcome] carries the structured
+     * result for the screen to render via `strings.xml` (PT+EN) and to open
+     * the existing unlock flow on NEED_PIN.
+     */
+    val isTouchActionLoading: Boolean = false,
+    val touchOutcome: TouchPolicy.TouchOutcome? = null,
 )
 
 private data class KeyVaultInternalState(
@@ -69,7 +80,9 @@ private data class KeyVaultInternalState(
     val isGeneratingKey: Boolean = false,
     val healthCheckStatus: String? = null,
     val userMessage: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val touchActionSlot: Int? = null,
+    val touchOutcome: TouchPolicy.TouchOutcome? = null
 )
 
 class KeyVaultViewModel(
@@ -87,6 +100,8 @@ class KeyVaultViewModel(
     private val enrollOrUpdatePivPinUseCase: EnrollOrUpdatePivPinUseCase? = null,
     private val fetchHardwareDiagnosticsUseCase: FetchHardwareDiagnosticsUseCase? = null,
     private val resetHardwareVaultUseCase: ResetHardwareVaultUseCase? = null,
+    private val getKeyTouchRequiredUseCase: GetKeyTouchRequiredUseCase? = null,
+    private val setKeyTouchRequiredUseCase: SetKeyTouchRequiredUseCase? = null,
     private val keysStore: EncryptedKeysStore? = null,
     private val secureGuardRepository: SecureGuardRepository? = null,
 ) : ViewModel() {
@@ -127,6 +142,8 @@ class KeyVaultViewModel(
             isKeyConnected = isConnected,
             isGuardUnlocked = isGuardUnlocked,
             guardState = guardStatus?.state ?: SecureGuardStateEnum.UNLOCKED,
+            isTouchActionLoading = internal.touchActionSlot != null,
+            touchOutcome = internal.touchOutcome,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -420,6 +437,67 @@ class KeyVaultViewModel(
         }
     }
 
+    /**
+     * Per-key touch toggle (touchpolicy module). Requires an unlocked
+     * session: a locked guard opens the existing unlock flow instead of
+     * reaching the wire. The structured outcome lands in
+     * [KeyVaultUiState.touchOutcome] for the screen to render (PT+EN) and
+     * to surface NEED_PIN via the unlock prompt.
+     */
+    fun setTouchRequired(slotId: Int, requireTouch: Boolean) {
+        val currentKey = activeKey.value ?: return
+        val setUseCase = setKeyTouchRequiredUseCase
+        if (setUseCase == null) {
+            _internalState.update {
+                it.copy(touchOutcome = TouchPolicy.TouchOutcome.Failed("unavailable"))
+            }
+            return
+        }
+
+        val guardStatus = guardStatusFlow.value
+        val isGuardUnlocked = guardStatus == null || guardStatus.isUnlocked ||
+            guardStatus.state == SecureGuardStateEnum.UNLOCKED ||
+            SecureGuardRepositoryImpl.lastVerifiedSessionPin != null
+        if (!isGuardUnlocked) {
+            _internalState.update {
+                it.copy(touchOutcome = TouchPolicy.TouchOutcome.NeedPin)
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _internalState.update { it.copy(touchActionSlot = slotId, touchOutcome = null) }
+            try {
+                val result = setUseCase(currentKey.id, slotId, requireTouch)
+                result.onSuccess {
+                    _internalState.update {
+                        it.copy(touchOutcome = TouchPolicy.TouchOutcome.Applied(requireTouch))
+                    }
+                    refreshVault()
+                    loadHardwareDiagnostics()
+                }.onFailure { err ->
+                    val outcome = when {
+                        err is TouchPolicy.TouchNeedPinException ->
+                            TouchPolicy.TouchOutcome.NeedPin
+                        err is TouchPolicy.TouchNoSlotException ->
+                            TouchPolicy.TouchOutcome.NoSlot
+                        else ->
+                            TouchPolicy.TouchOutcome.Failed(
+                                err.localizedMessage ?: "0x04"
+                            )
+                    }
+                    _internalState.update { it.copy(touchOutcome = outcome) }
+                }
+            } finally {
+                _internalState.update { it.copy(touchActionSlot = null) }
+            }
+        }
+    }
+
+    fun consumeTouchOutcome() {
+        _internalState.update { it.copy(touchOutcome = null) }
+    }
+
     fun runHealthCheck() {
         val currentKey = activeKey.value
         if (currentKey == null) {
@@ -498,6 +576,8 @@ class KeyVaultViewModel(
                         enrollOrUpdatePivPinUseCase = container.enrollOrUpdatePivPinUseCase,
                         fetchHardwareDiagnosticsUseCase = container.fetchHardwareDiagnosticsUseCase,
                         resetHardwareVaultUseCase = container.resetHardwareVaultUseCase,
+                        getKeyTouchRequiredUseCase = container.getKeyTouchRequiredUseCase,
+                        setKeyTouchRequiredUseCase = container.setKeyTouchRequiredUseCase,
                         keysStore = container.keysStore,
                         secureGuardRepository = container.secureGuardRepository,
                     ) as T

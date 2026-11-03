@@ -137,6 +137,13 @@ fun KeyVaultHubScreen(
             signatureResult = uiState.lastSignatureResult,
             exportedEnvelope = uiState.lastExportedEnvelope,
             isActionLoading = uiState.isActionLoading,
+            touchRequired = uiState.selectedEntry!!.requiresPhysicalTouch,
+            isTouchActionLoading = uiState.isTouchActionLoading,
+            isGuardUnlocked = uiState.isGuardUnlocked,
+            onTouchToggle = { requireTouch ->
+                viewModel.setTouchRequired(uiState.selectedEntry!!.slotId, requireTouch)
+            },
+            onUnlockRequest = { secureGuardViewModel?.openUnlockPrompt() },
             modifier = modifier
         )
         return

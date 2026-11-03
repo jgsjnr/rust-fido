@@ -25,5 +25,13 @@ interface KeyVaultRepository {
     suspend fun exportKeyEnvelopeAegn(keyId: String, slotId: Int): Result<String>
     suspend fun enrollOrUpdatePivPin(keyId: String, slotCode: String, newPin: String, newPuk: String): Result<String>
     suspend fun fetchHardwareDiagnostics(keyId: String): Result<HardwareDeviceDiagnostics>
+
+    /**
+     * Per-credential touch (UP) policy (touchpolicy module, §8.4).
+     * Local read with the fail-safe default (`true`) when unknown; SET
+     * requires an unlocked session and translates the `0x40` response.
+     */
+    suspend fun getTouchRequired(keyId: String, slotId: Int): Boolean
+    suspend fun setTouchRequired(keyId: String, slotId: Int, requireTouch: Boolean): Result<Unit>
     fun clearMemoryVault() {}
 }

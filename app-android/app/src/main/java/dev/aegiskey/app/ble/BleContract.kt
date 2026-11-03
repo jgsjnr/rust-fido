@@ -50,6 +50,12 @@ object BleContract {
     // Enrollment PIV / smartcard (0x39, F4).
     const val OP_PIV_ENROLL = 0x39
 
+    // Per-credential touch (UP) policy SET (0x40, CAPABILITY_DIET §8.4):
+    // first free byte after GET_CAPS 0x3F. Body [up_flag:1][cred_id_len:1]
+    // [cred_id]; response status-first 0x00 ok / 0x02 NEED_PIN / 0x03
+    // NO_SLOT / 0x04 fail. Fail-safe default on-device is require-touch.
+    const val OP_UP_POLICY_SET = 0x40
+
     // Assinatura dedicada (0x41, primeiro livre apos SET_UP_POLICY 0x40;
     // 0x2F e o trigger de pareamento, nunca reuse). Request 0x01 slot +
     // 0x74 msg; resposta [0x41, status, sig...]. Contrato eeb3e93.
@@ -103,7 +109,7 @@ object BleContract {
     }
 
     fun isVendorOp(op: Int): Boolean =
-        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_SG_WIPE || op == OP_GET_CAPS || isOtaOp(op)
+        op in OP_KEY_GEN_ONDEVICE..OP_OATH_DELETE || op in OP_WALLET_GEN..OP_SG_WIPE || op == OP_GET_CAPS || op == OP_UP_POLICY_SET || op == OP_KEY_SIGN || isOtaOp(op)
 
     /**
      * Allowlist OTA via BLE (fail-closed): 0x30 BEGIN, 0x31 CHUNK, 0x32
@@ -129,6 +135,8 @@ object BleContract {
         OP_WALLET_ADDR -> "0x37 wallet-addr"
         OP_FW_LOG -> "0x38 fw-log"
         OP_PIV_ENROLL -> "0x39 piv-enroll"
+        OP_UP_POLICY_SET -> "0x40 touch-policy-set"
+        OP_KEY_SIGN -> "0x41 key-sign"
         OP_SG_STATUS -> "0x3A sg-status"
         OP_SG_AUTH -> "0x3B sg-auth"
         OP_SG_LOCK -> "0x3C sg-lock"

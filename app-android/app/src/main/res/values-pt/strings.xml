@@ -757,6 +757,18 @@
     <string name="caps_name_vendor_mgmt">Controle do dispositivo</string>
     <string name="caps_name_debug_terminal">Linhas de debug</string>
     <string name="caps_name_test_hooks">Ganchos de teste</string>
+    <!-- Política de toque por credencial (0x40, CAPABILITY_DIET §8) -->
+    <string name="touch_require_title">Exigir toque</string>
+    <string name="touch_require_on_desc">Toque na chave para usar esta credencial.</string>
+    <string name="touch_require_off_desc">Uso sem toque com a sessão desbloqueada.</string>
+    <string name="touch_confirm_title">Desativar o toque?</string>
+    <string name="touch_confirm_desc">Sem toque, qualquer sessão desbloqueada usa esta credencial. A resistência a phishing diminui. Esta escolha fica registrada.</string>
+    <string name="touch_confirm_disable">Desativar</string>
+    <string name="touch_on_ok">Toque exigido para esta credencial.</string>
+    <string name="touch_off_ok">Toque desativado para esta credencial. Escolha registrada.</string>
+    <string name="touch_need_pin">PIN exigido. Desbloqueie a sessão para alterar o toque.</string>
+    <string name="touch_no_slot">Credencial não encontrada na chave.</string>
+    <string name="touch_fail">Toque não alterado: %1$s</string>
     <!-- Pareamento BLE assistido por OOB (0x42, CAPABILITY_DIET §10) -->
     <string name="wizard_title_oob">Troca Automática Segura</string>
     <string name="wizard_desc_oob">O celular e a chave trocam um código único via USB.</string>

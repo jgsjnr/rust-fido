@@ -80,3 +80,17 @@ class FetchHardwareDiagnosticsUseCase(
     suspend operator fun invoke(keyId: String): Result<HardwareDeviceDiagnostics> =
         repository.fetchHardwareDiagnostics(keyId)
 }
+
+class GetKeyTouchRequiredUseCase(
+    private val repository: KeyVaultRepository
+) {
+    suspend operator fun invoke(keyId: String, slotId: Int): Boolean =
+        repository.getTouchRequired(keyId, slotId)
+}
+
+class SetKeyTouchRequiredUseCase(
+    private val repository: KeyVaultRepository
+) {
+    suspend operator fun invoke(keyId: String, slotId: Int, requireTouch: Boolean): Result<Unit> =
+        repository.setTouchRequired(keyId, slotId, requireTouch)
+}

@@ -16,6 +16,8 @@ import dev.aegiskey.app.domain.model.VaultKeyEntry
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.KeyVaultRepository
 import dev.aegiskey.app.domain.repository.SecureGuardRepository
+import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.touchpolicy.TouchPolicy
 import dev.aegiskey.app.ui.RescueOps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +62,13 @@ class KeyVaultRepositoryImpl(
 
     private val _vaultEntries = MutableStateFlow<List<VaultKeyEntry>>(emptyList())
     override val vaultEntries: StateFlow<List<VaultKeyEntry>> = _vaultEntries.asStateFlow()
+
+    /**
+     * Finding A3: deterministic transport seam for unit tests. When set, it
+     * answers vendor ops instead of the real transports. Production leaves it
+     * null (real hardware path unchanged).
+     */
+    internal var vendorOverride: (suspend (opcode: Int, payload: ByteArray) -> ByteArray?)? = null
 
     fun isSecureGuardUnlocked(): Boolean {
         val sg = secureGuardRepository
@@ -122,6 +131,9 @@ class KeyVaultRepositoryImpl(
     }
 
     private suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
+        // Finding A3 test seam: deterministic answers before real transports.
+        vendorOverride?.let { return it(opcode, payload) }
+
         val activeKey = connectedKeysRepository.activeKey.value
         val preferredTransport = activeKey?.transportType
 
@@ -257,7 +269,11 @@ class KeyVaultRepositoryImpl(
                             createdAtEpochMs = cached?.createdAtEpochMs ?: System.currentTimeMillis(),
                             algorithmOrCurve = curve,
                             usageDescription = "Custódia e assinatura de transações",
-                            derivationPathOrSlotCode = cached?.derivationPathOrSlotCode ?: "slot #${dw.slot}"
+                            derivationPathOrSlotCode = cached?.derivationPathOrSlotCode ?: "slot #${dw.slot}",
+                            // Touch policy survives refresh: locally tracked per
+                            // (keyId, slot) until the key list exposes the flag.
+                            requiresPhysicalTouch = cached?.requiresPhysicalTouch
+                                ?: TouchPolicy.DEFAULT_REQUIRE_TOUCH
                         )
                     )
                 }
@@ -802,15 +818,73 @@ class KeyVaultRepositoryImpl(
         }
     }
 
+    override suspend fun getTouchRequired(keyId: String, slotId: Int): Boolean = withContext(Dispatchers.IO) {
+        // Memory first (live view), then the sealed cache, else the
+        // fail-safe default: require-touch assumed when unknown.
+        _vaultEntries.value.firstOrNull { it.slotId == slotId }?.requiresPhysicalTouch
+            ?: loadCachedEntries(keyId).firstOrNull { it.slotId == slotId }?.requiresPhysicalTouch
+            ?: TouchPolicy.DEFAULT_REQUIRE_TOUCH
+    }
+
+    override suspend fun setTouchRequired(keyId: String, slotId: Int, requireTouch: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                // Changing the policy requires an unlocked session (existing
+                // Secure Guard flow); a locked session never reaches the wire.
+                if (!isSecureGuardUnlocked()) throw TouchPolicy.TouchNeedPinException()
+                val current = loadCachedEntries(keyId)
+                current.firstOrNull { it.slotId == slotId }
+                    ?: throw TouchPolicy.TouchNoSlotException(slotId)
+
+                val req = TouchPolicy.buildSetRequest(requireTouch, slotId)
+                val raw = sendVendor(TouchPolicy.OP_UP_POLICY_SET, req)
+                    ?: throw IllegalStateException("Sem resposta da chave para a política de toque (0x40)")
+                when (val res = TouchPolicy.parseSetResponse(raw)) {
+                    TouchPolicy.SetResult.Ok -> {
+                        val updated = current.map {
+                            if (it.slotId == slotId) it.copy(requiresPhysicalTouch = requireTouch) else it
+                        }
+                        saveCachedEntries(keyId, updated)
+                        _vaultEntries.value = updated
+                        // Explicit user choice, recorded (slot + policy only, no secrets).
+                        DeviceLog.append(
+                            DeviceLog.Category.LOCK,
+                            "Touch policy slot #$slotId requireTouch=$requireTouch (explicit user choice, 0x40 ok)"
+                        )
+                    }
+                    TouchPolicy.SetResult.NeedPin -> throw TouchPolicy.TouchNeedPinException()
+                    TouchPolicy.SetResult.NoSlot -> throw TouchPolicy.TouchNoSlotException(slotId)
+                    is TouchPolicy.SetResult.Failure -> {
+                        // Presence denial keeps the touch prompt instead of a generic error.
+                        if (DevicePresence.isNeedUpStatus(res.status)) {
+                            throw DevicePresence.NeedUpRequiredException("touch-policy-set")
+                        }
+                        throw IllegalStateException(
+                            "Chave recusou a política de toque: " + VendorOps.statusLabel(res.status)
+                        )
+                    }
+                }
+            }
+        }
+
     override suspend fun fetchHardwareDiagnostics(keyId: String): Result<HardwareDeviceDiagnostics> = withContext(Dispatchers.IO) {
         runCatching {
             val activeKey = connectedKeysRepository.activeKey.value
             val healthText = runCatching { runQuickHealthCheck(keyId).getOrThrow() }
                 .getOrDefault("Hardware Conectado · Verificação Básica OK")
 
+            // Click-through F7: single source of truth — device-reported
+            // wins (ping version parsed from the live board), app version is
+            // the documented fallback. Never a stale hardcoded default.
+            val deviceReported = runCatching {
+                val rawPing = sendMsg(RescueOps.opMsgPayload(RescueOps.CMD_PING))
+                RescueOps.parseResponse(rawPing)?.let { RescueOps.parsePing(it.body) }?.version?.let { "v1.$it.0-esp32s3" }
+            }.getOrNull()
+            val firmwareVersion = FirmwareVersion.resolve(deviceReported)
+
             val currentEntries = loadCachedEntries(keyId)
             val totalItems = currentEntries.size
-            val freeSlots = (32 - totalItems).coerceAtLeast(0)
+            val freeSlots = FirmwareVersion.freeSlots(totalItems)
 
             val transportChannel = when (activeKey?.transportType) {
                 ConnectionTransportType.USB -> "USB-C Direct (CTAPHID)"

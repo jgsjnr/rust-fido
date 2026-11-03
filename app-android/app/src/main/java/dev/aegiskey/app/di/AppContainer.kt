@@ -43,6 +43,7 @@ import dev.aegiskey.app.domain.usecase.GenerateAccessKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetAppStartDestinationUseCase
 import dev.aegiskey.app.domain.usecase.GetConnectedKeysUseCase
+import dev.aegiskey.app.domain.usecase.GetKeyTouchRequiredUseCase
 import dev.aegiskey.app.domain.usecase.GetThemePreferenceUseCase
 import dev.aegiskey.app.domain.usecase.GetTotpAccountsUseCase
 import dev.aegiskey.app.domain.usecase.GetVaultEntriesUseCase
@@ -56,6 +57,7 @@ import dev.aegiskey.app.domain.usecase.ResetHardwareVaultUseCase
 import dev.aegiskey.app.domain.usecase.RunHealthCheckUseCase
 import dev.aegiskey.app.domain.usecase.SelectActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.SetDynamicColorsUseCase
+import dev.aegiskey.app.domain.usecase.SetKeyTouchRequiredUseCase
 import dev.aegiskey.app.domain.usecase.SetThemeModeUseCase
 import dev.aegiskey.app.domain.usecase.SignChallengeOrTransactionUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonHoldUseCase
@@ -277,6 +279,12 @@ class AppContainer(val context: Context) {
     val fetchHardwareDiagnosticsUseCase: FetchHardwareDiagnosticsUseCase by lazy {
         FetchHardwareDiagnosticsUseCase(keyVaultRepository)
     }
+    val getKeyTouchRequiredUseCase: GetKeyTouchRequiredUseCase by lazy {
+        GetKeyTouchRequiredUseCase(keyVaultRepository)
+    }
+    val setKeyTouchRequiredUseCase: SetKeyTouchRequiredUseCase by lazy {
+        SetKeyTouchRequiredUseCase(keyVaultRepository)
+    }
 
     // --- Casos de Uso: TOTP & Contas ---
     val getTotpAccountsUseCase: GetTotpAccountsUseCase by lazy {
@@ -359,6 +367,8 @@ class AppContainer(val context: Context) {
             enrollOrUpdatePivPinUseCase = enrollOrUpdatePivPinUseCase,
             fetchHardwareDiagnosticsUseCase = fetchHardwareDiagnosticsUseCase,
             resetHardwareVaultUseCase = resetHardwareVaultUseCase,
+            getKeyTouchRequiredUseCase = getKeyTouchRequiredUseCase,
+            setKeyTouchRequiredUseCase = setKeyTouchRequiredUseCase,
             keysStore = keysStore,
             secureGuardRepository = secureGuardRepository,
         )

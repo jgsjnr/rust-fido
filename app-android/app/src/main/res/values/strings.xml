@@ -757,6 +757,18 @@
     <string name="caps_name_vendor_mgmt">Device control</string>
     <string name="caps_name_debug_terminal">Debug lines</string>
     <string name="caps_name_test_hooks">Test hooks</string>
+    <!-- Per-credential touch (UP) policy (0x40, CAPABILITY_DIET §8) -->
+    <string name="touch_require_title">Require touch</string>
+    <string name="touch_require_on_desc">Touch the key to use this credential.</string>
+    <string name="touch_require_off_desc">Use without touch when the session is unlocked.</string>
+    <string name="touch_confirm_title">Turn off touch?</string>
+    <string name="touch_confirm_desc">Without touch, any unlocked session can use this credential. Phishing resistance is reduced. This choice is recorded.</string>
+    <string name="touch_confirm_disable">Turn off</string>
+    <string name="touch_on_ok">Touch required for this credential.</string>
+    <string name="touch_off_ok">Touch disabled for this credential. Choice recorded.</string>
+    <string name="touch_need_pin">PIN required. Unlock the session to change touch.</string>
+    <string name="touch_no_slot">Credential not found on the key.</string>
+    <string name="touch_fail">Touch not changed: %1$s</string>
     <!-- OOB-assisted BLE pairing (0x42, CAPABILITY_DIET §10) -->
     <string name="wizard_title_oob">Automatic Secure Exchange</string>
     <string name="wizard_desc_oob">The phone and key exchange a one-time code over USB.</string>
