@@ -149,6 +149,19 @@ pub fn effect_for_trust_state(
     }
     effect_for_pairing_state(state, bonded)
 }
+/// Efeito LED para o resultado de uma op Secure Guard (`0x3A..=0x3E`).
+///
+/// - `0x00` (ok) => `None` (mantem o pipeline: estado SG / jornada).
+/// - Classe de erro SG (`0x36` PIN-required, `0x04` vendor/arg invalido)
+///   => `Some(ErrorFlash)` (efeito existente, sem tocar no driver WS2812).
+/// - Qualquer outro status nao-zero => `None` (pipeline decide; sem spoof).
+pub fn effect_for_sg_status(status: u8) -> Option<LedEffect> {
+    match status {
+        0x00 => None,
+        0x36 | 0x04 => Some(LedEffect::ErrorFlash),
+        _ => None,
+    }
+}
 
 #[cfg(test)]
 mod pairing_led_trust_tests {
@@ -179,3 +192,26 @@ mod pairing_led_trust_tests {
         assert_eq!(e, LedEffect::Solid(Color::RED));
     }
 }
+
+#[cfg(test)]
+mod sg_status_led_tests {
+    use super::*;
+
+    #[test]
+    fn sg_ok_keeps_pipeline() {
+        assert_eq!(effect_for_sg_status(0x00), None);
+    }
+
+    #[test]
+    fn sg_error_class_flashes() {
+        assert_eq!(effect_for_sg_status(0x36), Some(LedEffect::ErrorFlash));
+        assert_eq!(effect_for_sg_status(0x04), Some(LedEffect::ErrorFlash));
+    }
+
+    #[test]
+    fn sg_other_status_keeps_pipeline() {
+        assert_eq!(effect_for_sg_status(0x33), None);
+        assert_eq!(effect_for_sg_status(0xF0), None);
+    }
+}
+

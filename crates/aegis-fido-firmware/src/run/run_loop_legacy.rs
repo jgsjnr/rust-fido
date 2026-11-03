@@ -1163,6 +1163,74 @@ pub fn run_authenticator() {
                                             aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
                                         }
                                     }
+                                } else if msg.cmd == CMD_MSG
+                                    && !msg.payload.is_empty()
+                                    && legacy_sg_dispatch::is_legacy_sg_op(msg.payload[0])
+                                {
+                                    // Secure Guard 0x3A-0x3E over USB-HID: parity
+                                    // with the serial section D branch and the freertos
+                                    // USB path (`dispatch_serial_vendor_msg` SG branch):
+                                    // same `exec_secure_guard_op`, same responses, same
+                                    // gates (none at the dispatcher; auth is enforced
+                                    // inside the executor). USB is remote-facing: no
+                                    // weaker gates invented.
+                                    let op = msg.payload[0];
+                                    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                    let (st, body, effects) =
+                                        legacy_sg_dispatch::dispatch_legacy_secure_guard_op(
+                                            &mut secure_guard,
+                                            &mut storage,
+                                            &mut wallet_store,
+                                            &mut key_mgr,
+                                            &mut oath_applet,
+                                            op,
+                                            &msg.payload[1..],
+                                            now_ms,
+                                            &mut rng,
+                                        );
+                                    if effects.did_unlock {
+                                        pairing_mgr.open_host_window(now_ms);
+                                        touch_latched = true;
+                                        touch_expire_tick = now_ms.saturating_add(10_000);
+                                        rescue_engine.set_user_presence(true);
+                                        if let Some(pin_bytes) = effects.verified_pin {
+                                            ctap_engine.pin_state.pin_hash =
+                                                Some(aegis_fido_core::crypto::pin_hash(&pin_bytes));
+                                            ctap_engine.pin_state.pin_retries = 8;
+                                            ctap_engine.pin_state.power_cycle_state = false;
+                                            let _ = crate::vendor_exec::save_pin_state(
+                                                &mut storage,
+                                                &ctap_engine.pin_state,
+                                            );
+                                            kprintln!("[USB][SG] PIN synced to CTAP2 ClientPIN.");
+                                        }
+                                    } else if effects.did_lock {
+                                        pairing_mgr.lock();
+                                        touch_latched = false;
+                                    }
+                                    // LED: SG error class (0x36/0x04) -> existing
+                                    // ErrorFlash (no new effects, no WS2812 timing
+                                    // changes; `None` keeps the state pipeline).
+                                    match crate::pairing_led::effect_for_sg_status(st) {
+                                        Some(fx) => {
+                                            if let Some(ref mut led) = display_mgr.led_controller {
+                                                led.set_effect(fx);
+                                            }
+                                            kprintln!("[USB][SG] op 0x{:02X} error (status 0x{:02X}): ErrorFlash.", op, st);
+                                        }
+                                        None => {
+                                            kprintln!("[USB][SG] op 0x{:02X} (status 0x{:02X}).", op, st);
+                                        }
+                                    }
+                                    let mut resp = Vec::with_capacity(1 + body.len());
+                                    resp.push(st);
+                                    resp.extend_from_slice(&body);
+                                    for p in CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp) {
+                                        unsafe {
+                                            aegis_usb_send_report(p.as_ptr(), PACKET_SIZE as u16);
+                                        }
+                                    }
+                                    kprintln!("[CTAPHID] Sent SG response ({} bytes)", resp.len());
                                 } else {
                                     // 1. Determine if this command requires User Presence (UP)
                                     let ctap_subcmd = if !msg.payload.is_empty() {
