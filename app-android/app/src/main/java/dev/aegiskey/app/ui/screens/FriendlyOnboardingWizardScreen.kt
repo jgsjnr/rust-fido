@@ -67,6 +67,7 @@ import dev.aegiskey.app.ui.atomic.molecules.PhysicalButtonPromptCardMolecule
 import dev.aegiskey.app.ui.atomic.organisms.DebugChipControlHooksCard
 import dev.aegiskey.app.ui.atomic.templates.WizardStepTemplate
 import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
+import dev.aegiskey.app.ui.viewmodel.OobArmState
 
 /**
  * Friendly 5-step pairing wizard screen with persistent state across Bluetooth settings pairing,
@@ -124,6 +125,7 @@ fun FriendlyOnboardingWizardScreen(
         OnboardingStep.WELCOME_TRANSPORT -> stringResource(R.string.wizard_title_transport)
         OnboardingStep.HOLD_PHYSICAL_BUTTON -> stringResource(R.string.wizard_title_hold)
         OnboardingStep.DISCOVER_AND_CONNECT -> stringResource(R.string.wizard_title_discover)
+        OnboardingStep.OOB_AUTO_EXCHANGE -> stringResource(R.string.wizard_title_oob)
         OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> stringResource(R.string.wizard_title_bind)
         OnboardingStep.NAME_AND_FINISH -> stringResource(R.string.wizard_title_name)
     }
@@ -132,6 +134,7 @@ fun FriendlyOnboardingWizardScreen(
         OnboardingStep.WELCOME_TRANSPORT -> stringResource(R.string.wizard_desc_transport)
         OnboardingStep.HOLD_PHYSICAL_BUTTON -> stringResource(R.string.wizard_desc_hold)
         OnboardingStep.DISCOVER_AND_CONNECT -> stringResource(R.string.wizard_desc_discover)
+        OnboardingStep.OOB_AUTO_EXCHANGE -> stringResource(R.string.wizard_desc_oob)
         OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> stringResource(R.string.onb_bind_hw_desc)
         OnboardingStep.NAME_AND_FINISH -> stringResource(R.string.wizard_desc_name)
     }
@@ -141,7 +144,8 @@ fun FriendlyOnboardingWizardScreen(
         else -> stringResource(R.string.wizard_btn_next)
     }
 
-    val isNextLoading = uiState.isConnecting || uiState.isBinding
+    val isNextLoading = uiState.isConnecting || uiState.isBinding ||
+        uiState.oobArmState == OobArmState.Arming
 
     WizardStepTemplate(
         currentStep = stepNumber,
@@ -255,6 +259,12 @@ fun FriendlyOnboardingWizardScreen(
                     onSelectCandidate = { viewModel.selectCandidateAndConnect(it) },
                     onUseSimulator = { viewModel.selectTransport(ConnectionTransportType.SIMULATOR) },
                     onRefresh = { viewModel.refreshDiscovery() }
+                )
+            }
+            OnboardingStep.OOB_AUTO_EXCHANGE -> {
+                OobAutoExchangeStepContent(
+                    oobArmState = uiState.oobArmState,
+                    onExchange = { viewModel.armOobExchange() }
                 )
             }
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> {

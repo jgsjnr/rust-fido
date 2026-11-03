@@ -757,4 +757,21 @@
     <string name="caps_name_vendor_mgmt">Device control</string>
     <string name="caps_name_debug_terminal">Debug lines</string>
     <string name="caps_name_test_hooks">Test hooks</string>
+    <!-- OOB-assisted BLE pairing (0x42, CAPABILITY_DIET §10) -->
+    <string name="wizard_title_oob">Automatic Secure Exchange</string>
+    <string name="wizard_desc_oob">The phone and key exchange a one-time code over USB.</string>
+    <string name="oob_how_title">How the exchange works</string>
+    <string name="oob_how_body">The phone creates a random 16-byte key and sends it to the key over the USB cable. The key arms Bluetooth pairing for one attempt.</string>
+    <string name="oob_arming">Exchanging over USB...</string>
+    <string name="oob_idle_hint">Start the automatic exchange over the USB cable.</string>
+    <string name="oob_exchange_btn">Exchange automatically</string>
+    <string name="oob_retry">Retry exchange</string>
+    <string name="oob_armed_ok">Exchange armed. Touch the key button to finish pairing.</string>
+    <string name="oob_touch_note">The physical button touch is still required to finish pairing.</string>
+    <string name="oob_os_note">This phone system cannot receive the code, so Bluetooth bonding stays off.</string>
+    <string name="oob_err_binding">Bind the key first, then retry the exchange.</string>
+    <string name="oob_err_up">Touch the key button, then retry the exchange.</string>
+    <string name="oob_err_pin">Unlock the session with your PIN, then retry.</string>
+    <string name="oob_err_envelope">Exchange rejected. Check the cable and retry.</string>
+    <string name="oob_err_transport">No answer over USB. Check the cable and retry.</string>
 </resources>

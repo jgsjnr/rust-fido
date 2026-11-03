@@ -3,6 +3,7 @@ package dev.aegiskey.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.aegiskey.app.R
 import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
@@ -10,7 +11,9 @@ import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
 import dev.aegiskey.app.domain.model.OnboardingStep
 import dev.aegiskey.app.domain.repository.PairingWizardRepository
+import dev.aegiskey.app.domain.usecase.ArmBleOobUseCase
 import dev.aegiskey.app.domain.usecase.ConnectCandidateUseCase
+import dev.aegiskey.app.oob.OobPairing
 import dev.aegiskey.app.domain.usecase.PerformBiometricBindingUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonHoldUseCase
 import dev.aegiskey.app.domain.usecase.SimulateButtonSingleTouchUseCase
@@ -42,7 +45,28 @@ data class OnboardingWizardUiState(
     val recoveryPin: String = "",
     val errorMessage: String? = null,
     val isCompleted: Boolean = false
+    /**
+     * OOB-assisted BLE pairing (`0x42`, CAPABILITY_DIET §10): truthful
+     * device answer of the last automatic exchange attempt. Non-blocking:
+     * binding (0x28) is a separate device gate, so the wizard may proceed
+     * while this still reports a denial — the denial stays visible and no
+     * success is ever claimed without the `0x00` authority answer.
+     */
+    val oobArmState: OobArmState = OobArmState.Idle
 )
+
+/**
+ * Structured UI outcome of the automatic OOB exchange. Rendered via
+ * `strings.xml` (PT+EN); the Android bond step itself stays
+ * [dev.aegiskey.app.oob.OobPairing.AndroidBondVerdict.BlockedNoPublicOobApi]
+ * (no public OS entrypoint consumes the TK).
+ */
+sealed interface OobArmState {
+    data object Idle : OobArmState
+    data object Arming : OobArmState
+    data object Armed : OobArmState
+    data class Failed(val errorResId: Int) : OobArmState
+}
 
 class OnboardingWizardViewModel(
     private val pairingWizardRepository: PairingWizardRepository,
@@ -52,6 +76,7 @@ class OnboardingWizardViewModel(
     private val simulateButtonHoldUseCase: SimulateButtonHoldUseCase,
     private val simulateButtonSingleTouchUseCase: SimulateButtonSingleTouchUseCase,
     private val performBiometricBindingUseCase: PerformBiometricBindingUseCase,
+    private val armBleOobUseCase: ArmBleOobUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OnboardingWizardUiState())
@@ -214,11 +239,12 @@ class OnboardingWizardViewModel(
                         _uiState.update {
                             it.copy(
                                 isConnecting = false,
-                                currentStep = OnboardingStep.TOUCH_AND_BIOMETRIC_BIND,
+                                currentStep = OnboardingStep.OOB_AUTO_EXCHANGE,
                                 buttonTouchDetected = true,
                                 errorMessage = null
                             )
                         }
+                        armOobExchange()
                     } else {
                         _uiState.update {
                             it.copy(
@@ -229,6 +255,13 @@ class OnboardingWizardViewModel(
                     }
                 }
             }
+            OnboardingStep.OOB_AUTO_EXCHANGE -> {
+                // Non-blocking by design (see oobArmState): the device
+                // answer stays visible on this step; binding (0x28) is a
+                // separate device gate resolved on the next steps.
+                _uiState.update {
+                    it.copy(
+                        currentStep = OnboardingStep.TOUCH_AND_BIOMETRIC_BIND,
             OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> {
                 _uiState.update {
                     it.copy(
@@ -264,7 +297,8 @@ class OnboardingWizardViewModel(
                 viewModelScope.launch { stopDiscoveryUseCase() }
                 OnboardingStep.HOLD_PHYSICAL_BUTTON
             }
-            OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> OnboardingStep.DISCOVER_AND_CONNECT
+            OnboardingStep.OOB_AUTO_EXCHANGE -> OnboardingStep.DISCOVER_AND_CONNECT
+            OnboardingStep.TOUCH_AND_BIOMETRIC_BIND -> OnboardingStep.OOB_AUTO_EXCHANGE
             OnboardingStep.NAME_AND_FINISH -> OnboardingStep.TOUCH_AND_BIOMETRIC_BIND
         }
         _uiState.update { it.copy(currentStep = previous, errorMessage = null) }
@@ -318,6 +352,31 @@ class OnboardingWizardViewModel(
         )
     }
 
+    /**
+     * Automatic OOB exchange (`0x42` over USB): samples a fresh TK,
+     * arms the firmware latch one-shot, and records the truthful device
+     * answer. Retried from the OOB wizard step. Never claims success
+     * without the `0x00` authority answer.
+     */
+    fun armOobExchange() {
+        if (_uiState.value.oobArmState == OobArmState.Arming) return
+        _uiState.update { it.copy(oobArmState = OobArmState.Arming) }
+        viewModelScope.launch {
+            val result = armBleOobUseCase()
+            _uiState.update {
+                it.copy(
+                    oobArmState = when (result) {
+                        OobPairing.ArmResult.Armed -> OobArmState.Armed
+                        OobPairing.ArmResult.NeedBinding ->
+                            OobArmState.Failed(R.string.oob_err_binding)
+                        OobPairing.ArmResult.NeedUp ->
+                            OobArmState.Failed(R.string.oob_err_up)
+                        OobPairing.ArmResult.NeedPin ->
+                            OobArmState.Failed(R.string.oob_err_pin)
+                        is OobPairing.ArmResult.BadEnvelope ->
+                            OobArmState.Failed(R.string.oob_err_envelope)
+                        OobPairing.ArmResult.TransportFailure ->
+                            OobArmState.Failed(R.string.oob_err_transport)
     fun performBiometricBinding(
         alias: String,
         recoveryPin: String?,
@@ -356,6 +415,7 @@ class OnboardingWizardViewModel(
                         simulateButtonHoldUseCase = container.simulateButtonHoldUseCase,
                         simulateButtonSingleTouchUseCase = container.simulateButtonSingleTouchUseCase,
                         performBiometricBindingUseCase = container.performBiometricBindingUseCase,
+                        armBleOobUseCase = container.armBleOobUseCase,
                     ) as T
                 }
             }

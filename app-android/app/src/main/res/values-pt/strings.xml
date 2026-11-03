@@ -757,4 +757,21 @@
     <string name="caps_name_vendor_mgmt">Controle do dispositivo</string>
     <string name="caps_name_debug_terminal">Linhas de debug</string>
     <string name="caps_name_test_hooks">Ganchos de teste</string>
+    <!-- Pareamento BLE assistido por OOB (0x42, CAPABILITY_DIET §10) -->
+    <string name="wizard_title_oob">Troca Automática Segura</string>
+    <string name="wizard_desc_oob">O celular e a chave trocam um código único via USB.</string>
+    <string name="oob_how_title">Como funciona a troca</string>
+    <string name="oob_how_body">O celular cria uma chave aleatória de 16 bytes e a envia à chave pelo cabo USB. A chave libera o pareamento Bluetooth por uma tentativa.</string>
+    <string name="oob_arming">Trocando via USB...</string>
+    <string name="oob_idle_hint">Inicie a troca automática pelo cabo USB.</string>
+    <string name="oob_exchange_btn">Trocar automaticamente</string>
+    <string name="oob_retry">Tentar de novo</string>
+    <string name="oob_armed_ok">Troca armada. Toque no botão da chave para concluir o pareamento.</string>
+    <string name="oob_touch_note">O toque no botão físico continua obrigatório para concluir o pareamento.</string>
+    <string name="oob_os_note">Este celular não recebe o código, então o vínculo Bluetooth fica desligado.</string>
+    <string name="oob_err_binding">Vincule a chave primeiro e tente de novo.</string>
+    <string name="oob_err_up">Toque no botão da chave e tente de novo.</string>
+    <string name="oob_err_pin">Desbloqueie a sessão com seu PIN e tente de novo.</string>
+    <string name="oob_err_envelope">Troca rejeitada. Verifique o cabo e tente de novo.</string>
+    <string name="oob_err_transport">Sem resposta via USB. Verifique o cabo e tente de novo.</string>
 </resources>

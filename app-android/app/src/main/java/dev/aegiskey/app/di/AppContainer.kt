@@ -32,6 +32,7 @@ import dev.aegiskey.app.domain.repository.PairingWizardRepository
 import dev.aegiskey.app.domain.repository.ThemeRepository
 import dev.aegiskey.app.domain.repository.TotpRepository
 import dev.aegiskey.app.domain.usecase.AddTotpAccountUseCase
+import dev.aegiskey.app.domain.usecase.ArmBleOobUseCase
 import dev.aegiskey.app.domain.usecase.ConnectCandidateUseCase
 import dev.aegiskey.app.domain.usecase.DeleteTotpAccountUseCase
 import dev.aegiskey.app.domain.usecase.DeleteVaultEntryUseCase
@@ -221,6 +222,9 @@ class AppContainer(val context: Context) {
     val performBiometricBindingUseCase: PerformBiometricBindingUseCase by lazy {
         PerformBiometricBindingUseCase(pairingWizardRepository)
     }
+    val armBleOobUseCase: ArmBleOobUseCase by lazy {
+        ArmBleOobUseCase(usbTransport)
+    }
 
     // --- Casos de Uso: Dispositivos Pareados ---
     val getConnectedKeysUseCase: GetConnectedKeysUseCase by lazy {
@@ -323,6 +327,7 @@ class AppContainer(val context: Context) {
             simulateButtonHoldUseCase = simulateButtonHoldUseCase,
             simulateButtonSingleTouchUseCase = simulateButtonSingleTouchUseCase,
             performBiometricBindingUseCase = performBiometricBindingUseCase,
+            armBleOobUseCase = armBleOobUseCase,
         )
     }
 

@@ -60,6 +60,7 @@ import dev.aegiskey.app.data.debug.DebugHardwareChipMock
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
 import dev.aegiskey.app.domain.model.OnboardingStep
+import dev.aegiskey.app.ui.viewmodel.OobArmState
 import dev.aegiskey.app.security.RequestBlePermissionsEffect
 import dev.aegiskey.app.security.rememberBlePermissionLauncher
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
@@ -415,6 +416,125 @@ internal fun DiscoverAndConnectStepContent(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Automatic OOB exchange step (CAPABILITY_DIET §10): the phone samples a
+ * random 16-byte key and sends it to the key over USB (`0x42`). The key
+ * arms Bluetooth pairing for one attempt. Renders only the truthful
+ * device answer (fail-closed); the button touch is still required.
+ */
+@Composable
+internal fun OobAutoExchangeStepContent(
+    oobArmState: OobArmState,
+    onExchange: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Filled.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.oob_how_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                }
+                Text(
+                    text = stringResource(R.string.oob_how_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                when (oobArmState) {
+                    OobArmState.Arming -> {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(R.string.oob_arming),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    OobArmState.Armed -> {
+                        Icon(imageVector = Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(R.string.oob_armed_ok),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    is OobArmState.Failed -> {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(oobArmState.errorResId),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Button(onClick = onExchange, shape = RoundedCornerShape(8.dp)) {
+                                Icon(imageVector = Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.oob_retry))
+                            }
+                        }
+                    }
+                    OobArmState.Idle -> {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(R.string.oob_idle_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Button(onClick = onExchange, shape = RoundedCornerShape(8.dp)) {
+                                Icon(imageVector = Icons.Filled.Usb, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.oob_exchange_btn))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.oob_touch_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(R.string.oob_os_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

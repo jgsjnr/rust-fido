@@ -9,6 +9,7 @@ import dev.aegiskey.app.data.repository.ThemeRepositoryImpl
 import dev.aegiskey.app.data.repository.TotpRepositoryImpl
 import dev.aegiskey.app.data.system.SystemSecurityService
 import dev.aegiskey.app.data.transport.HostUsbUartBridgeClient
+import dev.aegiskey.app.data.transport.KeyTransport
 import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.domain.model.AccessKeyType
 import dev.aegiskey.app.domain.model.AppThemeMode
@@ -17,6 +18,7 @@ import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DiscoveredKeyCandidate
 import dev.aegiskey.app.domain.model.OnboardingStep
 import dev.aegiskey.app.domain.model.SecurityToggles
+import dev.aegiskey.app.domain.usecase.ArmBleOobUseCase
 import dev.aegiskey.app.domain.usecase.ConnectCandidateUseCase
 import dev.aegiskey.app.domain.usecase.GetAppStartDestinationUseCase
 import dev.aegiskey.app.domain.usecase.PerformBiometricBindingUseCase
@@ -29,6 +31,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -46,6 +50,25 @@ import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CleanJourneyArchitectureTest {
+
+    /** Canned USB transport for the OOB arm: answers `0x00` armed. */
+    private class CannedOobUsbTransport : KeyTransport {
+        override val transportType: ConnectionTransportType = ConnectionTransportType.USB
+        override val isConnected: StateFlow<Boolean> = MutableStateFlow(true)
+        var lastOpcode: Int = -1
+        var lastPayload: ByteArray = ByteArray(0)
+
+        override suspend fun connect(target: String): Result<Unit> = Result.success(Unit)
+        override suspend fun disconnect() = Unit
+        override suspend fun sendVendor(opcode: Int, payload: ByteArray): ByteArray? {
+            lastOpcode = opcode
+            lastPayload = payload.copyOf()
+            return byteArrayOf(opcode.toByte(), 0x00)
+        }
+
+        override suspend fun sendMsg(payload: ByteArray): ByteArray? = null
+        override suspend fun cancel(): Boolean = true
+    }
 
     private lateinit var keysStore: EncryptedKeysStore
     private lateinit var themeStore: ThemePreferencesStore
@@ -594,7 +617,7 @@ class CleanJourneyArchitectureTest {
     }
 
     @Test
-    fun testOnboardingWizard_persistsSteps1To4_andOnlyMutatesConnectedKeysAtStep5() = runTest {
+    fun testOnboardingWizard_persistsSteps1To5_andOnlyMutatesConnectedKeysAtStep6() = runTest {
         dev.aegiskey.app.data.debug.DebugHardwareChipMock.IS_MOCK_ENABLED = true
         val wizardRepo = PairingWizardRepositoryImpl(
             bleClient = null,
@@ -614,6 +637,7 @@ class CleanJourneyArchitectureTest {
             simulateButtonHoldUseCase = SimulateButtonHoldUseCase(wizardRepo),
             simulateButtonSingleTouchUseCase = SimulateButtonSingleTouchUseCase(wizardRepo),
             performBiometricBindingUseCase = PerformBiometricBindingUseCase(wizardRepo),
+            armBleOobUseCase = ArmBleOobUseCase(CannedOobUsbTransport()),
         )
 
         // Inicial: Passo 1, nenhuma chave cadastrada
@@ -633,7 +657,7 @@ class CleanJourneyArchitectureTest {
         assertEquals(OnboardingStep.DISCOVER_AND_CONNECT, wizardVm.uiState.value.currentStep)
         assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 3", connectedKeysRepo.hasAnyConnectedKey.value)
 
-        // Passo 3 -> Passo 4: Conecta ao candidato USB
+        // Passo 3 -> Passo 4: Conecta ao candidato USB; a troca OOB automatica arma em seguida
         val mockUsb = dev.aegiskey.app.data.debug.DebugHardwareChipMock.MOCK_USB_CANDIDATE
         assertNotNull(mockUsb)
         wizardVm.selectCandidateAndConnect(mockUsb)
@@ -641,15 +665,37 @@ class CleanJourneyArchitectureTest {
         wizardVm.nextStep()
         testScheduler.advanceUntilIdle()
         var attempts = 0
+        while (wizardVm.uiState.value.currentStep != OnboardingStep.OOB_AUTO_EXCHANGE && attempts < 20) {
+            Thread.sleep(50)
+            testScheduler.advanceUntilIdle()
+            attempts++
+        }
+        assertEquals(OnboardingStep.OOB_AUTO_EXCHANGE, wizardVm.uiState.value.currentStep)
+        attempts = 0
+        while (wizardVm.uiState.value.oobArmState !is dev.aegiskey.app.ui.viewmodel.OobArmState.Armed && attempts < 20) {
+            Thread.sleep(50)
+            testScheduler.advanceUntilIdle()
+            attempts++
+        }
+        assertTrue(
+            "OOB deve armar via transporte USB simulado",
+            wizardVm.uiState.value.oobArmState is dev.aegiskey.app.ui.viewmodel.OobArmState.Armed
+        )
+        assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 4", connectedKeysRepo.hasAnyConnectedKey.value)
+
+        // Passo 4 -> Passo 5: Confirma a troca e avanca para o toque fisico
+        wizardVm.nextStep()
+        testScheduler.advanceUntilIdle()
+        attempts = 0
         while (wizardVm.uiState.value.currentStep != OnboardingStep.TOUCH_AND_BIOMETRIC_BIND && attempts < 20) {
             Thread.sleep(50)
             testScheduler.advanceUntilIdle()
             attempts++
         }
         assertEquals(OnboardingStep.TOUCH_AND_BIOMETRIC_BIND, wizardVm.uiState.value.currentStep)
-        assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 4", connectedKeysRepo.hasAnyConnectedKey.value)
+        assertFalse("Chave ainda NÃO pode ser cadastrada no Passo 5", connectedKeysRepo.hasAnyConnectedKey.value)
 
-        // Passo 4 -> Passo 5: Confirma toque físico
+        // Passo 5 -> Passo 6: Confirma toque físico
         wizardVm.nextStep()
         testScheduler.advanceUntilIdle()
         attempts = 0
@@ -659,9 +705,9 @@ class CleanJourneyArchitectureTest {
             attempts++
         }
         assertEquals(OnboardingStep.NAME_AND_FINISH, wizardVm.uiState.value.currentStep)
-        assertFalse("Chave ainda NÃO pode ser cadastrada antes de concluir o Passo 5", connectedKeysRepo.hasAnyConnectedKey.value)
+        assertFalse("Chave ainda NÃO pode ser cadastrada antes de concluir o Passo 6", connectedKeysRepo.hasAnyConnectedKey.value)
 
-        // Passo 5: Conclui com nome personalizado e abre cofre
+        // Passo 6: Conclui com nome personalizado e abre cofre
         var onCompletedCalled = false
         wizardVm.completeWizardWithCustomName("Minha Chave USB Corporativa") {
             onCompletedCalled = true
@@ -675,7 +721,7 @@ class CleanJourneyArchitectureTest {
         }
 
         assertTrue("Callback de conclusão deve ser chamado", onCompletedCalled)
-        assertTrue("hasAnyConnectedKey DEVE mudar para true apenas no Passo 5", connectedKeysRepo.hasAnyConnectedKey.value)
+        assertTrue("hasAnyConnectedKey DEVE mudar para true apenas no Passo 6", connectedKeysRepo.hasAnyConnectedKey.value)
         assertEquals("Minha Chave USB Corporativa", connectedKeysRepo.activeKey.value?.displayName)
         assertTrue(wizardVm.uiState.value.isCompleted)
     }
