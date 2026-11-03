@@ -131,4 +131,53 @@ Budgets NVS: `storage @0x190000 len 0x070000` = 458752 B (448 KiB, layout 2 MB, 
 | fido-only | aegis-app-esp32s3-devkitc-fido-only.bin | 1128144 | 36CA330DC23CEF56D7716BFE08871D5A0CE562666716D13C555A9B2DCFD188AE | 2026-11-02 |
 | fido-totp | aegis-app-esp32s3-devkitc-fido-totp.bin | 1251632 | 55AC03BC49C18C2DB09175BE0D5246B0103CAE369EDB554F79D800F0B0AE9FDC | 2026-11-02 |
 
-Ver tambem: header de `crates/aegis-fido-firmware/partitions-2m.csv` (tamanho fido-only medido + preset atendido).
+Ver tambem: header de `crates/aegis-fido-firmware/partitions-2m.csv` (tamanho fido-only medido + preset atendido).## 7. Advertisement da capability (GET_CAPS `0x3F`)
+
+Host descobre o preset sem adivinhar: comando vendor read-only `0x3F`
+(primeiro byte livre apos a faixa SG `0x3A-0x3E`; auditoria completa no
+header de `crates/aegis-fido-firmware/src/vendor_exec/vendor_caps.rs`).
+Contrato wire legivel por maquina em
+`scripts/capability-catalog.json#wire_contract`.
+
+- Request: vazio. Qualquer payload nao-vazio nega fail-closed (`0x04`).
+- Response: `(0x00, mapa CBOR)`:
+
+| chave | tipo | conteudo |
+|---|---|---|
+| `fw_version` | text | versao do crate (`env!("CARGO_PKG_VERSION")`) |
+| `preset` | text | `"full"` / `"fido-only"` / `"fido-totp"` (via cfg) |
+| `caps` | array de text | EXATAMENTE `presets.<preset>.includes` do catalogo (mesmos IDs, mesma ordem) |
+| `unsupported_count` | uint | numero de comandos vendor fora da dieta (`0` no full) |
+
+- Auth: nenhuma (read-only, sem segredos; mesma classe de visibilidade do
+  `0x38` fw-log over serial). Executado no `exec_vendor_op` ANTES do
+  `authorize_vendor_op`: binding/UP/PIN nunca consultados.
+- Desconhecidos preservados: vizinhos (`0x2E`/`0x2F`/`0x3E`/`0x40`) seguem
+  `0x04` fail-closed; `fido-only` segue reportando a dieta (7 caps, 7
+  `unsupported`), nunca mascara capability ausente.
+
+| preset | caps anunciadas | `unsupported_count` (ops que respondem `0x06`) |
+|---|---|---|
+| full | 18 (todas) | 0 |
+| fido-only | 7 (ctap-makecred, ctap-getassert, ctap-clientpin, ccid, piv, openpgp, vendor-mgmt) | 7 (`0x24`-`0x27` OATH + `0x35`-`0x37` wallet) |
+| fido-totp | 10 (fido-only + oath-totp, oath-hotp, otp-challenge-response) | 3 (`0x35`-`0x37` wallet) |
+
+Fiacao dos funis (fora do escopo de `vendor_exec`; snippet para os donos
+dos transportes -- o executor compartilhado `exec_vendor_op` ja atende o
+`0x3F` sem auth):
+
+```
+# USB serial (freertos_route::dispatch_serial_vendor_msg + loop legado):
+# incluir o predicado e desviar ANTES do gate pairing/UP (como o 0x38):
+if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op)
+    || crate::vendor_exec::is_get_caps_op(op) { /* ... exec_vendor_op ... */ }
+
+# BLE (ble_dispatch_complete): novo braco sem gates (como fw-log com bonded):
+o if crate::vendor_exec::is_get_caps_op(o) => {
+    let (st, body) = crate::vendor_exec::exec_vendor_op(
+        key_mgr, oath_applet, storage, o, p, false, false, false, now_secs, &mut rng);
+    ble::notify_frame(o, st, &body)
+}
+# + BLE reassembler (is_ble_fragment_opcode em gatt_core.rs): aceitar 0x3F
+#   como opcode de fragmento (hoje so PING/MSG/bind 0x28-0x2D/OTA 0x30-0x34).
+```

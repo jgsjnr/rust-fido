@@ -466,5 +466,36 @@
       "always": true,
       "notes": "Resident-pool budget for the 16 MB layout."
     }
-  ]
+  ],
+  "wire_contract": {
+    "get_caps": {
+      "op": 63,
+      "op_hex": "0x3F",
+      "name": "GET_CAPS capability advertisement (read-only, no auth)",
+      "firmware_source": "crates/aegis-fido-firmware/src/vendor_exec/vendor_caps.rs",
+      "opcode_audit": "First free byte after the Secure Guard range 0x3A-0x3E. Occupied neighbors: 0x20-0x27 vendor keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue (OP_MSG payload only, never a fragment opcode), 0x2F reserved (fail-closed), 0x30-0x34 OTA, 0x35-0x37 wallet, 0x38 fw-log, 0x39 PIV enroll, 0x3A-0x3E Secure Guard. No collision with the SG range, wallet, OATH, or CCID dispatch (CCID is APDU-framed CLA/INS/P1/P2, a different namespace).",
+      "request": "empty (any non-empty payload fails closed with wire status 0x04)",
+      "response": "wire status 0x00 + CBOR map body",
+      "response_schema": {
+        "fw_version": "text: crate version (env CARGO_PKG_VERSION)",
+        "preset": "text via cfg: full (neither cap-*), fido-only (cap-fido-only), fido-totp (cap-fido-totp)",
+        "caps": "array of text capability IDs, EXACTLY presets.<preset>.includes of this catalog (same IDs, same order)",
+        "unsupported_count": "uint: number of diet-gated vendor commands (0 on full)"
+      },
+      "auth": "none: read-only, no secrets; handled in exec_vendor_op BEFORE authorize_vendor_op, so binding/UP/PIN are never consulted (same visibility class as 0x38 fw-log over serial)",
+      "transport": "USB serial CMD_MSG + BLE vendor funnels through the shared executor exec_vendor_op. Funnel edges route by opcode predicate: OR is_get_caps_op() next to is_vendor_keys_oath_op/is_wallet_op/is_piv_enroll_op and accept the single-byte message without pairing/UP/PIN gates; BLE GATT reassembler must additionally accept the 0x3F fragment opcode.",
+      "unsupported_count_rule": {
+        "note": "Count of vendor opcodes answering 0x06 UNSUPPORTED_FEATURE in this preset (diet-gated commands).",
+        "full": 0,
+        "fido-only": 7,
+        "fido-totp": 3,
+        "counted_ops": {
+          "full": [],
+          "fido-only": ["0x24", "0x25", "0x26", "0x27", "0x35", "0x36", "0x37"],
+          "fido-totp": ["0x35", "0x36", "0x37"]
+        }
+      },
+      "preset_caps_source": "presets.<preset>.includes (this file); the firmware table in vendor_caps.rs::capability_ids() is its compiled-in projection"
+    }
+  }
 }

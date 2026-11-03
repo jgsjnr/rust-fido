@@ -14,7 +14,8 @@ use aegis_fido_core::oath::applet::OathApplet;
 use aegis_fido_core::oath::tlv::{write_tlv, TAG_LABEL, TAG_SLOT};
 use alloc::vec::Vec;
 
-/// Executa uma op vendor `0x20-0x27` (gates + persistência).
+/// Executa uma op vendor `0x20-0x27` (gates + persistência) ou `GET_CAPS`
+/// `0x3F` (pré-gate, sem auth).
 /// Retorna `(wire_status, body)` status-first como o BLE.
 #[allow(clippy::too_many_arguments)]
 pub fn exec_vendor_op<B, R>(
@@ -47,6 +48,11 @@ where
             );
         }
         return super::vendor_piv::exec_piv_enroll(storage, payload);
+    }
+    // GET_CAPS (0x3F): advertisement read-only, sem auth -- antes do
+    // gate (como PIV ENROLL acima); binding/UP/PIN nunca consultados.
+    if op == super::vendor_caps::OP_GET_CAPS {
+        return super::vendor_caps::exec_get_caps(payload);
     }
     if let Err(e) = authorize_vendor_op(op, binding_ok, pin_ok, up) {
         return (e.to_vendor_status(), Vec::new());

@@ -11,6 +11,7 @@
 //! `vendor_dispatch`, testes em `vendor_tests`. Todos os paths públicos
 //! são re-exportados abaixo (move-only, sem mudanca de comportamento).
 
+mod vendor_caps;
 mod vendor_dispatch;
 mod vendor_keys;
 mod vendor_oath;
@@ -19,5 +20,9 @@ mod vendor_store;
 #[cfg(test)]
 mod vendor_tests;
 
+pub use self::vendor_caps::{
+    OP_GET_CAPS, capability_ids, diet_gated_ops, is_get_caps_op, preset_name,
+    unsupported_count,
+};
 pub use self::vendor_dispatch::exec_vendor_op;
 pub use self::vendor_store::*;
