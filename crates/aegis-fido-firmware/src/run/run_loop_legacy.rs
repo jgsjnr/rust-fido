@@ -197,6 +197,16 @@ pub fn run_authenticator() {
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
     // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
     let mut wallet_store = WalletStore::new();
+    // DEV-only boot resilience (test-mode ONLY): single-attempt auto-recovery
+    // from the on-device code cache on ErrorLocked; release keeps the plain
+    // load (fail-closed, no auto path). No eFuse operation on either path.
+    #[cfg(feature = "test-mode")]
+    let mut secure_guard =
+        crate::secure_guard_storage::load_secure_guard_record_with_dev_auto_recovery(
+            &mut storage,
+            0,
+        );
+    #[cfg(not(feature = "test-mode"))]
     let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     // Log real do device p/ o app (op 0x38; RAM, sem PII/segredos).
     let mut fw_log = crate::fw_log::FwLog::new();

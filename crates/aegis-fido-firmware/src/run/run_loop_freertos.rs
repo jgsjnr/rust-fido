@@ -353,6 +353,14 @@ pub fn run_authenticator_freertos() {
         if !crate::vendor_exec::load_pin_state(&storage, &mut ctap_engine.pin_state) {
             kprintln!("[WARN] PIN NVS inconsistente; sem PIN.");
         }
+        // DEV-only boot resilience (test-mode ONLY); release keeps the plain load.
+        #[cfg(feature = "test-mode")]
+        let secure_guard =
+            crate::secure_guard_storage::load_secure_guard_record_with_dev_auto_recovery(
+                &mut storage,
+                0,
+            );
+        #[cfg(not(feature = "test-mode"))]
         let secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
         kprintln!(
             "[INIT] Secure Guard online (state={:?}, provisioned={}).",
@@ -361,6 +369,16 @@ pub fn run_authenticator_freertos() {
         );
     }
     #[cfg(target_os = "espidf")]
+    // DEV-only boot resilience (test-mode ONLY): single-attempt auto-recovery
+    // from the on-device code cache on ErrorLocked; release keeps the plain
+    // load (fail-closed, no auto path). No eFuse operation on either path.
+    #[cfg(feature = "test-mode")]
+    let mut secure_guard =
+        crate::secure_guard_storage::load_secure_guard_record_with_dev_auto_recovery(
+            &mut storage,
+            0,
+        );
+    #[cfg(not(feature = "test-mode"))]
     let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     #[cfg(target_os = "espidf")]
     if ctap_engine.pin_state.pin_hash.is_none() && secure_guard.is_provisioned() {
