@@ -129,11 +129,17 @@ pub fn handle_status(engine: &mut SecureGuardEngine, now_ms: u64) -> (u8, Vec<u8
         Value::Text("auto_lock_on_ble_away".into()),
         Value::Bool(engine.auto_lock_on_ble_away()),
     ));
+    map.push((
+        Value::Text("bench_active".into()),
+        Value::Bool(crate::secure_guard_exec::bench::policy::is_bench_active()),
+    ));
 
     let device_ble_mac = {
         #[cfg(target_os = "espidf")]
         {
             let mut mac = [0u8; 6];
+            // SAFETY: `mac` is a live 6-byte stack buffer and `esp_read_mac`
+            // only writes the 6-byte MAC for the requested interface.
             let _ = unsafe {
                 esp_idf_sys::esp_read_mac(mac.as_mut_ptr(), esp_idf_sys::esp_mac_type_t_ESP_MAC_BT)
             };

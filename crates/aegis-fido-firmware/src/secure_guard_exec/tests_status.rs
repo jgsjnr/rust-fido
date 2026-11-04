@@ -58,3 +58,27 @@ fn test_status_includes_security_feature_flags() {
         panic!("expected cbor map");
     }
 }
+
+/// Contrato 0x3A com o app: `bench_active` existe e é `false` sem `test-mode`
+/// (release/default; sem PII, só o bool da bancada).
+#[test]
+#[cfg(not(feature = "test-mode"))]
+fn test_status_bench_active_false_by_default() {
+    let policy = SecureGuardPolicy {
+        pbkdf2_iterations: 10,
+        ..Default::default()
+    };
+    let mut engine = SecureGuardEngine::new(policy);
+    let (st, body) = handle_status(&mut engine, 1_000);
+    assert_eq!(st, 0x00);
+    let val: Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let Value::Map(entries) = val {
+        assert_eq!(
+            get_field(&entries, "bench_active"),
+            Some(&Value::Bool(false)),
+            "0x3A deve expor bench_active=false sem test-mode"
+        );
+    } else {
+        panic!("expected cbor map");
+    }
+}

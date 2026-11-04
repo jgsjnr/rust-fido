@@ -302,3 +302,94 @@ fn release_nunca_ativa_bancada() {
         None
     );
 }
+
+/// Contrato 0x3A com o app (release): `bench_active` existe e é `false`.
+#[test]
+#[cfg(not(feature = "test-mode"))]
+fn status_mapa_bench_active_false_no_release() {
+    let _guard = BENCH_TEST_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut engine = aegis_fido_core::secure_guard::SecureGuardEngine::new(
+        aegis_fido_core::secure_guard::SecureGuardPolicy {
+            pbkdf2_iterations: 10,
+            ..aegis_fido_core::secure_guard::SecureGuardPolicy::default()
+        },
+    );
+    let (st, body) = crate::secure_guard_exec::status::handle_status(&mut engine, 1_000);
+    assert_eq!(st, 0x00);
+    let val: ciborium::value::Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let ciborium::value::Value::Map(entries) = val {
+        let got = entries.iter().find_map(|(k, v)| {
+            if matches!(k, ciborium::value::Value::Text(s) if s == "bench_active") {
+                Some(v.clone())
+            } else {
+                None
+            }
+        });
+        assert_eq!(
+            got,
+            Some(ciborium::value::Value::Bool(false)),
+            "0x3A deve expor bench_active=false no release"
+        );
+    } else {
+        panic!("expected cbor map");
+    }
+}
+
+/// Contrato 0x3A com o app (bancada): `bench_active` reflete `is_bench_active()`.
+#[test]
+#[cfg(feature = "test-mode")]
+fn status_mapa_bench_active_espelha_bancada() {
+    let _guard = BENCH_TEST_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut engine = fast_engine();
+    let mut fw_log = crate::fw_log::FwLog::new();
+    bench_test_reset(&mut engine);
+
+    // Bancada desligada (default): `false`, sem PII.
+    let (st, body) = crate::secure_guard_exec::status::handle_status(&mut engine, 1_000);
+    assert_eq!(st, 0x00);
+    let val: ciborium::value::Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let ciborium::value::Value::Map(entries) = val {
+        let got = entries.iter().find_map(|(k, v)| {
+            if matches!(k, ciborium::value::Value::Text(s) if s == "bench_active") {
+                Some(v.clone())
+            } else {
+                None
+            }
+        });
+        assert_eq!(
+            got,
+            Some(ciborium::value::Value::Bool(false)),
+            "0x3A deve expor bench_active=false com bancada off"
+        );
+    } else {
+        panic!("expected cbor map");
+    }
+
+    // Bancada ligada: `true`.
+    assert!(super::policy::bench_enable(&mut engine, &mut fw_log, 2_000));
+    assert!(super::policy::is_bench_active());
+    let (st, body) = crate::secure_guard_exec::status::handle_status(&mut engine, 3_000);
+    assert_eq!(st, 0x00);
+    let val: ciborium::value::Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let ciborium::value::Value::Map(entries) = val {
+        let got = entries.iter().find_map(|(k, v)| {
+            if matches!(k, ciborium::value::Value::Text(s) if s == "bench_active") {
+                Some(v.clone())
+            } else {
+                None
+            }
+        });
+        assert_eq!(
+            got,
+            Some(ciborium::value::Value::Bool(true)),
+            "0x3A deve expor bench_active=true com bancada on"
+        );
+    } else {
+        panic!("expected cbor map");
+    }
+    bench_test_reset(&mut engine);
+}
