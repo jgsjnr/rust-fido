@@ -215,9 +215,12 @@ pub(crate) fn ble_dispatch_complete(
                 ble::notify_frame(o, st, &body)
             }
         }
-        o if g::is_vendor_keys_oath_op(o) || g::is_piv_enroll_op(o) => {
-            // F2: executor real on-device (GEN/LIST/DELETE + OATH
-            // PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
+        o if g::is_vendor_keys_oath_op(o)
+            || g::is_piv_enroll_op(o)
+            || crate::vendor_exec::is_vendor_sign_op(o) =>
+        {
+            // F2: executor real on-device (GEN/LIST/DELETE + VENDOR_SIGN 0x41
+            // + OATH PUT/LIST/CODE/DELETE, NVS persistente); IMPORT segue 0x04
             // (envelope AEGN + vault = F2b). F4: 0x39 enrollment PIV
             // (binding -> UP, sem PIN). Gates §9.4 intactos.
             let pin_ok =

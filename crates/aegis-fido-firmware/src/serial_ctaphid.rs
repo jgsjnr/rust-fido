@@ -119,7 +119,8 @@ pub fn serial_requires_pairing(cmd: u8, payload: &[u8]) -> bool {
                 | OP_OATH_PUT
                 | OP_OATH_DELETE
                 | OP_PIV_ENROLL
-        ) || crate::ble_gatt::is_wallet_op(payload[0]);
+        ) || crate::ble_gatt::is_wallet_op(payload[0])
+            || crate::vendor_exec::is_vendor_sign_op(payload[0]);
     }
     false
 }
@@ -150,7 +151,11 @@ pub fn serial_is_up_required(cmd: u8, payload: &[u8]) -> bool {
     }
     if cmd == CMD_MSG && !payload.is_empty() {
         let op = payload[0];
-        if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
+        if is_vendor_keys_oath_op(op)
+            || is_wallet_op(op)
+            || is_piv_enroll_op(op)
+            || crate::vendor_exec::is_vendor_sign_op(op)
+        {
             return true;
         }
         if is_bind_mgmt_op(op) {
@@ -253,7 +258,8 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
         && !msg.payload.is_empty()
         && (is_vendor_keys_oath_op(msg.payload[0])
             || is_wallet_op(msg.payload[0])
-            || is_piv_enroll_op(msg.payload[0]))
+            || is_piv_enroll_op(msg.payload[0])
+            || crate::vendor_exec::is_vendor_sign_op(msg.payload[0]))
     {
         return CtapHidFramer::frame_message(msg.cid, msg.cmd, &[VENDOR_STATUS_NEED_BINDING]);
     }
@@ -292,16 +298,16 @@ pub fn vendor_status(e: BleGattError) -> u8 {
     e.to_vendor_status()
 }
 
-#[cfg(feature = "test-mode")]
-pub use crate::serial_text::dispatch_serial_pairing_line;
-#[cfg(not(feature = "test-mode"))]
-pub use crate::serial_text::dispatch_serial_pairing_line;
-pub use crate::serial_text::dispatch_serial_text_line;
 /// Re-export da op explicita de bancada (gated `test-mode`; release = `None`).
 #[cfg(feature = "test-mode")]
 pub use crate::secure_guard_exec::bench::dispatch_serial_bench_line;
 #[cfg(not(feature = "test-mode"))]
 pub use crate::secure_guard_exec::bench::dispatch_serial_bench_line;
+#[cfg(feature = "test-mode")]
+pub use crate::serial_text::dispatch_serial_pairing_line;
+#[cfg(not(feature = "test-mode"))]
+pub use crate::serial_text::dispatch_serial_pairing_line;
+pub use crate::serial_text::dispatch_serial_text_line;
 
 pub use crate::serial_vendor::{
     dispatch_serial_bind_mgmt, dispatch_serial_rescue, dispatch_serial_vendor,
@@ -569,6 +575,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn vendor_sign_serial_gates_mirror_gen() {
+        use crate::vendor_exec::{is_vendor_sign_op, OP_VENDOR_SIGN};
+        // Predicado do funil: 0x41 dedicado; vizinhos congelados intactos.
+        assert!(is_vendor_sign_op(OP_VENDOR_SIGN));
+        assert_eq!(OP_VENDOR_SIGN, 0x41);
+        assert!(!is_vendor_sign_op(0x40));
+        assert!(!is_vendor_sign_op(0x3F));
+        assert!(!is_vendor_sign_op(0x2F));
+        // Gate probe classe GEN (binding -> UP, sem PIN): sem vinculo nega
+        // NEED_BINDING no release (bypass com ltrace no test-mode); sem UP
+        // nega 0x01 em qualquer modo; PIN nunca exigido.
+        let (st, _) = dispatch_serial_vendor(OP_VENDOR_SIGN, false, false, true);
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(st, 0x04);
+        } else {
+            assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
+        }
+        assert_eq!(
+            dispatch_serial_vendor(OP_VENDOR_SIGN, true, false, false).0,
+            0x01
+        );
+        assert_eq!(
+            dispatch_serial_vendor(OP_VENDOR_SIGN, true, false, true).0,
+            0x04
+        );
+        assert_eq!(
+            dispatch_serial_vendor(OP_VENDOR_SIGN, true, true, true).0,
+            0x04
+        );
+        // Predicados seriais tratam 0x41 como GEN: pairing + UP + deny 0x05.
+        assert!(serial_requires_pairing(CMD_MSG, &[OP_VENDOR_SIGN]));
+        assert!(serial_is_up_required(CMD_MSG, &[OP_VENDOR_SIGN]));
+        assert_eq!(
+            authorize_serial(CMD_MSG, &[OP_VENDOR_SIGN], false, true),
+            SerialGate::NeedPairing
+        );
+        assert_eq!(
+            authorize_serial(CMD_MSG, &[OP_VENDOR_SIGN], true, false),
+            SerialGate::NeedUp
+        );
+        assert_eq!(
+            authorize_serial(CMD_MSG, &[OP_VENDOR_SIGN], true, true),
+            SerialGate::Ok
+        );
+        let pkts = deny_response(&CtapHidMessage::new(
+            0x01020304,
+            CMD_MSG,
+            vec![OP_VENDOR_SIGN],
+        ));
+        let mut router = SerialRouter::new();
+        if let SerialFeed::Message(back) = router.feed(&pkts[0], 1000) {
+            assert_eq!(back.payload, vec![VENDOR_STATUS_NEED_BINDING]);
+        } else {
+            panic!("deny do 0x41 deve enquadrar NEED_BINDING (0x05)");
+        }
+    }
     #[test]
     fn wallet_dispatch_mirrors_ble_gates() {
         // Sem UP (com binding) -> NEED_UP (0x01) em qualquer modo.

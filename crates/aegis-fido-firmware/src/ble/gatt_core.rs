@@ -112,7 +112,8 @@ pub const OTA_OP_MAX: u8 = 0x34;
 /// `true` para opcodes que abrem transacao no reassembler: CTAP-BLE
 /// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D`, OTA `0x30-0x34`,
 /// GET_CAPS `0x3F` (advertisement read-only, sem auth) e SET_UP_POLICY
-/// `0x40` (management gated: binding + sessao PIN viva, sem latch UP).
+/// `0x40` (management gated: binding + sessao PIN viva, sem latch UP) e
+/// VENDOR_SIGN `0x41` (SIGN dedicado, classe GEN: binding + UP, sem PIN).
 ///
 /// `0xBE` CANCEL tem caminho proprio (aborta a transacao); `0x2E` rescue
 /// viaja SOMENTE como payload de `OP_MSG` (`[0x2E, frame...]`), nunca como
@@ -125,6 +126,7 @@ pub fn is_ble_fragment_opcode(op: u8) -> bool {
         || (OTA_OP_MIN..=OTA_OP_MAX).contains(&op)
         || crate::vendor_exec::is_get_caps_op(op)
         || crate::ctap_cmd::is_set_up_policy_op(op)
+        || crate::vendor_exec::is_vendor_sign_op(op)
 }
 
 /// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.

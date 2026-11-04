@@ -25,7 +25,7 @@ use alloc::vec::Vec;
 /// trigger on USB/serial), `0x40` is TAKEN by `ctap_cmd::OP_SET_UP_POLICY`.
 /// `0x41` has no opcode definition anywhere in tree (only magic bytes,
 /// test padding and font bitmaps); it is the documented next-free byte.
-pub(crate) const OP_VENDOR_SIGN: u8 = 0x41;
+pub const OP_VENDOR_SIGN: u8 = 0x41;
 
 /// `true` for the `VENDOR_SIGN` opcode (funnel-routing helper).
 ///
@@ -34,7 +34,7 @@ pub(crate) const OP_VENDOR_SIGN: u8 = 0x41;
 /// `exec_vendor_op` WITH the standard gates (binding + UP, no PIN --
 /// exactly the GEN `0x20` class, never weaker). The BLE reassembler must
 /// additionally accept `0x41` as a fragment opcode.
-pub(crate) fn is_vendor_sign_op(op: u8) -> bool {
+pub fn is_vendor_sign_op(op: u8) -> bool {
     op == OP_VENDOR_SIGN
 }
 

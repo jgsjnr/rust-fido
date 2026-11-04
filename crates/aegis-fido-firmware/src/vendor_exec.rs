@@ -24,4 +24,5 @@ pub use self::vendor_caps::{
     capability_ids, diet_gated_ops, is_get_caps_op, preset_name, unsupported_count, OP_GET_CAPS,
 };
 pub use self::vendor_dispatch::exec_vendor_op;
+pub use self::vendor_keys::{is_vendor_sign_op, OP_VENDOR_SIGN};
 pub use self::vendor_store::*;

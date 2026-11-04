@@ -425,9 +425,14 @@ pub fn dispatch_serial_vendor_msg(
             ));
         }
     }
-    // Vendor keys/OATH + carteira + PIV enroll: UP do latch (como o BLE);
+    // Vendor keys/OATH + VENDOR_SIGN (0x41, classe GEN: binding + UP, sem PIN)
+    // + carteira + PIV enroll: UP do latch (como o BLE);
     // negação carrega o wire status.
-    if is_vendor_keys_oath_op(op) || is_wallet_op(op) || is_piv_enroll_op(op) {
+    if is_vendor_keys_oath_op(op)
+        || is_wallet_op(op)
+        || is_piv_enroll_op(op)
+        || crate::vendor_exec::is_vendor_sign_op(op)
+    {
         let sg_unlocked = ctx
             .secure_guard
             .as_ref()
@@ -1864,6 +1869,399 @@ mod tests {
         assert!(text.contains(" EV=10 ARG=0 "), "BLE sucesso: {}", text);
         assert!(text.contains(" EV=18 ARG=0 "), "BLE auditoria: {}", text);
         assert!(!crate::cred_store::up_required_for_label(&storage, &label));
+    }
+    /// VENDOR_SIGN (`0x41`) atravessa os 4 funis com gates classe GEN.
+    ///
+    /// - FreeRTOS USB serial (`dispatch_serial_vendor_msg`): janela fechada
+    ///   nega `0x05` sem consumir; sem UP nega `0x01`; forma invalida nega
+    ///   `0x04`; slot ausente nega `0x03`; slot valido + gates ok responde
+    ///   `0x00` + assinatura e consome o latch. `Some` em todos os casos:
+    ///   nunca cai no engine CTAP generico.
+    /// - Serial legada (secao D): mesmo predicado `is_vendor_sign_op` +
+    ///   `exec_vendor_op` com os args do ramo (o ramo e `cfg(target_os =
+    ///   "espidf")`; aqui exercemos o predicado e o executor com os args
+    ///   do ramo).
+    /// - BLE: `is_ble_fragment_opcode(0x41)` abre transacao, o reassembler
+    ///   completa o fragmento unico, e `ble_dispatch_complete` nega `0x05`
+    ///   sem vinculo, `0x01` sem UP, e executa `0x00` vinculado+UP.
+    #[test]
+    fn vendor_sign_atravessa_funis_com_gates_gen() {
+        use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
+        use crate::freertos_sched::CTAPHID_PACKET_SIZE;
+        use crate::fw_log::FwLog;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::ctap::CtapEngine;
+        use aegis_fido_core::oath::tlv::{write_tlv, TAG_LABEL, TAG_SLOT};
+        use aegis_fido_core::oath::types::TAG_CHALLENGE;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
+        use p256::ecdsa::SigningKey;
+
+        const SLOT: u8 = 7;
+        const MSG: &[u8] = b"funnel-parity-challenge";
+
+        fn deframe(packets: &[[u8; CTAPHID_PACKET_SIZE]]) -> (u8, Vec<u8>) {
+            assert!(!packets.is_empty());
+            let total = ((packets[0][5] as usize) << 8) | packets[0][6] as usize;
+            let mut out = Vec::new();
+            let first = total.min(CTAPHID_PACKET_SIZE - 7);
+            out.extend_from_slice(&packets[0][7..7 + first]);
+            for p in &packets[1..] {
+                let want = (total - out.len()).min(CTAPHID_PACKET_SIZE - 5);
+                out.extend_from_slice(&p[5..5 + want]);
+            }
+            assert_eq!(out.len(), total);
+            (out[0], out[1..].to_vec())
+        }
+
+        fn sign_body(slot: u8, msg: &[u8]) -> Vec<u8> {
+            let mut v = Vec::new();
+            write_tlv(&mut v, TAG_SLOT, &[slot]);
+            write_tlv(&mut v, TAG_CHALLENGE, msg);
+            v
+        }
+
+        fn wire_body(slot: u8, msg: &[u8]) -> Vec<u8> {
+            let mut v = Vec::with_capacity(1 + msg.len() + 4);
+            v.push(crate::vendor_exec::OP_VENDOR_SIGN);
+            v.extend_from_slice(&sign_body(slot, msg));
+            v
+        }
+
+        fn gen_slot(
+            keys: &mut KeyManager,
+            oath: &mut OathApplet,
+            storage: &mut SecureStorage<PlatformFlashBackend>,
+            slot: u8,
+        ) {
+            let mut payload = Vec::new();
+            write_tlv(&mut payload, TAG_SLOT, &[slot]);
+            write_tlv(&mut payload, TAG_LABEL, b"sign-test");
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, _) = crate::vendor_exec::exec_vendor_op(
+                keys,
+                oath,
+                storage,
+                crate::ble_gatt::OP_KEY_GEN_ONDEVICE,
+                &payload,
+                true,
+                false,
+                true,
+                0,
+                &mut rng,
+            );
+            assert_eq!(st, 0x00, "GEN do slot de paridade");
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn serial_ctx<'a>(
+            binding: &'a mut BindingManager,
+            storage: &'a mut SecureStorage<PlatformFlashBackend>,
+            wallet: &'a mut WalletStore,
+            key_mgr: &'a mut KeyManager,
+            oath: &'a mut OathApplet,
+            fwlog: &'a mut FwLog,
+            rescue: &'a mut RescueEngine,
+            pairing: &'a mut PairingManager,
+            pairing_open: bool,
+            up_latched: bool,
+        ) -> SerialVendorCtx<'a> {
+            SerialVendorCtx {
+                pairing_open,
+                up_latched,
+                now_ms: 7,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding,
+                storage,
+                wallet,
+                key_mgr,
+                oath,
+                fwlog,
+                rescue,
+                pairing,
+                pin_uv_session: false,
+                secure_guard: None,
+                verified_pin: None,
+                ota_state: None,
+                ota_provisioned: false,
+                ota_pubkey: [0u8; 32],
+                ota_current_version: 0,
+                up_hook: false,
+            }
+        }
+
+        fn dispatch_case(
+            pairing_open: bool,
+            up_latched: bool,
+            body: Vec<u8>,
+            keys_seeded: bool,
+        ) -> (u8, Vec<u8>, bool) {
+            let mut pairing = PairingManager::new();
+            let mut binding = BindingManager::new();
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let mut wallet = WalletStore::new();
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let mut fwlog = FwLog::new();
+            let mut rescue = RescueEngine::new();
+            if keys_seeded {
+                gen_slot(&mut key_mgr, &mut oath, &mut storage, SLOT);
+            }
+            let mut vendor = serial_ctx(
+                &mut binding,
+                &mut storage,
+                &mut wallet,
+                &mut key_mgr,
+                &mut oath,
+                &mut fwlog,
+                &mut rescue,
+                &mut pairing,
+                pairing_open,
+                up_latched,
+            );
+            let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
+            // `Some` sempre: 0x41 nunca cai no engine CTAP generico.
+            let (packets, consumed) =
+                dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x41 tratado no funil");
+            let (st, resp) = deframe(&packets);
+            (st, resp, consumed)
+        }
+
+        // --- FreeRTOS USB serial: gates classe GEN ---
+        // Janela fechada: 0x05 sem consumir (paridade com o GEN 0x20).
+        let (st, resp, consumed) = dispatch_case(false, true, wire_body(SLOT, MSG), true);
+        assert_eq!(st, 0x05);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        // Sem UP: 0x01 sem consumir.
+        let (st, resp, consumed) = dispatch_case(true, false, wire_body(SLOT, MSG), true);
+        assert_eq!(st, 0x01);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        // Formas invalidas com gates ok: 0x04 fail-closed. O latch vai junto no passo do
+        // gate (paridade GEN: `consumed` reflete o gate serial, nao o executor).
+        let mut no_slot = Vec::new();
+        write_tlv(&mut no_slot, TAG_CHALLENGE, MSG);
+        let mut empty_msg = Vec::new();
+        write_tlv(&mut empty_msg, TAG_SLOT, &[SLOT]);
+        write_tlv(&mut empty_msg, TAG_CHALLENGE, b"");
+        for bad_payload in [&[][..], &no_slot[..], &empty_msg[..]] {
+            let mut bad = vec![crate::vendor_exec::OP_VENDOR_SIGN];
+            bad.extend_from_slice(bad_payload);
+            let (st, resp, consumed) = dispatch_case(true, true, bad, true);
+            assert_eq!(st, 0x04);
+            assert!(resp.is_empty());
+            assert!(consumed, "gate passou: latch consumido");
+        }
+        // Slot ausente com gates ok: 0x03 (so o executor responde isso; latch ja consumido no gate).
+        let (st, resp, consumed) = dispatch_case(true, true, wire_body(9, MSG), true);
+        assert_eq!(st, 0x03);
+        assert!(resp.is_empty());
+        assert!(consumed, "gate passou: latch consumido");
+        // Slot valido + gates ok: 0x00 + assinatura, consome o latch.
+        let (st, sig, consumed) = dispatch_case(true, true, wire_body(SLOT, MSG), true);
+        assert_eq!(st, 0x00);
+        assert!(!sig.is_empty(), "executor deve devolver a assinatura");
+        assert!(consumed, "sucesso consome o latch UP");
+
+        // --- Serial legada (secao D): predicado + executor com args do ramo ---
+        assert!(crate::vendor_exec::is_vendor_sign_op(0x41));
+        assert!(!crate::vendor_exec::is_vendor_sign_op(0x40));
+        assert!(!crate::vendor_exec::is_vendor_sign_op(0x3F));
+        assert!(!crate::vendor_exec::is_vendor_sign_op(0x2F));
+        {
+            // Args do ramo: `binding_mgr.is_claimed()` (host: sem vinculo) +
+            // sessao PIN + latch UP. Release nega 0x05 (bypass com ltrace no
+            // test-mode); malformado nega 0x04 em qualquer modo.
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            gen_slot(&mut key_mgr, &mut oath, &mut storage, SLOT);
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, body) = crate::vendor_exec::exec_vendor_op(
+                &mut key_mgr,
+                &mut oath,
+                &mut storage,
+                crate::vendor_exec::OP_VENDOR_SIGN,
+                &sign_body(SLOT, MSG),
+                false,
+                false,
+                true,
+                0,
+                &mut rng,
+            );
+            if crate::binding::binding_bypass_enabled() {
+                assert_eq!(st, 0x00);
+                assert!(!body.is_empty());
+            } else {
+                assert_eq!(st, 0x05);
+                assert!(body.is_empty());
+            }
+            let (st, _) = crate::vendor_exec::exec_vendor_op(
+                &mut key_mgr,
+                &mut oath,
+                &mut storage,
+                crate::vendor_exec::OP_VENDOR_SIGN,
+                &[],
+                true,
+                false,
+                true,
+                0,
+                &mut rng,
+            );
+            assert_eq!(st, 0x04);
+        }
+
+        // --- BLE: reassembler aceita 0x41 e completa o fragmento unico ---
+        assert!(crate::ble_gatt::is_ble_fragment_opcode(
+            crate::vendor_exec::OP_VENDOR_SIGN
+        ));
+        assert!(!crate::ble_gatt::is_ble_fragment_opcode(0x2F));
+        {
+            let payload = sign_body(SLOT, MSG);
+            let mut frag = Vec::with_capacity(3 + payload.len());
+            frag.push(crate::vendor_exec::OP_VENDOR_SIGN);
+            frag.push(((payload.len() >> 8) & 0xFF) as u8);
+            frag.push((payload.len() & 0xFF) as u8);
+            frag.extend_from_slice(&payload);
+            let mut r = crate::ble::gatt_core::BleReassembler::new();
+            let done = r
+                .feed(&frag)
+                .expect("0x41 abre transacao")
+                .expect("fragmento unico completa");
+            assert_eq!(done.opcode, crate::vendor_exec::OP_VENDOR_SIGN);
+            assert_eq!(done.payload, payload);
+        }
+
+        // --- BLE dispatch: 0x05 sem vinculo, 0x01 sem UP, 0x00 vinculado+UP ---
+        fn claimed_binding() -> BindingManager {
+            let sk = SigningKey::from_slice(&[0x11u8; 32]).expect("scalar valido");
+            let pt = sk.verifying_key().to_sec1_point(false);
+            let mut sec1 = [0u8; BIND_PUB_LEN];
+            sec1.copy_from_slice(pt.as_bytes());
+            let mut m = BindingManager::new();
+            m.claim(&sec1, &[0xABu8; BIND_ID_LEN], true, true)
+                .expect("claim ok");
+            m
+        }
+
+        fn ble_case(
+            binding: &mut BindingManager,
+            storage: &mut SecureStorage<PlatformFlashBackend>,
+            engine: &mut CtapEngine,
+            payload: Vec<u8>,
+            bonded: bool,
+            up: bool,
+        ) -> String {
+            let mut rescue = RescueEngine::new();
+            let mut wallet = WalletStore::new();
+            let mut fwlog = FwLog::new();
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            // GEN do slot (executor direto, gates ok) para o SIGN assinar.
+            {
+                let mut gen = Vec::new();
+                write_tlv(&mut gen, TAG_SLOT, &[SLOT]);
+                write_tlv(&mut gen, TAG_LABEL, b"sign-test");
+                let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                let (st, _) = crate::vendor_exec::exec_vendor_op(
+                    &mut key_mgr,
+                    &mut oath,
+                    storage,
+                    crate::ble_gatt::OP_KEY_GEN_ONDEVICE,
+                    &gen,
+                    true,
+                    false,
+                    true,
+                    0,
+                    &mut rng,
+                );
+                assert_eq!(st, 0x00, "GEN do slot BLE");
+            }
+            let policy = aegis_fido_core::secure_guard::SecureGuardPolicy {
+                pbkdf2_iterations: 10,
+                session_duration_ms: 1000,
+                inactivity_timeout_ms: 500,
+                ..Default::default()
+            };
+            let mut sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(policy);
+            crate::run::ble_dispatch::ble_dispatch_complete(
+                crate::ble::gatt_core::BleCompleteMessage {
+                    opcode: crate::vendor_exec::OP_VENDOR_SIGN,
+                    payload,
+                },
+                up,
+                false,
+                0,
+                engine,
+                binding,
+                storage,
+                &mut rescue,
+                &mut wallet,
+                bonded,
+                11,
+                &mut fwlog,
+                &mut key_mgr,
+                &mut oath,
+                &mut sg,
+            );
+            core::str::from_utf8(&fwlog.render_ascii(2048))
+                .expect("fwlog ascii")
+                .to_string()
+        }
+
+        let backend = PlatformFlashBackend::new();
+        let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+        let mut engine = CtapEngine::new([0x11; 32], 0);
+        // Sem vinculo: 0x05 (NEED_BINDING) no release; test-mode faz bypass
+        // com ltrace e executa (0x00) -- mesma regra do GEN no executor.
+        let mut unclaimed = BindingManager::new();
+        let text = ble_case(
+            &mut unclaimed,
+            &mut storage,
+            &mut engine,
+            sign_body(SLOT, MSG),
+            false,
+            true,
+        );
+        if crate::binding::binding_bypass_enabled() {
+            assert!(
+                text.contains(" EV=10 ARG=0 "),
+                "BLE bypass test-mode: {}",
+                text
+            );
+        } else {
+            assert!(text.contains(" EV=10 ARG=5 "), "BLE sem vinculo: {}", text);
+        }
+        // Vinculado sem UP: 0x01 (presenca nunca pulada).
+        let mut claimed = claimed_binding();
+        let text = ble_case(
+            &mut claimed,
+            &mut storage,
+            &mut engine,
+            sign_body(SLOT, MSG),
+            true,
+            false,
+        );
+        assert!(text.contains(" EV=10 ARG=1 "), "BLE sem UP: {}", text);
+        // Vinculado + UP: 0x00 (executor assinou).
+        let text = ble_case(
+            &mut claimed,
+            &mut storage,
+            &mut engine,
+            sign_body(SLOT, MSG),
+            true,
+            true,
+        );
+        assert!(text.contains(" EV=10 ARG=0 "), "BLE sucesso: {}", text);
     }
     #[test]
     fn gaps_t8_espelhados_como_externally_blocked() {

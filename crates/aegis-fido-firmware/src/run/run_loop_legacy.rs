@@ -1618,9 +1618,7 @@ pub fn run_authenticator() {
             };
             #[cfg(feature = "test-mode")]
             use crate::serial_ctaphid::{
-                dispatch_serial_bench_line,
-                dispatch_serial_pairing_line,
-                dispatch_serial_text_line,
+                dispatch_serial_bench_line, dispatch_serial_pairing_line, dispatch_serial_text_line,
             };
 
             // D1. Diagnostic text lines (test-mode only; idle use only).
@@ -2054,9 +2052,10 @@ pub fn run_authenticator() {
                                     && !msg.payload.is_empty()
                                     && (is_vendor_keys_oath_op(msg.payload[0])
                                         || is_wallet_op(msg.payload[0])
-                                        || is_piv_enroll_op(msg.payload[0]))
+                                        || is_piv_enroll_op(msg.payload[0])
+                                        || crate::vendor_exec::is_vendor_sign_op(msg.payload[0]))
                                 {
-                                    // Vendor keys/OATH + carteira + PIV enroll:
+                                    // Vendor keys/OATH + VENDOR_SIGN (0x41, classe GEN) + carteira + PIV enroll:
                                     // app-driven UP (latch, like BLE); denial
                                     // carries the BLE wire status.
                                     let op = msg.payload[0];
@@ -2184,7 +2183,10 @@ pub fn run_authenticator() {
                                         // only; default `false`; release ignora).
                                         #[cfg(all(target_os = "espidf", feature = "test-mode"))]
                                         let ota_hook_now = test_ota_hook;
-                                        #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+                                        #[cfg(not(all(
+                                            target_os = "espidf",
+                                            feature = "test-mode"
+                                        )))]
                                         let ota_hook_now = false;
                                         let ota_ctx = OtaRequestCtx {
                                             provisioned: ota_provisioned(&efuse_mgr),
@@ -2216,7 +2218,10 @@ pub fn run_authenticator() {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
                                             // Hook 1x: consumido junto com o latch.
-                                            #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                                            #[cfg(all(
+                                                target_os = "espidf",
+                                                feature = "test-mode"
+                                            ))]
                                             {
                                                 test_ota_hook = false;
                                             }

@@ -13,12 +13,14 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::ble_gatt::{authorize_vendor_op, authorize_wallet_op};
+use crate::ble_gatt::{authorize_vendor_op, authorize_wallet_op, BleGattError};
 
 /// Dispatches one vendor op with the exact BLE gates.
 ///
 /// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
 /// executor = follow-up, same as BLE), denial maps via `to_vendor_status`.
+/// `VENDOR_SIGN` (`0x41`) usa gate proprio classe GEN (binding -> UP, sem PIN),
+/// fora da faixa `0x20-0x27` congelada (ver `vendor_keys::OP_VENDOR_SIGN`).
 /// `binding_ok` comes from the caller (`BindingManager::verify` proof);
 /// `pin_authenticated` = sessao pinUvAuth viva (plumbing ClientPIN, como
 /// no rescue; fail-closed sem ela).
@@ -28,6 +30,21 @@ pub fn dispatch_serial_vendor(
     pin_authenticated: bool,
     up: bool,
 ) -> (u8, Vec<u8>) {
+    // VENDOR_SIGN (0x41): SIGN dedicado, classe GEN (binding -> UP, sem PIN).
+    // `authorize_vendor_op` rejeitaria como InvalidOpcode (faixa 0x20-0x27
+    // congelada); gate proprio identico ao GEN, espelhando o executor.
+    if crate::vendor_exec::is_vendor_sign_op(op) {
+        if !crate::binding::binding_bypass_enabled() && !binding_ok {
+            return (BleGattError::NeedBinding.to_vendor_status(), Vec::new());
+        }
+        if !up {
+            return (
+                BleGattError::PresenceRequired.to_vendor_status(),
+                Vec::new(),
+            );
+        }
+        return (0x04, Vec::new());
+    }
     match authorize_vendor_op(op, binding_ok, pin_authenticated, up) {
         Ok(()) => (0x04, Vec::new()),
         Err(e) => (e.to_vendor_status(), Vec::new()),
