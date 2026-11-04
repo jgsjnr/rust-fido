@@ -130,7 +130,34 @@ impl TransportMonitor {
     /// Observa o WiFi ativo (ap_ativo ou station_up); borda ativo-para-inativo
     /// trava (inclui queda por timeout da station). Subida re-arma a
     /// quiescencia com now_ms como atividade inicial.
+    ///
+    /// Bancada (bench-aware): delega para `observe_wifi_with_bench` com a
+    /// flag global de bancada (`test-mode`); em release a flag e sempre
+    /// `false`. Com bancada ativa a borda WiFi e suprimida (retorna None,
+    /// sem trava): o WiFi da placa cai sozinho a cada ~100 s e a bancada
+    /// usa USB/UART. USB (`observe_usb`) e BLE (`observe_ble`) seguem
+    /// travando com ou sem bancada.
     pub fn observe_wifi(&mut self, active: bool, now_ms: u64) -> Option<TransportKind> {
+        #[cfg(feature = "test-mode")]
+        let bench = crate::secure_guard_exec::bench::policy::is_bench_active();
+        #[cfg(not(feature = "test-mode"))]
+        let bench = false;
+        self.observe_wifi_with_bench(active, now_ms, bench)
+    }
+
+    /// Nucleo testavel da borda WiFi com a flag de bancada explicita.
+    ///
+    /// Com `bench_active = true` a borda ativo-para-inativo atualiza o
+    /// estado (cai p/ inativo, limpa a atividade) mas retorna None: sem
+    /// trava, sem EV_TRANSPORT_LOCK. Com `false` vale o comportamento
+    /// legado (borda trava). USB/BLE nao passam por aqui e travam com ou
+    /// sem bancada; producao (release) sempre usa `false`.
+    pub fn observe_wifi_with_bench(
+        &mut self,
+        active: bool,
+        now_ms: u64,
+        bench_active: bool,
+    ) -> Option<TransportKind> {
         let was = self.wifi_active;
         self.wifi_active = active;
         if active {
@@ -141,7 +168,7 @@ impl TransportMonitor {
             None
         } else {
             self.last_wifi_activity_ms = None;
-            if was {
+            if was && !bench_active {
                 Some(TransportKind::Wifi)
             } else {
                 None
@@ -174,8 +201,9 @@ impl TransportMonitor {
     /// Com `bench_active = true` o silencio tolerado estende para
     /// `BENCH_INACTIVITY_TIMEOUT_MS` (24 h, mesma janela da sessao de
     /// bancada); com `false` vale `WIFI_QUIESCENCE_TIMEOUT_MS`. Bordas
-    /// duro ativo-para-inativo (`observe_*`) travam com ou sem bancada:
-    /// a bancada so estende a quiescencia, nunca desarma o disconnect lock.
+    /// duro USB/BLE (`observe_usb`/`observe_ble`) travam com ou sem
+    /// bancada; a borda WiFi com bancada e suprimida em
+    /// `observe_wifi_with_bench` (placa cai sozinha; bancada usa USB/UART).
     pub fn poll_with_bench(&mut self, now_ms: u64, bench_active: bool) -> Option<TransportKind> {
         if !self.wifi_active {
             return None;
@@ -454,9 +482,11 @@ mod tests {
 
     #[test]
     fn monitor_wifi_edge_and_quiescence() {
+        // Flag de bancada explicita `false` (= producao): deterministico
+        // mesmo sob `test-mode` com outro teste de bancada em paralelo.
         let mut mon = TransportMonitor::new();
-        assert_eq!(mon.observe_wifi(false, 0), None);
-        assert_eq!(mon.observe_wifi(true, 1_000), None);
+        assert_eq!(mon.observe_wifi_with_bench(false, 0, false), None);
+        assert_eq!(mon.observe_wifi_with_bench(true, 1_000, false), None);
         mon.note_wifi_traffic(2_000);
         // Antes do timeout: nada.
         assert_eq!(
@@ -474,7 +504,7 @@ mod tests {
         );
         // Sem trafego jamais anotado apos ativacao: a subida ancora o relogio.
         let mut mon2 = TransportMonitor::new();
-        assert_eq!(mon2.observe_wifi(true, 5_000), None);
+        assert_eq!(mon2.observe_wifi_with_bench(true, 5_000, false), None);
         assert_eq!(
             mon2.poll_with_bench(5_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1, false),
             None
@@ -485,9 +515,12 @@ mod tests {
         );
         // Borda ativo-para-inativo (timeout da station) trava direto.
         let mut mon3 = TransportMonitor::new();
-        assert_eq!(mon3.observe_wifi(true, 0), None);
-        assert_eq!(mon3.observe_wifi(false, 500), Some(TransportKind::Wifi));
-        assert_eq!(mon3.observe_wifi(false, 600), None);
+        assert_eq!(mon3.observe_wifi_with_bench(true, 0, false), None);
+        assert_eq!(
+            mon3.observe_wifi_with_bench(false, 500, false),
+            Some(TransportKind::Wifi)
+        );
+        assert_eq!(mon3.observe_wifi_with_bench(false, 600, false), None);
     }
 
     #[test]
@@ -517,29 +550,46 @@ mod tests {
     }
 
     #[test]
-    fn poll_with_bench_borda_dura_trava_com_bancada() {
-        // Bordas duro ativo-para-inativo nao dependem da bancada: o
-        // disconnect lock continua valendo com a sessao estendida. Mesmo
-        // apos um poll estendido retornar None, a borda trava de imediato.
+    fn wifi_edge_suprimida_com_bancada_usb_ble_intactos() {
+        // Com bancada ativa a borda dura WiFi NAO trava (o WiFi da placa
+        // cai sozinho a cada ~100 s; bancada usa USB/UART): o estado cai
+        // p/ inativo mas retorna None, sem EV_TRANSPORT_LOCK. Sem bancada
+        // (producao) a borda trava como antes; USB/BLE travam com ou sem
+        // bancada (so o WiFi e suprimido).
         let mut mon = TransportMonitor::new();
-        assert_eq!(mon.observe_wifi(true, 0), None);
+        assert_eq!(mon.observe_wifi_with_bench(true, 0, true), None);
         mon.note_wifi_traffic(100);
         assert_eq!(
             mon.poll_with_bench(100 + WIFI_QUIESCENCE_TIMEOUT_MS, true),
             None
         );
-        assert_eq!(mon.observe_wifi(false, 500), Some(TransportKind::Wifi));
-        assert_eq!(mon.observe_wifi(false, 600), None);
-        // Quiescencia com flag off == comportamento legado do `poll`.
+        // Borda com bancada: suprimida, e o estado cai p/ inativo.
+        assert_eq!(mon.observe_wifi_with_bench(false, 500, true), None);
+        assert_eq!(mon.observe_wifi_with_bench(false, 600, true), None);
+        // Sem bancada: borda trava (producao intacta).
         let mut mon2 = TransportMonitor::new();
-        assert_eq!(mon2.observe_wifi(true, 1_000), None);
-        mon2.note_wifi_traffic(2_000);
+        assert_eq!(mon2.observe_wifi_with_bench(true, 0, false), None);
         assert_eq!(
-            mon2.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1, false),
+            mon2.observe_wifi_with_bench(false, 500, false),
+            Some(TransportKind::Wifi)
+        );
+        assert_eq!(mon2.observe_wifi_with_bench(false, 600, false), None);
+        // USB/BLE com bancada: seguem travando (fora do caminho WiFi).
+        let mut mon3 = TransportMonitor::new();
+        assert_eq!(mon3.observe_usb(true), None);
+        assert_eq!(mon3.observe_usb(false), Some(TransportKind::UsbHid));
+        assert_eq!(mon3.observe_ble(true), None);
+        assert_eq!(mon3.observe_ble(false), Some(TransportKind::Ble));
+        // Quiescencia com flag off == comportamento legado do `poll`.
+        let mut mon4 = TransportMonitor::new();
+        assert_eq!(mon4.observe_wifi_with_bench(true, 1_000, false), None);
+        mon4.note_wifi_traffic(2_000);
+        assert_eq!(
+            mon4.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1, false),
             None
         );
         assert_eq!(
-            mon2.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS, false),
+            mon4.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS, false),
             Some(TransportKind::Wifi)
         );
     }

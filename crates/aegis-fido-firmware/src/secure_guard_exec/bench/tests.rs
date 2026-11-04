@@ -231,7 +231,7 @@ fn dispatch_ack_marca_bench_e_fwlog() {
 
 #[test]
 #[cfg(feature = "test-mode")]
-fn quiescencia_estendida_mas_borda_trava_com_bancada() {
+fn quiescencia_estendida_e_borda_wifi_suprimida_com_bancada() {
     let _guard = BENCH_TEST_GUARD
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -248,11 +248,19 @@ fn quiescencia_estendida_mas_borda_trava_com_bancada() {
         mon.poll(3_000 + crate::transport_lock::WIFI_QUIESCENCE_TIMEOUT_MS),
         None
     );
-    // Borda dura ativo-para-inativo trava de imediato mesmo com bancada.
+    // Borda dura WiFi com bancada: suprimida (placa cai sozinha; bancada
+    // usa USB/UART) — None, sem trava, sem EV_TRANSPORT_LOCK novo.
+    let eventos_antes = fw_log.len();
+    assert_eq!(mon.observe_wifi(false, 4_000), None);
+    assert_eq!(fw_log.len(), eventos_antes);
+    // USB segue travando com bancada (so o WiFi e suprimido).
+    let mut mon_usb = crate::transport_lock::TransportMonitor::new();
+    assert_eq!(mon_usb.observe_usb(true), None);
     assert_eq!(
-        mon.observe_wifi(false, 4_000),
-        Some(crate::transport_lock::TransportKind::Wifi)
+        mon_usb.observe_usb(false),
+        Some(crate::transport_lock::TransportKind::UsbHid)
     );
+    // O disconnect lock em si segue valido: perda real (USB) trava.
     engine
         .provision_pin(b"7391", [0x11; 16], &[0x22; 16], [0x33; 16], 4_000)
         .expect("provision ok");
@@ -266,7 +274,7 @@ fn quiescencia_estendida_mas_borda_trava_com_bancada() {
         &mut rescue,
         &mut empty,
         &mut fw_log,
-        crate::transport_lock::TransportKind::Wifi,
+        crate::transport_lock::TransportKind::UsbHid,
         6_000,
     );
     assert!(report.session_was_live);
