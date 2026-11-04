@@ -76,7 +76,7 @@ class KeyVaultRepositoryImpl(
         val sg = secureGuardRepository
         if (sg != null) {
             val status = sg.statusFlow.value
-            return status.isUnlocked && !SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()
+            return status.isUnlocked && SecureGuardRepositoryImpl.currentSessionPin() != null
         }
         return true
     }
@@ -103,7 +103,7 @@ class KeyVaultRepositoryImpl(
 
         // Monitora transições do Secure Guard: bloqueio zera chaves em memória, desbloqueio carrega o cache selado
         secureGuardRepository?.statusFlow?.onEach { status ->
-            if (!status.isUnlocked || SecureGuardRepositoryImpl.lastVerifiedSessionPin.isNullOrBlank()) {
+            if (!status.isUnlocked || SecureGuardRepositoryImpl.currentSessionPin() == null) {
                 clearMemoryVault()
             } else {
                 val activeKey = connectedKeysRepository.activeKey.value
@@ -370,18 +370,21 @@ class KeyVaultRepositoryImpl(
             var status = if (resp != null && resp.size >= 2) resp[1].toInt() and 0xFF else -1
 
             if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED || status == VendorOps.STATUS_NEED_PIN) {
-                val pin = SecureGuardRepositoryImpl.lastVerifiedSessionPin ?: "000000"
+                // C-02: PIN explícito exigido. Nunca usa PIN default ("000000")
+                // e nunca fabrica STATUS_OK sintético: falha fechado.
+                val pin = SecureGuardRepositoryImpl.currentSessionPin()
+                    ?: throw IllegalStateException(
+                        "PIN da sessão exigido para gerar chave (desbloqueie o Secure Guard): " +
+                            VendorOps.statusLabel(status)
+                    )
                 val unlockReq = SecureGuardCbor.encodeUnlockRequest(pin.toByteArray(Charsets.UTF_8))
                 sendVendor(0x3B, unlockReq)
-                sendVendor(0x2F, byteArrayOf())
                 val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
                 if (retry != null && retry.size >= 2) {
                     resp = retry
                     status = resp[1].toInt() and 0xFF
                 }
             } else if (status == VendorOps.STATUS_NEED_UP || status == VendorOps.STATUS_NEED_BINDING || status == VendorOps.STATUS_OPERATION_DENIED || status == 0x06) {
-                usbKeyTransport?.notifySecureGuardUnlocked()
-                bleKeyTransport?.notifySecureGuardUnlocked()
                 val retry = sendVendor(VendorOps.OP_KEY_GEN_ONDEVICE, req)
                 if (retry != null && retry.size >= 2) {
                     resp = retry
@@ -402,17 +405,15 @@ class KeyVaultRepositoryImpl(
 
             // Se for erro de permissão/PIN (0x36, 0x02, 0x05) ou resposta nula:
             // (NEED_UP nunca chega aqui: lançado acima como presença.)
+            // C-02: falha fechado — nunca fabrica OP_KEY_GEN_ONDEVICE/STATUS_OK
+            // sintético, mesmo com sessão ativa. Sem resposta válida do
+            // hardware, não há chave gerada.
             if (status == VendorOps.STATUS_SECURE_GUARD_PIN_REQUIRED ||
                 status == VendorOps.STATUS_NEED_PIN ||
                 status == VendorOps.STATUS_NEED_BINDING ||
                 status == VendorOps.STATUS_OPERATION_DENIED ||
                 resp == null
             ) {
-                // Fallback seguro se sessão ativa do Secure Guard existir no app
-                if (SecureGuardRepositoryImpl.lastVerifiedSessionPin != null) {
-                    val dummyResp = byteArrayOf(VendorOps.OP_KEY_GEN_ONDEVICE.toByte(), 0x00, slot.toByte())
-                    return Pair(slot, dummyResp)
-                }
                 throw IllegalStateException("Erro ao gerar chave: " + VendorOps.statusLabel(status))
             }
 

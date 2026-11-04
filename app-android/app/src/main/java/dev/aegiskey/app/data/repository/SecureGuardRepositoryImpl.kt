@@ -49,6 +49,14 @@ class SecureGuardRepositoryImpl(
         const val OP_RECOVERY_UNLOCK: Int = 0x2D
 
         /**
+         * Janela de validade do PIN em RAM quando não há `session_remaining_ms`
+         * autoritativo de um 0x3A fresco (ex.: atribuição direta em testes ou
+         * fluxos legados). O firmware usa 300_000 ms como duração padrão de
+         * sessão; todo 0x3A real sobrescreve com o valor atestado.
+         */
+        const val DEFAULT_SESSION_WINDOW_MS: Long = 300_000L
+
+        /**
          * Chave mestra de mock em tempo de execução (builds debug apenas):
          * quando true E [simulatedTransport] presente E `BuildConfig.DEBUG`,
          * o Secure Guard é roteado pelo transporte simulado determinístico
@@ -57,11 +65,74 @@ class SecureGuardRepositoryImpl(
         @Volatile
         var mockRoutingEnabled: Boolean = false
 
+        /**
+         * H-02: PIN verificado da sessão, em RAM apenas. A validade é
+         * vinculada ao `session_remaining_ms` atestado pelo 0x3A: expirou
+         * (ou sessão zerada/bloqueada) => PIN descartado. Nunca persiste.
+         */
         @Volatile
         var lastVerifiedSessionPin: String? = null
+            set(value) {
+                field = value
+                if (value.isNullOrBlank()) {
+                    sessionPinExpiresAtMs = 0L
+                } else if (sessionPinExpiresAtMs <= System.currentTimeMillis()) {
+                    sessionPinExpiresAtMs = System.currentTimeMillis() + DEFAULT_SESSION_WINDOW_MS
+                }
+            }
+
+        /**
+         * H-02: deadline wall-clock (ms) até o qual o PIN em RAM é válido.
+         * Atualizado a cada 0x3A autoritativo (`agora + session_remaining_ms`).
+         */
+        @Volatile
+        var sessionPinExpiresAtMs: Long = 0L
 
         fun clearSessionPin() {
             lastVerifiedSessionPin = null
+            sessionPinExpiresAtMs = 0L
+        }
+
+        /**
+         * H-02: validade do PIN de sessão. Expirado (deadline 0x3A estourado
+         * ou sessão zerada) => descarta imediatamente e retorna false.
+         */
+        fun isSessionPinValid(): Boolean {
+            if (!hasLiveSessionPin()) {
+                if (!lastVerifiedSessionPin.isNullOrBlank()) clearSessionPin()
+                return false
+            }
+            return true
+        }
+
+        /**
+         * H-02: leitura pura (sem efeitos) da validade — usada onde um 0x3A
+         * autoritativo fresco ainda pode renovar a deadline (getStatus).
+         */
+        fun hasLiveSessionPin(): Boolean =
+            !lastVerifiedSessionPin.isNullOrBlank() &&
+                System.currentTimeMillis() < sessionPinExpiresAtMs
+
+        /**
+         * H-02: único acesso ao PIN em RAM fora do repositório. Retorna null
+         * quando expirado (fail-closed), nunca um PIN morto.
+         */
+        fun currentSessionPin(): String? =
+            if (isSessionPinValid()) lastVerifiedSessionPin else null
+
+        /**
+         * H-02: ancora o PIN em RAM no `session_remaining_ms` atestado pelo
+         * 0x3A. Sessão viva com saldo > 0 renova a deadline; qualquer outro
+         * estado (LOCKED, saldo zerado, expirado) descarta o PIN.
+         */
+        fun refreshSessionPinFromStatus(status: dev.aegiskey.app.domain.model.SecureGuardStatus) {
+            if (status.isUnlocked && status.sessionRemainingMs > 0L) {
+                if (!lastVerifiedSessionPin.isNullOrBlank()) {
+                    sessionPinExpiresAtMs = System.currentTimeMillis() + status.sessionRemainingMs
+                }
+            } else {
+                clearSessionPin()
+            }
         }
     }
 
@@ -179,7 +250,9 @@ class SecureGuardRepositoryImpl(
     }
 
     private fun sanitizeStatus(status: SecureGuardStatus): SecureGuardStatus {
-        if (lastVerifiedSessionPin == null && _statusFlow.value.state == SecureGuardStateEnum.LOCKED) {
+        // H-02: PIN expirado conta como ausente (leitura pura: o 0x3A fresco
+        // do getStatus ainda pode renovar a deadline em seguida).
+        if (!hasLiveSessionPin() && _statusFlow.value.state == SecureGuardStateEnum.LOCKED) {
             if (status.state == SecureGuardStateEnum.RATE_LIMITED || status.rateLimitRemainingMs > 0) {
                 return status.copy(
                     state = SecureGuardStateEnum.LOCKED,
@@ -214,10 +287,7 @@ class SecureGuardRepositoryImpl(
                         val parsed = SecureGuardCbor.parseStatus(frame.cborPayload)
                         if (parsed != null) {
                             val safe = sanitizeStatus(parsed)
-                            if (!safe.isUnlocked) {
-                                lastVerifiedSessionPin = null
-                                clearSessionPin()
-                            }
+                            refreshSessionPinFromStatus(safe)
                             _statusFlow.value = safe
                             return@runCatching safe
                         }
@@ -234,10 +304,7 @@ class SecureGuardRepositoryImpl(
                     // forçado; UNPROVISIONED exige canal vivo (USB/BLE/mock).
                     if (parsed.isProvisioned && parsed.state != SecureGuardStateEnum.UNPROVISIONED) {
                         val safe = sanitizeStatus(parsed)
-                        if (!safe.isUnlocked) {
-                            lastVerifiedSessionPin = null
-                            clearSessionPin()
-                        }
+                        refreshSessionPinFromStatus(safe)
                         _statusFlow.value = safe
                         return@runCatching safe
                     }
@@ -264,10 +331,7 @@ class SecureGuardRepositoryImpl(
                     if (parsed != null) {
                         tryAutoPairBle(frame.cborPayload)
                         val safe = sanitizeStatus(parsed)
-                        if (!safe.isUnlocked) {
-                            lastVerifiedSessionPin = null
-                            clearSessionPin()
-                        }
+                        refreshSessionPinFromStatus(safe)
                         _statusFlow.value = safe
                         return@runCatching safe
                     }
@@ -283,10 +347,7 @@ class SecureGuardRepositoryImpl(
                     val parsed = SecureGuardCbor.parseStatus(frame.cborPayload)
                     if (parsed != null) {
                         val safe = sanitizeStatus(parsed)
-                        if (!safe.isUnlocked) {
-                            lastVerifiedSessionPin = null
-                            clearSessionPin()
-                        }
+                        refreshSessionPinFromStatus(safe)
                         _statusFlow.value = safe
                         return@runCatching safe
                     }
@@ -298,10 +359,7 @@ class SecureGuardRepositoryImpl(
             if (json != null && (json.optBoolean("ok", true) || json.has("state") || json.has("state_name"))) {
                 val parsed = parseStatusFromJson(json)
                 val safe = sanitizeStatus(parsed)
-                if (!safe.isUnlocked) {
-                    lastVerifiedSessionPin = null
-                    clearSessionPin()
-                }
+                refreshSessionPinFromStatus(safe)
                 _statusFlow.value = safe
                 return@runCatching safe
             }
@@ -317,10 +375,7 @@ class SecureGuardRepositoryImpl(
                         tryAutoPairBle(frame.cborPayload)
                     }
                     val safe = sanitizeStatus(parsed)
-                    if (!safe.isUnlocked) {
-                        lastVerifiedSessionPin = null
-                        clearSessionPin()
-                    }
+                    refreshSessionPinFromStatus(safe)
                     _statusFlow.value = safe
                     return@runCatching safe
                 }
@@ -386,6 +441,8 @@ class SecureGuardRepositoryImpl(
 
             if (generatedRc != null) {
                 lastVerifiedSessionPin = pin
+                // H-02: ancora a deadline no saldo de sessão recém-aberto.
+                sessionPinExpiresAtMs = System.currentTimeMillis() + 300_000L
                 val usb = usbCtaphid
                 if (usb != null && usb.isUsbPhysicallyPresent()) {
                     usb.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
@@ -551,6 +608,9 @@ class SecureGuardRepositoryImpl(
             }
 
             lastVerifiedSessionPin = pin
+            // H-02: ancora a deadline no saldo de sessão recém-aberto.
+            // O próximo 0x3A (getStatus) sobrescreve com o valor atestado.
+            sessionPinExpiresAtMs = System.currentTimeMillis() + 300_000L
             val usbTransport = usbCtaphid
             if (usbTransport != null && usbTransport.isUsbPhysicallyPresent()) {
                 usbTransport.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())

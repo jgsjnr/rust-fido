@@ -80,31 +80,23 @@ class BleKeyTransport(
             client.sendVendor(opcode, payload)
         }
 
-        // Rito 0: Se retornar 0x36 ou 0x02 com PIN ativo, desbloqueia e arma 0x2F
-        val activePin = dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl.lastVerifiedSessionPin
+        // Rito 0 (H-01): PIN requerido (0x36/0x02) só re-autentica com o PIN
+        // explícito da sessão válida (0x3B + CBOR). NUNCA auto-provisiona
+        // após unlock falho e NUNCA envia 0x2F automático.
+        val activePin = dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl.currentSessionPin()
         if (resp != null && resp.size >= 2 && ((resp[1].toInt() and 0xFF == 0x36) || (resp[1].toInt() and 0xFF == 0x02)) && !activePin.isNullOrBlank()) {
             val pinBytes = activePin.toByteArray(Charsets.UTF_8)
             val unlockCbor = dev.aegiskey.app.data.cbor.SecureGuardCbor.encodeUnlockRequest(pinBytes)
             val unlockResp = if (bleReady) client.sendVendor(0x3B, unlockCbor) else hostBridgeClient.sendVendor(0x3B, unlockCbor)
             val unlockSt = if (unlockResp != null && unlockResp.size >= 2) unlockResp[1].toInt() and 0xFF else -1
-            if (unlockSt != 0x00) {
-                val provCbor = dev.aegiskey.app.data.cbor.SecureGuardCbor.encodeProvisionRequest(pinBytes, null, null)
-                if (bleReady) client.sendVendor(0x3B, provCbor) else hostBridgeClient.sendVendor(0x3B, provCbor)
+            if (unlockSt == 0x00) {
+                resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
             }
-            if (bleReady) client.sendVendor(0x2F, ByteArray(0)) else hostBridgeClient.sendVendor(0x2F, ByteArray(0))
-            resp = if (bleReady) client.sendVendor(opcode, payload) else hostBridgeClient.sendVendor(opcode, payload)
         }
 
-        // Rito 1: Se retornar 0x05 (NEED_BINDING) ou 0x27 (OPERATION_DENIED), abre janela de pareamento com 0x2F e reenvia
-        if (resp != null && resp.size >= 2 && ((resp[1].toInt() and 0xFF == 0x05) || (resp[1].toInt() and 0xFF == 0x27))) {
-            if (bleReady) {
-                client.sendVendor(0x2F, ByteArray(0))
-                resp = client.sendVendor(opcode, payload)
-            } else {
-                hostBridgeClient.sendVendor(0x2F, ByteArray(0))
-                resp = hostBridgeClient.sendVendor(opcode, payload)
-            }
-        }
+        // Rito 1 — removido (H-01): sem 0x2F automático. NEED_BINDING (0x05) /
+        // OPERATION_DENIED (0x27) são ventilados ao chamador; só o pareamento
+        // explícito do usuário envia 0x2F.
 
         // Rito 2: Se retornar 0x01 (STATUS_NEED_UP), aguarda toque físico por até 15s (polling a cada 400ms)
         if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x01) {
@@ -129,8 +121,9 @@ class BleKeyTransport(
         // Rito 3: Se retornar 0x02 (STATUS_NEED_PIN), autentica via 0x3B + CBOR
         // (mesma semântica do USB em UsbCtaphid.sendVendor rito 0/3). NUNCA
         // 0x2D + PIN cru: 0x2D é recovery-unlock no firmware (wipe + re-claim).
+        // H-01: sem 0x2F automático; PIN limitado à validade da sessão 0x3A.
         if (resp != null && resp.size >= 2 && resp[1].toInt() == 0x02) {
-            val sessionPin = SecureGuardRepositoryImpl.lastVerifiedSessionPin
+            val sessionPin = SecureGuardRepositoryImpl.currentSessionPin()
             if (!sessionPin.isNullOrBlank()) {
                 val (verifyOp, verifyPayload) = pinVerifyRequest(sessionPin)
                 val verifyResp = if (bleReady) client.sendVendor(verifyOp, verifyPayload) else hostBridgeClient.sendVendor(verifyOp, verifyPayload)

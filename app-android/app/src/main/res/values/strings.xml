@@ -721,9 +721,9 @@
     <string name="set_backup_opt3_title">Shamir SLIP-39 Backup (2-of-3)</string>
     <string name="set_backup_opt3_desc">High-security Shamir share generation for hardware redundancy.</string>
 
-    <!-- Shamir placeholders -->
-    <string name="shamir_share_hint_1">share-1-of-3: cricket dynamic acid...</string>
-    <string name="shamir_share_hint_2">share-2-of-3: cricket dynamic blast...</string>
+    <!-- Shamir placeholders (never pre-filled with real-looking shares) -->
+    <string name="shamir_share_hint_1">Paste share 1 words from your hardware backup</string>
+    <string name="shamir_share_hint_2">Paste share 2 words from your hardware backup</string>
 
     <!-- Settings: language -->
     <string name="lang_title">Language</string>

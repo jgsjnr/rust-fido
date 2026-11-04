@@ -897,24 +897,27 @@ class HostUsbUartBridgeClient(
                             sharesList.add(sharesJson.getString(i))
                         }
                     }
+                    // Fail-closed: nunca inventa shares. Só repassa o que o
+                    // hardware atestou; lista vazia = sem shares (offline/erro).
                     return@withContext ShamirSplitResult(
-                        success = json.optBoolean("success", true),
-                        shares = if (sharesList.isNotEmpty()) sharesList else generateFallbackShamirShares(),
+                        success = json.optBoolean("success", false) && sharesList.isNotEmpty(),
+                        shares = sharesList,
                         threshold = json.optInt("threshold", threshold),
                         totalShares = json.optInt("total_shares", totalShares),
-                        message = json.optString("message", "Shamir 2-of-3 split generated successfully")
+                        message = if (json.has("message")) json.optString("message") else null
                     )
                 }
             } catch (t: Throwable) {
                 android.util.Log.w("AegisBridge", "shamirSplit erro HTTP: ${t.message}")
             }
         }
+        // Sem hardware alcançável: falha explícita, sem shares sintéticos.
         ShamirSplitResult(
-            success = true,
-            shares = generateFallbackShamirShares(),
+            success = false,
+            shares = emptyList(),
             threshold = threshold,
             totalShares = totalShares,
-            message = "Shamir 2-of-3 generated (Dev deterministic fallback)"
+            message = "Sem hardware: Shamir indisponível offline (sem shares sintéticos)"
         )
     }
 
@@ -944,21 +947,23 @@ class HostUsbUartBridgeClient(
                 conn.disconnect()
                 if (code in 200..299) {
                     val json = JSONObject(body)
+                    // Fail-closed: nunca inventa seed. Só repassa o hex
+                    // atestado pelo hardware; ausente = null.
                     return@withContext ShamirRecoverResult(
-                        success = json.optBoolean("success", true),
-                        recoveredMasterSeedHex = json.optString("master_seed_hex", "4a8f9c1b...b3d7"),
-                        message = json.optString("message", "Master seed restored from Shamir quorum")
+                        success = json.optBoolean("success", false),
+                        recoveredMasterSeedHex = if (json.has("master_seed_hex")) json.optString("master_seed_hex") else null,
+                        message = if (json.has("message")) json.optString("message") else null
                     )
                 }
             } catch (t: Throwable) {
                 android.util.Log.w("AegisBridge", "shamirRecover erro HTTP: ${t.message}")
             }
         }
-        val valid = shares.filter { it.isNotBlank() }.size >= 2
+        // Sem hardware alcançável: falha explícita, sem seed sintética.
         ShamirRecoverResult(
-            success = valid,
-            recoveredMasterSeedHex = if (valid) "e7b92f4c10a8b99d54e12c45aa78bf3019842103487102938475019283746501" else null,
-            message = if (valid) "Master seed restored from 2 shares" else "Insufficient shares for 2-of-3 quorum"
+            success = false,
+            recoveredMasterSeedHex = null,
+            message = "Sem hardware: Shamir indisponível offline (quórum não verificado)"
         )
     }
 
@@ -1144,14 +1149,6 @@ class HostUsbUartBridgeClient(
                 "HASH: ${hash.take(16)}",
                 "------------------",
                 ">> PRESS HW BTN <<"
-            )
-        }
-
-        fun generateFallbackShamirShares(): List<String> {
-            return listOf(
-                "share-1-of-3: cricket dynamic acid matrix shadow whisper solar gravity velvet pulse horizon neon",
-                "share-2-of-3: cricket dynamic blast orbit quantum shield carbon crystal echo thunder vector zenith",
-                "share-3-of-3: cricket dynamic delta bronze spiral timber canyon lightning alpine anchor vortex summit"
             )
         }
     }

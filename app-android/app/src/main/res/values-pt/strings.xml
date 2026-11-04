@@ -721,9 +721,9 @@
     <string name="set_backup_opt3_title">Shamir SLIP-39 Backup (2-de-3)</string>
     <string name="set_backup_opt3_desc">Geração de shares Shamir de alta segurança para redundância em hardware.</string>
 
-    <!-- Shamir exemplos -->
-    <string name="shamir_share_hint_1">share-1-of-3: cricket dynamic acid...</string>
-    <string name="shamir_share_hint_2">share-2-of-3: cricket dynamic blast...</string>
+    <!-- Shamir exemplos (nunca pré-preenchidos com shares de aparência real) -->
+    <string name="shamir_share_hint_1">Cole as palavras da parte 1 do seu backup de hardware</string>
+    <string name="shamir_share_hint_2">Cole as palavras da parte 2 do seu backup de hardware</string>
 
     <!-- Configurações: idioma -->
     <string name="lang_title">Idioma</string>
