@@ -240,6 +240,30 @@ emergência guardado offline. Use somente em caso real de perda do PIN.
 - Botão `Abrir Painel OTA` sem resposta: ative a sessão antes e tente
   de novo. Não prossiga com flash sem orientação.
 
+## Nota de revisão — full click-through (2026-11-04)
+
+Roteiro `tools/manual_screenshots.py` agora tem modo `--full`: 17 passos
+(`open → unlock-pin → vault-list → vault-create-tour → vault-delete-tour →
+totp → caps+GET_CAPS → vault-diagnostics → ota-view → rescue-audit →
+language-en → language-pt → lock → recovery-view → keys-devices →
+piv-view → destructive-guard`), com PNG ≤720px em `docs/manual/img/`,
+evidência XML/logcat em `%TEMP%/tour-full-evidence/`, guarda que NUNCA
+toca reset/wipe/unbind (só fotografa o diálogo e volta com BACK) e parada
+no primeiro estado inesperado. `MANUAL_USUARIO.md` sem mudança de tela:
+nenhuma foto foi atualizada neste ciclo.
+
+Execução no aparelho físico (`moto g(60)`, `192.168.15.17:38071`,
+emulador desligado): `python tools/manual_screenshots.py --full --serial
+192.168.15.17:38071` → ABORT proposital, saída 2, `MANUAL_TOUR_PIN`
+ausente: zero toques no PIN, zero escritas no aparelho, zero PNG novo.
+Pré-voo verde: `--self-test` 27/27, `--dry-run` 8/8, `--full --dry-run`
+17/17, todos saída 0.
+
+Resultado por passo (todos SKIP, motivo único): PIN do dono indisponível
+no ambiente; a fila `unlock-pin` exige a variável e o roteiro aborta antes
+de qualquer tecla (nenhuma tentativa consumida). Para concluir o tour,
+o dono exporta `MANUAL_TOUR_PIN` e repete o mesmo comando; nada mais muda.
+
 ## Nota de revisão — tour em telefone físico (2026-11-03)
 
 Tour somente leitura no aparelho físico (`moto g(60)`, app `0.1.0-wave5`).

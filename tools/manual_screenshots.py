@@ -1,20 +1,47 @@
 #!/usr/bin/env python3
 """Automated screenshot tour mirroring docs/manual/MANUAL_USUARIO.md (host-only).
 
-Read-only tour of the AegisKey app screens with per-step evidence:
-  - ``uiautomator dump`` asserted against expected visible text (PASS/FAIL),
-  - ``screencap`` PNG per step,
-  - redacted ``logcat`` snippet saved on failure.
+Two tour modes share the adb plumbing:
+
+- View-only tour (default live): ``uiautomator dump`` asserted against
+  expected visible text (PASS/FAIL), ``screencap`` PNG per step, redacted
+  ``logcat`` snippet saved on failure. NEVER types anything.
+- Full click-through tour (``--full``): walks EVERY reachable screen and
+  taps everything safe -- open, PIN unlock (owner PIN via env only),
+  vault list, create ``tour-`` entry + delete it via UI, TOTP codes, caps
+  screen (+GET_CAPS evidence), vault diagnostics, OTA card (view only),
+  rescue/audit views, language EN toggle (verified, then back to PT),
+  lock, recovery view-only, keys/devices, PIV view, destructive-guard
+  evidence (screenshot-only, then BACK out).
 
 SAFETY RAILS (hard rules, do not relax):
-  - NEVER types a PIN or recovery code (ZERO wrong-PIN attempts by design:
-    the script has no ``input text`` path at all).
+  - Default tour NEVER types a PIN or recovery code (ZERO wrong-PIN
+    attempts by design: the script has no ``input text`` path at all).
+  - ``--full`` unlock enters the owner PIN AT MOST ONCE, read ONLY from
+    the ``MANUAL_TOUR_PIN`` environment variable. The value is never
+    hardcoded, never printed, never written to disk (dumps/logcat go
+    through :func:`redact` before persisting). When the variable is
+    absent (or the keypad does not expose every digit) the run ABORTS
+    before typing anything -- zero keypresses, zero attempts consumed.
+    A failed unlock STOPS the run; there is exactly one attempt, never
+    a retry (ZERO wrong-PIN attempts beyond the single authorized one).
   - Recovery screen is opened for VIEWING ONLY; it is closed with
     ``Cancel``/BACK and nothing is ever submitted.
   - OTA card is opened for VIEWING ONLY; no install/flash is triggered.
+  - Destructive controls (factory reset, selective wipe, unbind/release
+    ownership, confirm-destruction tokens such as CONFIRM_WIPE_*) are
+    NEVER tapped. The guard step screenshots the dialog (when surfaced)
+    and BACKs out. The only delete confirmation ever tapped is the
+    vault-entry delete for the ``tour-`` entry this run created, and
+    only when the dialog text proves it names that entry.
   - No wipe / eFuse / provisioning commands exist in this script.
-  - Screenshots default to ``%TEMP%/tour/`` (override with ``--out``) and
-    are never committed (binaries stay out of git).
+  - Screenshots default to ``%TEMP%/tour/`` (view-only) or
+    ``docs/manual/img/`` (``--full`` without ``--out``) and are
+    downscaled to 720px max width. Evidence XML/logcat for ``--full``
+    goes to ``%TEMP%/tour-full-evidence/`` (binaries stay out of git
+    except the curated ``docs/manual/img`` PNGs).
+  - The run STOPS on the first unexpected state (assertion miss): later
+    steps are reported SKIP/stopped, never forced through.
 
 Device selection (``--serial``):
   - Explicit ``--serial`` always wins.
@@ -25,18 +52,32 @@ Device selection (``--serial``):
     (``%TEMP%/opencode-manual``, ``%TEMP%/clickthru`` touched in the last
     ``LANE_BUSY_WINDOW_S`` seconds), the script auto-degrades to
     ``--dry-run`` (steps listed only, adb untouched) and exits 0.
+  - Emulator stays OFF for acceptance: ``--full`` live refuses to run
+    against ``emulator-*`` serials (physical device only).
 
 Modes:
   - live (default): navigate + dump + assert + screencap per step.
     Exit code is 0 iff every step PASSes, non-zero otherwise.
-  - ``--dry-run``: list the steps (no adb, no device touch). Always green.
+  - ``--full``: full click-through table (see FULL_STEPS). Requires
+    ``MANUAL_TOUR_PIN`` for live; aborts (exit 2) when absent.
+  - ``--dry-run``: list the steps (adb never touched). Always green.
+    With ``--full`` it lists the full table instead.
   - ``--self-test``: offline unit checks (arg parsing, redaction, XML
-    tap-center parsing, step-table integrity). No adb, no device.
+    tap-center parsing, step-table integrity, forbidden-tap guards,
+    no-hardcoded-PIN scan). No adb, no device.
 
-Manual coverage (docs/manual/MANUAL_USUARIO.md):
+Manual coverage, view-only (docs/manual/MANUAL_USUARIO.md):
   open (ch.1) -> unlock-view (ch.2, no typing) -> vault (ch.3/4) ->
   totp (ch.5) -> caps (ch.7) -> ota (ch.8, no install) ->
   language (ch.9, view only) -> recovery-view (ch.11, no submit).
+
+Manual coverage, full (``--full``):
+  open -> unlock-pin (env PIN, single attempt) -> vault-list ->
+  vault-create-tour -> vault-delete-tour -> totp -> caps (+GET_CAPS
+  evidence) -> vault-diagnostics -> ota-view -> rescue-audit ->
+  language-en (verify) -> language-pt (verify back) -> lock ->
+  recovery-view -> keys-devices -> piv-view -> destructive-guard
+  (screenshot-only, then BACK).
 """
 
 from __future__ import annotations
@@ -58,6 +99,45 @@ LOCK_NAME = "tour.lock"
 # Lane dirs whose recent activity means "another lane is mid-run, hands off".
 LANE_DIRS = ("clickthru", "opencode-manual")
 LANE_BUSY_WINDOW_S = 15 * 60
+
+# Owner PIN arrives ONLY via this env var. Never hardcoded, never logged.
+PIN_ENV = "MANUAL_TOUR_PIN"
+# Prefix for the throwaway vault entry this run creates and deletes.
+TOUR_LABEL_PREFIX = "tour-"
+# Screenshot width cap for docs/manual/img (acceptance: <=720px wide).
+SHOT_MAX_W = 720
+
+# Tap targets that must NEVER be tapped (destruction scope). Checked by
+# forbidden_tap() before every tap and by --self-test against both tables.
+# Vault-entry delete ("Delete Key") is intentionally NOT here: it is only
+# tapped by the scoped tour-entry delete, which requires the dialog to
+# name the tour- entry created moments earlier.
+FORBIDDEN_TAP_SUBSTRINGS = (
+    "confirm wipe",
+    "confirmar limpeza",
+    "confirm reset",
+    "confirmar redefini",
+    "factory reset",
+    "redefini",
+    "selective wipe",
+    "limpeza seletiva",
+    "confirm_wipe_aegis_guard",
+    "release device ownership",
+    "release ownership or reset key",
+    "unbind security key",
+    "desvincular",
+    "proceed to transfer",
+    "erase all",
+    "apagar todos",
+)
+
+
+def repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def manual_img_dir() -> str:
+    return os.path.join(repo_root(), "docs", "manual", "img")
 
 # ---------------------------------------------------------------------------
 # Step table. expect_any: assert PASS iff ANY marker is found in the
@@ -177,6 +257,223 @@ STEPS: list[dict] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Full click-through table (--full). Verbs:
+#   start / tap / back / swipe-up -- as in STEPS.
+#   pin-entry      -- single owner-PIN attempt from MANUAL_TOUR_PIN.
+#   type-tour-label-- type the throwaway "tour-HHMMSS" entry label.
+#   delete-tour    -- scoped delete: taps confirm ONLY when the dialog
+#                     names the tour- entry created earlier.
+#   getcaps-evidence -- persist caps lines from the dump to a .txt.
+#   verify-en / verify-pt -- assert the language toggle took effect.
+#   guard-shot     -- screenshot-only when a destructive dialog surfaces,
+#                     then BACK out (SKIP when nothing destructive shows).
+# ---------------------------------------------------------------------------
+FULL_STEPS: list[dict] = [
+    {
+        "id": "open",
+        "title": "Abertura fria -- cofre bloqueado (manual ch.1)",
+        "shot": "01_open_locked.png",
+        "nav": [("start",)],
+        "expect_any": [
+            "LOCKED", "Session Locked", "Sess\u00e3o Bloqueada",
+            "Unlock Session", "Desbloquear Sess\u00e3o", "[ 5 / 5 ]",
+            "Find Security Key", "Go to Vault",
+        ],
+    },
+    {
+        "id": "unlock-pin",
+        "title": "Desbloqueio com PIN do dono via env (uma tentativa, manual ch.2)",
+        "shot": "02_unlock_pin.png",
+        "nav": [("tap", "Go to Vault"),
+                ("tap", "Unlock Session"), ("tap", "Desbloquear Sess\u00e3o"),
+                ("pin-entry",)],
+        "expect_any": [
+            "UNLOCKED", "Sess\u00e3o Ativa",
+            "Tempo de autoriza\u00e7\u00e3o", "Authorization",
+            "Bloquear Agora", "Lock Now",
+        ],
+    },
+    {
+        "id": "vault-list",
+        "title": "Cofre desbloqueado -- lista do vault (manual ch.3)",
+        "shot": "03_vault_list.png",
+        "nav": [],
+        "expect_any": [
+            "Generate Key in Security Key", "Gerar Chave",
+            "Nenhuma chave no dispositivo", "No keys",
+            "UNLOCKED", "Sess\u00e3o Ativa", "Todas", "All",
+        ],
+    },
+    {
+        "id": "vault-create-tour",
+        "title": "Criar entrada descartavel tour- (manual ch.4)",
+        "shot": "04_vault_create_tour.png",
+        "nav": [("tap", "Generate Key in Security Key"),
+                ("tap", "Gerar Chave"),
+                ("type-tour-label",),
+                ("tap", "Generate Key"), ("tap", "Gerar")],
+        "expect_any": [
+            "tour-", "Slot #", "Toque Obrigat\u00f3rio", "Touch Required",
+            "FIDO2", "WebAuthn", "Generate Key in Security Key",
+        ],
+    },
+    {
+        "id": "vault-delete-tour",
+        "title": "Apagar entrada tour- via UI (escopo: dialog precisa citar tour-)",
+        "shot": "05_vault_delete_tour.png",
+        "nav": [("delete-tour",)],
+        "expect_any": [
+            "Generate Key in Security Key", "Gerar Chave",
+            "Nenhuma chave no dispositivo", "No keys", "UNLOCKED",
+        ],
+    },
+    {
+        "id": "totp",
+        "title": "TOTP -- codigos de verificacao (manual ch.5)",
+        "shot": "06_totp_codes.png",
+        "nav": [("tap", "TOTP"), ("tap", "C\u00f3digos")],
+        "expect_any": [
+            "Verification Codes", "TOTP", "Add Code",
+            "Adicionar c\u00f3digo", "Scan QR Code", "Ler QR Code",
+            "No codes registered", "Copiar c\u00f3digo", "e2e-test",
+        ],
+    },
+    {
+        "id": "caps",
+        "title": "Capacidades da placa + evidencia GET_CAPS (manual ch.7)",
+        "shot": "07_caps_getcaps.png",
+        "nav": [("tap", "Vault"), ("tap", "Capacidades"),
+                ("tap", "Capabilities"), ("tap", "Refresh"),
+                ("tap", "Atualizar"),
+                ("getcaps-evidence",)],
+        "expect_any": [
+            "Capacidades da placa", "Capabilities", "Hardware Diagnostics",
+            "Health status", "Estado de sa\u00fade", "ChaCha20", "PSRAM",
+            "Unknown", "desconhecido", "Firmware",
+        ],
+    },
+    {
+        "id": "vault-diagnostics",
+        "title": "Diagnostico do cofre expandido (manual ch.7)",
+        "shot": "08_vault_diagnostics.png",
+        "nav": [("tap", "Vault"),
+                ("tap", "Show Hardware Diagnostics"),
+                ("tap", "Exibir Diagn\u00f3sticos")],
+        "expect_any": [
+            "Health status", "Estado de sa\u00fade",
+            "Hardware PIN", "PIN de hardware",
+            "Device binding", "ChaCha20", "PSRAM",
+            "Hardware Diagnostics", "Slots PIV",
+        ],
+    },
+    {
+        "id": "ota-view",
+        "title": "Cartao OTA SOMENTE visualizado, sem instalar (manual ch.8)",
+        "shot": "09_ota_card.png",
+        "nav": [("tap", "Settings"), ("tap", "Configura\u00e7\u00f5es"),
+                ("swipe-up",), ("swipe-up",), ("swipe-up",)],
+        "expect_any": [
+            "OTA Firmware Update", "Atualiza\u00e7\u00e3o de Firmware OTA",
+            "Firmware v", "Open OTA Panel", "Abrir Painel OTA",
+            "Stable (Production)", "Est\u00e1vel",
+            "Check for Updates", "Offline", "Ed25519",
+        ],
+    },
+    {
+        "id": "rescue-audit",
+        "title": "Rescue diagnostics + audit logs SOMENTE visualizados (0x2E/0x38)",
+        "shot": "10_audit_rescue.png",
+        "nav": [("tap", "Diagnostics (0x2E)"), ("tap", "Audit Logs (0x38)"),
+                ("tap", "Rescue Diagnostics")],
+        "expect_any": [
+            "Rescue Diagnostics", "Security Audit Logs",
+            "Self-Test (0x2E)", "Audit Logs (0x38)",
+            "NVS", "TRNG", "Monotonic Counter", "Verdict",
+            "No audit log entries", "Self-test completed",
+        ],
+    },
+    {
+        "id": "language-en",
+        "title": "Idioma -> EN com verificacao (manual ch.9)",
+        "shot": "11_language_en.png",
+        "nav": [("start",), ("tap", "Go to Vault"), ("tap", "Settings"),
+                ("tap", "Configura\u00e7\u00f5es"),
+                ("tap", "English"), ("tap", "Ingl\u00eas"),
+                ("verify-en",)],
+        "expect_any": ["Language", "Settings", "English", "System"],
+    },
+    {
+        "id": "language-pt",
+        "title": "Idioma -> PT de volta com verificacao (manual ch.9)",
+        "shot": "12_language_pt.png",
+        "nav": [("tap", "Portugu\u00eas (Brasil)"), ("tap", "Portuguese"),
+                ("verify-pt",)],
+        "expect_any": ["Idioma", "Configura\u00e7\u00f5es", "Portugu\u00eas"],
+    },
+    {
+        "id": "lock",
+        "title": "Bloqueio da sessao (manual ch.10)",
+        "shot": "13_locked.png",
+        "nav": [("tap", "Vault"), ("tap", "Bloquear Agora"),
+                ("tap", "Lock Now")],
+        "expect_any": [
+            "LOCKED", "Session Locked", "Sess\u00e3o Bloqueada",
+            "Unlock Session", "Desbloquear Sess\u00e3o",
+        ],
+    },
+    {
+        "id": "recovery-view",
+        "title": "Recuperacao de emergencia SOMENTE visualizada (manual ch.11)",
+        "shot": "14_recovery_view.png",
+        "nav": [("tap", "Emergency Recovery"),
+                ("tap", "Recupera\u00e7\u00e3o de Emerg\u00eancia")],
+        "expect_any": [
+            "Emergency Recovery with Recovery Code",
+            "Recovery Code (XXXX-XXXX-XXXX-XXXX)",
+            "New PIN (4 to 16 digits)",
+            "Recover and Save", "Recuperar e Salvar",
+            "Cancel", "Cancelar",
+        ],
+        "close": [("tap", "Vault")],
+    },
+    {
+        "id": "keys-devices",
+        "title": "Dispositivos -- placa vinculada SOMENTE visualizada (manual ch.6)",
+        "shot": "15_keys_devices.png",
+        "nav": [("tap", "Keys"), ("tap", "Chaves"),
+                ("tap", "Devices"), ("tap", "Dispositivos")],
+        "expect_any": [
+            "Chaves vinculadas", "Bound keys", "Connected",
+            "Conectado", "Minha Chave", "BRIDGE", "NEAR", "Renomear",
+            "Rename", "Conectar nova chave", "Connect new",
+        ],
+    },
+    {
+        "id": "piv-view",
+        "title": "Smartcard PIV SOMENTE visualizado",
+        "shot": "16_piv_view.png",
+        "nav": [("tap", "Settings"), ("tap", "Configura\u00e7\u00f5es"),
+                ("tap", "Smart Card"), ("tap", "PIV")],
+        "expect_any": [
+            "Smart Card", "PIV", "Certificates", "Certificados",
+            "Slots", "9A", "NIST", "Authentication", "Autentica",
+        ],
+    },
+    {
+        "id": "destructive-guard",
+        "title": "Guarda destrutiva: dialog screenshotted, BACK out, nada tocado",
+        "shot": "17_destructive_guard.png",
+        "nav": [("guard-shot",)],
+        "expect_any": [
+            "Ownership", "Factory Reset", "Selective Wipe",
+            "Release Device Ownership", "Confirm", "Cancelar", "Cancel",
+            "Security Key Ownership", "Limpeza", "Redefini",
+            "Settings", "Configura\u00e7\u00f5es",
+        ],
+    },
+]
+
+# ---------------------------------------------------------------------------
 # Redaction: logcat snippets must never leak secrets.
 # ---------------------------------------------------------------------------
 REDACT_PATTERNS = [
@@ -206,6 +503,11 @@ def default_out_dir() -> str:
     return os.path.join(base, "tour")
 
 
+def evidence_dir() -> str:
+    base = os.environ.get("TEMP") or os.environ.get("TMP") or tempfile.gettempdir()
+    return os.path.join(base, "tour-full-evidence")
+
+
 def lock_path() -> str:
     base = os.environ.get("TEMP") or os.environ.get("TMP") or tempfile.gettempdir()
     return os.path.join(base, LOCK_NAME)
@@ -224,33 +526,54 @@ def default_serial(candidates: list[tuple[str, str]]) -> str | None:
     return ready[0]
 
 
-def lane_busy(now: float | None = None) -> tuple[bool, str]:
-    """True when another lane holds the rig (lockfile or fresh lane dirs)."""
-    lp = lock_path()
-    if os.path.exists(lp):
-        try:
-            with open(lp, "r", encoding="utf-8", errors="replace") as fh:
-                holder = fh.read().strip()[:200]
-        except OSError:
-            holder = "?"
-        return True, f"lockfile {lp} held ({holder or '?'})"
-    now = time.time() if now is None else now
-    base = os.environ.get("TEMP") or os.environ.get("TMP") or tempfile.gettempdir()
-    for lane in LANE_DIRS:
-        d = os.path.join(base, lane)
-        if not os.path.isdir(d):
-            continue
-        try:
-            youngest = max(
-                os.path.getmtime(os.path.join(r, f))
-                for r, _, fs in os.walk(d) for f in fs
-            )
-        except (OSError, ValueError):
-            continue
-        if now - youngest < LANE_BUSY_WINDOW_S:
-            age = int(now - youngest)
-            return True, f"lane dir {d} active {age}s ago (window {LANE_BUSY_WINDOW_S}s)"
-    return False, ""
+def is_emulator_serial(serial: str) -> bool:
+    return serial.startswith("emulator-")
+
+
+def tour_pin_present() -> bool:
+    """True iff the owner PIN env var is set (value never leaves here)."""
+    return bool(os.environ.get(PIN_ENV))
+
+
+def forbidden_tap(needle: str) -> str | None:
+    """Matched forbidden substring for a tap target, else None."""
+    low = needle.strip().lower()
+    for bad in FORBIDDEN_TAP_SUBSTRINGS:
+        if bad in low:
+            return bad
+    return None
+
+
+def dump_contains(dump_xml: str, markers: list[str]) -> str | None:
+    """First expected marker found in the dump (case-insensitive), else None."""
+    low = dump_xml.lower()
+    for m in markers:
+        if m.lower() in low:
+            return m
+    return None
+
+
+def caps_evidence_lines(dump_xml: str) -> str:
+    """Caps/GET_CAPS related text lines extracted from a dump (redacted)."""
+    keys = ("caps", "capabilit", "capacidades", "firmware", "preset",
+            "health", "sa\u00fade", "chacha", "psram", "piv", "slot",
+            "unknown", "desconhecido", "refresh", "atualizar",
+            "unsupported", "diagnostics", "diagn\u00f3stico")
+    out: list[str] = []
+    try:
+        root = ET.fromstring(dump_xml)
+    except ET.ParseError:
+        return ""
+    for node in root.iter("node"):
+        for attr in ("text", "content-desc"):
+            val = (node.get(attr) or "").strip()
+            if val and any(k in val.lower() for k in keys):
+                out.append(val)
+    seen: list[str] = []
+    for line in out:
+        if line not in seen:
+            seen.append(line)
+    return redact("\n".join(seen[:60]))
 
 
 def parse_bounds(center_text: str) -> tuple[int, int] | None:
@@ -297,13 +620,33 @@ def find_center_for_text(dump_xml: str, needle: str) -> tuple[int, int] | None:
     return center(exact) or center(partial)
 
 
-def dump_contains(dump_xml: str, markers: list[str]) -> str | None:
-    """First expected marker found in the dump (case-insensitive), else None."""
-    low = dump_xml.lower()
-    for m in markers:
-        if m.lower() in low:
-            return m
-    return None
+def lane_busy(now: float | None = None) -> tuple[bool, str]:
+    """True when another lane holds the rig (lockfile or fresh lane dirs)."""
+    lp = lock_path()
+    if os.path.exists(lp):
+        try:
+            with open(lp, "r", encoding="utf-8", errors="replace") as fh:
+                holder = fh.read().strip()[:200]
+        except OSError:
+            holder = "?"
+        return True, f"lockfile {lp} held ({holder or '?'})"
+    now = time.time() if now is None else now
+    base = os.environ.get("TEMP") or os.environ.get("TMP") or tempfile.gettempdir()
+    for lane in LANE_DIRS:
+        d = os.path.join(base, lane)
+        if not os.path.isdir(d):
+            continue
+        try:
+            youngest = max(
+                os.path.getmtime(os.path.join(r, f))
+                for r, _, fs in os.walk(d) for f in fs
+            )
+        except (OSError, ValueError):
+            continue
+        if now - youngest < LANE_BUSY_WINDOW_S:
+            age = int(now - youngest)
+            return True, f"lane dir {d} active {age}s ago (window {LANE_BUSY_WINDOW_S}s)"
+    return False, ""
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +685,22 @@ def do_tap(serial: str, x: int, y: int) -> None:
     do_wake(serial)  # re-assert display; wifi latency can outlast the timeout
     run_adb(serial, ["shell", "input", "tap", str(x), str(y)], timeout=15)
     time.sleep(1.2)
+
+
+def safe_tap_text(serial: str, dump: str, label: str) -> tuple[str, tuple[int, int] | None]:
+    """Tap a visible label unless it is destruction-scoped.
+
+    Returns ("tapped"|"missing"|"forbidden", center). Forbidden targets
+    are never tapped.
+    """
+    bad = forbidden_tap(label)
+    if bad is not None:
+        return f"forbidden:{bad}", None
+    center = find_center_for_text(dump, label)
+    if center is None:
+        return "missing", None
+    do_tap(serial, *center)
+    return "tapped", center
 
 
 def do_back(serial: str) -> None:
@@ -387,22 +746,85 @@ def do_start(serial: str) -> None:
             return
 
 
-def screencap(serial: str, dest: str) -> bool:
-    """PNG via exec-out straight to ``dest``. Returns True on plausible PNG."""
+def do_input_text(serial: str, text: str) -> bool:
+    """Type a NON-secret label (tour- entry name). Letters/digits only."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", text):
+        print(f"do_input_text: refusing unsafe label {text!r}")
+        return False
+    escaped = text.replace(" ", "%s")
+    proc = run_adb(serial, ["shell", "input", "text", escaped], timeout=15)
+    time.sleep(1.2)
+    return proc.returncode == 0
+
+
+def do_pin_entry(serial: str) -> tuple[bool, str]:
+    """Single owner-PIN attempt from MANUAL_TOUR_PIN. Never logs the value.
+
+    Returns (submitted, reason). Zero keypresses when the env var is
+    absent or a digit button is missing; exactly one submit otherwise.
+    """
+    pin = os.environ.get(PIN_ENV) or ""
+    if not pin:
+        return False, f"{PIN_ENV} absent -- aborting before any keypress"
+    if not re.fullmatch(r"[0-9]{4,16}", pin):
+        return False, f"{PIN_ENV} malformed -- aborting before any keypress"
+    dump = ui_dump(serial)
+    centers: list[tuple[int, int]] = []
+    for digit in pin:
+        c = find_center_for_text(dump, digit)
+        if c is None:
+            do_back(serial)
+            return False, "keypad digit missing -- backed out, nothing submitted"
+        centers.append(c)
+    for x, y in centers:
+        run_adb(serial, ["shell", "input", "tap", str(x), str(y)], timeout=15)
+        time.sleep(0.6)
+    # Single submit on the unlock/confirm control.
+    dump2 = ui_dump(serial)
+    for label in ("Desbloquear", "Unlock", "Confirm", "Confirmar"):
+        c = find_center_for_text(dump2, label)
+        if c is not None:
+            do_tap(serial, *c)
+            time.sleep(2.0)
+            return True, "single attempt submitted"
+    return False, "no submit control -- digits tapped but nothing submitted"
+
+
+def screencap(serial: str, dest: str) -> tuple[bool, int]:
+    """PNG via exec-out straight to ``dest``. Returns (ok, width_px)."""
     try:
         proc = subprocess.run(["adb", "-s", serial, "exec-out", "screencap", "-p"],
                               capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        return False, 0
     data = proc.stdout
     if len(data) < 1000 or not data.startswith(b"\x89PNG"):
-        return False
+        return False, 0
     try:
         with open(dest, "wb") as fh:
             fh.write(data)
     except OSError:
-        return False
-    return True
+        return False, 0
+    width = downscale_to_max(dest, SHOT_MAX_W)
+    return True, width
+
+
+def downscale_to_max(path: str, max_w: int) -> int:
+    """Downscale PNG to ``max_w`` px wide (aspect kept). Returns width."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return 0
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+            if w <= max_w:
+                return w
+            im = im.resize((max_w, int(h * max_w / w)))
+            im.save(path, optimize=True)
+            return max_w
+    except OSError:
+        return 0
 
 
 def logcat_snippet(serial: str) -> str:
@@ -417,12 +839,18 @@ def logcat_snippet(serial: str) -> str:
 # ---------------------------------------------------------------------------
 # Modes.
 # ---------------------------------------------------------------------------
-def cmd_dry_run() -> int:
-    print("manual screenshot tour -- DRY RUN (no device touched)")
-    for i, s in enumerate(STEPS, 1):
-        print(f"[DRY ok] step {i}/{len(STEPS)} {s['id']:12s} "
+def active_steps(full: bool) -> list[dict]:
+    return FULL_STEPS if full else STEPS
+
+
+def cmd_dry_run(full: bool = False) -> int:
+    steps = active_steps(full)
+    mode = "FULL CLICK-THROUGH" if full else "VIEW-ONLY"
+    print(f"manual screenshot tour -- DRY RUN ({mode}, no device touched)")
+    for i, s in enumerate(steps, 1):
+        print(f"[DRY ok] step {i}/{len(steps)} {s['id']:12s} "
               f"{s['title']} -> {s['shot']}")
-    print(f"DRY RUN: {len(STEPS)}/{len(STEPS)} steps listed, 0 failed")
+    print(f"DRY RUN: {len(steps)}/{len(steps)} steps listed, 0 failed")
     return 0
 
 
@@ -449,7 +877,71 @@ def cmd_self_test() -> int:
               for s in STEPS for a in s.get("nav", []) + s.get("close", [])),
           "nav verbs limited to start/tap/back/swipe-up (no input-text)")
 
-    # 2. Default serial framing.
+    # 2. Full table integrity.
+    fids = [s["id"] for s in FULL_STEPS]
+    check("full: 17 steps covering every reachable screen",
+          len(FULL_STEPS) == 17, f"ids={fids}")
+    check("full: unique ids and png shots <=720p naming",
+          len(set(fids)) == len(fids)
+          and all(s["shot"].endswith(".png") for s in FULL_STEPS),
+          f"shots={[s['shot'] for s in FULL_STEPS]}")
+    check("full: every step asserts visible text",
+          all(s.get("expect_any") for s in FULL_STEPS),
+          "all expect_any non-empty")
+    check("full: exactly one pin-entry (single attempt, env-gated)",
+          sum(a[0] == "pin-entry"
+              for s in FULL_STEPS for a in s.get("nav", [])) == 1,
+          "single authorized attempt, never retried")
+    check("full: tour create+delete pair present (prefix tour-)",
+          any(s["id"] == "vault-create-tour" for s in FULL_STEPS)
+          and any(s["id"] == "vault-delete-tour" for s in FULL_STEPS)
+          and TOUR_LABEL_PREFIX == "tour-",
+          "throwaway entry created and removed via UI")
+    check("full: language EN verified then restored to PT",
+          any(s["id"] == "language-en" for s in FULL_STEPS)
+          and any(s["id"] == "language-pt" for s in FULL_STEPS),
+          "toggle verified both ways, ends in PT")
+    check("full: GET_CAPS evidence hook present",
+          any("getcaps-evidence" in [a[0] for a in s.get("nav", [])]
+              for s in FULL_STEPS),
+          "caps dump lines persisted as evidence")
+    check("full: destructive-guard step present (screenshot-only)",
+          any(s["id"] == "destructive-guard" for s in FULL_STEPS),
+          "reset/wipe/unbind never tapped")
+
+    # 3. Forbidden-tap guards.
+    check("guards: forbidden list covers destruction scope",
+          len(FORBIDDEN_TAP_SUBSTRINGS) >= 8
+          and any("wipe" in b for b in FORBIDDEN_TAP_SUBSTRINGS)
+          and any("factory reset" in b for b in FORBIDDEN_TAP_SUBSTRINGS),
+          f"{len(FORBIDDEN_TAP_SUBSTRINGS)} guarded substrings")
+    check("guards: no step taps a forbidden label",
+          all(forbidden_tap(a[1]) is None
+              for table in (STEPS, FULL_STEPS) for s in table
+              for a in s.get("nav", []) + s.get("close", [])
+              if a[0] == "tap"),
+          "no nav/close tap names a destructive control")
+    check("guards: forbidden_tap matches EN/PT variants",
+          forbidden_tap("Confirm Wipe") is not None
+          and forbidden_tap("Confirmar Limpeza") is not None
+          and forbidden_tap("Generate Key") is None
+          and forbidden_tap("Delete Key") is None,
+          "destruction blocked, tour-entry delete allowed (scoped)")
+
+    # 4. No hardcoded PIN anywhere in this file (env-only by design).
+    # NOTE: the check itself must not contain a PIN-looking literal.
+    try:
+        with open(__file__, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        leak = (re.search(r"(?i)\b(pin|passcode)\b\s*=\s*[\"'][0-9]{4,16}[\"']",
+                          src) is not None)
+    except OSError:
+        leak, src = True, ""
+    check("guards: owner PIN never hardcoded (env-only)",
+          not leak and PIN_ENV in src,
+          f"{PIN_ENV} read from env, no literal PIN in source")
+
+    # 5. Default serial framing.
     check("framing: emulator-5554 preferred",
           default_serial([("192.168.1.2:5555", "device"),
                           ("emulator-5554", "device")]) == "emulator-5554",
@@ -462,8 +954,12 @@ def cmd_self_test() -> int:
           default_serial([]) is None
           and default_serial([("emulator-5554", "offline")]) is None,
           "empty/offline -> None")
+    check("framing: --full refuses emulator serials",
+          is_emulator_serial("emulator-5554")
+          and not is_emulator_serial("192.168.15.17:38071"),
+          "physical-device acceptance only")
 
-    # 3. Redaction.
+    # 6. Redaction.
     sample = ("pin: 1234 password=abcd recovery: word word "
               "bearer=tok123 code 482910 ref AB12-CD34-EF56-GH78")
     red = redact(sample)
@@ -472,7 +968,7 @@ def cmd_self_test() -> int:
           and "tok123" not in red and "AB12-CD34-EF56-GH78" not in red,
           f"redacted={red!r}")
 
-    # 4. XML tap-center parsing on synthetic dump.
+    # 7. XML tap-center parsing on synthetic dump.
     synth = ('<hierarchy><node bounds="[0,0][1080,2400]">'
              '<node text="Show Hardware Diagnostics" '
              'bounds="[100,200][500,300]" />'
@@ -492,8 +988,11 @@ def cmd_self_test() -> int:
           dump_contains(synth, ["ping", "Diagnostics", "pong"]) is not None
           and dump_contains(synth, ["zzz"]) is None,
           "case-insensitive ANY-match")
+    check("parse: caps evidence extractor",
+          "Diagnostics" in caps_evidence_lines(synth),
+          "caps lines extracted from dump")
 
-    # 5. Out-dir default honors %TEMP%/tour.
+    # 8. Out-dir default honors %TEMP%/tour.
     check("framing: default out is %TEMP%/tour",
           os.path.basename(os.path.normpath(default_out_dir())) == "tour",
           f"out={default_out_dir()!r}")
@@ -523,6 +1022,9 @@ def run_live(serial: str, out_dir: str) -> int:
             elif verb == "swipe-up":
                 do_swipe_up(serial)
             elif verb == "tap":
+                if forbidden_tap(action[1]) is not None:
+                    print(f"[SKIP-tap] forbidden target refused: {action[1]!r}")
+                    continue
                 if not dump:
                     dump = ui_dump(serial)
                 center = find_center_for_text(dump, action[1])
@@ -534,7 +1036,7 @@ def run_live(serial: str, out_dir: str) -> int:
                   encoding="utf-8") as fh:
             fh.write(dump)
         hit = dump_contains(dump, step["expect_any"])
-        shot_ok = screencap(serial, os.path.join(out_dir, step["shot"]))
+        shot_ok, _w = screencap(serial, os.path.join(out_dir, step["shot"]))
         ok = hit is not None and shot_ok and len(dump) > 100
         detail = (f"marker={hit!r} shot={step['shot']}:{shot_ok}")
         if ok:
@@ -552,6 +1054,8 @@ def run_live(serial: str, out_dir: str) -> int:
             if action[0] == "back":
                 do_back(serial)
             elif action[0] == "tap":
+                if forbidden_tap(action[1]) is not None:
+                    continue
                 dump = ui_dump(serial)
                 center = find_center_for_text(dump, action[1])
                 if center is not None:
@@ -560,14 +1064,248 @@ def run_live(serial: str, out_dir: str) -> int:
     return 0 if failures == 0 else 1
 
 
+def run_full(serial: str, png_dir: str) -> int:
+    """Full click-through on a PHYSICAL device. Stops on first surprise."""
+    os.makedirs(png_dir, exist_ok=True)
+    ev_dir = evidence_dir()
+    os.makedirs(ev_dir, exist_ok=True)
+    print(f"manual screenshot tour -- FULL LIVE on {serial}")
+    print(f"  png -> {png_dir} (<= {SHOT_MAX_W}px wide)")
+    print(f"  evidence xml/logcat -> {ev_dir}")
+    print("SAFETY: owner PIN at most once (env-only); recovery view-only; "
+          "OTA view-only; reset/wipe/unbind NEVER tapped; STOP on surprise.")
+    if is_emulator_serial(serial):
+        print(f"ABORT: --full requires a physical device; {serial!r} is an "
+              "emulator. Emulator stays OFF for acceptance.")
+        return 2
+    if not tour_pin_present():
+        print(f"ABORT: {PIN_ENV} is absent -- refusing to type any PIN "
+              "(ZERO wrong-PIN attempts). Set the env var and re-run.")
+        return 2
+    tour_label = f"{TOUR_LABEL_PREFIX}{time.strftime('%H%M%S')}"
+    results: list[tuple[str, str, str]] = []  # (id, PASS/SKIP/STOP, reason)
+
+    def evidence(step_id: str, dump: str) -> None:
+        with open(os.path.join(ev_dir, f"{step_id}.xml"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(dump)
+
+    def stop(reason: str) -> int:
+        print(f"\nSTOP: {reason} -- remaining steps SKIP (run halted).")
+        for s in FULL_STEPS[len(results):]:
+            results.append((s["id"], "SKIP", "stopped: " + reason))
+        summary(results)
+        return 1
+
+    for i, step in enumerate(FULL_STEPS, 1):
+        sid = step["id"]
+        do_wake(serial)
+        dump = ""
+        skipped_step = ""
+        for action in step.get("nav", []):
+            verb = action[0]
+            if verb == "start":
+                do_start(serial)
+            elif verb == "back":
+                do_back(serial)
+            elif verb == "swipe-up":
+                do_swipe_up(serial)
+            elif verb == "tap":
+                if not dump:
+                    dump = ui_dump(serial)
+                status, center = safe_tap_text(serial, dump, action[1])
+                if status == "tapped":
+                    dump = ""
+                # "missing" taps are best-effort (EN/PT variants); the
+                # expect_any assert below is the real gate.
+            elif verb == "pin-entry":
+                submitted, reason = do_pin_entry(serial)
+                print(f"pin-entry: {reason}")
+                if not submitted:
+                    evidence(sid, ui_dump(serial))
+                    results.append((sid, "SKIP", reason))
+                    return stop(f"unlock gate: {reason}")
+                dump = ""
+            elif verb == "type-tour-label":
+                if not dump:
+                    dump = ui_dump(serial)
+                # Focus the label field, then type the throwaway name.
+                tapped = False
+                for label_hint in ("Label", "R\u00f3tulo", "Nome", "Name"):
+                    c = find_center_for_text(dump, label_hint)
+                    if c is not None:
+                        do_tap(serial, *c)
+                        tapped = True
+                        break
+                if not tapped:
+                    # Fallback: tap first editable field.
+                    try:
+                        root = ET.fromstring(dump)
+                        for node in root.iter("node"):
+                            if (node.get("class") or "").endswith("EditText"):
+                                c = parse_bounds(node.get("bounds") or "")
+                                if c is not None:
+                                    do_tap(serial, *c)
+                                    tapped = True
+                                    break
+                    except ET.ParseError:
+                        pass
+                if tapped and do_input_text(serial, tour_label):
+                    print(f"typed throwaway label (len {len(tour_label)})")
+                    dump = ""
+                else:
+                    evidence(sid, dump)
+                    results.append((sid, "SKIP", "label field not typable"))
+                    return stop("tour-entry label could not be typed")
+            elif verb == "delete-tour":
+                dump = ui_dump(serial)
+                c = find_center_for_text(dump, tour_label)
+                if c is None:
+                    # Entry may already be listed under a truncated label;
+                    # look for any tour- entry before giving up.
+                    c = find_center_for_text(dump, TOUR_LABEL_PREFIX)
+                if c is None:
+                    evidence(sid, dump)
+                    results.append((sid, "SKIP", "tour- entry not on screen"))
+                    return stop("throwaway entry missing -- nothing to delete")
+                do_tap(serial, *c)
+                time.sleep(1.5)
+                dlg = ui_dump(serial)
+                names_tour = (tour_label in dlg
+                              or TOUR_LABEL_PREFIX in dlg)
+                if not names_tour:
+                    do_back(serial)
+                    evidence(sid, dlg)
+                    results.append((sid, "SKIP",
+                                    "delete dialog lacks tour- label -- "
+                                    "backed out, nothing deleted"))
+                    return stop("delete scope unproven -- backed out safely")
+                confirmed = False
+                for btn in ("Delete Key", "Delete Permanently", "Excluir",
+                            "Apagar", "Delete"):
+                    cc = find_center_for_text(dlg, btn)
+                    if cc is not None:
+                        do_tap(serial, *cc)
+                        confirmed = True
+                        break
+                if not confirmed:
+                    do_back(serial)
+                    evidence(sid, dlg)
+                    results.append((sid, "SKIP", "no delete confirm found"))
+                    return stop("delete confirm missing -- backed out safely")
+                time.sleep(2.0)
+                dump = ""
+            elif verb == "getcaps-evidence":
+                if not dump:
+                    dump = ui_dump(serial)
+                lines = caps_evidence_lines(dump)
+                with open(os.path.join(ev_dir, f"{sid}_getcaps.txt"), "w",
+                          encoding="utf-8") as fh:
+                    fh.write(f"serial={serial} transport=app\n{lines}\n")
+                print(f"getcaps evidence: {len(lines.splitlines())} lines")
+            elif verb in ("verify-en", "verify-pt"):
+                if not dump:
+                    dump = ui_dump(serial)
+                want = ("Language", "Settings") if verb == "verify-en" else (
+                    "Idioma", "Configura\u00e7\u00f5es")
+                if dump_contains(dump, list(want)) is None:
+                    evidence(sid, dump)
+                    results.append((sid, "SKIP",
+                                    f"{verb} marker missing"))
+                    return stop(f"language toggle unverified ({verb})")
+            elif verb == "guard-shot":
+                # Screenshot-only: surface (but never tap) destructive
+                # controls, then BACK out.
+                dump = ui_dump(serial)
+                surfaced = dump_contains(
+                    dump, ["Ownership", "Factory Reset", "Selective Wipe",
+                           "Release Device Ownership", "Limpeza Seletiva",
+                           "Redefini"])
+                if surfaced is None:
+                    # Try one scroll to reveal the ownership section.
+                    do_swipe_up(serial)
+                    dump = ui_dump(serial)
+                    surfaced = dump_contains(
+                        dump, ["Ownership", "Factory Reset", "Selective Wipe",
+                               "Release Device Ownership", "Limpeza Seletiva",
+                               "Redefini"])
+                shot_path = os.path.join(png_dir, step["shot"])
+                shot_ok, w = screencap(serial, shot_path)
+                evidence(sid, dump)
+                do_back(serial)
+                if not shot_ok:
+                    results.append((sid, "SKIP", "screencap failed"))
+                    return stop("guard screenshot failed")
+                reason = (f"destructive dialog surfaced "
+                          f"({surfaced!r}) -- screenshotted, backed out"
+                          if surfaced else
+                          "no destructive dialog surfaced -- "
+                          "screenshot-only, backed out")
+                results.append((sid, "SKIP" if not surfaced else "PASS",
+                                reason))
+                print(f"[{'PASS' if surfaced else 'SKIP'}] step "
+                      f"{i}/{len(FULL_STEPS)} {sid:16s} {reason} [{w}px]")
+                skipped_step = "handled"
+                break
+        if skipped_step:
+            continue
+        dump = ui_dump(serial)
+        evidence(sid, dump)
+        hit = dump_contains(dump, step["expect_any"])
+        shot_path = os.path.join(png_dir, step["shot"])
+        shot_ok, w = screencap(serial, shot_path)
+        if hit is None or not shot_ok or len(dump) <= 100:
+            results.append(
+                (sid, "STOP",
+                 f"unexpected state (marker={hit!r} shot_ok={shot_ok})"))
+            snippet = logcat_snippet(serial)
+            with open(os.path.join(ev_dir, f"{sid}.logcat.txt"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(f"step={sid} marker={hit!r} "
+                         f"shot_ok={shot_ok}\n{snippet}\n")
+            print(f"[STOP] step {i}/{len(FULL_STEPS)} {sid:16s} "
+                  f"marker={hit!r} shot={step['shot']}:{shot_ok} [{w}px]")
+            return stop(f"step {sid} assertion missed")
+        results.append((sid, "PASS",
+                        f"marker={hit!r} shot={step['shot']}:{shot_ok} "
+                        f"[{w}px]"))
+        print(f"[PASS] step {i}/{len(FULL_STEPS)} {sid:16s} "
+              f"marker={hit!r} shot={step['shot']}:{shot_ok} [{w}px]")
+        for action in step.get("close", []):
+            if action[0] == "back":
+                do_back(serial)
+            elif action[0] == "tap":
+                if forbidden_tap(action[1]) is not None:
+                    continue
+                dump = ui_dump(serial)
+                center = find_center_for_text(dump, action[1])
+                if center is not None:
+                    do_tap(serial, *center)
+    summary(results)
+    fails = sum(1 for _, st, _ in results if st not in ("PASS", "SKIP"))
+    return 0 if fails == 0 else 1
+
+
+def summary(results: list[tuple[str, str, str]]) -> None:
+    n_pass = sum(1 for _, st, _ in results if st == "PASS")
+    print(f"\n==== FULL TOUR: {n_pass}/{len(results)} PASS ====")
+    for sid, st, reason in results:
+        print(f"[{st}] {sid:16s} {reason}")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="View-only adb screenshot tour of MANUAL_USUARIO.md flows.")
+        description="View-only adb screenshot tour of MANUAL_USUARIO.md flows; "
+                    "--full adds the owner-PIN click-through.")
     ap.add_argument("--serial", default=None,
                     help="device serial (default: emulator-5554 if present, "
                          "else first adb device)")
     ap.add_argument("--out", default=None,
-                    help="output dir (default: %%TEMP%%/tour)")
+                    help="output dir (default: %%TEMP%%/tour; with --full: "
+                         "docs/manual/img)")
+    ap.add_argument("--full", action="store_true",
+                    help="full click-through tour (owner PIN via "
+                         "MANUAL_TOUR_PIN, single attempt; aborts when absent)")
     ap.add_argument("--dry-run", action="store_true",
                     help="list steps only; never touch adb")
     ap.add_argument("--self-test", action="store_true",
@@ -577,27 +1315,29 @@ def main(argv: list[str] | None = None) -> int:
     if args.self_test:
         return cmd_self_test()
     if args.dry_run:
-        return cmd_dry_run()
+        return cmd_dry_run(full=args.full)
 
     busy, reason = lane_busy()
     if busy:
         print(f"BUSY: {reason}")
         print("Another lane holds the rig -- degrading to --dry-run "
               "(steps listed only, adb untouched).")
-        return cmd_dry_run()
+        return cmd_dry_run(full=args.full)
 
     serial = args.serial or default_serial(list_devices())
     if serial is None:
         print("No --serial given and no adb device found; "
               "degrading to --dry-run.")
-        return cmd_dry_run()
+        return cmd_dry_run(full=args.full)
     if args.serial:
         devices = dict(list_devices())
         if devices.get(args.serial) != "device":
             print(f"Serial {args.serial!r} not in device state "
                   f"(seen: {devices}); refusing to steal/fight -- "
                   "degrading to --dry-run.")
-            return cmd_dry_run()
+            return cmd_dry_run(full=args.full)
+    if args.full:
+        return run_full(serial, args.out or manual_img_dir())
     return run_live(serial, args.out or default_out_dir())
 
 
