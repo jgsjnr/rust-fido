@@ -1,7 +1,7 @@
 use crate::crypto::cose::CoseKey;
 use alloc::vec::Vec;
-use p256::elliptic_curve::Generate;
 use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
 use p256::{ecdh::diffie_hellman, PublicKey, SecretKey};
 use rand_core::CryptoRng;
 

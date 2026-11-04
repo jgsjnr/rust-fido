@@ -42,9 +42,16 @@ impl core::fmt::Display for Ctap21ExtensionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::OffsetOutOfBounds { offset, len } => {
-                write!(f, "largeBlobs offset {} out of bounds (len: {})", offset, len)
+                write!(
+                    f,
+                    "largeBlobs offset {} out of bounds (len: {})",
+                    offset, len
+                )
             }
-            Self::CapacityExceeded { requested, capacity } => {
+            Self::CapacityExceeded {
+                requested,
+                capacity,
+            } => {
                 write!(
                     f,
                     "largeBlobs requested size {} exceeds capacity {}",
@@ -55,7 +62,11 @@ impl core::fmt::Display for Ctap21ExtensionError {
                 write!(f, "largeBlobs 16-byte truncated SHA-256 tag mismatch")
             }
             Self::PayloadTooShort { actual_len } => {
-                write!(f, "largeBlobs payload len {} is smaller than 16-byte tag", actual_len)
+                write!(
+                    f,
+                    "largeBlobs payload len {} is smaller than 16-byte tag",
+                    actual_len
+                )
             }
             Self::SecureGuardLocked => {
                 write!(f, "Access denied: Secure Guard authority is locked")
@@ -238,10 +249,13 @@ impl LargeBlobStore {
 
     /// Writes raw chunk into the storage array.
     pub fn write_chunk(&mut self, offset: usize, bytes: &[u8]) -> Result<(), Ctap21ExtensionError> {
-        let needed_len = offset.checked_add(bytes.len()).ok_or(Ctap21ExtensionError::CapacityExceeded {
-            requested: usize::MAX,
-            capacity: self.capacity,
-        })?;
+        let needed_len =
+            offset
+                .checked_add(bytes.len())
+                .ok_or(Ctap21ExtensionError::CapacityExceeded {
+                    requested: usize::MAX,
+                    capacity: self.capacity,
+                })?;
 
         if needed_len > self.capacity {
             return Err(Ctap21ExtensionError::CapacityExceeded {
@@ -261,7 +275,10 @@ impl LargeBlobStore {
     /// Commits authenticated payload by appending the 16-byte truncated SHA-256 tag.
     ///
     /// Layout: `payload || SHA-256(payload)[0..16]`.
-    pub fn commit_authenticated_payload(&mut self, payload: &[u8]) -> Result<(), Ctap21ExtensionError> {
+    pub fn commit_authenticated_payload(
+        &mut self,
+        payload: &[u8],
+    ) -> Result<(), Ctap21ExtensionError> {
         let total_len = payload.len() + LARGE_BLOB_TAG_LEN;
         if total_len > self.capacity {
             return Err(Ctap21ExtensionError::CapacityExceeded {
@@ -319,7 +336,11 @@ impl LargeBlobStore {
     }
 
     /// Stores or replaces an indexed blob entry by `largeBlobKey`.
-    pub fn put_blob_entry(&mut self, key: &[u8; 32], data: &[u8]) -> Result<(), Ctap21ExtensionError> {
+    pub fn put_blob_entry(
+        &mut self,
+        key: &[u8; 32],
+        data: &[u8],
+    ) -> Result<(), Ctap21ExtensionError> {
         if let Some(pos) = self.entries.iter().position(|e| e.key == *key) {
             self.entries[pos].data = data.to_vec();
         } else {
@@ -333,7 +354,10 @@ impl LargeBlobStore {
 
     /// Retrieves an entry's data matching `largeBlobKey`.
     pub fn get_blob_entry(&self, key: &[u8; 32]) -> Option<&[u8]> {
-        self.entries.iter().find(|e| e.key == *key).map(|e| e.data.as_slice())
+        self.entries
+            .iter()
+            .find(|e| e.key == *key)
+            .map(|e| e.data.as_slice())
     }
 
     /// Deletes an entry by `largeBlobKey`. Returns true if found and removed.
@@ -446,7 +470,10 @@ mod tests {
         let payload_60 = [0xAAu8; 60];
         // 60 bytes + 16-byte tag = 76 bytes > 64 capacity
         let err = store.commit_authenticated_payload(&payload_60);
-        assert!(matches!(err, Err(Ctap21ExtensionError::CapacityExceeded { .. })));
+        assert!(matches!(
+            err,
+            Err(Ctap21ExtensionError::CapacityExceeded { .. })
+        ));
     }
 
     #[test]

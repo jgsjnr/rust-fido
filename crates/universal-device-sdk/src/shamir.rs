@@ -82,10 +82,7 @@ fn share_to_cbor_value(share: &ShamirShareDto) -> Value {
             Value::Text("data".into()),
             Value::Bytes(share.data.to_vec()),
         ),
-        (
-            Value::Text("crc32".into()),
-            Value::from(share.crc32 as u64),
-        ),
+        (Value::Text("crc32".into()), Value::from(share.crc32 as u64)),
     ];
     Value::Map(map)
 }

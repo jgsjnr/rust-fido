@@ -1,12 +1,11 @@
 use crate::{
-    BridgeError, OathCode, OtpAuthParsed, SecureGuardPolicyDto, SecureGuardStatusDto,
     app_lock_derive, ble_constants, ble_split_fragments, cose_key_info, envelope_open,
-    envelope_seal, envelope_validate, oath_account_from_path, oath_code_valid,
-    oath_parse_response, oath_remaining_seconds, otpauth_extract_label_and_secret,
-    secure_guard_encode_change_pin, secure_guard_encode_config, secure_guard_encode_lock,
-    secure_guard_encode_provision, secure_guard_encode_recover, secure_guard_encode_unlock,
-    secure_guard_encode_wipe, secure_guard_parse_status, totp_format_display, wallet_address,
-    wifi_password_valid,
+    envelope_seal, envelope_validate, oath_account_from_path, oath_code_valid, oath_parse_response,
+    oath_remaining_seconds, otpauth_extract_label_and_secret, secure_guard_encode_change_pin,
+    secure_guard_encode_config, secure_guard_encode_lock, secure_guard_encode_provision,
+    secure_guard_encode_recover, secure_guard_encode_unlock, secure_guard_encode_wipe,
+    secure_guard_parse_status, totp_format_display, wallet_address, wifi_password_valid,
+    BridgeError, OathCode, OtpAuthParsed, SecureGuardPolicyDto, SecureGuardStatusDto,
 };
 
 // =========================================================================
@@ -209,7 +208,10 @@ fn oath_code_json(code: &OathCode) -> String {
     json_escape_into(&mut fixed, &code.account);
     fixed.push_str(",\"code\":");
     json_escape_into(&mut fixed, &code.code);
-    fixed.push_str(&format!(",\"remaining_seconds\":{}}}", code.remaining_seconds));
+    fixed.push_str(&format!(
+        ",\"remaining_seconds\":{}}}",
+        code.remaining_seconds
+    ));
     fixed
 }
 
@@ -240,10 +242,7 @@ pub(crate) fn policy_json(policy: &SecureGuardPolicyDto) -> String {
 }
 
 fn secure_guard_status_json(status: &SecureGuardStatusDto) -> String {
-    let mut s = format!(
-        "{{\"state\":{},\"state_name\":",
-        status.state
-    );
+    let mut s = format!("{{\"state\":{},\"state_name\":", status.state);
     json_escape_into(&mut s, &status.state_name);
     s.push_str(&format!(
         ",\"is_provisioned\":{},\"is_unlocked\":{},\"failed_attempts\":{},\"remaining_attempts\":{},\"max_attempts\":{},\"rate_limit_remaining_ms\":{},\"session_remaining_ms\":{},\"policy\":{}",
@@ -327,11 +326,7 @@ pub extern "C" fn aegis_bridge_version() -> *const core::ffi::c_char {
 
 /// Frozen BLE constants as JNI-edge JSON (see [`ble_info_json`]).
 #[no_mangle]
-pub extern "C" fn aegis_ble_constants(
-    out: *mut u8,
-    out_cap: usize,
-    out_len: *mut usize,
-) -> i32 {
+pub extern "C" fn aegis_ble_constants(out: *mut u8, out_cap: usize, out_len: *mut usize) -> i32 {
     emit_bytes(out, out_cap, out_len, ble_info_json().as_bytes())
 }
 
@@ -482,10 +477,7 @@ pub extern "C" fn aegis_oath_code_valid(
 
 /// Seconds left in the 30s TOTP window.
 #[no_mangle]
-pub extern "C" fn aegis_oath_remaining_seconds(
-    unix_seconds: u64,
-    remaining_out: *mut u32,
-) -> i32 {
+pub extern "C" fn aegis_oath_remaining_seconds(unix_seconds: u64, remaining_out: *mut u32) -> i32 {
     emit_u32(remaining_out, oath_remaining_seconds(unix_seconds))
 }
 
@@ -541,7 +533,10 @@ pub extern "C" fn aegis_app_lock_derive(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    let (password, salt) = match (input_bytes(password, password_len), input_bytes(salt, salt_len)) {
+    let (password, salt) = match (
+        input_bytes(password, password_len),
+        input_bytes(salt, salt_len),
+    ) {
         (Ok(p), Ok(s)) => (p, s),
         _ => return AEGIS_ERR_NULL_POINTER,
     };
@@ -585,13 +580,21 @@ pub extern "C" fn aegis_oath_account_from_path(
     match oath_account_from_path(s.to_string()) {
         Some(account) => {
             let code = emit_bytes(out, out_cap, out_len, account.as_bytes());
-            if code == AEGIS_STATUS_OK { 1 } else { code }
+            if code == AEGIS_STATUS_OK {
+                1
+            } else {
+                code
+            }
         }
         // Absent account: zero-length emission (sets `*out_len = 0`;
         // NULL `out_len` still rejected inside `emit_bytes`).
         None => {
             let code = emit_bytes(out, out_cap, out_len, &[]);
-            if code == AEGIS_STATUS_OK { 0 } else { code }
+            if code == AEGIS_STATUS_OK {
+                0
+            } else {
+                code
+            }
         }
     }
 }

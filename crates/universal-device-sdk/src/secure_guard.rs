@@ -791,10 +791,15 @@ mod tests {
 
         let wipe_enc = encode_secure_guard_wipe_request(1, "CONFIRM_WIPE").expect("wipe");
         assert!(!wipe_enc.is_empty());
-        let cfg_pin = encode_secure_guard_config_request_with_pin(&SecureGuardPolicyDto::default(), Some(b"4927")).expect("config with pin");
+        let cfg_pin = encode_secure_guard_config_request_with_pin(
+            &SecureGuardPolicyDto::default(),
+            Some(b"4927"),
+        )
+        .expect("config with pin");
         assert!(!cfg_pin.is_empty());
 
-        let wipe_pin = encode_secure_guard_wipe_request_with_pin(1, "CONFIRM_WIPE", Some(b"4927")).expect("wipe with pin");
+        let wipe_pin = encode_secure_guard_wipe_request_with_pin(1, "CONFIRM_WIPE", Some(b"4927"))
+            .expect("wipe with pin");
         assert!(!wipe_pin.is_empty());
     }
 }

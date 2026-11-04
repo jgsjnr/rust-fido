@@ -213,10 +213,7 @@ impl Ed25519ChallengeManager {
     }
 
     /// Emite challenge 32B via TRNG; invalida o anterior (só o último vale).
-    pub fn new_challenge<R: CryptoRng>(
-        &mut self,
-        rng: &mut R,
-    ) -> [u8; ED25519_CHALLENGE_LEN] {
+    pub fn new_challenge<R: CryptoRng>(&mut self, rng: &mut R) -> [u8; ED25519_CHALLENGE_LEN] {
         let mut challenge = [0u8; ED25519_CHALLENGE_LEN];
         rng.fill_bytes(&mut challenge);
         if let Some(ref mut old) = self.active {

@@ -106,10 +106,7 @@ pub enum KeyPair {
 
 impl KeyPair {
     /// Generates a new cryptographic key pair using the specified algorithm and RNG.
-    pub fn generate<R: CryptoRng>(
-        alg: CoseAlgorithm,
-        rng: &mut R,
-    ) -> Result<Self, CryptoError> {
+    pub fn generate<R: CryptoRng>(alg: CoseAlgorithm, rng: &mut R) -> Result<Self, CryptoError> {
         match alg {
             CoseAlgorithm::ES256 => {
                 let sk = p256::ecdsa::SigningKey::generate_from_rng(rng);

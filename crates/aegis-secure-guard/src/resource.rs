@@ -83,9 +83,11 @@ impl ProtectedResourceClass {
     pub fn from_vendor_opcode(opcode: u8) -> Self {
         match opcode {
             OP_WALLET_GEN | OP_WALLET_LIST | OP_WALLET_ADDR => Self::CryptoWalletOperation,
-            OP_KEY_GEN_ONDEVICE | OP_KEY_IMPORT_ENVELOPE | OP_KEY_LIST | OP_KEY_DELETE | OP_PIV_ENROLL => {
-                Self::ProtectedKeyOperation
-            }
+            OP_KEY_GEN_ONDEVICE
+            | OP_KEY_IMPORT_ENVELOPE
+            | OP_KEY_LIST
+            | OP_KEY_DELETE
+            | OP_PIV_ENROLL => Self::ProtectedKeyOperation,
             OP_OATH_PUT | OP_OATH_LIST | OP_OATH_CODE | OP_OATH_DELETE => Self::OathTotpOperation,
             OP_SECURE_GUARD_STATUS => Self::SecureGuardAdmin(SecureGuardAdminOp::Status),
             OP_SECURE_GUARD_UNLOCK => Self::SecureGuardAdmin(SecureGuardAdminOp::Unlock),
