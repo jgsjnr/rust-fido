@@ -2,6 +2,7 @@ package dev.aegiskey.app.domain.repository
 
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStatus
+import dev.aegiskey.app.transportlock.TransportLossCause
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -24,4 +25,12 @@ interface SecureGuardRepository {
     suspend fun updatePolicy(policy: SecureGuardPolicy): Result<SecureGuardPolicy>
     suspend fun wipeSelective(scope: Int = 0, confirmationToken: String): Result<Boolean>
     fun onHardwareDetached() {}
+    /**
+     * Transport-loss auto-lock (BT/Wi-Fi/cabo/bridge). Default closes the
+     * session exactly like a hardware detach: LOCKED, session memory cleared.
+     * Implementations route the [causes] through the transportlock module.
+     */
+    fun onTransportLost(causes: Set<TransportLossCause>) {
+        onHardwareDetached()
+    }
 }

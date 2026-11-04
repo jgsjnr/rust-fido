@@ -15,6 +15,7 @@ import dev.aegiskey.app.domain.usecase.RecoverSecureGuardUseCase
 import dev.aegiskey.app.domain.usecase.TriggerSelectiveWipeTestUseCase
 import dev.aegiskey.app.domain.usecase.UnlockSecureGuardUseCase
 import dev.aegiskey.app.domain.usecase.UpdateSecureGuardPolicyUseCase
+import dev.aegiskey.app.transportlock.TransportLossCause
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -323,6 +324,31 @@ class SecureGuardViewModel(
                     _uiState.update { it.copy(isLoading = false, errorMessage = sanitizeErrorMessage(t)) }
                 }
         }
+    }
+
+    /**
+     * Transport-loss auto-lock (BT/Wi-Fi/cabo/bridge). Synchronous and
+     * idempotent: cancels session polling immediately, forces the local UI
+     * to LOCKED with zeroed timers (screens show Desconectado via the
+     * existing `status_disconnected` / `vault_disconnected_*` strings), and
+     * closes the session in the repository (PIN wiped from memory). The
+     * `statusFlow` collector converges to the same state when the LOCKED
+     * emission arrives.
+     */
+    fun onTransportLost(causes: Set<TransportLossCause>) {
+        if (causes.isEmpty()) return
+        countdownJob?.cancel()
+        countdownJob = null
+        _uiState.update { current ->
+            current.copy(
+                status = current.status.copy(
+                    isUnlocked = false,
+                    state = SecureGuardStateEnum.LOCKED,
+                    sessionRemainingMs = 0L
+                )
+            )
+        }
+        actualRepo.onHardwareDetached()
     }
 
     fun changePin(currentPin: String, newPin: String) {

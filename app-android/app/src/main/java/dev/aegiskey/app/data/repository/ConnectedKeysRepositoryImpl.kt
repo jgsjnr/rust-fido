@@ -41,6 +41,14 @@ class ConnectedKeysRepositoryImpl(
     private val _activeKey = MutableStateFlow(resolveInitialActiveKey())
     override val activeKey: StateFlow<ConnectedKeyDevice?> = _activeKey.asStateFlow()
 
+    /**
+     * Transport-loss hook for session auto-lock. Fired once when the link
+     * monitor flips the active key from connected to disconnected, carrying
+     * the transport that died (BT/Wi-Fi/cabo). Wired by `AppContainer` to the
+     * SecureGuard auto-lock; null by default (monitor only updates flags).
+     */
+    var onLinkLost: ((ConnectionTransportType) -> Unit)? = null
+
     override val hasAnyConnectedKey: StateFlow<Boolean> = _connectedKeys
         .map { it.isNotEmpty() }
         .stateIn(scope, SharingStarted.Eagerly, _connectedKeys.value.isNotEmpty())
@@ -70,11 +78,19 @@ class ConnectedKeysRepositoryImpl(
                     }
 
                     if (currentActive.isCurrentlyConnected != isConnectedReal) {
+                        val linkLost = currentActive.isCurrentlyConnected && !isConnectedReal
+                        val deadTransport = currentActive.transportType
                         _activeKey.update { it?.copy(isCurrentlyConnected = isConnectedReal) }
                         _connectedKeys.update { list ->
                             list.map { key ->
                                 if (key.id == currentActive.id) key.copy(isCurrentlyConnected = isConnectedReal) else key
                             }
+                        }
+                        // Link died (BT/Wi-Fi/cabo): report the dead transport
+                        // so the session auto-lock can close it. Never breaks
+                        // the monitor loop.
+                        if (linkLost) {
+                            runCatching { onLinkLost?.invoke(deadTransport) }
                         }
                     }
                 }

@@ -10,6 +10,10 @@ import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.domain.model.SecureGuardStatus
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.SecureGuardRepository
+import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.transportlock.TransportLossCause
+import dev.aegiskey.app.transportlock.TransportSessionLock
+import dev.aegiskey.app.transportlock.TransportSnapshot
 import dev.aegiskey.app.usb.UsbCtaphid
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,7 +75,7 @@ class SecureGuardRepositoryImpl(
 
     init {
         usbCtaphid?.addOnHardwareDetachedListener {
-            onHardwareDetached()
+            onTransportLost(setOf(TransportLossCause.USB_CABLE_DOWN))
         }
         usbCtaphid?.addOnHardwareAttachedListener {
             CoroutineScope(Dispatchers.IO).launch {
@@ -82,7 +86,7 @@ class SecureGuardRepositoryImpl(
             if (bleState.connection != AegisBleClient.Connection.READY) {
                 val isUsbPresent = usbCtaphid?.isUsbPhysicallyPresent() ?: false
                 if (!isUsbPresent) {
-                    onHardwareDetached()
+                    onTransportLost(setOf(TransportLossCause.BLE_DISCONNECTED))
                 }
             }
         }?.launchIn(CoroutineScope(Dispatchers.IO))
@@ -99,6 +103,34 @@ class SecureGuardRepositoryImpl(
             rateLimitRemainingMs = 0L
         )
         _statusFlow.value = lockedStatus
+    }
+
+    /**
+     * Transport-loss auto-lock (BT/Wi-Fi/cabo/bridge). Same fail-closed
+     * effect as a hardware detach — LOCKED, session PIN wiped from memory —
+     * with the loss cause attributed by the transportlock module for logs.
+     */
+    override fun onTransportLost(causes: Set<TransportLossCause>) {
+        if (causes.isEmpty()) return
+        DeviceLog.append(
+            DeviceLog.Category.LOCK,
+            "transport lost -> LOCKED (" + causes.joinToString(",") + ")"
+        )
+        onHardwareDetached()
+    }
+
+    /**
+     * Evaluates an observed transport snapshot for the session carrier and
+     * locks when the carrier is gone. Returns true when it locked. Pure
+     * translation of [TransportSessionLock.evaluate] into session effects.
+     */
+    fun notifyTransportSnapshot(
+        activeTransport: dev.aegiskey.app.domain.model.ConnectionTransportType?,
+        snapshot: TransportSnapshot,
+    ): Boolean {
+        val decision = TransportSessionLock.evaluate(activeTransport, snapshot)
+        if (decision.shouldLock) onTransportLost(decision.causes)
+        return decision.shouldLock
     }
 
     private suspend fun sendHardwareVendor(opcode: Int, payload: ByteArray): ByteArray? {
@@ -200,16 +232,16 @@ class SecureGuardRepositoryImpl(
                     _statusFlow.value = safe
                     return@runCatching safe
                 }
-                lastVerifiedSessionPin = null
-                val forcedLocked = _statusFlow.value.copy(
-                    state = SecureGuardStateEnum.LOCKED,
-                    isUnlocked = false,
-                    sessionRemainingMs = 0L,
-                    failedAttempts = 0,
-                    rateLimitRemainingMs = 0L
+                // Sem USB físico, sem BLE e sem autoridade na bridge: perda de
+                // transporte em todos os caminhos sondados -> trava automática.
+                onTransportLost(
+                    setOf(
+                        TransportLossCause.USB_CABLE_DOWN,
+                        TransportLossCause.BLE_DISCONNECTED,
+                        TransportLossCause.BRIDGE_OFFLINE,
+                    )
                 )
-                _statusFlow.value = forcedLocked
-                return@runCatching forcedLocked
+                return@runCatching _statusFlow.value
             }
 
             // 1. Tenta USB OTG se fisicamente presente
@@ -284,17 +316,17 @@ class SecureGuardRepositoryImpl(
                 }
             }
 
-            // Se nenhum hardware respondeu, a chave está inacessível/desconectada: encerra sessão imediatamente!
-            lastVerifiedSessionPin = null
-            clearSessionPin()
-            val forcedLocked = _statusFlow.value.copy(
-                state = SecureGuardStateEnum.LOCKED,
-                isUnlocked = false,
-                sessionRemainingMs = 0L,
-                rateLimitRemainingMs = 0L
+            // Se nenhum hardware respondeu, a chave está inacessível/desconectada:
+            // encerra a sessão imediatamente (perda de transporte nos caminhos
+            // sondados — USB/BLE quando existirem, mais a bridge sem autoridade).
+            onTransportLost(
+                buildSet {
+                    if (usbCtaphid != null) add(TransportLossCause.USB_CABLE_DOWN)
+                    if (bleKeyTransport != null) add(TransportLossCause.BLE_DISCONNECTED)
+                    add(TransportLossCause.BRIDGE_OFFLINE)
+                }
             )
-            _statusFlow.value = forcedLocked
-            forcedLocked
+            _statusFlow.value
         }
     }
 

@@ -66,6 +66,8 @@ import dev.aegiskey.app.domain.usecase.StartDiscoveryUseCase
 import dev.aegiskey.app.domain.usecase.StopDiscoveryUseCase
 import dev.aegiskey.app.domain.usecase.TickTotpTimerUseCase
 import dev.aegiskey.app.domain.usecase.UpdateKeySecurityTogglesUseCase
+import dev.aegiskey.app.transportlock.TransportLossCause
+import dev.aegiskey.app.transportlock.TransportSessionLock
 import dev.aegiskey.app.ui.viewmodel.AppThemeViewModel
 import dev.aegiskey.app.ui.viewmodel.ConnectedKeysViewModel
 import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
@@ -91,7 +93,9 @@ class AppContainer(val context: Context) {
     val usbCtaphid: UsbCtaphid by lazy {
         UsbCtaphid(context).apply {
             onHardwareDetachedListener = {
-                (secureGuardRepository as? SecureGuardRepositoryImpl)?.onHardwareDetached()
+                (secureGuardRepository as? SecureGuardRepositoryImpl)?.onTransportLost(
+                    setOf(TransportLossCause.USB_CABLE_DOWN)
+                )
                 keyVaultRepository.clearMemoryVault()
             }
         }
@@ -108,7 +112,17 @@ class AppContainer(val context: Context) {
             keysStore = keysStore,
             usbKeyTransport = usbTransport,
             bleKeyTransport = bleTransport
-        )
+        ).also { repo ->
+            // Link-monitor (BT/Wi-Fi/cabo) -> session auto-lock. Deferred:
+            // runs only on link loss, after all lazies are initialized.
+            repo.onLinkLost = { deadTransport ->
+                val causes = TransportSessionLock.causesForLinkLoss(deadTransport)
+                if (causes.isNotEmpty()) {
+                    (secureGuardRepository as? SecureGuardRepositoryImpl)?.onTransportLost(causes)
+                    runCatching { secureGuardViewModel.onTransportLost(causes) }
+                }
+            }
+        }
     }
 
     val pairingWizardRepository: PairingWizardRepository by lazy {
@@ -132,7 +146,7 @@ class AppContainer(val context: Context) {
             simulatedTransport = if (dev.aegiskey.app.BuildConfig.DEBUG) simulatedRenodeTransport else null
         ).also { repo ->
             usbCtaphid.addOnHardwareDetachedListener {
-                repo.onHardwareDetached()
+                repo.onTransportLost(setOf(TransportLossCause.USB_CABLE_DOWN))
             }
         }
     }
