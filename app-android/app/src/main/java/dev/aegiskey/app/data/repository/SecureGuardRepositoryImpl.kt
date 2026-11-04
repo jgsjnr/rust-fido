@@ -200,8 +200,10 @@ class SecureGuardRepositoryImpl(
             val isBleConnected = ble?.client?.state?.value?.connection == AegisBleClient.Connection.READY
 
             // Sem USB físico e sem BLE: consulta a bridge ANTES de forçar LOCKED.
-            // Só força LOCKED (e zera o PIN) se a bridge também não responder
-            // com autoridade — nunca pule o bridge quando ele detém a sessão.
+            // Só força LOCKED (e zera o PIN) se a bridge também não atestar
+            // sessão provisionada com autoridade — nunca pule o bridge quando
+            // ele detém a sessão viva; UNPROVISIONED sem transporte local é
+            // ausência de sinal, nunca afirmação sobre o dispositivo.
             if (usb != null && !isUsbPresent && !isBleConnected) {
                 if (isMockRoutingActive()) {
                     val mockResp = runCatching {
@@ -224,13 +226,21 @@ class SecureGuardRepositoryImpl(
                 val bridgeJson = runCatching { hostBridgeClient.fetchSecureGuardStatus() }.getOrNull()
                 if (bridgeJson != null && (bridgeJson.optBoolean("ok", true) || bridgeJson.has("state") || bridgeJson.has("state_name"))) {
                     val parsed = parseStatusFromJson(bridgeJson)
-                    val safe = sanitizeStatus(parsed)
-                    if (!safe.isUnlocked) {
-                        lastVerifiedSessionPin = null
-                        clearSessionPin()
+                    // Fail-closed: sem transporte local vivo (USB destacado,
+                    // BLE fora), UNPROVISIONED/sem-provisionamento vindo da
+                    // bridge não é afirmação sobre o dispositivo — é ausência
+                    // de sinal (daemon vivo sem dispositivo/sessão). Só uma
+                    // sessão provisionada atestada pela bridge vence o LOCKED
+                    // forçado; UNPROVISIONED exige canal vivo (USB/BLE/mock).
+                    if (parsed.isProvisioned && parsed.state != SecureGuardStateEnum.UNPROVISIONED) {
+                        val safe = sanitizeStatus(parsed)
+                        if (!safe.isUnlocked) {
+                            lastVerifiedSessionPin = null
+                            clearSessionPin()
+                        }
+                        _statusFlow.value = safe
+                        return@runCatching safe
                     }
-                    _statusFlow.value = safe
-                    return@runCatching safe
                 }
                 // Sem USB físico, sem BLE e sem autoridade na bridge: perda de
                 // transporte em todos os caminhos sondados -> trava automática.
