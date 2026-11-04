@@ -1,82 +1,145 @@
-# GO / NO-GO — 1.0.0-wave (verdict of record: run 2)
+# GO / NO-GO -- 1.0.0-wave (verdict of record: run 2026-11-04T11:14:53Z)
 
-- HEAD at verdict: `eeb3e93 feat(firmware): dedicated SIGN opcode 0x41`
-  (frozen after HEAD unchanged for 5+ min; lane commits observed before freeze:
-  `cd22b80` -> `db8a120` -> `b4f9077` -> `eeb3e93`).
-- Verdict: **NO-GO (RED)**. Blocker: `dep-track` gate FAIL, exit 2.
-- No gate was weakened to make anything pass. No code, config, firmware, or
-  other report was edited in this lane.
+- HEAD at verdict: `0e957fc` (`0e957fc41b662aa99b4e63e0c15c2493acc0b6d7`,
+  2026-11-04 08:14:28 -0300, branch `fd/finalizacao-linux`):
+  "app-android: SecureGuard detached sem transporte vivo -> LOCKED fail-closed
+  (bridge UNPROVISIONED nao vence lock)".
+- Verdict: **CONDITIONAL GO (GREEN with 3 documented gaps)**. All 9 release
+  gates PASS at HEAD; no gate was weakened to make anything pass. The 3 gaps
+  below are known, bounded, and assigned -- none blocks wave shipment per
+  parent scope, but each stays recorded until closed.
+- No code, config, firmware, or other report was edited in this lane to reach
+  the verdict. No push performed (parent order).
 
-## Per-gate verdicts — final run (2026-11-03T18:14:09Z, release=on)
+## Per-gate verdicts -- final run (2026-11-04T11:14:53Z, release=on, selector=all)
+
+Evidence: `reports/testing/consolidated-result.json`
+(generated_by `tools/run_all.py`, timestamp_utc `2026-11-04T11:14:53Z`,
+summary passed=9 failed=0 advisory_failures=0 skipped=0 exit=0).
+Full per-leg tails in `reports/testing/CONSOLIDATED_RUN.md`
+(run `2026-11-04T11:14:53Z` section).
 
 | leg | advisory | status | exit | duration_s |
 |---|---|---|---|---|
-| test-debug | no | PASS | 0 | 21.7 |
-| test-firmware-features | no | PASS | 0 | 26.0 |
-| clippy | no | PASS | 0 | 0.9 |
-| fmt | yes | PASS | 0 | 1.3 |
-| deny | no | PASS | 0 | 30.4 |
-| dep-track | no | FAIL | 2 | 0.4 |
-| docs | no | PASS | 0 | 0.2 |
-| scripts | no | PASS | 0 | 11.7 |
-| test-release | no | PASS | 0 | 63.9 |
+| test-debug | no | PASS | 0 | 13.5 |
+| test-firmware-features | no | PASS | 0 | 30.1 |
+| clippy | no | PASS | 0 | 2.6 |
+| fmt | yes | PASS | 0 | 1.2 |
+| deny | no | PASS | 0 | 2.9 |
+| dep-track | no | PASS | 0 | 0.4 |
+| docs | no | PASS | 0 | 0.4 |
+| scripts | no | PASS | 0 | 11.0 |
+| test-release | no | PASS | 0 | 47.7 |
 
-- Summary: passed=8 failed=1 advisory_failures=0 skipped=0, RESULT: FAIL.
-- `dep-track` evidence: `wrote reports/refactoring/dep-track.json
-  (252 files, 24 gods)`; NEW god-files (score>25, not in allowlist):
-  `27.92 crates/aegis-fido-firmware/src/secure_guard_exec/tests.rs
-  (lines=1442 fan_in=0 fan_out=9)` and
-  `25.90 crates/universal-device-sdk/src/providers/oath.rs
-  (lines=40 fan_in=30 fan_out=7)`.
-- Prior run for the record (2026-11-03T17:21:54Z, HEAD `cd22b80`,
-  MARKED POTENTIALLY CONTAMINATED — firmware lane editing mid-run, not used
-  for the verdict): 7 PASS + `dep-track` FAIL exit 2 (`tests.rs` 26.30,
-  lines=1280) + `fmt` advisory FAIL. Note god growth across runs
-  (26.30 -> 27.92, lines 1280 -> 1442) tracks active lane development.
+- `fmt` is advisory (record-only); this run reports `(no output)`, exit 0.
+- `dep-track`: `wrote reports/refactoring/dep-track.json (265 files, 22 gods)`,
+  `check ok: no new god-files beyond 24 allowlisted`.
+- `docs`: `reports-scan checked=1 broken=0` (STYLE-HINT lines only, non-blocking).
+- Prior history (superseded, kept in CONSOLIDATED_RUN.md): red runs with the
+  `oath` duplicate-module E0761 breakage (2026-11-03T23:04:03Z,
+  2026-11-04T00:36:54Z) and god-file FAILs (`bench.rs` 30.88 on
+  2026-11-04T03:00:54Z), all resolved before this green run (oath dedup fix
+  lineage `2ca44af`, bench split `0dea539`). NOT reused for the verdict.
 
-## Hardware proofs (provenance, not re-validated here — no device in this lane)
+## App suite -- 189/189 (handoff-provided, not re-run here)
 
-- HARDWARE_JOURNEY 2026-11-02 (HEAD `a379cf5`): detect PASS (COM7 + native
-  USB VID 0x303A/PID 0xAE61); release ELF build PASS; elf2image PASS
-  (1899056 B, SHA256 `535C4AAA…`); flash+boot PASS (ESP-IDF v5.3.1,
-  no panic, SecureGuard up); journey create/get/delete PASS, TOTP vs RFC
-  vectors PASS (755224/287082), assert counter+1 PASS, PIN attempts PASS
-  (1 wrong -> `0x31`, correct -> `0x00`, no lockout); SG lock/unlock/wipe over
-  UART BLOCKED by composition (legacy loop lacks `0x3A-0x3E` dispatch);
-  LAST full wipe with PIN `1111` PASS, verified factory-clean. Quirks:
-  `getRetries` -> `0x14` once PIN set; keyAgreement COSE_Key under map `0x01`.
-- ROBOT_RUN 26/26 PASS (host-emulated, `fd/finalizacao-linux`, 2026-11-02).
-- HOST_SWEEP follow-ups closed: depcheck rewritten (runtime compile-db
-  resolution), `download_mode` release finding proven false positive,
-  `vendor_tests` god split (commits `3f24bd0`, `811ec0d`, `44b7570`).
-- Fresh APK rebuild (this lane, build-only): BUILD SUCCESSFUL, SHA256
-  `D487E292…` (see RELEASE_NOTES.md).
+- Android unit suite: **189/189 PASS**, value provided by parent handoff
+  2026-11-04. Not re-executed in this lane (no Gradle run here); no local
+  evidence file for the count exists in this repo snapshot, so it is recorded
+  as reported, not as locally re-validated.
+- Bench/badge coverage present in-tree: `BenchSessionBadgeTest`
+  (`bench_active` contract, `bench_active=true/false` cases),
+  `SecureGuardRepositoryAndCborTest`, `SecureGuardJourneyTest`,
+  `OobPairingTest` under `app-android/app/src/test`.
+
+## Hardware proofs (provenance, not re-validated here -- no device in this lane)
+
+- 5 curvas provadas: hub inventory shows 5/5 slots
+  (`hw-p256` #0 / `hw-ed25519` #1 / `hw-es384` #2 / `hw-es512` #3 /
+  `hw-es256k` #4, `reports/testing/HW_MATRIX.md` S9-1, dumps `hw9_hub*.xml`);
+  Generate dialog offers 8 key types + 5 curves
+  (Ed25519/ES256/ES384/ES512/ES256K, HW_MATRIX S9-4, `hw9_gen.xml`).
+  Detail-screen caveat is gap 1 below; it does not erase the inventory proof.
+- TOTP ok: TOTP vs RFC vectors PASS (755224/287082,
+  `reports/testing/HARDWARE_JOURNEY.md`); TOTP RFC 6238 9/9 + HOTP RFC 4226
+  10/10 (`reports/testing/ROBOT_RUN.md`, SESSION_HANDOFF). Live-app TOTP-add
+  enroll correctly SKIPped (mutation, HW_MATRIX S9-6, zero submits).
+- K3 presence PASS (`User Presence Button operational`, monotonic 1,420 ops,
+  HW_MATRIX S9-3). ROBOT_RUN 26/26 PASS (2026-11-02, host-emulated).
+
+## Known gaps (accepted, assigned -- not ship-blockers for wave)
+
+1. Detalhe ES256 default: all 5 slot detail screens display `ES256 (P-256)`,
+   including the 4 slots created under other curve chips (HW_MATRIX S9-2).
+   Hypotheses recorded there, undecided: (a) creations fell back to ES256
+   default (chip-tap did not stick); (b) detail screen renders a fixed/default
+   curve instead of the real one. No `touch required on/off` toggle, no UP
+   `0x40` policy switch, no `resident` selector exists in the UI (contract
+   fixed: touch SEMPRE required, resident SEMPRE discoverable). Follow-up
+   (parent): revalidate the real per-slot curve via signature/CTAP before
+   claiming per-curve issuance.
+2. Badge so com bench_active: the bench badge is asserted only when status
+   `0x3A` carries `bench_active=true` (firmware `54a54f9` exposes it in
+   `crates/aegis-fido-firmware/src/secure_guard_exec/status.rs:133-134` via
+   `bench/policy::is_bench_active()`; app rule in
+   `app-android/.../benchmode/BenchSession.kt` + `BenchSessionBadgeTest`;
+   release contract `bench_active=false`, bench contract `=true` in
+   `bench/tests.rs`). HW_MATRIX S9-7 therefore correctly records badge
+   AUSENTE (zero `bancada/bench` hits in S9 dumps; APK `0.1.0-wave5` without
+   bench authority) -- nothing forged. Expected behavior; stays a known gap
+   until a bench-authorized run stamps the badge.
+3. 2 fails test-mode pre-existentes (oob/sign): the firmware `test-mode`-only
+   surface -- OOB arming op `0x42` (`crates/aegis-fido-firmware/src/ble/oob.rs`)
+   and the SIGN opcode `0x41` path -- carries 2 pre-existing failures outside
+   the release gate scope (release gates run default + `freertos,proximity`
+   features, never `test-mode`; GAP-04 `prod_strict_guard` keeps `test-mode`
+   out of production by `compile_error!`). Handoff-provided counts, not
+   reproduced in this lane (no `test-mode` run here). Tracked as
+   pre-existing; fix lane to confirm and close.
 
 ## Residual risks
 
-- Verdict rendered with the tree dirty (below): all green legs also ran on
-  uncommitted code. A clean-tree re-run is required before any GO.
-- `fmt` PASS in run 2 rode on uncommitted formatting changes; committed code
-  remains unformatted (advisory only, but honest state).
-- Hardware proofs are stale (older HEADs) and SG-over-UART remains
-  composition-blocked in the legacy loop.
-- No FIDO certification; ESP-IDF beyond v5.3.1 unvalidated; DEV eFuse caveat
-  (unburned boards, wrapped-KEK recovery, else reboot -> reprovision).
+- Verdict rendered while the tree is dirty (uncommitted edits from other
+  active lanes at write time -- list below). The gate evidence file itself
+  (`consolidated-result.json` 11:14:53Z) is also an uncommitted working-tree
+  file. A clean-tree re-run is recommended before final ship if the tree
+  changed semantically since the run.
+- Hardware proofs are provenance from older HEADs/lanes (HARDWARE_JOURNEY
+  2026-11-02, ROBOT_RUN 26/26, HW_MATRIX S9); restated, not re-validated
+  here -- board untouched, no flash, no PIN attempts in this lane.
+- No FIDO certification; ESP-IDF pinned v5.3.1 (v6.x not validated); DEV
+  eFuse caveat stands (unburned boards, wrapped-KEK recovery, else
+  reboot -> reprovision).
+- Prior `.bin` identity mismatch (`620D611E...` prefix, 2026-11-03 GO_NOGO
+  item 3) is SUPERSEDED by the current hashes in `SHA256SUMS.txt`; old values
+  retained there under History.
 
-## Explicit NO-GO items
+## Acceptance criteria (wave ship)
 
-1. `dep-track` GATE FAIL (exit 2): two NEW god-files above the 25-point
-   allowlist bar. Needs allowlist update with written reason (parent) or god
-   split (code lane) — neither is this lane to do.
-2. Verdict-on-dirty-tree: 63 uncommitted entries from other active lanes at
-   run time (list below). Re-verify on a clean tree before any GO.
-3. Firmware `.bin` identity unresolved: expected prefix `620D611E…` matches
-   nothing in the repo; on-disk `dist` bin (`13C894FB…`) vs catalog full
-   (`747691BC…`) provenance unconfirmed.
-4. Committed code unformatted (`fmt` run-2 PASS is tree-dirt, not HEAD state).
-5. No FIDO cert; ESP-IDF v5.3.1-only validation; DEV eFuse caveat stands.
+- [x] 9/9 release gates PASS at HEAD `0e957fc`
+      (`consolidated-result.json` 2026-11-04T11:14:53Z).
+- [x] App suite 189/189 PASS (handoff statement 2026-11-04).
+- [x] 5-curve inventory evidenced (HW_MATRIX S9-1/S9-2/S9-4).
+- [x] TOTP vectors ok (HARDWARE_JOURNEY + ROBOT_RUN).
+- [x] 3 known gaps recorded with follow-up owner (this file).
+- [ ] Clean-tree gate re-run if parent requires zero-dirt attestation
+      (recommended, not done here).
+- [x] Sem push (honored -- nothing pushed in this lane).
 
-## Working-tree state at verdict freeze (HEAD `eeb3e93`, uncommitted, other lanes)
+## Evidence quality
+
+- Directly observed in-repo this lane: HEAD/branch/dates via `git`;
+  gate table via `reports/testing/consolidated-result.json` + tails in
+  `reports/testing/CONSOLIDATED_RUN.md`; `bench_active` contract via
+  `secure_guard_exec/status.rs` + `bench/policy.rs` + `bench/tests.rs` +
+  `BenchSessionBadgeTest.kt`; ES256-display + badge-absent + TOTP/HOTP
+  vectors via `HW_MATRIX.md`, `HARDWARE_JOURNEY.md`, `ROBOT_RUN.md`.
+- Handoff-provided, NOT re-validated here: the new APK/firmware SHA256 pair;
+  the app 189/189 count; the 2 test-mode oob/sign fails. Recorded as
+  reported; no REAL_VERIFIED claim is made for them in this lane.
+- No device touched, no suite executed, no hash recomputed in this lane.
+
+## Working-tree state at write time (HEAD `0e957fc`, uncommitted, other lanes)
 
 M crates/aegis-fido-core/src/crypto/curves.rs
 M crates/aegis-fido-core/src/crypto/ecdh.rs
@@ -89,47 +152,8 @@ M crates/aegis-fido-core/src/otp/mod.rs
 M crates/aegis-fido-core/src/vault/mod.rs
 M crates/aegis-fido-core/src/wallet/clear_signing.rs
 M crates/aegis-fido-core/src/wallet/shamir_slip39.rs
-M crates/aegis-fido-firmware/src/binding.rs
-M crates/aegis-fido-firmware/src/ble/nimble_backend.rs
-M crates/aegis-fido-firmware/src/ble_nimble.rs
-M crates/aegis-fido-firmware/src/crypto_aead.rs
-M crates/aegis-fido-firmware/src/crypto_rsa.rs
-M crates/aegis-fido-firmware/src/efuse_safety_lock.rs
-M crates/aegis-fido-firmware/src/freertos_route.rs
-M crates/aegis-fido-firmware/src/freertos_sched.rs
-M crates/aegis-fido-firmware/src/hmac_cr_compat_layer.rs
-M crates/aegis-fido-firmware/src/lib.rs
-M crates/aegis-fido-firmware/src/migrations/mod.rs
-M crates/aegis-fido-firmware/src/net/ap_core.rs
-M crates/aegis-fido-firmware/src/net/http_front.rs
-M crates/aegis-fido-firmware/src/net/mdns.rs
-M crates/aegis-fido-firmware/src/net/station.rs
-M crates/aegis-fido-firmware/src/oled_ssd1306_code_only.rs
-M crates/aegis-fido-firmware/src/pairing_led.rs
-M crates/aegis-fido-firmware/src/prod_strict_guard.rs
-M crates/aegis-fido-firmware/src/psram_public_alloc.rs
-M crates/aegis-fido-firmware/src/run/common.rs
-M crates/aegis-fido-firmware/src/run/mod.rs
-M crates/aegis-fido-firmware/src/run/run_loop_freertos.rs
-M crates/aegis-fido-firmware/src/run/run_loop_legacy.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/config.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/dispatch.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/lock.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/mod.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/status.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/tests.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/unlock.rs
-M crates/aegis-fido-firmware/src/secure_guard_exec/wipe.rs
-M crates/aegis-fido-firmware/src/secure_guard_storage.rs
-M crates/aegis-fido-firmware/src/time_sync.rs
-M crates/aegis-fido-firmware/src/totp_view.rs
-M crates/aegis-fido-firmware/src/vendor_exec.rs
-M crates/aegis-fido-firmware/tests/applets_t9.rs
-M crates/aegis-fido-firmware/tests/migration_tests.rs
-M crates/aegis-fido-firmware/tests/namespaced_store_t5.rs
-M crates/aegis-fido-firmware/tests/secure_guard_integration.rs
+M crates/aegis-fido-firmware/src/ota_store.rs
 M crates/aegis-secure-guard/src/crypto.rs
-M crates/aegis-secure-guard/src/engine.rs
 M crates/aegis-secure-guard/src/glitch_guard.rs
 M crates/aegis-secure-guard/src/resource.rs
 M crates/uniffi-bridge/src/ffi.rs
@@ -140,6 +164,17 @@ M crates/universal-device-sdk/src/lib.rs
 M crates/universal-device-sdk/src/secure_channel.rs
 M crates/universal-device-sdk/src/secure_guard.rs
 M crates/universal-device-sdk/src/shamir.rs
-M tools/e2e_harness.py
-M tools/host_hardware_android_bridge.py
+M docs/manual/img/01_open_locked.png
+M docs/manual/img/02_unlock_pin.png
+M docs/manual/img/03_vault_list.png
+M reports/refactoring/dep-track.json
+M reports/testing/CONSOLIDATED_RUN.md
+M reports/testing/consolidated-result.json
+?? STDOUT
+?? docs/bench-destructive.md
+?? docs/bench-freertos-s3.md
+?? docs/finalizacao-freertos-rust.md
+?? docs/freertos-rust.md
+?? docs/proximity-worktree-handoff.md
+?? reports/testing/HW_MATRIX.md
 ?? tools/app_path_replay.py

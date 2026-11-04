@@ -195,7 +195,8 @@ impl LegacyOtpGenerator {
         let (prefix_str, ciphertext_str) = token.split_at(prefix_len);
 
         if let Some(exp_pub) = expected_public_id {
-            let actual_pub = modhex::decode(prefix_str).map_err(|_| LegacyOtpError::InvalidModhex)?;
+            let actual_pub =
+                modhex::decode(prefix_str).map_err(|_| LegacyOtpError::InvalidModhex)?;
             if actual_pub != exp_pub {
                 return Err(LegacyOtpError::InvalidUid);
             }

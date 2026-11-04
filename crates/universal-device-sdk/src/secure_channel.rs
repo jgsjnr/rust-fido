@@ -103,10 +103,7 @@ pub fn encode_encrypted_pin_payload(dto: &EncryptedPinPayloadDto) -> Result<Vec<
             Value::Text("ciphertext".into()),
             Value::Bytes(dto.ciphertext.clone()),
         ),
-        (
-            Value::Text("tag".into()),
-            Value::Bytes(dto.tag.to_vec()),
-        ),
+        (Value::Text("tag".into()), Value::Bytes(dto.tag.to_vec())),
         (
             Value::Text("nonce".into()),
             Value::Bytes(dto.nonce.to_vec()),

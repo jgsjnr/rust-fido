@@ -17,7 +17,7 @@ pub mod vault;
 pub mod wallet;
 
 pub use ctap::{
-    CtapEngine, CredRandomMaterial, Ctap21ExtensionError, HmacSecretExtension, HmacSecretOutput,
+    CredRandomMaterial, Ctap21ExtensionError, CtapEngine, HmacSecretExtension, HmacSecretOutput,
     LargeBlobEntry, LargeBlobStore, DEFAULT_LARGE_BLOB_CAPACITY, LARGE_BLOB_TAG_LEN,
 };
 pub use lifetime::{

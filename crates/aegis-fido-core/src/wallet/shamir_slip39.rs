@@ -49,7 +49,9 @@ impl core::fmt::Display for ShamirError {
             Self::DuplicateShareIndex => write!(f, "Supplied shares have identical indices"),
             Self::ChecksumMismatch => write!(f, "Reconstructed secret CRC32 checksum mismatch"),
             Self::EncryptionFailed => write!(f, "AES-256-GCM seed encryption failed"),
-            Self::DecryptionFailed => write!(f, "AES-256-GCM seed decryption/authentication failed"),
+            Self::DecryptionFailed => {
+                write!(f, "AES-256-GCM seed decryption/authentication failed")
+            }
         }
     }
 }
@@ -132,10 +134,7 @@ impl Drop for ShamirShare {
 /// - Share 1: evaluated at `x = 1`
 /// - Share 2: evaluated at `x = 2`
 /// - Share 3: evaluated at `x = 3`
-pub fn split_secret_2_of_3(
-    secret: &[u8; 32],
-    entropy_p1: &[u8; 32],
-) -> [ShamirShare; 3] {
+pub fn split_secret_2_of_3(secret: &[u8; 32], entropy_p1: &[u8; 32]) -> [ShamirShare; 3] {
     let checksum = crc32(secret);
 
     let mut shares = [

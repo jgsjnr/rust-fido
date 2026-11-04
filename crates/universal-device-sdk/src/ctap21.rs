@@ -80,10 +80,7 @@ pub fn encode_hmac_secret_request(dto: &HmacSecretRequestDto) -> Result<Vec<u8>,
         ),
     ];
     if let Some(s2) = dto.salt2 {
-        map.push((
-            Value::Text("salt2".into()),
-            Value::Bytes(s2.to_vec()),
-        ));
+        map.push((Value::Text("salt2".into()), Value::Bytes(s2.to_vec())));
     }
     to_cbor(&Value::Map(map))
 }
@@ -131,10 +128,7 @@ pub fn encode_hmac_secret_response(dto: &HmacSecretResponseDto) -> Result<Vec<u8
         Value::Bytes(dto.output1.to_vec()),
     )];
     if let Some(o2) = dto.output2 {
-        map.push((
-            Value::Text("output2".into()),
-            Value::Bytes(o2.to_vec()),
-        ));
+        map.push((Value::Text("output2".into()), Value::Bytes(o2.to_vec())));
     }
     to_cbor(&Value::Map(map))
 }

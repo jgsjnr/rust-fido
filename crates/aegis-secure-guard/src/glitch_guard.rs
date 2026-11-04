@@ -133,8 +133,14 @@ mod tests {
 
     #[test]
     fn test_glitch_resistant_bool_bit_inversion() {
-        assert_eq!(!GlitchResistantBool::PATTERN_TRUE, GlitchResistantBool::PATTERN_FALSE);
-        assert_eq!(!GlitchResistantBool::PATTERN_FALSE, GlitchResistantBool::PATTERN_TRUE);
+        assert_eq!(
+            !GlitchResistantBool::PATTERN_TRUE,
+            GlitchResistantBool::PATTERN_FALSE
+        );
+        assert_eq!(
+            !GlitchResistantBool::PATTERN_FALSE,
+            GlitchResistantBool::PATTERN_TRUE
+        );
 
         assert!(GlitchResistantBool::True.is_true());
         assert!(!GlitchResistantBool::True.is_false());
@@ -166,11 +172,26 @@ mod tests {
 
     #[test]
     fn test_from_raw_pattern() {
-        assert_eq!(GlitchResistantBool::from_raw(0xA5A5_5A5A), Ok(GlitchResistantBool::True));
-        assert_eq!(GlitchResistantBool::from_raw(0x5A5A_A5A5), Ok(GlitchResistantBool::False));
+        assert_eq!(
+            GlitchResistantBool::from_raw(0xA5A5_5A5A),
+            Ok(GlitchResistantBool::True)
+        );
+        assert_eq!(
+            GlitchResistantBool::from_raw(0x5A5A_A5A5),
+            Ok(GlitchResistantBool::False)
+        );
         // Corrupted single-bit or intermediate values fail closed
-        assert_eq!(GlitchResistantBool::from_raw(0xA5A5_5A5B), Err(SecureGuardError::GlitchDetected));
-        assert_eq!(GlitchResistantBool::from_raw(0x0000_0000), Err(SecureGuardError::GlitchDetected));
-        assert_eq!(GlitchResistantBool::from_raw(0xFFFF_FFFF), Err(SecureGuardError::GlitchDetected));
+        assert_eq!(
+            GlitchResistantBool::from_raw(0xA5A5_5A5B),
+            Err(SecureGuardError::GlitchDetected)
+        );
+        assert_eq!(
+            GlitchResistantBool::from_raw(0x0000_0000),
+            Err(SecureGuardError::GlitchDetected)
+        );
+        assert_eq!(
+            GlitchResistantBool::from_raw(0xFFFF_FFFF),
+            Err(SecureGuardError::GlitchDetected)
+        );
     }
 }

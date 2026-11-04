@@ -16,8 +16,8 @@ use rand_core::CryptoRng;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use p256::elliptic_curve::Generate;
 use p256::elliptic_curve::sec1::{FromSec1Point, ToSec1Point};
+use p256::elliptic_curve::Generate;
 use p256::{PublicKey as P256PublicKey, Sec1Point as P256EncodedPoint};
 
 pub mod policy;
@@ -376,9 +376,8 @@ impl AegisVault {
         // Parse authenticator ephemeral public key
         let auth_point = P256EncodedPoint::from_bytes(&package.auth_ephemeral_pubkey)
             .map_err(|_| VaultError::InvalidPublicKey)?;
-        let auth_pub =
-            Option::<P256PublicKey>::from(P256PublicKey::from_sec1_point(&auth_point))
-                .ok_or(VaultError::InvalidPublicKey)?;
+        let auth_pub = Option::<P256PublicKey>::from(P256PublicKey::from_sec1_point(&auth_point))
+            .ok_or(VaultError::InvalidPublicKey)?;
 
         // Compute ECDH shared secret
         let shared_secret = client_secret.diffie_hellman(&auth_pub);

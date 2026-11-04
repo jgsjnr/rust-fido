@@ -255,7 +255,7 @@ class KeyVaultViewModel(
         // button and explains via strings.xml (vault_generate_locked_hint).
         // This branch is the second gate for programmatic callers.
         val guardStatus = guardStatusFlow.value
-        val isGuardUnlocked = guardStatus == null || guardStatus.isUnlocked || guardStatus.state == SecureGuardStateEnum.UNLOCKED || SecureGuardRepositoryImpl.lastVerifiedSessionPin != null
+        val isGuardUnlocked = guardStatus == null || guardStatus.isUnlocked || guardStatus.state == SecureGuardStateEnum.UNLOCKED || SecureGuardRepositoryImpl.isSessionPinValid()
         if (!isGuardUnlocked) {
             _internalState.update { it.copy(errorMessage = null, errorResId = dev.aegiskey.app.R.string.vault_err_guard_locked) }
             return
@@ -538,7 +538,7 @@ class KeyVaultViewModel(
         val guardStatus = guardStatusFlow.value
         val isGuardUnlocked = guardStatus == null || guardStatus.isUnlocked ||
             guardStatus.state == SecureGuardStateEnum.UNLOCKED ||
-            SecureGuardRepositoryImpl.lastVerifiedSessionPin != null
+            SecureGuardRepositoryImpl.isSessionPinValid()
         if (!isGuardUnlocked) {
             _internalState.update {
                 it.copy(touchOutcome = TouchPolicy.TouchOutcome.NeedPin)

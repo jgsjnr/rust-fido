@@ -539,9 +539,8 @@ mod ota_wiring_tests {
         assert_eq!(ota.phase(), OtaPhase::Verified);
         // Com hook: test-mode comita (OK + marker); release nega NEED_UP.
         let hooked = req_ctx_hook(true, false, true, pubkey);
-        let (st, _) =
-            dispatch_ota_request(&mut ota, &mut sink, OP_OTA_COMMIT, &[], &hooked)
-                .expect("commit dispatch");
+        let (st, _) = dispatch_ota_request(&mut ota, &mut sink, OP_OTA_COMMIT, &[], &hooked)
+            .expect("commit dispatch");
         #[cfg(feature = "test-mode")]
         {
             assert_eq!(st, OTA_STATUS_OK);

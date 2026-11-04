@@ -753,8 +753,8 @@ pub mod pm_jni;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::ffi::{policy_json, status_of};
+    use super::*;
     use aegis_fido_core::crypto::cose::CoseKey;
 
     #[test]
@@ -1388,8 +1388,15 @@ mod tests {
         call: impl Fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32,
     ) -> Result<Vec<u8>, i32> {
         let mut need: usize = 0;
-        let reported =
-            { call(input.as_ptr(), input.len(), core::ptr::null_mut(), 0, &mut need) };
+        let reported = {
+            call(
+                input.as_ptr(),
+                input.len(),
+                core::ptr::null_mut(),
+                0,
+                &mut need,
+            )
+        };
         if reported < 0 {
             return Err(reported);
         }
@@ -1461,7 +1468,10 @@ mod tests {
         let version = unsafe { core::ffi::CStr::from_ptr(aegis_bridge_version()) };
         assert_eq!(version.to_bytes(), b"1.0.0");
         assert_eq!(AEGIS_STATUS_OK, 0);
-        assert_eq!(status_of(BridgeError::InvalidOpcode), AEGIS_ERR_INVALID_OPCODE);
+        assert_eq!(
+            status_of(BridgeError::InvalidOpcode),
+            AEGIS_ERR_INVALID_OPCODE
+        );
         assert_eq!(status_of(BridgeError::Overflow), AEGIS_ERR_OVERFLOW);
         assert_eq!(
             status_of(BridgeError::SecureGuardError),
@@ -1727,10 +1737,7 @@ mod tests {
     #[test]
     fn ffi_cose_wallet_otpauth() {
         let cbor = CoseKey::p256(vec![1u8; 32], vec![2u8; 32]).to_cbor_bytes();
-        let raw = c_roundtrip(&cbor, |p, n, o, c, l| {
-            aegis_cose_key_info(p, n, o, c, l)
-        })
-        .unwrap();
+        let raw = c_roundtrip(&cbor, |p, n, o, c, l| aegis_cose_key_info(p, n, o, c, l)).unwrap();
         assert_eq!(raw, b"kty=EC2 crv=1 alg=-7 x_len=32 y_len=32");
 
         let network = b"bitcoin".to_vec();
@@ -1742,10 +1749,7 @@ mod tests {
         assert_eq!(raw, b"bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
 
         let uri = b"otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP".to_vec();
-        let raw = c_roundtrip(&uri, |p, n, o, c, l| {
-            aegis_otpauth_extract(p, n, o, c, l)
-        })
-        .unwrap();
+        let raw = c_roundtrip(&uri, |p, n, o, c, l| aegis_otpauth_extract(p, n, o, c, l)).unwrap();
         let out = core::str::from_utf8(&raw).unwrap();
         assert!(out.contains("\"issuer\":\"GitHub\""));
         assert!(out.contains("\"secret_base32\":\"JBSWY3DPEHPK3PXP\""));
@@ -1771,8 +1775,8 @@ mod tests {
 
         // Minimal CBOR status map: {"state": 4, "unlocked": true}.
         let payload: Vec<u8> = vec![
-            0xA2, 0x65, b's', b't', b'a', b't', b'e', 0x04, 0x68, b'u', b'n', b'l', b'o',
-            b'c', b'k', b'e', b'd', 0xF5,
+            0xA2, 0x65, b's', b't', b'a', b't', b'e', 0x04, 0x68, b'u', b'n', b'l', b'o', b'c',
+            b'k', b'e', b'd', 0xF5,
         ];
         let raw = c_roundtrip(&payload, |p, n, o, c, l| {
             aegis_secure_guard_parse_status(p, n, o, c, l)

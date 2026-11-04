@@ -1126,3 +1126,1202 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 exit=0 duration_s=63.9
 ```
 
+## Run 2026-11-03T23:04:03Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | FAIL | 101 | 23.2 |  |
+| test-firmware-features | no | FAIL | 101 | 3.1 |  |
+| clippy | no | FAIL | 101 | 3.2 |  |
+| fmt | yes | FAIL | 1 | 1.5 |  |
+| deny | no | PASS | 0 | 17.2 |  |
+| dep-track | no | FAIL | 2 | 0.3 |  |
+| docs | no | PASS | 0 | 0.7 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 8.6 |  |
+| test-release | no | FAIL | 101 | 26.8 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - FAIL (exit 101, 23.2s)
+
+```
+   Compiling aegis-fido-core v1.0.0 (E:\projetos\fido\crates\aegis-fido-core)
+   Compiling uniffi-bridge v1.0.0 (E:\projetos\fido\crates\uniffi-bridge)
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+error[E0761]: file for module `oath` found at both "crates\universal-device-sdk\src\providers\oath.rs" and "crates\universal-device-sdk\src\providers\oath\mod.rs"
+  --> crates\universal-device-sdk\src\providers\mod.rs:26:1
+   |
+26 | mod oath;
+   | ^^^^^^^^^
+   |
+   = help: delete or rename one of them to remove the ambiguity
+
+For more information about this error, try `rustc --explain E0761`.
+error: could not compile `universal-device-sdk` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+exit=101 duration_s=23.2
+```
+
+#### `test-firmware-features` - FAIL (exit 101, 3.1s)
+
+```
+637 |     fn storage() -> SecureStorage<MockFlashBackend> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `crate::openpgp_cmd::tests::storage`: not accessible
+    |
+   ::: crates\aegis-fido-firmware\src\proximity.rs:249:5
+    |
+249 |     fn storage() -> SecureStorage<MockFlashBackend> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `crate::proximity::rolling_tests::storage`: not accessible
+    |
+   ::: crates\aegis-fido-firmware\src\time_sync.rs:352:5
+    |
+352 |     fn storage() -> SecureStorage<MockFlashBackend> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `crate::time_sync::tests::storage`: not accessible
+
+error: could not compile `aegis-fido-firmware` (lib test) due to 1 previous error
+exit=101 duration_s=3.1
+```
+
+#### `clippy` - FAIL (exit 101, 3.2s)
+
+```
+    Checking aegis-fido-core v1.0.0 (E:\projetos\fido\crates\aegis-fido-core)
+    Checking aegis-secure-guard v1.0.0 (E:\projetos\fido\crates\aegis-secure-guard)
+error[E0761]: file for module `oath` found at both "crates\universal-device-sdk\src\providers\oath.rs" and "crates\universal-device-sdk\src\providers\oath\mod.rs"
+  --> crates\universal-device-sdk\src\providers\mod.rs:26:1
+   |
+26 | mod oath;
+   | ^^^^^^^^^
+   |
+   = help: delete or rename one of them to remove the ambiguity
+
+For more information about this error, try `rustc --explain E0761`.
+error: could not compile `universal-device-sdk` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `universal-device-sdk` (lib test) due to 1 previous error
+exit=101 duration_s=3.2
+```
+
+#### `fmt` - FAIL (exit 1, 1.5s)
+
+```
+$ cargo fmt --all -- --check
+Error writing files: failed to resolve mod `oath`: file for module found at both "\\\\?\\E:\\projetos\\fido\\crates\\universal-device-sdk\\src\\providers\\oath.rs" and "\\\\?\\E:\\projetos\\fido\\crates\\universal-device-sdk\\src\\providers\\oath\\mod.rs"
+exit=1 duration_s=1.5
+```
+
+#### `deny` - PASS (exit 0, 17.2s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=17.2
+```
+
+#### `dep-track` - FAIL (exit 2, 0.3s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (261 files, 23 gods)
+NEW god-files (score>25, not in allowlist):
+  27.40 crates/universal-device-sdk/src/providers/oath.rs (lines=40 fan_in=33 fan_out=7)
+exit=2 duration_s=0.3
+```
+
+#### `docs` - PASS (exit 0, 0.7s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.2
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 8.6s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.3
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+```
+
+#### `test-release` - FAIL (exit 101, 26.8s)
+
+```
+error[E0761]: file for module `oath` found at both "crates\universal-device-sdk\src\providers\oath.rs" and "crates\universal-device-sdk\src\providers\oath\mod.rs"
+  --> crates\universal-device-sdk\src\providers\mod.rs:26:1
+   |
+26 | mod oath;
+   | ^^^^^^^^^
+   |
+   = help: delete or rename one of them to remove the ambiguity
+
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+   Compiling aegis-fido-core v1.0.0 (E:\projetos\fido\crates\aegis-fido-core)
+For more information about this error, try `rustc --explain E0761`.
+error: could not compile `universal-device-sdk` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `universal-device-sdk` (lib test) due to 1 previous error
+exit=101 duration_s=26.8
+```
+
+## Run 2026-11-04T00:36:54Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | FAIL | 101 | 3.5 |  |
+| test-firmware-features | no | FAIL | 101 | 4.9 |  |
+| clippy | no | FAIL | 101 | 3.5 |  |
+| fmt | yes | FAIL | 1 | 1.8 |  |
+| deny | no | PASS | 0 | 28.7 |  |
+| dep-track | no | FAIL | 2 | 0.8 |  |
+| docs | no | PASS | 0 | 0.5 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 14.7 |  |
+| test-release | no | FAIL | 101 | 52.2 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - FAIL (exit 101, 3.5s)
+
+```
+$ cargo test --workspace
+   Compiling universal-device-sdk v1.0.0 (E:\projetos\fido\crates\universal-device-sdk)
+error[E0761]: file for module `oath` found at both "crates\universal-device-sdk\src\providers\oath.rs" and "crates\universal-device-sdk\src\providers\oath\mod.rs"
+  --> crates\universal-device-sdk\src\providers\mod.rs:26:1
+   |
+26 | mod oath;
+   | ^^^^^^^^^
+   |
+   = help: delete or rename one of them to remove the ambiguity
+
+For more information about this error, try `rustc --explain E0761`.
+error: could not compile `universal-device-sdk` (lib test) due to 1 previous error
+exit=101 duration_s=3.5
+```
+
+#### `test-firmware-features` - FAIL (exit 101, 4.9s)
+
+```
+   ::: crates\aegis-fido-firmware\src\proximity.rs:249:5
+    |
+249 |     fn storage() -> SecureStorage<MockFlashBackend> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `crate::proximity::rolling_tests::storage`: not accessible
+    |
+   ::: crates\aegis-fido-firmware\src\time_sync.rs:352:5
+    |
+352 |     fn storage() -> SecureStorage<MockFlashBackend> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `crate::time_sync::tests::storage`: not accessible
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `aegis-fido-firmware` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aegis-fido-firmware` (lib test) due to 1 previous error
+exit=101 duration_s=4.9
+```
+
+#### `clippy` - FAIL (exit 101, 3.5s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking universal-device-sdk v1.0.0 (E:\projetos\fido\crates\universal-device-sdk)
+error[E0761]: file for module `oath` found at both "crates\universal-device-sdk\src\providers\oath.rs" and "crates\universal-device-sdk\src\providers\oath\mod.rs"
+  --> crates\universal-device-sdk\src\providers\mod.rs:26:1
+   |
+26 | mod oath;
+   | ^^^^^^^^^
+   |
+   = help: delete or rename one of them to remove the ambiguity
+
+For more information about this error, try `rustc --explain E0761`.
+error: could not compile `universal-device-sdk` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `universal-device-sdk` (lib test) due to 1 previous error
+exit=101 duration_s=3.5
+```
+
+#### `fmt` - FAIL (exit 1, 1.8s)
+
+```
+[0m         assert_eq!(st, OTA_STATUS_OK);
+         assert!(consumed);
+         assert_eq!(body, OTA_NEXT.to_be_bytes().to_vec());
+Diff in \\?\E:\projetos\fido\crates\aegis-fido-firmware\src\run\run_loop_freertos.rs:345:
+     // `ota_efuse_mgr` vive no loop p/ o gate provisionado por pacote (legado);
+     // versao corrente 1 == `run::FIRMWARE_VERSION` (u32 monotonia OTA).
+     #[cfg(target_os = "espidf")]
+[31m-    let ota_efuse_mgr =
+[0m[31m-        crate::efuse::EfuseManager::new(crate::efuse::RamEfuseStorage::new());
+[0m[32m+    let ota_efuse_mgr = crate::efuse::EfuseManager::new(crate::efuse::RamEfuseStorage::new());
+[0m     #[cfg(target_os = "espidf")]
+     let mut ota_state = crate::ota::OtaState::new(1);
+     #[cfg(target_os = "espidf")]
+Error writing files: failed to resolve mod `oath`: file for module found at both "\\\\?\\E:\\projetos\\fido\\crates\\universal-device-sdk\\src\\providers\\oath.rs" and "\\\\?\\E:\\projetos\\fido\\crates\\universal-device-sdk\\src\\providers\\oath\\mod.rs"
+exit=1 duration_s=1.8
+```
+
+#### `deny` - PASS (exit 0, 28.7s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=28.7
+```
+
+#### `dep-track` - FAIL (exit 2, 0.8s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (261 files, 23 gods)
+NEW god-files (score>25, not in allowlist):
+  27.40 crates/universal-device-sdk/src/providers/oath.rs (lines=40 fan_in=33 fan_out=7)
+exit=2 duration_s=0.8
+```
+
+#### `docs` - PASS (exit 0, 0.5s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.2
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 14.7s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+```
+
+#### `test-release` - FAIL (exit 101, 52.2s)
+
+```
+   Compiling aegis-fido-core v1.0.0 (E:\projetos\fido\crates\aegis-fido-core)
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+error[E0761]: file for module `oath` found at both "crates\universal-device-sdk\src\providers\oath.rs" and "crates\universal-device-sdk\src\providers\oath\mod.rs"
+  --> crates\universal-device-sdk\src\providers\mod.rs:26:1
+   |
+26 | mod oath;
+   | ^^^^^^^^^
+   |
+   = help: delete or rename one of them to remove the ambiguity
+
+For more information about this error, try `rustc --explain E0761`.
+error: could not compile `universal-device-sdk` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `universal-device-sdk` (lib test) due to 1 previous error
+exit=101 duration_s=52.2
+```
+
+## Run 2026-11-04T00:42:26Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 28.1 |  |
+| test-firmware-features | no | PASS | 0 | 16.8 |  |
+| clippy | no | PASS | 0 | 4.4 |  |
+| fmt | yes | PASS | 0 | 1.4 |  |
+| deny | no | PASS | 0 | 4.6 |  |
+| dep-track | no | PASS | 0 | 0.4 |  |
+| docs | no | PASS | 0 | 0.5 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 11.4 |  |
+| test-release | no | PASS | 0 | 44.3 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 28.1s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=28.1
+```
+
+#### `test-firmware-features` - PASS (exit 0, 16.8s)
+
+```
+     Running tests\secure_guard_integration.rs (C:/t\debug\deps\secure_guard_integration-eb5fb21692977e35.exe)
+
+running 2 tests
+test test_secure_guard_full_lifecycle_and_enforcement ... ok
+test test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=16.8
+```
+
+#### `clippy` - PASS (exit 0, 4.4s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking universal-device-sdk v1.0.0 (E:\projetos\fido\crates\universal-device-sdk)
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+    Checking uniffi-bridge v1.0.0 (E:\projetos\fido\crates\uniffi-bridge)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.11s
+exit=0 duration_s=4.4
+```
+
+#### `fmt` - PASS (exit 0, 1.4s)
+
+```
+$ cargo fmt --all -- --check
+(no output)
+exit=0 duration_s=1.4
+```
+
+#### `deny` - PASS (exit 0, 4.6s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=4.6
+```
+
+#### `dep-track` - PASS (exit 0, 0.4s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (260 files, 22 gods)
+check ok: no new god-files beyond 24 allowlisted
+exit=0 duration_s=0.4
+```
+
+#### `docs` - PASS (exit 0, 0.5s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 11.4s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+```
+
+#### `test-release` - PASS (exit 0, 44.3s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=44.3
+```
+
+## Run 2026-11-04T03:00:54Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 25.4 |  |
+| test-firmware-features | no | PASS | 0 | 16.9 |  |
+| clippy | no | PASS | 0 | 9.7 |  |
+| fmt | yes | FAIL | 1 | 1.4 |  |
+| deny | no | PASS | 0 | 9.5 |  |
+| dep-track | no | FAIL | 2 | 0.4 |  |
+| docs | no | PASS | 0 | 0.2 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 10.2 |  |
+| test-release | no | PASS | 0 | 38.1 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 25.4s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=25.4
+```
+
+#### `test-firmware-features` - PASS (exit 0, 16.9s)
+
+```
+     Running tests\secure_guard_integration.rs (C:/t\debug\deps\secure_guard_integration-eb5fb21692977e35.exe)
+
+running 2 tests
+test test_secure_guard_full_lifecycle_and_enforcement ... ok
+test test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=16.9
+```
+
+#### `clippy` - PASS (exit 0, 9.7s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking aegis-fido-core v1.0.0 (E:\projetos\fido\crates\aegis-fido-core)
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+    Checking uniffi-bridge v1.0.0 (E:\projetos\fido\crates\uniffi-bridge)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.45s
+exit=0 duration_s=9.7
+```
+
+#### `fmt` - FAIL (exit 1, 1.4s)
+
+```
+[0m /// Re-export da op explicita de bancada (gated `test-mode`; release = `None`).
+ #[cfg(feature = "test-mode")]
+ pub use crate::secure_guard_exec::bench::dispatch_serial_bench_line;
+Diff in \\?\E:\projetos\fido\crates\aegis-fido-firmware\src\serial_ctaphid.rs:303:
+ #[cfg(not(feature = "test-mode"))]
+ pub use crate::secure_guard_exec::bench::dispatch_serial_bench_line;
+[32m+#[cfg(feature = "test-mode")]
+[0m[32m+pub use crate::serial_text::dispatch_serial_pairing_line;
+[0m[32m+#[cfg(not(feature = "test-mode"))]
+[0m[32m+pub use crate::serial_text::dispatch_serial_pairing_line;
+[0m[32m+pub use crate::serial_text::dispatch_serial_text_line;
+[0m 
+ pub use crate::serial_vendor::{
+     dispatch_serial_bind_mgmt, dispatch_serial_rescue, dispatch_serial_vendor,
+exit=1 duration_s=1.4
+```
+
+#### `deny` - PASS (exit 0, 9.5s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=9.5
+```
+
+#### `dep-track` - FAIL (exit 2, 0.4s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (262 files, 23 gods)
+NEW god-files (score>25, not in allowlist):
+  30.88 crates/aegis-fido-firmware/src/secure_guard_exec/bench.rs (lines=388 fan_in=0 fan_out=18)
+exit=2 duration_s=0.4
+```
+
+#### `docs` - PASS (exit 0, 0.2s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 10.2s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+```
+
+#### `test-release` - PASS (exit 0, 38.1s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=38.1
+```
+
+## Run 2026-11-04T03:05:48Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 10.5 |  |
+| test-firmware-features | no | PASS | 0 | 15.3 |  |
+| clippy | no | PASS | 0 | 3.7 |  |
+| fmt | yes | PASS | 0 | 1.1 |  |
+| deny | no | PASS | 0 | 2.2 |  |
+| dep-track | no | PASS | 0 | 0.3 |  |
+| docs | no | PASS | 0 | 0.4 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 10.0 |  |
+| test-release | no | PASS | 0 | 38.9 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 10.5s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=10.5
+```
+
+#### `test-firmware-features` - PASS (exit 0, 15.3s)
+
+```
+     Running tests\secure_guard_integration.rs (C:/t\debug\deps\secure_guard_integration-eb5fb21692977e35.exe)
+
+running 2 tests
+test test_secure_guard_full_lifecycle_and_enforcement ... ok
+test test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=15.3
+```
+
+#### `clippy` - PASS (exit 0, 3.7s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.37s
+exit=0 duration_s=3.7
+```
+
+#### `fmt` - PASS (exit 0, 1.1s)
+
+```
+$ cargo fmt --all -- --check
+(no output)
+exit=0 duration_s=1.1
+```
+
+#### `deny` - PASS (exit 0, 2.2s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=2.2
+```
+
+#### `dep-track` - PASS (exit 0, 0.3s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (265 files, 22 gods)
+check ok: no new god-files beyond 24 allowlisted
+exit=0 duration_s=0.3
+```
+
+#### `docs` - PASS (exit 0, 0.4s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 10.0s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+```
+
+#### `test-release` - PASS (exit 0, 38.9s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=38.9
+```
+
+## Run 2026-11-04T10:27:22Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 47.1 |  |
+| test-firmware-features | no | PASS | 0 | 25.2 |  |
+| clippy | no | PASS | 0 | 6.1 |  |
+| fmt | yes | FAIL | 1 | 1.4 |  |
+| deny | no | PASS | 0 | 20.9 |  |
+| dep-track | no | PASS | 0 | 0.3 |  |
+| docs | no | PASS | 0 | 1.0 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 10.6 |  |
+| test-release | no | PASS | 0 | 50.4 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 47.1s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=47.1
+```
+
+#### `test-firmware-features` - PASS (exit 0, 25.2s)
+
+```
+     Running tests\secure_guard_integration.rs (C:/t\debug\deps\secure_guard_integration-eb5fb21692977e35.exe)
+
+running 2 tests
+test test_secure_guard_full_lifecycle_and_enforcement ... ok
+test test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=25.2
+```
+
+#### `clippy` - PASS (exit 0, 6.1s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking aegis-fido-usb v1.0.0 (E:\projetos\fido\crates\aegis-fido-usb)
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.81s
+exit=0 duration_s=6.1
+```
+
+#### `fmt` - FAIL (exit 1, 1.4s)
+
+```
+[0m[32m+    let val: ciborium::value::Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+[0m     if let ciborium::value::Value::Map(entries) = val {
+         let got = entries.iter().find_map(|(k, v)| {
+             if matches!(k, ciborium::value::Value::Text(s) if s == "bench_active") {
+Diff in \\?\E:\projetos\fido\crates\aegis-fido-firmware\src\secure_guard_exec\bench\tests.rs:376:
+     assert!(super::policy::is_bench_active());
+     let (st, body) = crate::secure_guard_exec::status::handle_status(&mut engine, 3_000);
+     assert_eq!(st, 0x00);
+[31m-    let val: ciborium::value::Value =
+[0m[31m-        ciborium::from_reader(body.as_slice()).expect("cbor parse");
+[0m[32m+    let val: ciborium::value::Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+[0m     if let ciborium::value::Value::Map(entries) = val {
+         let got = entries.iter().find_map(|(k, v)| {
+             if matches!(k, ciborium::value::Value::Text(s) if s == "bench_active") {
+exit=1 duration_s=1.4
+```
+
+#### `deny` - PASS (exit 0, 20.9s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=20.9
+```
+
+#### `dep-track` - PASS (exit 0, 0.3s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (265 files, 22 gods)
+check ok: no new god-files beyond 24 allowlisted
+exit=0 duration_s=0.3
+```
+
+#### `docs` - PASS (exit 0, 1.0s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.2
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 10.6s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.8
+```
+
+#### `test-release` - PASS (exit 0, 50.4s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=50.4
+```
+
+## Run 2026-11-04T11:14:53Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 13.5 |  |
+| test-firmware-features | no | PASS | 0 | 30.1 |  |
+| clippy | no | PASS | 0 | 2.6 |  |
+| fmt | yes | PASS | 0 | 1.2 |  |
+| deny | no | PASS | 0 | 2.9 |  |
+| dep-track | no | PASS | 0 | 0.4 |  |
+| docs | no | PASS | 0 | 0.4 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 11.0 |  |
+| test-release | no | PASS | 0 | 47.7 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 13.5s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=13.5
+```
+
+#### `test-firmware-features` - PASS (exit 0, 30.1s)
+
+```
+     Running tests\secure_guard_integration.rs (C:/t\debug\deps\secure_guard_integration-eb5fb21692977e35.exe)
+
+running 2 tests
+test test_secure_guard_full_lifecycle_and_enforcement ... ok
+test test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=30.1
+```
+
+#### `clippy` - PASS (exit 0, 2.6s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking aegis-fido-core v1.0.0 (E:\projetos\fido\crates\aegis-fido-core)
+    Checking uniffi-bridge v1.0.0 (E:\projetos\fido\crates\uniffi-bridge)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.37s
+exit=0 duration_s=2.6
+```
+
+#### `fmt` - PASS (exit 0, 1.2s)
+
+```
+$ cargo fmt --all -- --check
+(no output)
+exit=0 duration_s=1.2
+```
+
+#### `deny` - PASS (exit 0, 2.9s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=2.9
+```
+
+#### `dep-track` - PASS (exit 0, 0.4s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (265 files, 22 gods)
+check ok: no new god-files beyond 24 allowlisted
+exit=0 duration_s=0.4
+```
+
+#### `docs` - PASS (exit 0, 0.4s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PLANS.md:45 (29 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 11.0s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.5
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+```
+
+#### `test-release` - PASS (exit 0, 47.7s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=47.7
+```
+

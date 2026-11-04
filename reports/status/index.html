@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status — Finalizacao Linux — 2026-11-04</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; margin: 0; background: #f4f5f7; color: #1a1a1a; line-height: 1.55; }
+  header { background: #0f2a44; color: #fff; padding: 24px 20px; }
+  header h1 { margin: 0 0 6px 0; font-size: 22px; }
+  header p { margin: 2px 0; font-size: 14px; color: #c9d6e3; }
+  main { max-width: 1020px; margin: 0 auto; padding: 20px 16px 48px 16px; }
+  section { background: #fff; border: 1px solid #d8dde3; border-radius: 8px; padding: 18px; margin: 16px 0; }
+  h2 { margin: 0 0 10px 0; font-size: 19px; color: #0f2a44; border-bottom: 2px solid #0f2a44; padding-bottom: 6px; }
+  h3 { font-size: 16px; color: #0f2a44; margin: 18px 0 8px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 8px 0; }
+  th, td { border: 1px solid #cfd6dd; padding: 7px 8px; text-align: left; vertical-align: top; }
+  th { background: #eaf0f6; }
+  code { background: #eef1f4; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .mono { font-family: Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+  .ok { display: inline-block; background: #e6f4ea; color: #137333; border: 1px solid #a8dab5; border-radius: 4px; padding: 1px 8px; font-size: 12.5px; font-weight: bold; }
+  .warn { display: inline-block; background: #fef7e0; color: #7a5c00; border: 1px solid #e6c84a; border-radius: 4px; padding: 1px 8px; font-size: 12.5px; font-weight: bold; }
+  .note { background: #f1f6fb; border-left: 4px solid #0f2a44; padding: 10px 12px; font-size: 13.5px; margin: 10px 0; }
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; margin: 14px 0; }
+  .node { flex: 1 1 220px; border: 2px solid #0f2a44; border-radius: 10px; padding: 12px; background: #fbfdff; }
+  .node h4 { margin: 0 0 6px 0; font-size: 14px; color: #0f2a44; }
+  .node ul { margin: 6px 0 0 16px; padding: 0; font-size: 13px; }
+  .arrow { display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: bold; color: #0f2a44; padding: 0 8px; min-width: 40px; }
+  .states { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .state { flex: 1 1 200px; border: 1px solid #cfd6dd; border-radius: 8px; padding: 10px; background: #fff; font-size: 13px; }
+  .state b { color: #0f2a44; }
+  footer { max-width: 1020px; margin: 0 auto; padding: 0 16px 40px 16px; font-size: 12.5px; color: #555; }
+  ul.tight li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Relatorio de Status — Finalizacao Linux</h1>
+  <p>Branch <code>fd/finalizacao-linux</code> — HEAD <code>0e957fc</code> — Data 2026-11-04</p>
+  <p>Pagina estatica de leitura. Sem dependencias externas. Sem segredos.</p>
+</header>
+<main>
+
+<section>
+  <h2>1. Passo a passo do que foi feito (com evidencias)</h2>
+  <p>Todos os itens abaixo apenas repetem valores ja registrados em <code>reports/testing/</code> e <code>reports/release/</code>. Nenhum valor foi inventado. Nenhum segredo e exibido.</p>
+
+  <h3>1.1 Portao de qualidade — 9/9 PASS</h3>
+  <p><span class="ok">9 PASS / 0 FAIL</span> Execucao <code>python tools/run_all.py --release</code> em <code>2026-11-04T11:14:53Z</code>.</p>
+  <table>
+    <tr><th>Etapa</th><th>Status</th><th>Saida</th><th>Evidencia</th></tr>
+    <tr><td>test-debug (<code>cargo test --workspace</code>)</td><td>PASS (exit 0, 13.5 s)</td><td>workspace ok</td><td rowspan="9"><code>reports/testing/consolidated-result.json</code><br>detalhe por etapa em<br><code>reports/testing/CONSOLIDATED_RUN.md</code><br>secao <code>Run 2026-11-04T11:14:53Z</code><br><br>Veredito: <code>reports/release/GO_NOGO.md</code></td></tr>
+    <tr><td>test-firmware-features (<code>-p aegis-fido-firmware --features freertos,proximity</code>)</td><td>PASS (exit 0, 30.1 s)</td><td>2 testes secure_guard ok</td></tr>
+    <tr><td>clippy (<code>--all-targets -- -D warnings</code>)</td><td>PASS (exit 0, 2.6 s)</td><td>sem warnings</td></tr>
+    <tr><td>fmt (<code>--check</code>)</td><td>PASS (exit 0, 1.2 s, consultivo)</td><td>sem saida</td></tr>
+    <tr><td>deny (<code>licenses advisories bans sources</code>)</td><td>PASS (exit 0, 2.9 s)</td><td>advisories/bans/licenses/sources ok</td></tr>
+    <tr><td>dep-track (<code>--check</code>)</td><td>PASS (exit 0, 0.4 s)</td><td>265 arquivos, 22 gods, sem novos alem de 24 permitidos</td></tr>
+    <tr><td>docs (docs-lint reports + docs + varredura reports)</td><td>PASS (exit 0, 0.4 s)</td><td>links checked=1 broken=0</td></tr>
+    <tr><td>scripts (existencia + sintaxe <code>Parser::ParseFile</code>)</td><td>PASS (exit 0, 11.0 s)</td><td>todos SYNTAX-OK</td></tr>
+    <tr><td>test-release (<code>cargo test --workspace --release</code>)</td><td>PASS (exit 0, 47.7 s)</td><td>workspace release ok</td></tr>
+  </table>
+  <div class="note">Historico anterior com falha (modulo duplicado <code>oath</code> E0761 e god-files) esta registrado em <code>CONSOLIDATED_RUN.md</code> e foi superado antes desta execucao verde. Veredito vigente: <b>GO condicional (verde com 3 gaps documentados)</b> — ver <code>GO_NOGO.md</code>.</div>
+
+  <h3>1.2 Aplicativo Android — 189/189</h3>
+  <ul class="tight">
+    <li><span class="ok">189/189 PASS</span> — valor informado pelo repasse responsavel em 2026-11-04, registrado em <code>reports/release/GO_NOGO.md</code> e <code>reports/release/RELEASE_2026-11-04.md</code>. Nao foi reexecutado localmente neste recorte (sem Gradle aqui); consta como reportado, nao como revalidado.</li>
+    <li>Coberturas presentes na arvore: <code>BenchSessionBadgeTest</code>, <code>SecureGuardRepositoryAndCborTest</code>, <code>SecureGuardJourneyTest</code>, <code>OobPairingTest</code> em <code>app-android/app/src/test</code>.</li>
+    <li>APK no telefone: <code>dev.aegiskey.app</code>, <code>versionCode=1</code>, <code>versionName=0.1.0-wave5</code> (evidencia: <code>reports/testing/HW_MATRIX.md</code>).</li>
+  </ul>
+
+  <h3>1.3 Cinco curvas — slots 0 a 4</h3>
+  <p><span class="ok">5/5 em tela</span> Inventario confirmado na sessao S9 (<code>HW_MATRIX.md</code> S9-1), dumps <code>hw9_hub*.xml</code>:</p>
+  <table>
+    <tr><th>Slot</th><th>Rotulo em tela</th><th>Curva solicitada na criacao</th><th>Curva exibida no detalhe</th></tr>
+    <tr><td>#0</td><td><code>hw-p256</code></td><td>ES256 (P-256)</td><td>ES256 (P-256)</td></tr>
+    <tr><td>#1</td><td><code>hw-ed25519</code></td><td>Ed25519</td><td>ES256 (P-256) — ver ressalva</td></tr>
+    <tr><td>#2</td><td><code>hw-es384</code></td><td>ES384 (P-384)</td><td>ES256 (P-256) — ver ressalva</td></tr>
+    <tr><td>#3</td><td><code>hw-es512</code></td><td>ES512 (P-521)</td><td>ES256 (P-256) — ver ressalva</td></tr>
+    <tr><td>#4</td><td><code>hw-es256k</code></td><td>ES256K (secp256k1)</td><td>ES256 (P-256) — ver ressalva</td></tr>
+  </table>
+  <ul class="tight">
+    <li>Hub pos-criacao: <code>Slots: 5 used, 32 available</code>, <code>All (5)</code>, sessao ativa. Criacao de <code>hw-es256k</code> registrada em S8-2 (4 para 5 used, sem reboot).</li>
+    <li>Ressalva conhecida (gap 1 do GO/NO-GO): os 5 detalhes exibem <code>ES256 (P-256)</code>. Hipoteses em aberto no relatorio: criacao caiu no padrao ou tela de detalhe mostra valor fixo. Revalidacao da curva real por assinatura/CTAP por slot e tarefa futura do responsavel.</li>
+    <li>K3 presenca: <span class="ok">PASS</span> — <code>User Presence Button operational</code>, contador monotonico 1.420 operacoes (S9-3, dialogo <code>0x2E</code>).</li>
+  </ul>
+
+  <h3>1.4 TOTP</h3>
+  <ul class="tight">
+    <li><span class="ok">PASS</span> Vetores RFC: TOTP contra vetores RFC resulta em <code>755224 / 287082</code> (dispositivo = hospedeiro = RFC), registrado em <code>HARDWARE_JOURNEY.md</code> P5.</li>
+    <li><span class="ok">PASS</span> Hobô emulado: HOTP RFC 4226 10/10 e TOTP RFC 6238 9/9 (<code>ROBOT_RUN.md</code> passos 20–21).</li>
+    <li>Bancada: aba TOTP mostra <code>No codes registered</code>; formulario <code>Add Code</code> exige segredo real e foi dispensado com <code>Cancel</code> (S9-6, SKIP por ordem — zero mutacao).</li>
+  </ul>
+
+  <h3>1.5 Unlock e sessao de 24 h</h3>
+  <ul class="tight">
+    <li>Unlock por teclado proprio do app (K1): abertura PASS, digitos via ambiente, envio unico, <code>Cancel</code> fecha sem consumir tentativa. Sessoes S4 e S7: <span class="ok">1 envio, zero repeticao</span>. Sessoes S8/S9: unlock dispensado (placa ja UNLOCKED) — <code>SKIP</code> explicito, zero envios.</li>
+    <li>Contador intacto em todas as leituras diretas <code>0x3A</code>: <code>0 failed / 5 restantes</code>; <code>lt.pin.retry=0</code>.</li>
+    <li>Sessao de bancada: <code>state 4 Unlocked</code>, <code>session_remaining_ms 86400000</code> (24 h), app exibe <code>Remaining 1439:59</code> / <code>Session Active [5/5]</code>. Auditoria <code>audit_count 32</code>. Sem sessao, a porta exibe <code>Locked, session 0</code> e a matriz para por ordem.</li>
+  </ul>
+
+  <h3>1.6 SHAs dos artefatos</h3>
+  <table>
+    <tr><th>Artefato</th><th>SHA256 (prefixo pedido)</th><th>Origem</th></tr>
+    <tr><td>APK <code>app-debug.apk</code></td><td class="mono">814C635A… (prefixo de <code>814C635AF44E624313BF4CEF374ECF7FAC3837F107C08D2140B2A4420655DF0</code>)</td><td><code>reports/release/SHA256SUMS.txt</code></td></tr>
+    <tr><td>Firmware <code>dist/aegis-firmware-esp32s3.bin</code></td><td class="mono">30AF2DF1… (prefixo de <code>30AF2DF11ED99C67EB4841064C1335EF185921C41343D055ACE46C91D5B3796A</code>)</td><td><code>reports/release/SHA256SUMS.txt</code></td></tr>
+  </table>
+  <div class="note">Valores integrais constam em <code>SHA256SUMS.txt</code> (cabecalho indica proveniencia por repasse, sem re-hash local). Historico superado mantido no mesmo arquivo. Nenhum binario esta commitado.</div>
+</section>
+
+<section>
+  <h2>2. Capacidades</h2>
+
+  <h3>2.1 Preset full — 18 capacidades</h3>
+  <p><span class="ok">preset full</span> <code>unsupported_count 0</code> — leitura <code>0x3F GET_CAPS</code> na bancada responde <code>fw 1.0.0 / preset full / 18 caps / unsupported_count 0</code> (S8, ponte, somente leitura). Fonte: <code>scripts/capability-catalog.json</code>.</p>
+  <table>
+    <tr><th>#</th><th>ID</th><th>Nome</th><th>Presets</th></tr>
+    <tr><td>1</td><td><code>ctap-makecred</code></td><td>CTAP2 MakeCredential</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>2</td><td><code>ctap-getassert</code></td><td>CTAP2 GetAssertion</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>3</td><td><code>ctap-clientpin</code></td><td>CTAP2 ClientPIN/UV</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>4</td><td><code>ccid</code></td><td>Transporte smartcard USB (CCID)</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>5</td><td><code>piv</code></td><td>PIV slots 9A/9C/9D/9E</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>6</td><td><code>openpgp</code></td><td>OpenPGP applet</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>7</td><td><code>oath-totp</code></td><td>OATH TOTP (RFC 6238)</td><td>full, fido-totp</td></tr>
+    <tr><td>8</td><td><code>oath-hotp</code></td><td>OATH HOTP (contador + resync)</td><td>full, fido-totp</td></tr>
+    <tr><td>9</td><td><code>otp-challenge-response</code></td><td>OTP challenge-response (via HOTP)</td><td>full, fido-totp</td></tr>
+    <tr><td>10</td><td><code>wallet</code></td><td>Carteira addr/sign (sessao RAM)</td><td>full</td></tr>
+    <tr><td>11</td><td><code>vault</code></td><td>Cofre (itens cifrados + cota)</td><td>full</td></tr>
+    <tr><td>12</td><td><code>ble</code></td><td>BLE GATT (proxy CTAP + vendor)</td><td>full</td></tr>
+    <tr><td>13</td><td><code>wifi-sntp</code></td><td>WiFi AP/station + SNTP + mDNS</td><td>full</td></tr>
+    <tr><td>14</td><td><code>display</code></td><td>Display (ST7789 + OLED + jornada UI)</td><td>full</td></tr>
+    <tr><td>15</td><td><code>proximity</code></td><td>Beacon 0xFFFE (rolling-code)</td><td>full</td></tr>
+    <tr><td>16</td><td><code>vendor-mgmt</code></td><td>Vendor/gerencia (chaves/OATH, console serial)</td><td>full, fido-only, fido-totp</td></tr>
+    <tr><td>17</td><td><code>debug-terminal</code></td><td>Terminal de depuracao</td><td>full</td></tr>
+    <tr><td>18</td><td><code>test-hooks</code></td><td>Ganchos test-mode (serial)</td><td>full</td></tr>
+  </table>
+  <div class="note">Fora do full, comandos de dieta respondem <code>0x06 UNSUPPORTED_FEATURE</code> (fail-closed). Medicoes de tamanho por preset estao no catalogo (full 1902288 B; fido-only 1128144 B; fido-totp 1251632 B, builds de 2026-11-02).</div>
+
+  <h3>2.2 Transportes — USB / BLE / WiFi</h3>
+  <ul class="tight">
+    <li><b>USB:</b> cabo USB + <code>BRIDGE:USB_HID</code>; UART COM7 (<code>Silicon Labs CP210x USB\VID_10C4&amp;PID_EA60</code>) e USB nativo no celular. Tela exibe <code>USB Cable · Connected</code>.</li>
+    <li><b>BLE:</b> GATT proxy CTAP + operacoes vendor; vinculo registrado <code>Galaxy S24 Ultra</code>; proximidade <code>NEAR (-32 dBm)</code>, <code>Proximity Watch ACTIVE</code>; maximo 1 vinculo.</li>
+    <li><b>WiFi:</b> <code>AegisKey-AP ch6</code>, endpoints <code>/ctap</code> e <code>/oath/code</code>; SNTP com ancora NVS; botoes <code>Test Connection / Open Wi-Fi Portal / Configure Wi-Fi</code> observados, nao tocados.</li>
+  </ul>
+
+  <h3>2.3 Bancada e auto-lock</h3>
+  <ul class="tight">
+    <li><b>Bancada:</b> selo visivel somente com autoridade <code>bench_active=true</code> no status <code>0x3A</code>. Nos dumps da bancada sem autoridade o selo esta <span class="warn">AUSENTE</span> — documentado como esperado, nada forjado (<code>HW_MATRIX.md</code> S8/S9-7).</li>
+    <li><b>Auto-lock:</b> <code>Auto-Lock on Exit: on</code> (Settings); botao <code>Lock Now</code> usado para limpar sessao local desatualizada (S7-2); apos bloqueio: <code>Session Locked</code>, geracao desabilitada ate desbloquear.</li>
+    <li><b>Contrato fixo:</b> toque SEMPRE obrigatorio (<code>Touch Required</code>), credencial SEMPRE residente descobrivel, sem toggles de <code>touch on/off</code>, sem politica <code>UP 0x40</code>, sem seletor <code>resident</code> na interface.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>3. Fluxo atual do sistema</h2>
+  <p>Aplicativo no celular fala com a placa pela ponte local na porta <code>5678</code>. Leitura de estado e somente leitura (<code>GET</code> / <code>0x3A</code>); escrita exige sessao valida.</p>
+
+  <div class="flow">
+    <div class="node">
+      <h4>1 — App no celular</h4>
+      <ul>
+        <li>Moto g(60), APK <code>0.1.0-wave5</code></li>
+        <li>Hub: Vault / TOTP / Devices / Settings</li>
+        <li>Estados: LOCKED, UNLOCKED, UNPROVISIONED</li>
+        <li>Mostra: slots usados, curvas, <code>[5/5]</code></li>
+      </ul>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <h4>2 — Ponte :5678</h4>
+      <ul>
+        <li><code>host_hardware_android_bridge.py</code></li>
+        <li>Porta <code>5678</code> (USB reverso + TCP)</li>
+        <li>Transporte: UART COM7 (<code>cid 0x60201</code>)</li>
+        <li>Rotas: <code>/bridge/info</code>, <code>/api/secure-guard/status</code>, <code>/bridge/vendor</code></li>
+      </ul>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <h4>3 — Placa COM7 / USB</h4>
+      <ul>
+        <li>ESP32-S3 via COM7 (CP210x) + USB nativo</li>
+        <li>Firmware <code>1.0.0-rust</code></li>
+        <li>SecureGuard <code>0x3A</code>: estado, sessao, auditoria</li>
+        <li>Vendor <code>0x3F</code> caps, <code>0x2E</code> diagnostico</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Estados observados</h3>
+  <div class="states">
+    <div class="state"><b>Unprovisioned (0)</b><br>Sem vinculo. Espelho local pode mostrar este valor quando a ponte esta sem transporte (fallback conhecido).</div>
+    <div class="state"><b>Locked (2)</b><br>Provisionado, sem sessao (<code>session 0</code>). Geracao bloqueada. Matriz para aqui.</div>
+    <div class="state"><b>Unlocked (4)</b><br>Sessao valida (<code>86400000 ms = 24 h</code>). Hub mostra <code>Session Active</code> e slots.</div>
+  </div>
+  <div class="note">Fonte de verdade e a leitura direta <code>0x3A</code> no silicio. O espelho HTTP pode divergir (fallback do hospedeiro) e e ignorado para decisao quando diverge — fato registrado nas sessoes S3 a S9.</div>
+</section>
+
+<section>
+  <h2>Fontes e limites</h2>
+  <ul class="tight">
+    <li>Portao: <code>reports/testing/consolidated-result.json</code> (2026-11-04T11:14:53Z) + <code>reports/testing/CONSOLIDATED_RUN.md</code>.</li>
+    <li>Veredito: <code>reports/release/GO_NOGO.md</code> (GO condicional, 3 gaps) + <code>reports/release/RELEASE_2026-11-04.md</code> + <code>reports/release/SHA256SUMS.txt</code>.</li>
+    <li>Bancada: <code>reports/testing/HW_MATRIX.md</code> (sessoes S1–S9), <code>HARDWARE_JOURNEY.md</code> (TOTP/vetores), <code>ROBOT_RUN.md</code> (26/26).</li>
+    <li>Capacidades: <code>scripts/capability-catalog.json</code> (preset full, 18 caps, transportes, cotas).</li>
+    <li>Sem push realizado. Sem eFuse/secure-boot tocado. Sem codigo de recuperacao, sem PIN e sem chaves nesta pagina.</li>
+  </ul>
+</section>
+
+</main>
+<footer>
+  <p>Gerado por leitura das evidencias em <code>reports/testing/</code>, <code>reports/release/</code> e <code>scripts/capability-catalog.json</code>. Branch <code>fd/finalizacao-linux</code>. Sem dependencias externas.</p>
+</footer>
+</body>
+</html>

@@ -34,7 +34,7 @@ pub use rescue::{
 pub use scancodes::{
     char_to_hid_scancode, string_to_hid_reports, HidKeyboardReport, OtpAutoTyper, HID_KEY_ENTER,
 };
-pub use ykman::{YkmanDeviceInfo, LegacyOtpStatus, ALL_SUPPORTED_CAPS, YK_MGMT_AID};
+pub use ykman::{LegacyOtpStatus, YkmanDeviceInfo, ALL_SUPPORTED_CAPS, YK_MGMT_AID};
 
 #[cfg(test)]
 mod tests {

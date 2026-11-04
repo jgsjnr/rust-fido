@@ -167,7 +167,8 @@ pub fn hkdf_sha256(
 ) -> Result<alloc::vec::Vec<u8>, crate::error::SecureGuardError> {
     let hk = hkdf::Hkdf::<Sha256>::new(if salt.is_empty() { None } else { Some(salt) }, ikm);
     let mut okm = alloc::vec![0u8; length];
-    hk.expand(info, &mut okm).map_err(|_| crate::error::SecureGuardError::SecureChannelAuthFailed)?;
+    hk.expand(info, &mut okm)
+        .map_err(|_| crate::error::SecureGuardError::SecureChannelAuthFailed)?;
     Ok(okm)
 }
 

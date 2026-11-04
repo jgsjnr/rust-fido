@@ -63,11 +63,26 @@ fn get_str(entries: &[(Value, Value)], key: &str) -> String {
 /// Encodes a clear-signing summary to CBOR.
 pub fn encode_clear_sign_summary(dto: &ClearSignSummaryDto) -> Result<Vec<u8>, SdkError> {
     let map = vec![
-        (Value::Text("network".into()), Value::Text(dto.network.clone())),
-        (Value::Text("action".into()), Value::Text(dto.action.clone())),
-        (Value::Text("to_address".into()), Value::Text(dto.to_address.clone())),
-        (Value::Text("amount".into()), Value::Text(dto.amount.clone())),
-        (Value::Text("tx_hash_hex".into()), Value::Text(dto.tx_hash_hex.clone())),
+        (
+            Value::Text("network".into()),
+            Value::Text(dto.network.clone()),
+        ),
+        (
+            Value::Text("action".into()),
+            Value::Text(dto.action.clone()),
+        ),
+        (
+            Value::Text("to_address".into()),
+            Value::Text(dto.to_address.clone()),
+        ),
+        (
+            Value::Text("amount".into()),
+            Value::Text(dto.amount.clone()),
+        ),
+        (
+            Value::Text("tx_hash_hex".into()),
+            Value::Text(dto.tx_hash_hex.clone()),
+        ),
     ];
     to_cbor(&Value::Map(map))
 }
@@ -92,10 +107,22 @@ pub fn decode_clear_sign_summary(payload: &[u8]) -> Result<ClearSignSummaryDto, 
 /// Encodes an OLED preview DTO to CBOR.
 pub fn encode_oled_preview(dto: &OledPreviewDto) -> Result<Vec<u8>, SdkError> {
     let mut map = vec![
-        (Value::Text("line1_network".into()), Value::Text(dto.line1_network.clone())),
-        (Value::Text("line2_to".into()), Value::Text(dto.line2_to.clone())),
-        (Value::Text("line3_amount".into()), Value::Text(dto.line3_amount.clone())),
-        (Value::Text("line4_prompt".into()), Value::Text(dto.line4_prompt.clone())),
+        (
+            Value::Text("line1_network".into()),
+            Value::Text(dto.line1_network.clone()),
+        ),
+        (
+            Value::Text("line2_to".into()),
+            Value::Text(dto.line2_to.clone()),
+        ),
+        (
+            Value::Text("line3_amount".into()),
+            Value::Text(dto.line3_amount.clone()),
+        ),
+        (
+            Value::Text("line4_prompt".into()),
+            Value::Text(dto.line4_prompt.clone()),
+        ),
     ];
     if let Some(fb) = &dto.framebuffer_1024_bytes {
         map.push((Value::Text("framebuffer".into()), Value::Bytes(fb.clone())));

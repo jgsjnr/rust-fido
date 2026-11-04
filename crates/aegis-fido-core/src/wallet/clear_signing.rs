@@ -50,7 +50,9 @@ impl core::fmt::Display for ClearSignError {
         match self {
             Self::PayloadTooShort => write!(f, "Transaction payload too short to parse"),
             Self::InvalidRlpEncoding => write!(f, "Invalid Ethereum RLP encoding"),
-            Self::InvalidEthereumTxType => write!(f, "Unsupported Ethereum transaction envelope type"),
+            Self::InvalidEthereumTxType => {
+                write!(f, "Unsupported Ethereum transaction envelope type")
+            }
             Self::InvalidBitcoinTx => write!(f, "Malformed Bitcoin raw transaction"),
             Self::InvalidSolanaMessage => write!(f, "Malformed Solana wire message"),
             Self::UnsupportedContractCall => write!(f, "Unsupported smart contract interaction"),
@@ -107,7 +109,10 @@ fn parse_rlp_item(input: &[u8]) -> Result<(RlpItem<'_>, &[u8]), ClearSignError> 
         if input.len() < start + len {
             return Err(ClearSignError::InvalidRlpEncoding);
         }
-        Ok((RlpItem::Data(&input[start..start + len]), &input[start + len..]))
+        Ok((
+            RlpItem::Data(&input[start..start + len]),
+            &input[start + len..],
+        ))
     } else if b0 <= 0xF7 {
         let len = (b0 - 0xC0) as usize;
         if input.len() < 1 + len {
@@ -127,7 +132,10 @@ fn parse_rlp_item(input: &[u8]) -> Result<(RlpItem<'_>, &[u8]), ClearSignError> 
         if input.len() < start + len {
             return Err(ClearSignError::InvalidRlpEncoding);
         }
-        Ok((RlpItem::List(&input[start..start + len]), &input[start + len..]))
+        Ok((
+            RlpItem::List(&input[start..start + len]),
+            &input[start + len..],
+        ))
     }
 }
 
@@ -166,7 +174,11 @@ pub fn parse_ethereum_tx(raw: &[u8]) -> Result<ClearSignTransactionSummary, Clea
         if fields.len() < 8 {
             return Err(ClearSignError::InvalidRlpEncoding);
         }
-        let chain_id = if fields[0].is_empty() { 1u64 } else { fields[0][0] as u64 };
+        let chain_id = if fields[0].is_empty() {
+            1u64
+        } else {
+            fields[0][0] as u64
+        };
         let net = match chain_id {
             1 => String::from("ETH (Mainnet)"),
             11155111 => String::from("ETH (Sepolia)"),
@@ -184,7 +196,12 @@ pub fn parse_ethereum_tx(raw: &[u8]) -> Result<ClearSignTransactionSummary, Clea
         if fields.len() < 6 {
             return Err(ClearSignError::InvalidRlpEncoding);
         }
-        (String::from("ETH (Legacy)"), fields[3], fields[4], fields[5])
+        (
+            String::from("ETH (Legacy)"),
+            fields[3],
+            fields[4],
+            fields[5],
+        )
     };
 
     // Check for ERC-20 transfer: 4-byte selector 0xa9059cbb + 32-byte address + 32-byte amount
@@ -419,7 +436,11 @@ pub fn parse_solana_tx(raw: &[u8]) -> Result<ClearSignTransactionSummary, ClearS
         let lamports = u64::from_le_bytes(lamp_bytes);
 
         // Destination account is typically index 1 in System Transfer
-        let dest_idx = if ix_accts.len() >= 2 { ix_accts[1] as usize } else { 0 };
+        let dest_idx = if ix_accts.len() >= 2 {
+            ix_accts[1] as usize
+        } else {
+            0
+        };
         let dest_pubkey = if dest_idx < acct_count {
             &accounts[dest_idx * 32..(dest_idx + 1) * 32]
         } else {
@@ -642,7 +663,11 @@ impl OledFrame128x64 {
 
         // Line 2 (Page 2): Destination address
         let to_display = if summary.to_address.len() > 18 {
-            format!("TO: {}...{}", &summary.to_address[0..8], &summary.to_address[summary.to_address.len() - 6..])
+            format!(
+                "TO: {}...{}",
+                &summary.to_address[0..8],
+                &summary.to_address[summary.to_address.len() - 6..]
+            )
         } else {
             format!("TO: {}", summary.to_address)
         };
@@ -712,7 +737,7 @@ mod tests {
         rlp_fields.push(0x80);
 
         let mut raw_tx = alloc::vec![0x02]; // EIP-1559 type
-        // RLP list header
+                                            // RLP list header
         let list_len = rlp_fields.len();
         raw_tx.push(0xC0 + (list_len as u8));
         raw_tx.extend_from_slice(&rlp_fields);
@@ -732,7 +757,7 @@ mod tests {
 
         let mut data = Vec::new();
         data.extend_from_slice(&ERC20_TRANSFER_SELECTOR); // 0xa9059cbb
-        // 12 bytes zero padding + 20 bytes recipient
+                                                          // 12 bytes zero padding + 20 bytes recipient
         data.extend_from_slice(&[0u8; 12]);
         data.extend_from_slice(&token_recipient);
         // 32 bytes amount
@@ -748,7 +773,7 @@ mod tests {
         rlp_fields.push(0x94); // contract address
         rlp_fields.extend_from_slice(&contract_addr);
         rlp_fields.push(0x80); // value = 0 ETH
-        // data (68 bytes: 0xB8, 68, bytes)
+                               // data (68 bytes: 0xB8, 68, bytes)
         rlp_fields.extend_from_slice(&[0xB8, 68]);
         rlp_fields.extend_from_slice(&data);
 
