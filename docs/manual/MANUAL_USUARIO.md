@@ -240,6 +240,36 @@ emergência guardado offline. Use somente em caso real de perda do PIN.
 - Botão `Abrir Painel OTA` sem resposta: ative a sessão antes e tente
   de novo. Não prossiga com flash sem orientação.
 
+## Nota de revisão — full ao vivo em telefone físico (2026-11-03)
+
+Comando: `python tools/manual_screenshots.py --full --serial
+192.168.15.17:38071` no `moto g(60)` físico, emulador desligado. APK
+reinstalado (`app-debug.apk`, SHA256 `75A1ED4A…`), `adb reverse
+tcp:5678`, ponte única `tools/host_hardware_android_bridge.py --port
+COM7` (`/bridge/info` `connected:true`, UART). PIN do dono via
+`MANUAL_TOUR_PIN` (uma tentativa correta, nunca registrada; zero
+tentativas erradas).
+
+Resultado: 3/17 PASS, 1 STOP, 13 SKIP (parada em cascata).
+
+- PASS `open`, `unlock-pin` (`UNLOCKED`), `vault-list`.
+- STOP `vault-create-tour`: rótulo descartável digitado aparece só no
+  `EditText`; a consulta de lista não contém `tour-*` (acerto
+  anti-falso-positivo) e o log da ponte mostra zero operação na placa
+  após o toque em `Generate Key` — toque sem efeito, nada criado.
+  Regra STOP respeitada: sem forçar, sem redigitar, sem nova tentativa
+  de PIN.
+- SKIP `vault-delete-tour`, `totp`, `caps`, `vault-diagnostics`,
+  `ota-view`, `rescue-audit`, `language-en`, `language-pt`, `lock`,
+  `recovery-view`, `keys-devices`, `piv-view`, `destructive-guard`
+  (não alcançados).
+- PIV: SKIP — correção `MainActivity.kt:248` (`onNavigateToPiv`)
+  NÃO verificada no aparelho neste ciclo (passo não alcançado).
+- Recuperação/OTA/destrutivos: intocados (nenhum tap). Diálogo de
+  criação dispensado com BACK; nenhum `tour-*` residual na placa.
+- Fotos novas/atualizadas em `docs/manual/img/` (largura ≤720):
+  `01_open_locked.png`, `02_unlock_pin.png`, `03_vault_list.png`.
+
 ## Nota de revisão — full click-through (2026-11-04)
 
 Roteiro `tools/manual_screenshots.py` agora tem modo `--full`: 17 passos
