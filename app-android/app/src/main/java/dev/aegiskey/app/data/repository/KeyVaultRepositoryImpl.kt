@@ -285,9 +285,42 @@ class KeyVaultRepositoryImpl(
                 (rawWalletList != null && rawWalletList.size >= 2 && rawWalletList[1].toInt() == VendorOps.STATUS_OK)
 
             if (hasHardwareResponse) {
-                saveCachedEntries(keyId, mergedEntries)
-                _vaultEntries.value = mergedEntries
-                mergedEntries
+                // Ghost-list guard (S8-A/S9-8: 5→0 com sessão viva): um
+                // 0x22/0x36 OK mas vazio nunca pode clobber o espelho selado
+                // nem o mirror em memória quando há conteúdo. Só persiste
+                // vazio quando cache e memória já estão vazios (cofre
+                // genuinamente vazio); deleção explícita continua via
+                // deleteVaultEntry/resetHardwareVault.
+                val hadCached = currentCached.isNotEmpty()
+                val hadMemory = _vaultEntries.value.isNotEmpty()
+                if (mergedEntries.isEmpty() && (hadCached || hadMemory)) {
+                    DeviceLog.append(
+                        DeviceLog.Category.LOCK,
+                        "refreshVault: hw vazio transitório preservado (cache=${currentCached.size} mem=${_vaultEntries.value.size})"
+                    )
+                    val unlocked = isSecureGuardUnlocked()
+                    if (unlocked) {
+                        val currentMem = _vaultEntries.value
+                        if (currentMem.isNotEmpty()) {
+                            currentMem
+                        } else {
+                            val cached = loadCachedEntries(keyId)
+                            if (cached.isNotEmpty()) {
+                                _vaultEntries.value = cached
+                                cached
+                            } else {
+                                currentMem
+                            }
+                        }
+                    } else {
+                        clearMemoryVault()
+                        emptyList()
+                    }
+                } else {
+                    saveCachedEntries(keyId, mergedEntries)
+                    _vaultEntries.value = mergedEntries
+                    mergedEntries
+                }
             } else {
                 val unlocked = isSecureGuardUnlocked()
                 if (unlocked) {

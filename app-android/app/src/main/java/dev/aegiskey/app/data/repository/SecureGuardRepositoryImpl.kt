@@ -770,7 +770,10 @@ class SecureGuardRepositoryImpl(
             policy = policy,
             lastWipeSimulated = json.optBoolean("last_wipe_simulated", false),
             auditCount = json.optLong("audit_count", 0L),
-            lastGeneratedRecoveryCode = if (json.has("last_generated_recovery_code")) json.optString("last_generated_recovery_code") else null
+            lastGeneratedRecoveryCode = if (json.has("last_generated_recovery_code")) json.optString("last_generated_recovery_code") else null,
+            // Contrato 0x3A `bench_active: bool` via espelho JSON da bridge;
+            // ausente = false. Puro read-only, sem efeito de lock/wipe.
+            benchActive = json.optBoolean("bench_active", false)
         )
     }
 

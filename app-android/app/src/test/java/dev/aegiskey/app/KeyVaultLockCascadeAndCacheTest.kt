@@ -390,4 +390,120 @@ class KeyVaultLockCascadeAndCacheTest {
         assertTrue("onHardwareDetachedListener deve ser invocado", listenerFired)
         assertTrue("Listener registrado via addOnHardwareDetachedListener deve ser invocado", secondaryListenerFired)
     }
+
+    @Test
+    fun keyVaultRepository_refreshVault_emptyHwOk_preservesFiveWithLiveSession() = runTest(testDispatcher) {
+        // Fantasma S8-A/S9-8: 5→0 com sessão viva. Um 0x22/0x36 OK mas vazio
+        // (transiente) nunca pode clobber o espelho selado nem o mirror em
+        // memória; Refresh deve preservar os 5 e o sealed cache.
+        val store = EncryptedKeysStore(null)
+        val keyId = "device-key-ghost"
+        val bindingId = "BINDING-GHOST"
+
+        val seed = (0..4).map { slot ->
+            VaultKeyEntry(
+                slotId = slot,
+                label = "hw-slot-$slot",
+                type = AccessKeyType.PASSKEY_FIDO,
+                publicSummary = "slot $slot",
+                createdAtEpochMs = 1000L + slot
+            )
+        }
+        store.saveVaultEntries(keyId, seed, bindingId)
+
+        val connectedKeysRepo = ConnectedKeysRepositoryImpl(store, null, null)
+        connectedKeysRepo.addOrUpdateKey(
+            ConnectedKeyDevice(
+                id = keyId,
+                displayName = "AegisKey Ghost",
+                hardwareAddressOrId = "usb:ghost",
+                bindingIdHex = bindingId,
+                transportType = ConnectionTransportType.USB,
+                isCurrentlyConnected = true
+            )
+        )
+
+        val sgRepo = MockSecureGuardRepository()
+        val standaloneScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val vaultRepo = KeyVaultRepositoryImpl(
+            keysStore = store,
+            usbKeyTransport = null,
+            bleKeyTransport = null,
+            simulatedRenodeTransport = SimulatedRenodeTransport(),
+            connectedKeysRepository = connectedKeysRepo,
+            secureGuardRepository = sgRepo,
+            scope = standaloneScope
+        )
+
+        sgRepo.unlock("1234")
+        assertEquals(5, vaultRepo.vaultEntries.value.size)
+
+        // Hardware responde OK mas vazio nos dois inventários (transiente).
+        vaultRepo.vendorOverride = { opcode, _ ->
+            when (opcode) {
+                dev.aegiskey.app.ble.VendorOps.OP_KEY_LIST,
+                dev.aegiskey.app.ble.VendorOps.OP_WALLET_LIST ->
+                    byteArrayOf(opcode.toByte(), dev.aegiskey.app.ble.VendorOps.STATUS_OK.toByte())
+                else -> null
+            }
+        }
+
+        val res = vaultRepo.refreshVault(keyId)
+
+        assertTrue("refreshVault deve ter sucesso preservando", res.isSuccess)
+        assertEquals("Mirror em memória deve preservar os 5 com sessão viva", 5, res.getOrThrow().size)
+        assertEquals(5, vaultRepo.vaultEntries.value.size)
+        // Espelho selado intacto: Refresh seguinte ainda reconcilia.
+        assertEquals(5, store.loadVaultEntries(keyId, bindingId).size)
+    }
+
+    @Test
+    fun keyVaultRepository_refreshVault_genuinelyEmpty_persistsEmpty() = runTest(testDispatcher) {
+        // Cofre genuinamente vazio (sem cache, sem memória): OK vazio persiste
+        // vazio sem erro — o guard só bloqueia empty-over-nonempty.
+        val store = EncryptedKeysStore(null)
+        val keyId = "device-key-empty"
+        val bindingId = "BINDING-EMPTY"
+
+        val connectedKeysRepo = ConnectedKeysRepositoryImpl(store, null, null)
+        connectedKeysRepo.addOrUpdateKey(
+            ConnectedKeyDevice(
+                id = keyId,
+                displayName = "AegisKey Empty",
+                hardwareAddressOrId = "usb:empty",
+                bindingIdHex = bindingId,
+                transportType = ConnectionTransportType.USB,
+                isCurrentlyConnected = true
+            )
+        )
+
+        val sgRepo = MockSecureGuardRepository()
+        val standaloneScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val vaultRepo = KeyVaultRepositoryImpl(
+            keysStore = store,
+            usbKeyTransport = null,
+            bleKeyTransport = null,
+            simulatedRenodeTransport = SimulatedRenodeTransport(),
+            connectedKeysRepository = connectedKeysRepo,
+            secureGuardRepository = sgRepo,
+            scope = standaloneScope
+        )
+        sgRepo.unlock("1234")
+        assertTrue(vaultRepo.vaultEntries.value.isEmpty())
+
+        vaultRepo.vendorOverride = { opcode, _ ->
+            when (opcode) {
+                dev.aegiskey.app.ble.VendorOps.OP_KEY_LIST,
+                dev.aegiskey.app.ble.VendorOps.OP_WALLET_LIST ->
+                    byteArrayOf(opcode.toByte(), dev.aegiskey.app.ble.VendorOps.STATUS_OK.toByte())
+                else -> null
+            }
+        }
+
+        val res = vaultRepo.refreshVault(keyId)
+        assertTrue(res.isSuccess)
+        assertTrue(res.getOrThrow().isEmpty())
+        assertTrue(vaultRepo.vaultEntries.value.isEmpty())
+        assertTrue(store.loadVaultEntries(keyId, bindingId).isEmpty())
+    }
 }

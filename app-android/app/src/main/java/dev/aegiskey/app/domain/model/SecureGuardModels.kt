@@ -40,6 +40,10 @@ data class SecureGuardPolicy(
 
 /**
  * Telemetria, estado FSM, contadores de tentativas e penalidade de backoff do Secure Guard.
+ *
+ * `benchActive` traduz o contrato `bench_active: bool` do status `0x3A`
+ * (ausente = false). Puro read-only: nunca inventado aqui, só decide o
+ * selo de bancada via `benchmode.BenchSession`.
  */
 data class SecureGuardStatus(
     val state: SecureGuardStateEnum = SecureGuardStateEnum.UNPROVISIONED,
@@ -55,5 +59,6 @@ data class SecureGuardStatus(
     val auditCount: Long = 0L,
     val lastGeneratedRecoveryCode: String? = null,
     val deviceBleMac: String? = null,
-    val deviceBleName: String? = null
+    val deviceBleName: String? = null,
+    val benchActive: Boolean = false
 )

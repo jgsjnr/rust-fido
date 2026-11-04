@@ -299,7 +299,10 @@ object SecureGuardCbor {
             auditCount = (decoded["audit_count"] as? Number)?.toLong() ?: 0L,
             lastGeneratedRecoveryCode = decoded["recovery_code"] as? String ?: decoded["new_recovery_code"] as? String,
             deviceBleMac = deviceBleMac,
-            deviceBleName = deviceBleName
+            deviceBleName = deviceBleName,
+            // Contrato 0x3A `bench_active: bool` (firmware bench policy);
+            // ausente = false. Puro read-only, sem efeito de lock/wipe.
+            benchActive = decoded["bench_active"] as? Boolean ?: false
         )
     }
 
