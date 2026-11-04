@@ -121,6 +121,8 @@ pub mod persistence;
 pub mod pin_uv;
 pub mod piv_cmd;
 pub mod piv_store;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+pub mod pm_store;
 pub mod prod_strict_guard;
 pub mod provision;
 #[cfg(feature = "proximity")]

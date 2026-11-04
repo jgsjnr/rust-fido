@@ -7,6 +7,7 @@ import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.data.local.ThemePreferencesStore
 import dev.aegiskey.app.data.repository.ConnectedKeysRepositoryImpl
 import dev.aegiskey.app.data.repository.KeyVaultRepositoryImpl
+import dev.aegiskey.app.data.repository.PasswordManagerRepositoryImpl
 import dev.aegiskey.app.data.repository.PairingWizardRepositoryImpl
 import dev.aegiskey.app.data.repository.SecureGuardRepositoryImpl
 import dev.aegiskey.app.data.repository.ThemeRepositoryImpl
@@ -29,6 +30,7 @@ import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.KeyVaultRepository
 import dev.aegiskey.app.domain.repository.PairingWizardRepository
+import dev.aegiskey.app.domain.repository.PasswordManagerRepository
 import dev.aegiskey.app.domain.repository.ThemeRepository
 import dev.aegiskey.app.domain.repository.TotpRepository
 import dev.aegiskey.app.domain.usecase.AddTotpAccountUseCase
@@ -44,6 +46,9 @@ import dev.aegiskey.app.domain.usecase.GetActiveKeyUseCase
 import dev.aegiskey.app.domain.usecase.GetAppStartDestinationUseCase
 import dev.aegiskey.app.domain.usecase.GetConnectedKeysUseCase
 import dev.aegiskey.app.domain.usecase.GetKeyTouchRequiredUseCase
+import dev.aegiskey.app.domain.usecase.GetPmListUseCase
+import dev.aegiskey.app.domain.usecase.GetPmReleaseUseCase
+import dev.aegiskey.app.domain.usecase.GetPmStatusUseCase
 import dev.aegiskey.app.domain.usecase.GetThemePreferenceUseCase
 import dev.aegiskey.app.domain.usecase.GetTotpAccountsUseCase
 import dev.aegiskey.app.domain.usecase.GetVaultEntriesUseCase
@@ -72,6 +77,7 @@ import dev.aegiskey.app.ui.viewmodel.AppThemeViewModel
 import dev.aegiskey.app.ui.viewmodel.ConnectedKeysViewModel
 import dev.aegiskey.app.ui.viewmodel.KeyVaultViewModel
 import dev.aegiskey.app.ui.viewmodel.OnboardingWizardViewModel
+import dev.aegiskey.app.ui.viewmodel.PasswordManagerViewModel
 import dev.aegiskey.app.ui.viewmodel.TotpAuthenticatorViewModel
 import dev.aegiskey.app.usb.UsbCtaphid
 
@@ -187,6 +193,18 @@ class AppContainer(val context: Context) {
     val themeRepository: ThemeRepository by lazy {
         ThemeRepositoryImpl(themeStore)
     }
+
+    // --- Password vault viewer (F-PM2 blind transport, zero persistence) ---
+    val passwordManagerRepository: PasswordManagerRepository by lazy {
+        PasswordManagerRepositoryImpl(
+            hostBridgeClient = hostUsbUartBridgeClient,
+            usbCtaphid = usbCtaphid,
+            bleKeyTransport = bleTransport,
+        )
+    }
+    val getPmListUseCase: GetPmListUseCase by lazy { GetPmListUseCase(passwordManagerRepository) }
+    val getPmReleaseUseCase: GetPmReleaseUseCase by lazy { GetPmReleaseUseCase(passwordManagerRepository) }
+    val getPmStatusUseCase: GetPmStatusUseCase by lazy { GetPmStatusUseCase(passwordManagerRepository) }
 
     // --- Casos de Uso: Secure Guard (Zero-Trust On-Device Authority) ---
     val getSecureGuardStatusUseCase: GetSecureGuardStatusUseCase by lazy {
@@ -414,6 +432,14 @@ class AppContainer(val context: Context) {
             updateSecureGuardPolicyUseCase = updateSecureGuardPolicyUseCase,
             triggerSelectiveWipeTestUseCase = triggerSelectiveWipeTestUseCase,
             repository = secureGuardRepository
+        )
+    }
+
+    val passwordManagerViewModel: PasswordManagerViewModel by lazy {
+        PasswordManagerViewModel(
+            getList = getPmListUseCase,
+            getRelease = getPmReleaseUseCase,
+            getStatus = getPmStatusUseCase,
         )
     }
 

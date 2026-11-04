@@ -87,6 +87,7 @@ fun KeyVaultHubScreen(
     sessionTransport: ConnectionTransportType? = null,
     onNavigateToBackup: () -> Unit = {},
     onNavigateToOta: () -> Unit = {},
+    onNavigateToPm: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -266,6 +267,24 @@ fun KeyVaultHubScreen(
                 )
             }
 
+            // 2b. Password vault viewer entry (F-PM2 blind transport).
+            item {
+                OutlinedButton(
+                    onClick = onNavigateToPm,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.vault_open_pm),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             // 3. Primary Button: Generate New Key in Hardware (synchronized PIN prompt if session locked)
             // Click-through F4: fail-closed while LOCKED — the button is
             // disabled on connection alone; it enables only when the guard

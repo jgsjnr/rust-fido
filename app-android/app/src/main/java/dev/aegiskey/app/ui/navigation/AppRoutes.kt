@@ -19,8 +19,11 @@ object AppRoutes {
     /** Smart-card (PIV / certificates) destination. Must exist in NavHost. */
     const val PIV = "piv"
 
+    /** Password vault viewer (F-PM2 blind transport, zero persistence). */
+    const val PM = "pm"
+
     const val ONBOARDING_WIZARD = "onboarding-wizard"
 
     /** Every destination the NavHost must register. */
-    val ALL: Set<String> = setOf(VAULT, CODES, KEYS, SETTINGS, OTA2, CAPS, PIV, ONBOARDING_WIZARD)
+    val ALL: Set<String> = setOf(VAULT, CODES, KEYS, SETTINGS, OTA2, CAPS, PIV, PM, ONBOARDING_WIZARD)
 }

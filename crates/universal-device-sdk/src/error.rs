@@ -62,6 +62,18 @@ pub const fn require_secmon() -> Result<(), SdkError> {
     }
 }
 
+/// R12 gate: `Ok` only with feature `pm`, else `NotCompiled`.
+///
+/// Phase F-PM2 contract only: typed CBOR transport lives behind this gate
+/// here; envelope/policy enforcement lives in `aegis-pm-vault` + firmware.
+pub const fn require_pm() -> Result<(), SdkError> {
+    if cfg!(feature = "pm") {
+        Ok(())
+    } else {
+        Err(SdkError::NotCompiled)
+    }
+}
+
 /// R7 gate: `Ok` only with lab feature `test-mode`, else `NotCompiled`.
 ///
 /// Never in `default`: without it the crate exposes no test surface at all.
