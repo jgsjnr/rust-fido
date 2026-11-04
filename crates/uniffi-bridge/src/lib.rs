@@ -749,6 +749,7 @@ pub fn secure_guard_encode_wipe(scope: u8, confirm_token: String) -> Result<Vec<
 
 pub mod ffi;
 pub use ffi::*;
+pub mod pm_jni;
 
 #[cfg(test)]
 mod tests {

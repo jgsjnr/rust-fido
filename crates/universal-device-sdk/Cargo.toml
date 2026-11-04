@@ -25,5 +25,8 @@ default = ["fido", "hardwallet", "secmon"]
 fido = []
 hardwallet = ["dep:sha3", "dep:ripemd", "dep:bech32", "dep:bs58"]
 secmon = []
+# Password-manager blind transport (F-PM2): DTOs/CBOR only, vault-agnostic.
+# Off by default; off yields `SdkError::NotCompiled` (R12).
+pm = []
 # Lab-only: never in `default`; without it there is no test surface at all.
 test-mode = []

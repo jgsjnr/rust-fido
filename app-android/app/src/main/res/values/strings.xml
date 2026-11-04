@@ -123,6 +123,25 @@
     <string name="vault_show_diagnostics">Show Hardware Diagnostics</string>
     <string name="vault_hide_diagnostics">Hide Hardware Diagnostics</string>
     <string name="vault_quick_check">Run Quick Health Check</string>
+    <string name="vault_open_pm">Password Manager (device viewer)</string>
+
+    <!-- Password Manager viewer (F-PM2 blind transport, zero persistence) -->
+    <string name="pm_title">Password Manager</string>
+    <string name="pm_subtitle">Device-only viewer. IDs are opaque; secrets show once and are wiped on close.</string>
+    <string name="pm_search_hint">Search loaded IDs (hex)</string>
+    <string name="pm_census">%1$d of %2$d entries on device</string>
+    <string name="pm_census_unknown">Device census unavailable</string>
+    <string name="pm_empty_title">No password entries loaded</string>
+    <string name="pm_empty_desc">Refresh while the device is connected and Secure Guard is unlocked.</string>
+    <string name="pm_id_hint">Opaque device record — no label leaves the hardware.</string>
+    <string name="pm_reveal_btn">Reveal</string>
+    <string name="pm_load_more">Load more</string>
+    <string name="pm_retry_after_touch">Touch the key and retry</string>
+    <string name="pm_release_title">Released credential (one view)</string>
+    <string name="pm_release_user">User: %1$s</string>
+    <string name="pm_release_wipe_note">Closes wipe the secret from memory. Nothing is saved on this phone.</string>
+    <string name="pm_copy_and_close">Copy &amp; close</string>
+    <string name="pm_close_and_wipe">Close &amp; wipe</string>
 
     <!-- Key Generation Dialog -->
     <string name="keygen_title">Generate Key in Security Key</string>

@@ -1,0 +1,26 @@
+[package]
+name = "aegis-pm-vault"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Device-only password-manager vault (F-PM1): PasswordEntry records sealed with the AEGN v1 envelope, blind-transport gates, Shamir backup with PM domain separation. no_std + alloc; phone is a blind viewer."
+
+[dependencies]
+aegis-fido-core = { path = "../aegis-fido-core" }
+aegis-secure-guard = { path = "../aegis-secure-guard" }
+ciborium = { workspace = true }
+serde = { workspace = true }
+zeroize = { workspace = true }
+rand_core = { workspace = true }
+
+[dev-dependencies]
+rand = "0.10"
+
+[features]
+# LAB-ONLY parity gate with aegis-secure-guard: no TEST_* helper, bypass, or
+# dev key may exist outside this feature. Release builds must compile with
+# default (empty) features. See `release_build_contains_no_test_bypass`.
+test-mode = []

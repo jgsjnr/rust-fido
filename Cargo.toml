@@ -7,6 +7,7 @@ members = [
     "crates/aegis-fido-firmware",
     "crates/universal-device-sdk",
     "crates/uniffi-bridge",
+    "crates/aegis-pm-vault",
 ]
 exclude = ["tools/uniffi-gen"]
 

@@ -48,6 +48,7 @@ import dev.aegiskey.app.ui.screens.ConnectedKeysRepositoryScreen
 import dev.aegiskey.app.ui.screens.FriendlySettingsAndThemeScreen
 import dev.aegiskey.app.ui.screens.KeyVaultHubScreen
 import dev.aegiskey.app.ui.screens.OnboardingWizardScreen
+import dev.aegiskey.app.ui.screens.PasswordManagerScreen
 import dev.aegiskey.app.ui.screens.PivScreen
 import dev.aegiskey.app.ui.screens.TotpDedicatedScreen
 
@@ -97,6 +98,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
     val vaultViewModel = container.keyVaultViewModel
     val secureGuardViewModel = container.secureGuardViewModel
     val totpViewModel = container.totpAuthenticatorViewModel
+    val pmViewModel = container.passwordManagerViewModel
 
     val themePref by themeViewModel.themePreference.collectAsState()
     val isSystemDark = isSystemInDarkTheme()
@@ -213,7 +215,26 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                                     popUpTo(nav.graph.findStartDestination().id) { saveState = true }
                                     launchSingleTop = true
                                 }
+                            },
+                            onNavigateToPm = {
+                                nav.navigate(AppRoutes.PM) {
+                                    launchSingleTop = true
+                                }
                             }
+                        )
+                    }
+
+                    // Password vault viewer (F-PM2 blind transport).
+                    composable(AppRoutes.PM) {
+                        PasswordManagerScreen(
+                            viewModel = pmViewModel,
+                            secureGuardViewModel = secureGuardViewModel,
+                            onNavigateToDevices = {
+                                nav.navigate(AppRoutes.KEYS) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onCopyText = { text -> vaultViewModel.copyIdentifier(text) },
                         )
                     }
 

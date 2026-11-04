@@ -87,6 +87,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-pm-vault"
+version = "1.0.0"
+dependencies = [
+ "aegis-fido-core",
+ "aegis-secure-guard",
+ "ciborium",
+ "rand",
+ "rand_core",
+ "serde",
+ "zeroize",
+]
+
+[[package]]
 name = "aegis-secure-guard"
 version = "1.0.0"
 dependencies = [

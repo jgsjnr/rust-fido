@@ -123,6 +123,25 @@
     <string name="vault_show_diagnostics">Exibir Diagnósticos de Hardware</string>
     <string name="vault_hide_diagnostics">Ocultar Diagnósticos de Hardware</string>
     <string name="vault_quick_check">Executar Verificação Rápida</string>
+    <string name="vault_open_pm">Gerenciador de Senhas (visor do dispositivo)</string>
+
+    <!-- Password Manager viewer (F-PM2 blind transport, zero persistence) -->
+    <string name="pm_title">Gerenciador de Senhas</string>
+    <string name="pm_subtitle">Visor somente-dispositivo. IDs são opacos; segredos aparecem uma vez e são apagados ao fechar.</string>
+    <string name="pm_search_hint">Buscar IDs carregados (hex)</string>
+    <string name="pm_census">%1$d de %2$d entradas no dispositivo</string>
+    <string name="pm_census_unknown">Censo do dispositivo indisponível</string>
+    <string name="pm_empty_title">Nenhuma entrada carregada</string>
+    <string name="pm_empty_desc">Atualize com o dispositivo conectado e o Secure Guard desbloqueado.</string>
+    <string name="pm_id_hint">Registro opaco — nenhum rótulo sai do hardware.</string>
+    <string name="pm_reveal_btn">Revelar</string>
+    <string name="pm_load_more">Carregar mais</string>
+    <string name="pm_retry_after_touch">Toque na chave e tente de novo</string>
+    <string name="pm_release_title">Credencial liberada (visão única)</string>
+    <string name="pm_release_user">Usuário: %1$s</string>
+    <string name="pm_release_wipe_note">Fechar apaga o segredo da memória. Nada é salvo neste celular.</string>
+    <string name="pm_copy_and_close">Copiar e fechar</string>
+    <string name="pm_close_and_wipe">Fechar e apagar</string>
 
     <!-- Key Generation Dialog -->
     <string name="keygen_title">Gerar Chave no Hardware</string>
