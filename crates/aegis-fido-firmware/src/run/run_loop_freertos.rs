@@ -345,8 +345,7 @@ pub fn run_authenticator_freertos() {
     // `ota_efuse_mgr` vive no loop p/ o gate provisionado por pacote (legado);
     // versao corrente 1 == `run::FIRMWARE_VERSION` (u32 monotonia OTA).
     #[cfg(target_os = "espidf")]
-    let ota_efuse_mgr =
-        crate::efuse::EfuseManager::new(crate::efuse::RamEfuseStorage::new());
+    let ota_efuse_mgr = crate::efuse::EfuseManager::new(crate::efuse::RamEfuseStorage::new());
     #[cfg(target_os = "espidf")]
     let mut ota_state = crate::ota::OtaState::new(1);
     #[cfg(target_os = "espidf")]
@@ -387,6 +386,7 @@ pub fn run_authenticator_freertos() {
             &mut storage,
             0,
         );
+    #[cfg(target_os = "espidf")]
     #[cfg(not(feature = "test-mode"))]
     let mut secure_guard = crate::secure_guard_storage::load_secure_guard_record(&storage, 0);
     #[cfg(target_os = "espidf")]

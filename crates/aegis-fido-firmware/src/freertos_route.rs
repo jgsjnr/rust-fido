@@ -2206,8 +2206,11 @@ mod ota_freertos_parity_tests {
     //! fail-closed, sem sessao fiada = punta p/ o engine (`None`).
     use super::*;
     use crate::binding::BindingManager;
+    use crate::freertos_sched::CTAPHID_PACKET_SIZE;
     use crate::fw_log::FwLog;
-    use crate::ota::{OtaState, OP_OTA_ABORT, OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_COMMIT, OP_OTA_FINISH};
+    use crate::ota::{
+        OtaState, OP_OTA_ABORT, OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_COMMIT, OP_OTA_FINISH,
+    };
     use crate::pairing::PairingManager;
     use crate::persistence::{PlatformFlashBackend, SecureStorage};
     use crate::stores::ota_store::{OTA_STATUS_NEED_UP, OTA_STATUS_OK};
@@ -2216,7 +2219,6 @@ mod ota_freertos_parity_tests {
     use aegis_fido_core::otp::rescue::RescueEngine;
     use aegis_fido_core::wallet::WalletStore;
     use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
-    use crate::freertos_sched::CTAPHID_PACKET_SIZE;
     use sha2::{Digest as _, Sha256};
 
     const OTA_CURRENT: u32 = 7;
@@ -2393,7 +2395,8 @@ mod ota_freertos_parity_tests {
         assert_eq!((st, consumed), (OTA_STATUS_NEED_UP, false));
         // COMMIT com UP: OK + consome o latch 1x (o chamador limpa o latch).
         ctx.up_latched = true;
-        let (st, body, consumed) = dispatch_op(&mut ctx, OP_OTA_COMMIT, &[]).expect("COMMIT com UP");
+        let (st, body, consumed) =
+            dispatch_op(&mut ctx, OP_OTA_COMMIT, &[]).expect("COMMIT com UP");
         assert_eq!(st, OTA_STATUS_OK);
         assert!(consumed);
         assert_eq!(body, OTA_NEXT.to_be_bytes().to_vec());
