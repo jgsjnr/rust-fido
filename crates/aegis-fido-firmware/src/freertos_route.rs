@@ -8,6 +8,10 @@
 //! fail-closed; UP ausente nega sem espera; erro de protocolo volta
 //! enquadrado na mesma origem. Tipos de transporte/fila/etapas vem de
 //! `crate::freertos_sched`.
+//!
+//! Paridade OTA: o funil inclui o intercept 0x30-0x34 da secao C legada
+//! (mesmos gates, sem semantica nova; ver ramo OTA em
+//! `dispatch_serial_vendor_msg`).
 
 use crate::ble_gatt::{is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op};
 use crate::freertos_sched::{
@@ -118,6 +122,15 @@ pub struct SerialVendorCtx<'a> {
     pub secure_guard: Option<&'a mut aegis_fido_core::secure_guard::SecureGuardEngine>,
     /// PIN extraído durante desbloqueio/provisionamento do Secure Guard (para sincronização com CTAP2).
     pub verified_pin: Option<Vec<u8>>,
+    /// Sessão OTA staged verify-before-swap (paridade seção C legada).
+    /// `None` = sem sessão fiada (host-only): OTA punta p/ o engine genérico.
+    pub ota_state: Option<&'a mut crate::ota::OtaState>,
+    /// Provisionado p/ OTA (eFuse válido ou lab em test-mode; fail-closed).
+    pub ota_provisioned: bool,
+    /// Release Ed25519 pubkey ativa (zeros = negada fail-closed).
+    pub ota_pubkey: [u8; 32],
+    /// Versão corrente do firmware (anti-rollback `version > current`).
+    pub ota_current_version: u32,
 }
 
 fn extract_pin_from_payload(payload: &[u8]) -> Option<Vec<u8>> {
@@ -144,11 +157,12 @@ fn extract_pin_from_payload(payload: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Despacha 1 `CMD_MSG` serial vendor/bind-mgmt/wallet/fw-log/rescue/
-/// pairing no dispatcher FreeRTOS (espelho da seção D legada, sem espera).
+/// pairing/OTA no dispatcher FreeRTOS (espelho da seção D legada + intercept
+/// OTA 0x30-0x34 da seção C legada, sem espera).
 ///
 /// Retorna `Some((pacotes_64B, consumed_up))` quando a op é tratada aqui;
-/// `None` = cair no engine CTAP genérico (U2F/OTA/desconhecido), preservando
-/// o comportamento anterior byte a byte.
+/// `None` = cair no engine CTAP genérico (U2F/desconhecido, ou OTA sem sessão
+/// fiada), preservando o comportamento anterior byte a byte.
 pub fn dispatch_serial_vendor_msg(
     ctx: &mut SerialVendorCtx<'_>,
     msg: &CtapHidMessage,
@@ -165,6 +179,45 @@ pub fn dispatch_serial_vendor_msg(
         ctx.pairing_open as u8,
         ctx.up_latched as u8
     );
+    // OTA vendor 0x30-0x34 (paridade seção C legada: intercept + build +
+    // UP-consume; mesmos gates do legado, sem semântica nova).
+    // `dispatch_ota_request` genérico sobre `OtaProvider` (o chamador passa
+    // `&mut OtaState` sem nomear o tipo aqui); resposta status-first;
+    // COMMIT ok consome o latch 1x + presença (o chamador limpa o latch via
+    // `consumed_up`). Sem `ota_state` fiada (ctx host-only) = punta p/ o
+    // engine genérico (`None`), como antes.
+    if crate::stores::ota_store::is_ota_op(op) {
+        use crate::ota::OP_OTA_COMMIT;
+        use crate::stores::ota_store::{
+            dispatch_ota_request, FlashOtaSink, OtaRequestCtx, OTA_STATUS_OK,
+        };
+        let ota_ctx = OtaRequestCtx {
+            provisioned: ctx.ota_provisioned,
+            up: ctx.up_latched,
+            ota_pubkey: ctx.ota_pubkey,
+            current_version: ctx.ota_current_version,
+        };
+        let ota_state = ctx.ota_state.as_deref_mut()?;
+        let mut sink = FlashOtaSink::new(ctx.storage.backend_mut());
+        let (st, body) = dispatch_ota_request(ota_state, &mut sink, op, &payload[1..], &ota_ctx)?;
+        log::info!(
+            "[OTA] op=0x{:02X} st=0x{:02X} phase={:?}",
+            op,
+            st,
+            ota_state.phase()
+        );
+        let consumed = st == OTA_STATUS_OK && op == OP_OTA_COMMIT;
+        if consumed {
+            ctx.rescue.set_user_presence(true);
+        }
+        let mut resp = Vec::with_capacity(1 + body.len());
+        resp.push(st);
+        resp.extend_from_slice(&body);
+        return Some((
+            CtapHidFramer::frame_message(msg.cid, msg.cmd, &resp),
+            consumed,
+        ));
+    }
     // Bind-mgmt 0x28-0x2D: mesmos gates do BLE (status-first, sem framing novo).
     if is_bind_mgmt_op(op) {
         let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
@@ -602,9 +655,10 @@ pub fn route_ctaphid_event(
                     pin_verified: false,
                 };
             }
-            // Vendor/bind-mgmt/wallet/fw-log/rescue/pairing serial no
-            // dispatcher FreeRTOS (paridade seção D legada). `None` = cai
-            // no engine CTAP genérico abaixo (U2F/OTA/desconhecido).
+            // Vendor/bind-mgmt/wallet/fw-log/rescue/pairing/OTA serial no
+            // dispatcher FreeRTOS (paridade seções C+D legadas). `None` = cai
+            // no engine CTAP genérico abaixo (U2F/desconhecido, ou OTA sem
+            // sessão fiada).
             if msg.cmd == CMD_MSG && !msg.payload.is_empty() {
                 if let Some(ref mut ctx) = vendor {
                     ctx.now_ms = now_ms;
@@ -899,6 +953,10 @@ mod tests {
             pin_uv_session: false,
             secure_guard: None,
             verified_pin: None,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -968,6 +1026,10 @@ mod tests {
             pin_uv_session: false,
             secure_guard: None,
             verified_pin: None,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -1079,6 +1141,10 @@ mod tests {
                 pin_uv_session,
                 secure_guard: None,
                 verified_pin: None,
+                ota_state: None,
+                ota_provisioned: false,
+                ota_pubkey: [0u8; 32],
+                ota_current_version: 0,
             };
             let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
             let (packets, consumed) =
@@ -1248,6 +1314,10 @@ mod tests {
             pin_uv_session: false,
             secure_guard: None,
             verified_pin: None,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
         };
         let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, vec![crate::vendor_exec::OP_GET_CAPS]);
         let (packets, consumed) =
@@ -1500,6 +1570,10 @@ mod tests {
                 pin_uv_session,
                 secure_guard: None,
                 verified_pin: None,
+                ota_state: None,
+                ota_provisioned: false,
+                ota_pubkey: [0u8; 32],
+                ota_current_version: 0,
             }
         }
 
@@ -1859,6 +1933,10 @@ mod tests {
             pin_uv_session: true,
             secure_guard: Some(&mut sg),
             verified_pin: None,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
         };
         let out_unprov = route_ctaphid_event(
             &mut mgr_usb,
@@ -1909,6 +1987,10 @@ mod tests {
             pin_uv_session: true,
             secure_guard: Some(&mut sg),
             verified_pin: None,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
         };
 
         let out_prov = route_ctaphid_event(
@@ -2085,6 +2167,10 @@ mod tests {
             pin_uv_session: false,
             secure_guard: Some(&mut sg),
             verified_pin: None,
+            ota_state: None,
+            ota_provisioned: false,
+            ota_pubkey: [0u8; 32],
+            ota_current_version: 0,
         };
 
         // FIDO2 standard MakeCredential / GetAssertion via CMD_CBOR
@@ -2105,5 +2191,247 @@ mod tests {
         // O comando alcança o CtapEngine (que responde erro CTAP de payload inválido, e NUNCA é interceptado pelo SG)
         assert_eq!(out.responses.len(), 1);
         assert_ne!(out.responses[0][7], 0x36); // Não foi barrado pelo Secure Guard!
+    }
+}
+
+#[cfg(test)]
+mod ota_freertos_parity_tests {
+    //! Paridade OTA FreeRTOS x legado (secao C): intercept + build +
+    //! UP-consume no funil, mesmos gates, sem semantica nova.
+    //!
+    //! Espelha `ota_store::ota_wiring_tests` pelo `dispatch_serial_vendor_msg`
+    //! (funnel), nao pelo `dispatch_ota_request` cru: BEGIN/CHUNK/FINISH/COMMIT
+    //! com resposta status-first, COMMIT sem UP = NEED_UP (0x01) com sessao
+    //! preservada, COMMIT com UP = OK + `consumed_up`, chave negada (zeros)
+    //! fail-closed, sem sessao fiada = punta p/ o engine (`None`).
+    use super::*;
+    use crate::binding::BindingManager;
+    use crate::fw_log::FwLog;
+    use crate::ota::{OtaState, OP_OTA_ABORT, OP_OTA_BEGIN, OP_OTA_CHUNK, OP_OTA_COMMIT, OP_OTA_FINISH};
+    use crate::pairing::PairingManager;
+    use crate::persistence::{PlatformFlashBackend, SecureStorage};
+    use crate::stores::ota_store::{OTA_STATUS_NEED_UP, OTA_STATUS_OK};
+    use aegis_fido_core::credential::key_manager::KeyManager;
+    use aegis_fido_core::oath::OathApplet;
+    use aegis_fido_core::otp::rescue::RescueEngine;
+    use aegis_fido_core::wallet::WalletStore;
+    use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
+    use crate::freertos_sched::CTAPHID_PACKET_SIZE;
+    use sha2::{Digest as _, Sha256};
+
+    const OTA_CURRENT: u32 = 7;
+    const OTA_NEXT: u32 = 8;
+
+    fn test_storage() -> SecureStorage<PlatformFlashBackend> {
+        SecureStorage::new(PlatformFlashBackend::new(), &[0x11; 32], &[0x22; 32])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn serial_ctx<'a>(
+        binding: &'a mut BindingManager,
+        storage: &'a mut SecureStorage<PlatformFlashBackend>,
+        wallet: &'a mut WalletStore,
+        key_mgr: &'a mut KeyManager,
+        oath: &'a mut OathApplet,
+        fwlog: &'a mut FwLog,
+        rescue: &'a mut RescueEngine,
+        pairing: &'a mut PairingManager,
+        ota_state: Option<&'a mut OtaState>,
+        ota_pubkey: [u8; 32],
+    ) -> SerialVendorCtx<'a> {
+        SerialVendorCtx {
+            pairing_open: false,
+            up_latched: true,
+            now_ms: 7,
+            now_secs: 0,
+            arm_up: false,
+            pin_verified: false,
+            binding,
+            storage,
+            wallet,
+            key_mgr,
+            oath,
+            fwlog,
+            rescue,
+            pairing,
+            pin_uv_session: false,
+            secure_guard: None,
+            verified_pin: None,
+            ota_state,
+            ota_provisioned: true,
+            ota_pubkey,
+            ota_current_version: OTA_CURRENT,
+        }
+    }
+
+    fn deframe(packets: &[Vec<[u8; CTAPHID_PACKET_SIZE]>]) -> (u8, Vec<u8>) {
+        assert!(!packets.is_empty());
+        let flat: Vec<[u8; CTAPHID_PACKET_SIZE]> = packets.concat();
+        let total = ((flat[0][5] as usize) << 8) | flat[0][6] as usize;
+        let mut out = Vec::new();
+        let first = total.min(CTAPHID_PACKET_SIZE - 7);
+        out.extend_from_slice(&flat[0][7..7 + first]);
+        for pkt in flat.iter().skip(1) {
+            let want = (total - out.len()).min(CTAPHID_PACKET_SIZE - 5);
+            out.extend_from_slice(&pkt[5..5 + want]);
+        }
+        assert_eq!(out.len(), total);
+        (out[0], out[1..].to_vec())
+    }
+
+    fn manifest_raw(version: u32, image: &[u8], sig: &[u8; 64]) -> Vec<u8> {
+        let digest = Sha256::digest(image);
+        let mut raw = Vec::with_capacity(104);
+        raw.extend_from_slice(&version.to_be_bytes());
+        raw.extend_from_slice(&(image.len() as u32).to_be_bytes());
+        raw.extend_from_slice(&digest);
+        raw.extend_from_slice(sig);
+        raw
+    }
+
+    fn signed_manifest(version: u32, image: &[u8], sk: &ed25519_dalek::SigningKey) -> Vec<u8> {
+        use signature::Signer as _;
+        let unsigned = manifest_raw(version, image, &[0x5Eu8; 64]);
+        let m = crate::ota::OtaManifest::parse(&unsigned).expect("parse unsigned");
+        let sig = sk.sign(&m.signed_bytes());
+        manifest_raw(version, image, &sig.to_bytes())
+    }
+
+    fn chunk_payload(offset: u32, data: &[u8]) -> Vec<u8> {
+        let mut v = Vec::with_capacity(4 + data.len());
+        v.extend_from_slice(&offset.to_be_bytes());
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn dispatch_op(
+        ctx: &mut SerialVendorCtx<'_>,
+        op: u8,
+        body: &[u8],
+    ) -> Option<(u8, Vec<u8>, bool)> {
+        let mut payload = Vec::with_capacity(1 + body.len());
+        payload.push(op);
+        payload.extend_from_slice(body);
+        let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, payload);
+        dispatch_serial_vendor_msg(ctx, &msg).map(|(packets, consumed)| {
+            let (st, resp) = deframe(&[packets]);
+            (st, resp, consumed)
+        })
+    }
+
+    #[test]
+    fn ota_sem_sessao_punta_para_o_engine() {
+        // Sem `ota_state` fiada (ctx host-only): OTA punta (`None`), como antes.
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut ctx = serial_ctx(
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            None,
+            [0x11u8; 32],
+        );
+        assert_eq!(dispatch_op(&mut ctx, OP_OTA_BEGIN, &[0x00; 4]), None);
+        assert_eq!(dispatch_op(&mut ctx, OP_OTA_ABORT, &[]), None);
+    }
+
+    #[test]
+    fn ota_funil_begin_chunk_finish_commit_com_up_consume() {
+        // Paridade secao C legada pelo funil: staging verificado + COMMIT
+        // sem UP nega NEED_UP com sessao preservada; com UP consome o latch.
+        let sk = ed25519_dalek::SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
+        let pubkey = sk.verifying_key().to_bytes();
+        let image = vec![0xA5u8; 1024];
+        let manifest = signed_manifest(OTA_NEXT, &image, &sk);
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut ota = OtaState::new(OTA_CURRENT);
+        let mut ctx = serial_ctx(
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            Some(&mut ota),
+            pubkey,
+        );
+        let (st, body, consumed) = dispatch_op(&mut ctx, OP_OTA_BEGIN, &manifest).expect("BEGIN");
+        assert_eq!((st, body.len(), consumed), (OTA_STATUS_OK, 0, false));
+        let mut off = 0u32;
+        for chunk in image.chunks(256) {
+            let p = chunk_payload(off, chunk);
+            let (st, body, _) = dispatch_op(&mut ctx, OP_OTA_CHUNK, &p).expect("CHUNK");
+            assert_eq!(st, OTA_STATUS_OK);
+            off += chunk.len() as u32;
+            assert_eq!(body, off.to_be_bytes().to_vec());
+        }
+        let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_FINISH, &[]).expect("FINISH");
+        assert_eq!(st, OTA_STATUS_OK);
+        // COMMIT sem o latch UP: NEED_UP, sessao Verified preservada.
+        ctx.up_latched = false;
+        let (st, _, consumed) = dispatch_op(&mut ctx, OP_OTA_COMMIT, &[]).expect("COMMIT sem UP");
+        assert_eq!((st, consumed), (OTA_STATUS_NEED_UP, false));
+        // COMMIT com UP: OK + consome o latch 1x (o chamador limpa o latch).
+        ctx.up_latched = true;
+        let (st, body, consumed) = dispatch_op(&mut ctx, OP_OTA_COMMIT, &[]).expect("COMMIT com UP");
+        assert_eq!(st, OTA_STATUS_OK);
+        assert!(consumed);
+        assert_eq!(body, OTA_NEXT.to_be_bytes().to_vec());
+    }
+
+    #[test]
+    fn ota_funil_chave_negada_falha_fechado() {
+        // NUNCA verifica/COMMIT sob chave negada (zeros): FAIL + rollback.
+        let sk = ed25519_dalek::SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
+        let image = vec![0xA5u8; 512];
+        let manifest = signed_manifest(OTA_NEXT, &image, &sk);
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut ota = OtaState::new(OTA_CURRENT);
+        let mut ctx = serial_ctx(
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            Some(&mut ota),
+            [0u8; 32],
+        );
+        let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_BEGIN, &manifest).expect("BEGIN zeros");
+        assert_eq!(st, OTA_STATUS_OK);
+        let p = chunk_payload(0, &image[..64]);
+        let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_CHUNK, &p).expect("CHUNK zeros");
+        assert_eq!(st, OTA_STATUS_OK);
+        let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_FINISH, &[]).expect("FINISH zeros");
+        assert_eq!(st, crate::stores::ota_store::OTA_STATUS_FAIL);
     }
 }

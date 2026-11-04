@@ -126,6 +126,10 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         pin_uv_session: true,
         secure_guard: Some(&mut sg),
         verified_pin: None,
+        ota_state: None,
+        ota_provisioned: false,
+        ota_pubkey: [0u8; 32],
+        ota_current_version: 0,
     };
 
     // 1. Status inicial via 0x3A (deve ser Unprovisioned)
@@ -182,7 +186,12 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
     );
 
     // Bloqueia manualmente para testar a barreira quando Locked
-    vendor.secure_guard.as_mut().unwrap().lock_now(1051).unwrap();
+    vendor
+        .secure_guard
+        .as_mut()
+        .unwrap()
+        .lock_now(1051)
+        .unwrap();
     assert_eq!(
         vendor.secure_guard.as_ref().unwrap().state(),
         SecureGuardState::Locked
@@ -340,6 +349,10 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
         pin_uv_session: true,
         secure_guard: Some(&mut sg),
         verified_pin: None,
+        ota_state: None,
+        ota_provisioned: false,
+        ota_pubkey: [0u8; 32],
+        ota_current_version: 0,
     };
 
     // Submete 5 tentativas erradas com avanço de tempo para superar os delays de rate limit

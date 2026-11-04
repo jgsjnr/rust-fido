@@ -83,6 +83,10 @@ pub(crate) fn freertos_ctx(
         pin_uv_session: false,
         secure_guard: Some(leak(sg)),
         verified_pin: None,
+        ota_state: None,
+        ota_provisioned: false,
+        ota_pubkey: [0u8; 32],
+        ota_current_version: 0,
     }
 }
 

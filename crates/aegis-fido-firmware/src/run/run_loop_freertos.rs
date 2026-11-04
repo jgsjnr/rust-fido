@@ -340,6 +340,15 @@ pub fn run_authenticator_freertos() {
     let mut wallet_store = WalletStore::new();
     #[cfg(target_os = "espidf")]
     let mut fw_log = crate::fw_log::FwLog::new();
+    // OTA staged session (paridade secao C legada: intercept + build +
+    // UP-consume em `dispatch_serial_vendor_msg`, mesma origem preservada).
+    // `ota_efuse_mgr` vive no loop p/ o gate provisionado por pacote (legado);
+    // versao corrente 1 == `run::FIRMWARE_VERSION` (u32 monotonia OTA).
+    #[cfg(target_os = "espidf")]
+    let ota_efuse_mgr =
+        crate::efuse::EfuseManager::new(crate::efuse::RamEfuseStorage::new());
+    #[cfg(target_os = "espidf")]
+    let mut ota_state = crate::ota::OtaState::new(1);
     #[cfg(target_os = "espidf")]
     let mut key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
     #[cfg(target_os = "espidf")]
@@ -907,7 +916,8 @@ pub fn run_authenticator_freertos() {
                 // acumula no manager do transporte de entrada, despacha ao
                 // `CtapEngine` e responde 64 B pela MESMA origem. Vendor serial
                 // (bind-mgmt/wallet/fw-log/rescue/pairing, seção D legada) vai
-                // junto no contexto; U2F/OTA/desconhecido cai no engine.
+                // junto no contexto (OTA 0x30-0x34 na secao OTA do funil);
+                // U2F/desconhecido cai no engine.
                 // Liveness lida NA HORA (não o cache do Tick, atualizado só
                 // 1×/s): sem isto, janela recém-aberta (TEST_PAIRING_OPEN /
                 // trigger 0x2F) era vista como fechada até o próximo Tick e
@@ -938,6 +948,14 @@ pub fn run_authenticator_freertos() {
                     pin_uv_session,
                     secure_guard: Some(&mut secure_guard),
                     verified_pin: None,
+                    // OTA (paridade secao C legada): sessao do loop + gate
+                    // provisionado por pacote (eFuse vivo) + chave ativa do
+                    // build + versao corrente 1 (== run::FIRMWARE_VERSION).
+                    ota_state: Some(&mut ota_state),
+                    ota_provisioned: crate::provision::load_device_keys(&ota_efuse_mgr).is_ok()
+                        || cfg!(feature = "test-mode"),
+                    ota_pubkey: crate::ota::OtaKeyProvider::active_pubkey_for_build(),
+                    ota_current_version: 1,
                 };
                 let out = route_ctaphid_event(
                     &mut ctaphid_usb,
