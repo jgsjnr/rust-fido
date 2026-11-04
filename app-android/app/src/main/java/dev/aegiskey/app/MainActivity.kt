@@ -12,6 +12,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import dev.aegiskey.app.data.local.LocaleHelper
@@ -25,13 +26,18 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.model.AppThemeMode
 import dev.aegiskey.app.domain.model.ActiveTransport
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.caps.CapsRepository
+import dev.aegiskey.app.caps.CapsResult
 import dev.aegiskey.app.ota2.Ota2Screen
+import dev.aegiskey.app.ota2.resolveOtaCurrentVersion
 import dev.aegiskey.app.caps.CapsScreen
 import dev.aegiskey.app.security.applyScreenshotProtection
 import dev.aegiskey.app.ui.AegisTheme
@@ -247,9 +253,21 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                     composable(AppRoutes.OTA2) {
                         val otaTransport =
                             if (client.isReady()) container.bleTransport else container.usbTransport
+                        // Authority-first base version: live GET_CAPS fw_version
+                        // where available (read-only, no auth), else the local
+                        // cached firmwareRevision default, else 0L (never invented).
+                        var capsState by remember { mutableStateOf<CapsResult?>(null) }
+                        LaunchedEffect(otaTransport) {
+                            capsState = withContext(Dispatchers.IO) {
+                                runCatching { CapsRepository.query(otaTransport) }.getOrNull()
+                            }
+                        }
                         Ota2Screen(
                             transport = otaTransport,
-                            currentVersion = activeKey?.firmwareRevision?.toLong() ?: 0L,
+                            currentVersion = resolveOtaCurrentVersion(
+                                capsState,
+                                activeKey?.firmwareRevision,
+                            ),
                         )
                     }
 

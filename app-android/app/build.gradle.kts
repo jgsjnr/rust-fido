@@ -13,12 +13,23 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0-wave5"
-        // OTA_HOOK.md line 1: release pubkey hex for the offline ota2 engine.
-        // Denied all-zeros placeholder (fail-closed): engine denies every
-        // verify until a real release key is provisioned. Never ship nonzero.
+        // OTA release/lab pubkey hex for the offline ota2 engine (OTA_HOOK.md).
+        // PROD placeholder: denied all-zeros (fail-closed). The owner-held
+        // release key is provisioned at signing time; until then the engine
+        // denies every verify. Never ship a nonzero dev/lab key in release.
         buildConfigField(
             "String",
             "OTA_RELEASE_PUBKEY_HEX",
+            "\"0000000000000000000000000000000000000000000000000000000000000000\""
+        )
+        // Lab key (test-only, default-off): denied all-zeros = off. A nonzero
+        // lab key is honored only in debug builds (see AegisApplication);
+        // release builds clear it fail-closed. Do NOT invent keys: the lab
+        // value lives with the key holder; the device-side reference is the
+        // firmware test-mode LAB_PUBKEY (crates/aegis-fido-firmware/src/ota.rs).
+        buildConfigField(
+            "String",
+            "OTA_LAB_PUBKEY_HEX",
             "\"0000000000000000000000000000000000000000000000000000000000000000\""
         )
     }

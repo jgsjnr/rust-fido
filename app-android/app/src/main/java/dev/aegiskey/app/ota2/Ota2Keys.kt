@@ -21,8 +21,21 @@ object Ota2Keys {
     const val DEV_PUBKEY_HEX =
         "0000000000000000000000000000000000000000000000000000000000000000"
 
+    /**
+     * Lab pubkey slot (test-only, default-off). All zeros = off
+     * (fail-closed). A nonzero lab key is honored only in debug builds
+     * (see AegisApplication); release builds clear it. Do NOT invent keys:
+     * the lab value lives with the key holder; the device-side reference is
+     * the firmware test-mode LAB_PUBKEY (crates/aegis-fido-firmware/src/ota.rs).
+     */
+    const val LAB_PUBKEY_HEX =
+        "0000000000000000000000000000000000000000000000000000000000000000"
+
     @Volatile
     private var releasePubkeyHex: String? = null
+
+    @Volatile
+    private var labPubkeyHex: String? = null
 
     /** Wires the production release pubkey (64 lowercase hex chars). */
     fun configureReleaseKey(hex: String) {
@@ -34,6 +47,24 @@ object Ota2Keys {
     fun clearReleaseKey() {
         releasePubkeyHex = null
     }
+
+    /** Wires the lab pubkey (debug/test builds only; 64 lowercase hex chars). */
+    fun configureLabKey(hex: String) {
+        require(hex.trim().lowercase().matches(Regex("[0-9a-f]{64}"))) { "bad lab key" }
+        labPubkeyHex = hex.trim().lowercase()
+    }
+
+    /** Drops the lab key back to off (release builds always call this). */
+    fun clearLabKey() {
+        labPubkeyHex = null
+    }
+
+    /** Active lab pubkey, or null when off/denied (never falls back silently). */
+    fun labPubkeyOrNull(): ByteArray? =
+        parseKey(labPubkeyHex)?.takeUnless { isDeniedKey(it) }
+
+    /** True when a nonzero lab key is configured (debug/test only). */
+    fun isLabConfigured(): Boolean = labPubkeyOrNull() != null
 
     /** Active pubkey: configured release key, else the denied DEV placeholder. */
     fun activePubkey(): ByteArray =
