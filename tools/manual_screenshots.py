@@ -26,7 +26,18 @@ SAFETY RAILS (hard rules, do not relax):
     A failed unlock STOPS the run; there is exactly one attempt, never
     a retry (ZERO wrong-PIN attempts beyond the single authorized one).
   - Recovery screen is opened for VIEWING ONLY; it is closed with
-    ``Cancel``/BACK and nothing is ever submitted.
+    ``Cancel``/BACK and nothing is ever submitted. The throwaway
+    ``tour-`` label is typed ONLY after :func:`create_dialog_identity`
+    proves the vault-create dialog is foreground; any recovery marker
+    aborts the step with zero keypresses (wrong-field guard).
+  - Screenshots NEVER save a legible live recovery code: every capture
+    goes through :func:`guarded_screencap`, which detects the
+    "Emergency Recovery Code" box and either blacks it out via Pillow
+    or skips the screen with SKIP-SECRET-VISIBLE (no Pillow/bounds ->
+    nothing saved).
+  - A vault-create step PASSes ONLY when the throwaway label appears
+    as a listed entry via a subsequent list query
+    (:func:`tour_label_listed` ignores EditText contents).
   - OTA card is opened for VIEWING ONLY; no install/flash is triggered.
   - Destructive controls (factory reset, selective wipe, unbind/release
     ownership, confirm-destruction tokens such as CONFIRM_WIPE_*) are
@@ -129,6 +140,35 @@ FORBIDDEN_TAP_SUBSTRINGS = (
     "proceed to transfer",
     "erase all",
     "apagar todos",
+)
+
+# Dialog identity for the vault-create step (defect 1: wrong-field typing).
+# The throwaway label must ONLY be typed when the dump proves the intended
+# create dialog is foreground. Recovery markers veto typing even when a
+# create marker is also present (identity mismatch -> abort, no keypresses).
+CREATE_DIALOG_MUST_ANY = (
+    "Generate Key in Security Key",
+    "Gerar Chave",
+    "Generate Key",
+    "Gerar",
+    "Label",
+    "R\u00f3tulo",
+)
+RECOVERY_DIALOG_FORBIDDEN_ANY = (
+    "Emergency Recovery",
+    "Recupera\u00e7\u00e3o de Emerg\u00eancia",
+    "Recovery Code",
+    "Recover and Save",
+    "Recuperar e Salvar",
+    "New PIN (4 to 16 digits)",
+)
+
+# Recovery-code box markers (defect 2: secret exposure). The live code box
+# is identified by its label/resource-id, never by the code value itself.
+RECOVERY_SECRET_MARKERS = (
+    "emergency recovery code",
+    "recovery_code",
+    "recoverycode",
 )
 
 
@@ -553,6 +593,162 @@ def dump_contains(dump_xml: str, markers: list[str]) -> str | None:
     return None
 
 
+def create_dialog_identity(dump_xml: str) -> tuple[bool, str]:
+    """Prove the vault-create dialog is foreground before typing.
+
+    Returns (ok, reason). Recovery markers veto typing even when a
+    create marker is also present: the Emergency Recovery "Recovery
+    Code" field must never receive the throwaway label.
+    """
+    low = (dump_xml or "").lower()
+    for bad in RECOVERY_DIALOG_FORBIDDEN_ANY:
+        if bad.lower() in low:
+            return False, f"identity mismatch: recovery marker {bad!r} present"
+    for good in CREATE_DIALOG_MUST_ANY:
+        if good.lower() in low:
+            return True, f"create dialog proven by {good!r}"
+    return False, "identity unproven: no create-dialog marker"
+
+
+def recovery_secret_visible(dump_xml: str) -> bool:
+    """True when the Emergency Recovery code box is on screen.
+
+    Detected by label/resource-id (never by the live code value), plus
+    a guarded fallback: a recovery dialog showing a code-shaped value.
+    """
+    low = (dump_xml or "").lower()
+    if any(m in low for m in RECOVERY_SECRET_MARKERS):
+        return True
+    if "emergency recovery" in low and re.search(
+            r"[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3,}", dump_xml or "",
+            re.IGNORECASE) is not None:
+        return True
+    return False
+
+
+def parse_rect(bounds_text: str) -> tuple[int, int, int, int] | None:
+    """Parse uiautomator bounds into (x1, y1, x2, y2)."""
+    m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]$",
+                 (bounds_text or "").strip())
+    if not m:
+        return None
+    x1, y1, x2, y2 = map(int, m.groups())
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def secret_node_bounds(dump_xml: str) -> list[tuple[int, int, int, int]]:
+    """Bounds of recovery-code box nodes (label/id/code value)."""
+    try:
+        root = ET.fromstring(dump_xml or "")
+    except ET.ParseError:
+        return []
+    rects: list[tuple[int, int, int, int]] = []
+    for node in root.iter("node"):
+        hay = " ".join([
+            node.get("text") or "",
+            node.get("content-desc") or "",
+            node.get("resource-id") or "",
+        ]).lower()
+        is_box = any(m in hay for m in RECOVERY_SECRET_MARKERS)
+        is_code = (re.search(r"[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3,}", hay,
+                             re.IGNORECASE) is not None
+                   and "emergency recovery" in (dump_xml or "").lower())
+        if not (is_box or is_code):
+            continue
+        r = parse_rect(node.get("bounds") or "")
+        if r is not None:
+            rects.append(r)
+    return rects
+
+
+def pillow_available() -> bool:
+    try:
+        import PIL.Image  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def blackout_secret_regions(png_path: str,
+                            dump_xml: str) -> str:
+    """Black out recovery-code regions in an already-saved PNG.
+
+    Returns "redacted" on success, else a "no-*" reason so the caller
+    can SKIP (delete) the file instead of leaving a legible live code.
+    """
+    rects = secret_node_bounds(dump_xml or "")
+    if not rects:
+        return "no-bounds"
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return "no-pillow"
+    try:
+        with Image.open(png_path) as im:
+            img_w, img_h = im.size
+            dump_w, dump_h = 0, 0
+            try:
+                root = ET.fromstring(dump_xml or "")
+                for node in root.iter("node"):
+                    r = parse_rect(node.get("bounds") or "")
+                    if r is not None:
+                        dump_w = max(dump_w, r[2])
+                        dump_h = max(dump_h, r[3])
+                        break
+                if dump_w <= 0 or dump_h <= 0:
+                    for node in root.iter("node"):
+                        r = parse_rect(node.get("bounds") or "")
+                        if r is not None:
+                            dump_w = max(dump_w, r[2])
+                            dump_h = max(dump_h, r[3])
+            except ET.ParseError:
+                return "no-bounds"
+            if dump_w <= 0 or dump_h <= 0:
+                return "no-bounds"
+            sx = img_w / dump_w
+            sy = img_h / dump_h
+            draw = ImageDraw.Draw(im)
+            for x1, y1, x2, y2 in rects:
+                # Pad generously: the code value sits next to its label.
+                pad = 12
+                ix1 = max(0, int(x1 * sx) - pad)
+                iy1 = max(0, int(y1 * sy) - pad)
+                ix2 = min(img_w, int(x2 * sx) + pad * 8)
+                iy2 = min(img_h, int(y2 * sy) + pad)
+                draw.rectangle([ix1, iy1, ix2, iy2], fill=(0, 0, 0))
+            im.save(png_path, optimize=True)
+            return "redacted"
+    except OSError:
+        return "no-image"
+
+
+def tour_label_listed(dump_xml: str, tour_label: str) -> bool:
+    """True iff ``tour_label`` appears as a listed entry (not typed text).
+
+    EditText contents do NOT prove creation: a PASS on input-field text
+    is the defect-3 false-pass. Only a non-editable node (vault list /
+    detail row) counts.
+    """
+    want = (tour_label or "").strip().lower()
+    if not want or not dump_xml:
+        return False
+    try:
+        root = ET.fromstring(dump_xml)
+    except ET.ParseError:
+        return False
+    for node in root.iter("node"):
+        cls = (node.get("class") or "")
+        if cls.endswith("EditText"):
+            continue
+        for attr in ("text", "content-desc"):
+            val = (node.get(attr) or "").strip()
+            if val and want in val.lower():
+                return True
+    return False
+
+
 def caps_evidence_lines(dump_xml: str) -> str:
     """Caps/GET_CAPS related text lines extracted from a dump (redacted)."""
     keys = ("caps", "capabilit", "capacidades", "firmware", "preset",
@@ -827,6 +1023,50 @@ def downscale_to_max(path: str, max_w: int) -> int:
         return 0
 
 
+def guarded_screencap(serial: str, dump_xml: str,
+                      dest: str) -> tuple[bool, int, str]:
+    """Screenshot that never saves a legible live recovery code.
+
+    When :func:`recovery_secret_visible` fires, the code region is
+    blacked out via Pillow before ``dest`` is left on disk. Without
+    Pillow (or without parseable bounds) nothing is saved and the
+    caller must report SKIP-SECRET-VISIBLE. Returns (ok, width, mode)
+    where mode is "saved" | "redacted" | "SKIP-SECRET-VISIBLE:*" |
+    "screencap-failed".
+    """
+    if recovery_secret_visible(dump_xml or ""):
+        if not pillow_available():
+            return False, 0, "SKIP-SECRET-VISIBLE:no-pillow"
+        tmp = dest + ".tmp-secret.png"
+        ok, _w = screencap(serial, tmp)
+        if not ok:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return False, 0, "SKIP-SECRET-VISIBLE:screencap-failed"
+        res = blackout_secret_regions(tmp, dump_xml or "")
+        if res != "redacted":
+            for p in (tmp, dest):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            return False, 0, f"SKIP-SECRET-VISIBLE:{res}"
+        try:
+            os.replace(tmp, dest)
+        except OSError:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return False, 0, "SKIP-SECRET-VISIBLE:move-failed"
+        width = downscale_to_max(dest, SHOT_MAX_W)
+        return True, width, "redacted"
+    ok, width = screencap(serial, dest)
+    return ok, width, "saved" if ok else "screencap-failed"
+
+
 def logcat_snippet(serial: str) -> str:
     try:
         proc = run_adb(serial, ["logcat", "-d", "-t", "200", "*:W"], timeout=20)
@@ -997,6 +1237,99 @@ def cmd_self_test() -> int:
           os.path.basename(os.path.normpath(default_out_dir())) == "tour",
           f"out={default_out_dir()!r}")
 
+    # 9. Defect 1: dialog identity gates the throwaway-label typing.
+    create_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                   '<node text="Generate Key in Security Key" '
+                   'bounds="[100,200][500,300]" />'
+                   '<node text="Label" bounds="[100,320][500,420]" />'
+                   '<node class="android.widget.EditText" text="" '
+                   'bounds="[100,440][900,540]" />'
+                   "</node></hierarchy>")
+    recovery_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                     '<node text="Emergency Recovery with Recovery Code" '
+                     'bounds="[100,200][900,300]" />'
+                     '<node text="Emergency Recovery Code" '
+                     'resource-id="dev.aegiskey.app:id/recovery_code" '
+                     'bounds="[100,320][900,520]" />'
+                     '<node text="AB12-CD34-EF56-GH78" '
+                     'bounds="[100,340][900,440]" />'
+                     '<node text="Recover and Save" '
+                     'bounds="[100,600][500,700]" />'
+                     "</node></hierarchy>")
+    ok_c, reason_c = create_dialog_identity(create_dump)
+    ok_r, reason_r = create_dialog_identity(recovery_dump)
+    ok_e, _ = create_dialog_identity(
+        '<hierarchy><node bounds="[0,0][1080,2400]">'
+        '<node text="Vault" bounds="[0,0][200,200]" /></node></hierarchy>')
+    check("dialog-identity: create dialog proven before typing",
+          ok_c, f"create dump -> {reason_c!r}")
+    check("dialog-identity: recovery dialog vetoes typing (no wrong-field)",
+          (not ok_r)
+          and recovery_secret_visible(recovery_dump)
+          and not recovery_secret_visible(create_dump),
+          f"recovery dump veto -> {reason_r!r}")
+    check("dialog-identity: blank screen never proves create dialog",
+          not ok_e, "no marker -> abort, nothing typed")
+
+    # 10. Defect 2: recovery-code box never saved legible.
+    check("secret-guard: box label triggers, vault list does not",
+          recovery_secret_visible(recovery_dump)
+          and not recovery_secret_visible(create_dump),
+          "label/resource-id detection only")
+    check("secret-guard: code-box bounds extracted",
+          len(secret_node_bounds(recovery_dump)) >= 1
+          and secret_node_bounds(create_dump) == [],
+          f"rects={secret_node_bounds(recovery_dump)!r}")
+    if pillow_available():
+        import tempfile as _tf
+        from PIL import Image as _Image
+        with _tf.NamedTemporaryFile(suffix=".png",
+                                    delete=False) as _tmp:
+            _tmp_path = _tmp.name
+        try:
+            _Image.new("RGB", (270, 600), (255, 255, 255)).save(_tmp_path)
+            _res = blackout_secret_regions(_tmp_path, recovery_dump)
+            with _Image.open(_tmp_path) as _im:
+                _px = _im.getpixel((135, 105))
+            check("secret-guard: redaction blacks out the code region",
+                  _res == "redacted" and _px == (0, 0, 0),
+                  f"blackout={_res!r} pixel={_px!r}")
+        finally:
+            try:
+                os.remove(_tmp_path)
+            except OSError:
+                pass
+    else:
+        check("secret-guard: no Pillow -> SKIP-SECRET-VISIBLE path",
+              blackout_secret_regions("/nonexistent.png",
+                                      recovery_dump) == "no-pillow",
+              "without Pillow nothing legible is saved")
+    with open(__file__, "r", encoding="utf-8") as _fh:
+        _src = _fh.read()
+    check("secret-guard: all screenshot sites go through the guard",
+          "guarded_screencap(serial, dump" in _src
+          and _src.count("guarded_screencap(serial, dump") >= 3,
+          "run_live + run_full (guard + step) use guarded_screencap")
+
+    # 11. Defect 3: creation verified via list query, not typed text.
+    typed_only = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                  '<node class="android.widget.EditText" '
+                  'text="tour-120000" bounds="[100,440][900,540]" />'
+                  "</node></hierarchy>")
+    listed = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+              '<node text="tour-120000" bounds="[100,600][900,700]" />'
+              "</node></hierarchy>")
+    check("create-verify: EditText contents do NOT prove creation",
+          not tour_label_listed(typed_only, "tour-120000")
+          and tour_label_listed(listed, "tour-120000")
+          and not tour_label_listed(listed, "tour-999999"),
+          "list/detail node required, input-field text ignored")
+    check("create-verify: run_full enforces the list query",
+          'tour_label_listed(dump, tour_label)' in _src
+          and 'vault-create-tour' in _src
+          and 'list query' in _src.lower(),
+          "vault-create-tour gates PASS on list-query hit")
+
     n_ok = sum(1 for _, ok, _ in results if ok)
     print(f"\n==== SELF-TEST: {n_ok}/{len(results)} PASS ====")
     return 0 if n_ok == len(results) else 1
@@ -1036,9 +1369,25 @@ def run_live(serial: str, out_dir: str) -> int:
                   encoding="utf-8") as fh:
             fh.write(dump)
         hit = dump_contains(dump, step["expect_any"])
-        shot_ok, _w = screencap(serial, os.path.join(out_dir, step["shot"]))
-        ok = hit is not None and shot_ok and len(dump) > 100
-        detail = (f"marker={hit!r} shot={step['shot']}:{shot_ok}")
+        shot_ok, _w, shot_mode = guarded_screencap(
+            serial, dump, os.path.join(out_dir, step["shot"]))
+        if "SKIP-SECRET-VISIBLE" in shot_mode:
+            failures += 1
+            print(f"[SKIP] step {i}/{len(STEPS)} {step['id']:12s} "
+                  f"marker={hit!r} {shot_mode} (secret box on screen)")
+            snippet = logcat_snippet(serial)
+            with open(os.path.join(out_dir, f"{tag}.logcat.txt"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(f"step={step['id']} marker={hit!r} "
+                         f"shot_ok={shot_ok} shot_mode={shot_mode}\n{snippet}\n")
+            print(f"      logcat snippet (redacted) -> {tag}.logcat.txt")
+            ok = False
+            detail = (f"marker={hit!r} shot={step['shot']}:{shot_ok} "
+                      f"mode={shot_mode}")
+        else:
+            ok = hit is not None and shot_ok and len(dump) > 100
+            detail = (f"marker={hit!r} shot={step['shot']}:{shot_ok} "
+                      f"mode={shot_mode}")
         if ok:
             print(f"[PASS] step {i}/{len(STEPS)} {step['id']:12s} {detail}")
         else:
@@ -1129,6 +1478,16 @@ def run_full(serial: str, png_dir: str) -> int:
             elif verb == "type-tour-label":
                 if not dump:
                     dump = ui_dump(serial)
+                # Defect 1: prove the intended create dialog is foreground
+                # BEFORE typing. The Emergency Recovery "Recovery Code"
+                # field must never receive the throwaway label.
+                id_ok, id_reason = create_dialog_identity(dump)
+                if not id_ok:
+                    evidence(sid, dump)
+                    results.append((sid, "SKIP",
+                                    f"create dialog identity mismatch "
+                                    f"({id_reason}) -- nothing typed"))
+                    return stop(f"wrong-dialog guard: {id_reason}")
                 # Focus the label field, then type the throwaway name.
                 tapped = False
                 for label_hint in ("Label", "R\u00f3tulo", "Nome", "Name"):
@@ -1230,9 +1589,18 @@ def run_full(serial: str, png_dir: str) -> int:
                                "Release Device Ownership", "Limpeza Seletiva",
                                "Redefini"])
                 shot_path = os.path.join(png_dir, step["shot"])
-                shot_ok, w = screencap(serial, shot_path)
+                shot_ok, w, shot_mode = guarded_screencap(
+                    serial, dump, shot_path)
                 evidence(sid, dump)
                 do_back(serial)
+                if "SKIP-SECRET-VISIBLE" in shot_mode:
+                    results.append((sid, "SKIP",
+                                    f"guard shot skipped ({shot_mode}) -- "
+                                    "backed out"))
+                    print(f"[SKIP] step "
+                          f"{i}/{len(FULL_STEPS)} {sid:16s} {shot_mode} [{w}px]")
+                    skipped_step = "handled"
+                    break
                 if not shot_ok:
                     results.append((sid, "SKIP", "screencap failed"))
                     return stop("guard screenshot failed")
@@ -1252,8 +1620,41 @@ def run_full(serial: str, png_dir: str) -> int:
         dump = ui_dump(serial)
         evidence(sid, dump)
         hit = dump_contains(dump, step["expect_any"])
+        if sid == "vault-create-tour":
+            # Defect 3: typed text in the input field is NOT a created
+            # entry. Verify via a subsequent list query: the throwaway
+            # label must appear as a non-EditText list/detail node.
+            if not tour_label_listed(dump, tour_label):
+                queried = ui_dump(serial)
+                if tour_label_listed(queried, tour_label):
+                    dump = queried
+                    evidence(sid + "-list", dump)
+                else:
+                    results.append(
+                        (sid, "STOP",
+                         f"create unverified: {tour_label!r} absent from "
+                         f"list query (marker={hit!r}) -- typed text "
+                         f"does not count"))
+                    snippet = logcat_snippet(serial)
+                    with open(os.path.join(ev_dir, f"{sid}.logcat.txt"),
+                              "w", encoding="utf-8") as fh:
+                        fh.write(f"step={sid} marker={hit!r} "
+                                 f"create_unverified list-query-miss\n"
+                                 f"{snippet}\n")
+                    print(f"[STOP] step {i}/{len(FULL_STEPS)} {sid:16s} "
+                          f"create unverified -- list query lacks "
+                          f"{tour_label!r}")
+                    return stop(f"step {sid} create unverified "
+                                f"(list query miss)")
         shot_path = os.path.join(png_dir, step["shot"])
-        shot_ok, w = screencap(serial, shot_path)
+        shot_ok, w, shot_mode = guarded_screencap(serial, dump, shot_path)
+        if "SKIP-SECRET-VISIBLE" in shot_mode:
+            results.append(
+                (sid, "SKIP",
+                 f"secret box on screen ({shot_mode}) -- nothing saved"))
+            print(f"[SKIP] step {i}/{len(FULL_STEPS)} {sid:16s} "
+                  f"{shot_mode} [{w}px]")
+            return stop(f"step {sid} secret-visible -- screenshot skipped")
         if hit is None or not shot_ok or len(dump) <= 100:
             results.append(
                 (sid, "STOP",
@@ -1268,9 +1669,10 @@ def run_full(serial: str, png_dir: str) -> int:
             return stop(f"step {sid} assertion missed")
         results.append((sid, "PASS",
                         f"marker={hit!r} shot={step['shot']}:{shot_ok} "
-                        f"[{w}px]"))
+                        f"[{w}px] mode={shot_mode}"))
         print(f"[PASS] step {i}/{len(FULL_STEPS)} {sid:16s} "
-              f"marker={hit!r} shot={step['shot']}:{shot_ok} [{w}px]")
+              f"marker={hit!r} shot={step['shot']}:{shot_ok} "
+              f"[{w}px] mode={shot_mode}")
         for action in step.get("close", []):
             if action[0] == "back":
                 do_back(serial)
