@@ -230,6 +230,53 @@ fn dispatch_ack_marca_bench_e_fwlog() {
 }
 
 #[test]
+#[cfg(feature = "test-mode")]
+fn quiescencia_estendida_mas_borda_trava_com_bancada() {
+    let _guard = BENCH_TEST_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut engine = fast_engine();
+    let mut fw_log = crate::fw_log::FwLog::new();
+    bench_test_reset(&mut engine);
+    assert!(super::policy::bench_enable(&mut engine, &mut fw_log, 1_000));
+    // `poll` delega para a flag global: com bancada ativa o timeout de 30 s
+    // nao trava (quiescencia estendida para 24 h).
+    let mut mon = crate::transport_lock::TransportMonitor::new();
+    assert_eq!(mon.observe_wifi(true, 2_000), None);
+    mon.note_wifi_traffic(3_000);
+    assert_eq!(
+        mon.poll(3_000 + crate::transport_lock::WIFI_QUIESCENCE_TIMEOUT_MS),
+        None
+    );
+    // Borda dura ativo-para-inativo trava de imediato mesmo com bancada.
+    assert_eq!(
+        mon.observe_wifi(false, 4_000),
+        Some(crate::transport_lock::TransportKind::Wifi)
+    );
+    engine
+        .provision_pin(b"7391", [0x11; 16], &[0x22; 16], [0x33; 16], 4_000)
+        .expect("provision ok");
+    engine.unlock_with_pin(b"7391", 5_000).expect("unlock ok");
+    let mut pin = aegis_fido_core::ctap::client_pin::ClientPinState::default();
+    let mut rescue = aegis_fido_core::otp::rescue::RescueEngine::new();
+    let mut empty: [&mut [u8]; 0] = [];
+    let report = crate::transport_lock::lock_on_transport_loss(
+        &mut engine,
+        &mut pin,
+        &mut rescue,
+        &mut empty,
+        &mut fw_log,
+        crate::transport_lock::TransportKind::Wifi,
+        6_000,
+    );
+    assert!(report.session_was_live);
+    assert!(!engine.is_unlocked());
+    assert!(report.secure_guard_locked_now);
+    assert!(super::policy::is_bench_active());
+    bench_test_reset(&mut engine);
+}
+
+#[test]
 #[cfg(not(feature = "test-mode"))]
 fn release_nunca_ativa_bancada() {
     let _guard = BENCH_TEST_GUARD

@@ -13,6 +13,10 @@
 //! - Default off: flag global comeca desligado; so a op explicita liga.
 //! - Disconnect lock continua valendo: `transport_lock` e
 //!   `on_transport_disconnect` nao sao tocados (travam com bancada ativa).
+//!   Quiescencia WiFi (`TransportMonitor::poll`) e bench-aware: com a
+//!   bancada ativa o silencio tolerado estende para 24 h
+//!   (`poll_with_bench`); bordas duro ativo-para-inativo travam de
+//!   imediato com ou sem bancada.
 //! - NVS/keys intactos, sem wipe/eFuse: so policy em RAM, sem
 //!   `save_secure_guard_record`; o desligar restaura os valores salvos.
 //! - Auditoria: liga/desliga gravam `EV_BENCH` no `FwLog` (arg `0x01` ON /

@@ -158,12 +158,35 @@ impl TransportMonitor {
 
     /// Quiescencia: WiFi ativo + silencio >= timeout = perda (dispara uma vez;
     /// o transporte cai p/ inativo ate a proxima subida/atividade).
+    ///
+    /// Bancada (bench-aware): delega para `poll_with_bench` com a flag global
+    /// de bancada (`test-mode`); em release a flag e sempre `false`.
     pub fn poll(&mut self, now_ms: u64) -> Option<TransportKind> {
+        #[cfg(feature = "test-mode")]
+        let bench = crate::secure_guard_exec::bench::policy::is_bench_active();
+        #[cfg(not(feature = "test-mode"))]
+        let bench = false;
+        self.poll_with_bench(now_ms, bench)
+    }
+
+    /// Nucleo testavel da quiescencia com a flag de bancada explicita.
+    ///
+    /// Com `bench_active = true` o silencio tolerado estende para
+    /// `BENCH_INACTIVITY_TIMEOUT_MS` (24 h, mesma janela da sessao de
+    /// bancada); com `false` vale `WIFI_QUIESCENCE_TIMEOUT_MS`. Bordas
+    /// duro ativo-para-inativo (`observe_*`) travam com ou sem bancada:
+    /// a bancada so estende a quiescencia, nunca desarma o disconnect lock.
+    pub fn poll_with_bench(&mut self, now_ms: u64, bench_active: bool) -> Option<TransportKind> {
         if !self.wifi_active {
             return None;
         }
+        let timeout_ms = if bench_active {
+            crate::secure_guard_exec::bench::policy::BENCH_INACTIVITY_TIMEOUT_MS
+        } else {
+            WIFI_QUIESCENCE_TIMEOUT_MS
+        };
         match self.last_wifi_activity_ms {
-            Some(last) if now_ms.saturating_sub(last) >= WIFI_QUIESCENCE_TIMEOUT_MS => {
+            Some(last) if now_ms.saturating_sub(last) >= timeout_ms => {
                 self.wifi_active = false;
                 self.last_wifi_activity_ms = None;
                 Some(TransportKind::Wifi)
@@ -436,19 +459,28 @@ mod tests {
         assert_eq!(mon.observe_wifi(true, 1_000), None);
         mon.note_wifi_traffic(2_000);
         // Antes do timeout: nada.
-        assert_eq!(mon.poll(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1), None);
+        assert_eq!(
+            mon.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1, false),
+            None
+        );
         // Quiescencia: trava uma vez.
         assert_eq!(
-            mon.poll(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS),
+            mon.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS, false),
             Some(TransportKind::Wifi)
         );
-        assert_eq!(mon.poll(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS + 1), None);
+        assert_eq!(
+            mon.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS + 1, false),
+            None
+        );
         // Sem trafego jamais anotado apos ativacao: a subida ancora o relogio.
         let mut mon2 = TransportMonitor::new();
         assert_eq!(mon2.observe_wifi(true, 5_000), None);
-        assert_eq!(mon2.poll(5_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1), None);
         assert_eq!(
-            mon2.poll(5_000 + WIFI_QUIESCENCE_TIMEOUT_MS),
+            mon2.poll_with_bench(5_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1, false),
+            None
+        );
+        assert_eq!(
+            mon2.poll_with_bench(5_000 + WIFI_QUIESCENCE_TIMEOUT_MS, false),
             Some(TransportKind::Wifi)
         );
         // Borda ativo-para-inativo (timeout da station) trava direto.
@@ -456,6 +488,60 @@ mod tests {
         assert_eq!(mon3.observe_wifi(true, 0), None);
         assert_eq!(mon3.observe_wifi(false, 500), Some(TransportKind::Wifi));
         assert_eq!(mon3.observe_wifi(false, 600), None);
+    }
+
+    #[test]
+    fn poll_with_bench_estende_quiescencia_para_24h() {
+        let mut mon = TransportMonitor::new();
+        assert_eq!(mon.observe_wifi(true, 1_000), None);
+        mon.note_wifi_traffic(2_000);
+        // Timeout normal (30 s) com bancada ativa: nada (janela estendida).
+        assert_eq!(
+            mon.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS, true),
+            None
+        );
+        let bench_timeout_ms = crate::secure_guard_exec::bench::policy::BENCH_INACTIVITY_TIMEOUT_MS;
+        assert_eq!(
+            mon.poll_with_bench(2_000 + bench_timeout_ms - 1, true),
+            None
+        );
+        // Quiescencia de bancada: trava uma vez na janela de 24 h.
+        assert_eq!(
+            mon.poll_with_bench(2_000 + bench_timeout_ms, true),
+            Some(TransportKind::Wifi)
+        );
+        assert_eq!(
+            mon.poll_with_bench(2_000 + bench_timeout_ms + 1, true),
+            None
+        );
+    }
+
+    #[test]
+    fn poll_with_bench_borda_dura_trava_com_bancada() {
+        // Bordas duro ativo-para-inativo nao dependem da bancada: o
+        // disconnect lock continua valendo com a sessao estendida. Mesmo
+        // apos um poll estendido retornar None, a borda trava de imediato.
+        let mut mon = TransportMonitor::new();
+        assert_eq!(mon.observe_wifi(true, 0), None);
+        mon.note_wifi_traffic(100);
+        assert_eq!(
+            mon.poll_with_bench(100 + WIFI_QUIESCENCE_TIMEOUT_MS, true),
+            None
+        );
+        assert_eq!(mon.observe_wifi(false, 500), Some(TransportKind::Wifi));
+        assert_eq!(mon.observe_wifi(false, 600), None);
+        // Quiescencia com flag off == comportamento legado do `poll`.
+        let mut mon2 = TransportMonitor::new();
+        assert_eq!(mon2.observe_wifi(true, 1_000), None);
+        mon2.note_wifi_traffic(2_000);
+        assert_eq!(
+            mon2.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS - 1, false),
+            None
+        );
+        assert_eq!(
+            mon2.poll_with_bench(2_000 + WIFI_QUIESCENCE_TIMEOUT_MS, false),
+            Some(TransportKind::Wifi)
+        );
     }
 
     #[test]
