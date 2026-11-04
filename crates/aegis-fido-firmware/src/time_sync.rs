@@ -193,7 +193,10 @@ impl TimeSyncState {
     }
 
     /// Persiste a ancora (todo sync valido; sem ancora = no-op).
-    pub fn save<B: FlashStorageBackend>(&self, storage: &mut SecureStorage<B>) -> Result<(), StorageError> {
+    pub fn save<B: FlashStorageBackend>(
+        &self,
+        storage: &mut SecureStorage<B>,
+    ) -> Result<(), StorageError> {
         if !self.has_anchor {
             return Ok(());
         }
@@ -442,7 +445,8 @@ mod tests {
         assert!(!ts.note_sync(TIME_MAX_SANE_UNIX_SECS + 1, 1_000));
         assert!(!ts.is_trusted());
         // Blob curto/corrompido na NVS = sem confianca.
-        st.store(TIME_ANCHOR_NVS_KEY, &[1, 2, 3], &[0u8; 12]).expect("store");
+        st.store(TIME_ANCHOR_NVS_KEY, &[1, 2, 3], &[0u8; 12])
+            .expect("store");
         let ts2 = TimeSyncState::load(&st);
         assert!(!ts2.is_trusted());
         assert!(!ts2.resolve_clock(50_000).rtc_trusted);
@@ -454,7 +458,10 @@ mod tests {
         let mut ts = TimeSyncState::load(&st);
         let mut last = None;
         // Sem station: NotDue, nada registrado.
-        assert_eq!(poll_time_sync(&mut st, &mut ts, false, 1_000, &mut last), TimeSyncPoll::NotDue);
+        assert_eq!(
+            poll_time_sync(&mut st, &mut ts, false, 1_000, &mut last),
+            TimeSyncPoll::NotDue
+        );
         assert_eq!(last, None);
         // Com station no host: pula sem socket, estado intacto.
         assert_eq!(

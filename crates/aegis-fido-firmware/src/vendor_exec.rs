@@ -21,8 +21,7 @@ mod vendor_store;
 mod vendor_tests;
 
 pub use self::vendor_caps::{
-    OP_GET_CAPS, capability_ids, diet_gated_ops, is_get_caps_op, preset_name,
-    unsupported_count,
+    capability_ids, diet_gated_ops, is_get_caps_op, preset_name, unsupported_count, OP_GET_CAPS,
 };
 pub use self::vendor_dispatch::exec_vendor_op;
 pub use self::vendor_store::*;

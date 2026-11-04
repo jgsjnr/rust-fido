@@ -14,16 +14,19 @@
 
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 use aegis_fido_firmware::config::DeviceConfig;
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 use aegis_fido_firmware::oath_store::{
     oath_store_delete, oath_store_get, oath_store_put, OathStoreError, OATH_STORE_MAX_BYTES,
 };
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+use aegis_fido_firmware::persistence::NAMESPACED_SLOT_MAX_BYTES;
 use aegis_fido_firmware::persistence::{
     FlashStorageBackend, MockFlashBackend, NamespacedStore, NamespacedStoreError, SecureStorage,
     StorageError,
 };
-#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
-use aegis_fido_firmware::persistence::NAMESPACED_SLOT_MAX_BYTES;
 use aegis_fido_firmware::piv_store::PivNvsStore;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 use aegis_fido_firmware::vault_store::{
@@ -35,11 +38,20 @@ use aegis_fido_usb::piv::PivRecordStore;
 // Frozen vectors (offline, deterministic).
 const MASTER: [u8; 32] = [0x55u8; 32];
 const SALT: [u8; 32] = [0xAAu8; 32];
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 const BLOB_A: &[u8] = b"frozen-oath-blob-a";
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 const BLOB_B: &[u8] = b"frozen-oath-blob-b";
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 const ENVELOPE_MAGIC: [u8; 4] = [0x41, 0x45, 0x47, 0x4E]; // "AEGN"
 
 fn storage() -> SecureStorage<MockFlashBackend> {
@@ -66,7 +78,10 @@ fn short_label_ok(label: &str) -> bool {
 // Preset: oath6/ (OATH store)
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 #[test]
 fn oath_preset_put_get_delete_roundtrip_under_oath6_prefix() {
     let mut st = storage();
@@ -87,7 +102,10 @@ fn oath_preset_put_get_delete_roundtrip_under_oath6_prefix() {
     assert!(!st.exists("oath6/GitHub:alice"));
 }
 
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 #[test]
 fn oath_preset_rejects_bad_label_and_too_large() {
     let mut st = storage();
@@ -110,7 +128,10 @@ fn oath_preset_rejects_bad_label_and_too_large() {
     assert_eq!(oath_store_get(&st, "k"), Err(OathStoreError::NotFound));
 }
 
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 #[test]
 fn oath_preset_delete_absent_is_notfound_and_overwrite_verifies() {
     let mut st = storage();
@@ -385,7 +406,10 @@ fn verify_after_write_mismatch_rolls_back_slot_only() {
     assert_eq!(ns.get(&st, "a").unwrap(), b"healed");
 }
 
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 #[test]
 fn tampered_slot_envelope_fails_closed_with_storage() {
     let mut st = storage();

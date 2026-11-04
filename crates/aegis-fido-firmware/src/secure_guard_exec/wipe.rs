@@ -2,6 +2,8 @@ use super::{
     cbor_err, extract_bytes, get_field, to_cbor_bytes, CTAP2_ERR_PIN_AUTH_INVALID,
     CTAP2_ERR_PIN_REQUIRED,
 };
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::secure_guard_storage::save_secure_guard_record;
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::secure_guard::SecureGuardEngine;
@@ -9,8 +11,6 @@ use aegis_fido_core::wallet::WalletStore;
 use ciborium::value::Value;
 use std::format;
 use std::vec::Vec;
-use crate::persistence::{FlashStorageBackend, SecureStorage};
-use crate::secure_guard_storage::save_secure_guard_record;
 /// 0x3E: OP_SECURE_GUARD_WIPE_SELECTIVE
 pub(crate) fn handle_wipe_selective<B: FlashStorageBackend>(
     engine: &mut SecureGuardEngine,
@@ -66,7 +66,8 @@ pub(crate) fn handle_wipe_selective<B: FlashStorageBackend>(
             }
         } else {
             let _ = engine.check_and_touch_session(now_ms);
-            let is_authorized = engine.is_unlocked() || engine.policy().test_mode_non_destructive_wipe;
+            let is_authorized =
+                engine.is_unlocked() || engine.policy().test_mode_non_destructive_wipe;
             if !is_authorized {
                 return (
                     CTAP2_ERR_PIN_REQUIRED,

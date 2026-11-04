@@ -1,5 +1,5 @@
 use super::to_cbor_bytes;
-use aegis_fido_core::secure_guard::{MAX_ATTEMPTS, SecureGuardEngine};
+use aegis_fido_core::secure_guard::{SecureGuardEngine, MAX_ATTEMPTS};
 use ciborium::value::Value;
 use std::format;
 use std::vec::Vec;
@@ -135,10 +135,7 @@ pub fn handle_status(engine: &mut SecureGuardEngine, now_ms: u64) -> (u8, Vec<u8
         {
             let mut mac = [0u8; 6];
             let _ = unsafe {
-                esp_idf_sys::esp_read_mac(
-                    mac.as_mut_ptr(),
-                    esp_idf_sys::esp_mac_type_t_ESP_MAC_BT,
-                )
+                esp_idf_sys::esp_read_mac(mac.as_mut_ptr(), esp_idf_sys::esp_mac_type_t_ESP_MAC_BT)
             };
             mac
         }

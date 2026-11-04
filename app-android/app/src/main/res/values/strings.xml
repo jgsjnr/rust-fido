@@ -87,6 +87,7 @@
     <string name="guard_session_active_badge">Session Active</string>
     <string name="guard_session_locked_badge">Session Locked</string>
     <string name="guard_session_unprovisioned_badge">Unprovisioned</string>
+    <string name="guard_bench_badge">MODO BANCADA/TESTE</string>
     <string name="guard_btn_unlock_session">Unlock Session</string>
     <string name="guard_reset_title">Factory Reset Hardware</string>
     <string name="guard_confirm_reset_btn">Confirm Reset</string>

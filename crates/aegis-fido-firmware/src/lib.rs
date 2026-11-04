@@ -32,15 +32,27 @@ compile_error!("cap-fido-only is an alternative root: build with --no-default-fe
 #[cfg(all(feature = "default", feature = "cap-fido-totp"))]
 compile_error!("cap-fido-totp is an alternative root: build with --no-default-features --features board-devkitc,cap-fido-totp");
 // Diet exclui radios extras, display, diagnosticos e binds de teste.
-#[cfg(all(any(feature = "cap-fido-only", feature = "cap-fido-totp"), any(feature = "proximity", feature = "debug-terminal", feature = "test-mode", feature = "has-display", feature = "board-t-display", feature = "board-ttgo-classic", feature = "wifi")))]
-compile_error!("capability diet presets exclude proximity/debug-terminal/test-mode/display/wifi features");
+#[cfg(all(
+    any(feature = "cap-fido-only", feature = "cap-fido-totp"),
+    any(
+        feature = "proximity",
+        feature = "debug-terminal",
+        feature = "test-mode",
+        feature = "has-display",
+        feature = "board-t-display",
+        feature = "board-ttgo-classic",
+        feature = "wifi"
+    )
+))]
+compile_error!(
+    "capability diet presets exclude proximity/debug-terminal/test-mode/display/wifi features"
+);
 /// Vendor status fail-closed para comando compilado para fora da capability
 /// (diet presets). Namespace vendor section 9.5: `0x00` OK | `0x01` NEED_UP |
 /// `0x02` NEED_PIN | `0x03` NO_SLOT | `0x04` falha generica |
 /// `0x05` NEED_BINDING. `0x06` = UNSUPPORTED_FEATURE (comando indisponivel
 /// no preset; nunca queda silenciosa).
 pub const UNSUPPORTED_FEATURE: u8 = 0x06;
-
 
 pub mod anti_rollback;
 pub mod apdu;
@@ -78,6 +90,7 @@ pub mod freertos_sched;
 pub mod fw_log;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod hd_wallet;
+pub mod hmac_cr_compat_layer;
 pub mod identity;
 pub mod led;
 pub mod led_policy;
@@ -86,9 +99,15 @@ pub mod mdns;
 pub mod migrations;
 pub mod net;
 pub mod nvs_backend;
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub mod oath_cmd;
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub mod oath_store;
 pub mod oled_ssd1306_code_only;
 pub mod openpgp_applet;
@@ -102,15 +121,15 @@ pub mod persistence;
 pub mod pin_uv;
 pub mod piv_cmd;
 pub mod piv_store;
-pub mod provision;
 pub mod prod_strict_guard;
-pub mod psram_public_alloc;
+pub mod provision;
 #[cfg(feature = "proximity")]
 pub mod proximity;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod proximity_crypto;
 #[cfg(feature = "proximity")]
 pub mod proximity_sched;
+pub mod psram_public_alloc;
 pub mod recovery;
 pub mod run;
 pub mod secure_guard_exec;
@@ -122,11 +141,18 @@ pub mod serial_text;
 pub mod serial_vendor;
 pub mod stores;
 pub mod test_hooks;
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
+pub mod time_sync;
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub mod totp;
 pub mod totp_view;
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
-pub mod time_sync;
+pub mod transport_lock;
 pub mod trust_facade;
 pub mod trust_gap;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
@@ -143,7 +169,6 @@ pub mod wallet_exec;
 pub mod watchdog;
 pub mod wifi_ap;
 pub mod wifi_station;
-pub mod hmac_cr_compat_layer;
 pub mod zeroize;
 
 pub use crate::crypto_aead::{AeadAlgorithm, AeadBackend, AeadError};
@@ -160,6 +185,7 @@ pub use crate::efuse_safety_lock::{
     FlashEncryptionAesXtsSpec, HardwareHmacEfuseBlock7Spec, MonotonicAntiRollbackEfuseSpec,
     SecureBootV2Rsa3072Spec, EFUSE_PERMANENT_LOCK_WARNING, EFUSE_WRITE_HARD_LOCKED,
 };
+pub use crate::led_policy::{LedAuthError, LedCommand, LedPolicy};
 pub use crate::oled_ssd1306_code_only::{
     Ssd1306Driver, VirtualOledDisplayBuffer, HARDWARE_I2C_OLED_ATTACHED, OLED_FRAME_BYTES,
     OLED_HEIGHT, OLED_WIDTH, SSD1306_DEFAULT_I2C_ADDR, SSD1306_DEFAULT_SCL_PIN,
@@ -169,7 +195,6 @@ pub use crate::prod_strict_guard::{
     is_software_touch_allowed, verify_software_touch_allowed, ProductionIsolationGate,
     PROD_STRICT_ACTIVE,
 };
-pub use crate::led_policy::{LedAuthError, LedCommand, LedPolicy};
 pub use crate::up_policy::{OperationHash, UpDeny, UpGrant, UpPolicy};
 pub use crate::zeroize::{scrub, SecretBytes};
 #[cfg(any(test, not(target_os = "espidf")))]

@@ -11,9 +11,12 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use aegis_fido_core::oath::{write_tlv, OathApplet, TAG_CHALLENGE, TAG_NAME};
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 use aegis_fido_core::oath::OathType;
+use aegis_fido_core::oath::{write_tlv, OathApplet, TAG_CHALLENGE, TAG_NAME};
 
 /// Periodo TOTP em segundos (RFC 6238).
 pub const TOTP_PERIOD_SECS: u64 = 30;
@@ -65,7 +68,10 @@ pub fn build_totp_request_tlv(label: &str, challenge: &[u8; 8]) -> Vec<u8> {
 /// - Applet vazio → vazio (chamador mostra "sem contas").
 /// - HOTP e ignorado aqui (sem janela 30s; via USB/CTAP apenas).
 /// - Ordem = ordem do `device_list` (estavel por insercao).
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn collect_totp_codes(
     applet: &mut OathApplet,
     unix_secs: u64,
@@ -134,7 +140,10 @@ pub fn type_code_via_keyboard(
     typer.is_active()
 }
 
-#[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 #[cfg(test)]
 mod tests {
     use super::*;

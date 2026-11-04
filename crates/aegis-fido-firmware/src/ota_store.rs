@@ -64,9 +64,14 @@ mod ota_wiring_tests {
     }
 
     fn req_ctx(provisioned: bool, up: bool, pubkey: [u8; 32]) -> OtaRequestCtx {
+        req_ctx_hook(provisioned, up, false, pubkey)
+    }
+
+    fn req_ctx_hook(provisioned: bool, up: bool, up_hook: bool, pubkey: [u8; 32]) -> OtaRequestCtx {
         OtaRequestCtx {
             provisioned,
             up,
+            up_hook,
             ota_pubkey: pubkey,
             current_version: OTA_CURRENT,
         }
@@ -495,5 +500,59 @@ mod ota_wiring_tests {
         assert!(!verify_ota_signature(&[0x22u8; 32], msg, &sig));
         assert!(!verify_ota_signature(&[0u8; 32], msg, &sig));
         assert!(!verify_ota_signature(&vk, b"tampered message", &sig));
+    }
+
+    #[test]
+    fn ota_commit_hook_semantics() {
+        // Default `false`; só test-mode honra o hook (release ignora e
+        // exige o BOOT físico via `up`).
+        let plain = req_ctx(true, false, [0x11u8; 32]);
+        assert!(!plain.up_hook);
+        assert!(!plain.commit_up_ok());
+        assert!(req_ctx(true, true, [0x11u8; 32]).commit_up_ok());
+        let hooked = req_ctx_hook(true, false, true, [0x11u8; 32]);
+        assert_eq!(hooked.commit_up_ok(), cfg!(feature = "test-mode"));
+        assert!(req_ctx_hook(true, true, true, [0x11u8; 32]).commit_up_ok());
+    }
+
+    #[test]
+    fn ota_commit_hook_gate_no_dispatch() {
+        // COMMIT sem UP físico: com o hook armado passa em test-mode e
+        // nega (`NEED_UP`, sessão preservada) em release; sem hook nega
+        // nos dois builds.
+        use crate::ota::OP_OTA_COMMIT;
+        let mut storage = credentialed_storage();
+        let image = ota_image();
+        let sk = SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
+        let manifest = signed_manifest(OTA_NEXT, &image, &sk);
+        let pubkey = sk.verifying_key().to_bytes();
+        let mut ota = OtaState::new(OTA_CURRENT);
+        let ctx = req_ctx(true, true, pubkey);
+        let mut sink = FlashOtaSink::new(storage.backend_mut());
+        stage_to_verified(&mut ota, &mut sink, &manifest, &image, &ctx);
+        // Sem hook: NEED_UP nos dois builds, sessão preservada.
+        let no_hook = req_ctx_hook(true, false, false, pubkey);
+        assert_eq!(
+            dispatch_ota_request(&mut ota, &mut sink, OP_OTA_COMMIT, &[], &no_hook),
+            Some((OTA_STATUS_NEED_UP, Vec::new()))
+        );
+        assert_eq!(ota.phase(), OtaPhase::Verified);
+        // Com hook: test-mode comita (OK + marker); release nega NEED_UP.
+        let hooked = req_ctx_hook(true, false, true, pubkey);
+        let (st, _) =
+            dispatch_ota_request(&mut ota, &mut sink, OP_OTA_COMMIT, &[], &hooked)
+                .expect("commit dispatch");
+        #[cfg(feature = "test-mode")]
+        {
+            assert_eq!(st, OTA_STATUS_OK);
+            assert_eq!(ota.phase(), OtaPhase::Committed);
+            assert_eq!(sink.committed_marker(), Some(OTA_NEXT));
+        }
+        #[cfg(not(feature = "test-mode"))]
+        {
+            assert_eq!(st, OTA_STATUS_NEED_UP);
+            assert_eq!(ota.phase(), OtaPhase::Verified);
+            assert!(!sink.has_commit_marker());
+        }
     }
 }

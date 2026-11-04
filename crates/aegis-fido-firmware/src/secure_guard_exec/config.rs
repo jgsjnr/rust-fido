@@ -2,12 +2,12 @@ use super::{
     cbor_err, extract_bytes, get_field, to_cbor_bytes, CTAP2_ERR_PIN_AUTH_INVALID,
     CTAP2_ERR_PIN_REQUIRED,
 };
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::secure_guard_storage::save_secure_guard_record;
 use aegis_fido_core::secure_guard::SecureGuardEngine;
 use ciborium::value::Value;
 use std::format;
 use std::vec::Vec;
-use crate::persistence::{FlashStorageBackend, SecureStorage};
-use crate::secure_guard_storage::save_secure_guard_record;
 /// 0x3D: OP_SECURE_GUARD_CONFIG
 pub(crate) fn handle_config<B: FlashStorageBackend>(
     engine: &mut SecureGuardEngine,

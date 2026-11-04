@@ -80,7 +80,9 @@ mod tests {
         if PROD_STRICT_ACTIVE {
             assert!(!is_software_touch_allowed());
             assert!(verify_software_touch_allowed().is_err());
-            assert!(!ProductionIsolationGate::can_execute_test_command("TEST_UP"));
+            assert!(!ProductionIsolationGate::can_execute_test_command(
+                "TEST_UP"
+            ));
         } else {
             // Em builds regulares sem test-mode, também deve ser false
             #[cfg(not(feature = "test-mode"))]

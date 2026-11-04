@@ -31,6 +31,9 @@ pub const TEST_COMMANDS: &[&str] = &[
     "TEST_LED_BLUE",
     "TEST_LED_OFF",
     "TEST_LED_RELEASE",
+    "TEST_BENCH_ON",
+    "TEST_BENCH_OFF",
+    "TEST_OTA_COMMIT_HOOK",
 ];
 
 /// Bypasses de gate que só existem com `test-mode` (via `cfg!`, sem handler).

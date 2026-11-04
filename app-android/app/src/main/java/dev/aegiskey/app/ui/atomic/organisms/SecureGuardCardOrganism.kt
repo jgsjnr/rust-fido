@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aegiskey.app.R
+import dev.aegiskey.app.benchmode.BenchSession
 import dev.aegiskey.app.domain.model.ErrorLockedRecovery
 import dev.aegiskey.app.domain.model.SecureGuardPolicy
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
@@ -129,6 +130,25 @@ fun SecureGuardCardOrganism(
                             overflow = TextOverflow.Ellipsis
                         )
                         SecureGuardBadgeAtom(state = status.state)
+                        // Bench/test session badge: read-only. Rendered only
+                        // when firmware/bridge authority proves a bench
+                        // session (test-mode policy or simulated wipe). Never
+                        // alters the production lock flow.
+                        if (BenchSession.isBench(status)) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFF92400E), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.guard_bench_badge),
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
                     }
                     Text(
                         text = stringResource(R.string.guard_subtitle),

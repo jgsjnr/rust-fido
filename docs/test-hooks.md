@@ -27,6 +27,9 @@ release quebra `scripts/check-release-clean.py`.
 | TEST_LED_BLUE | main.rs D1b (gated) | trava azul p/ olhos | linha ignorada |
 | TEST_LED_OFF | main.rs D1b (gated) | apaga p/ olhos | linha ignorada |
 | TEST_LED_RELEASE | main.rs D1b (gated) | devolve LED à jornada | linha ignorada |
+| TEST_BENCH_ON | `dispatch_serial_bench_line` (gated) + `bench_enable` | sessao estendida 24 h em RAM (sem relock idle); NVS/eFuse intactos | `None` (ignorado) |
+| TEST_BENCH_OFF | idem (`bench_disable`) | restaura policy salva; idle padrao volta | `None` (ignorado) |
+| TEST_OTA_COMMIT_HOOK | D1 legado + dreno FreeRTOS (`handle_freertos_test_line`, gated) | arma hook 1x p/ COMMIT OTA sem BOOT (`up_hook` em `OtaRequestCtx`; BEGIN/CHUNK/FINISH inalterados; release ignora e exige BOOT) | linha ignorada |
 
 ## Bypasses (sem handler; `cfg!` em tempo de compilação)
 

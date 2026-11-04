@@ -412,7 +412,7 @@ pub fn run_authenticator_freertos() {
         }
     }
     #[cfg(target_os = "espidf")]
-    let mut was_usb_mounted = unsafe { aegis_usb_is_mounted() };
+    let mut transport_monitor = crate::transport_lock::TransportMonitor::new();
     #[cfg(target_os = "espidf")]
     stack_mark("binding+managers");
     #[cfg(target_os = "espidf")]
@@ -707,6 +707,17 @@ pub fn run_authenticator_freertos() {
                             // lê `len` bytes para TX serial.
                             serial_send_bytes(resp.as_ptr(), resp.len() as u16);
                         }
+                        // MODO BANCADA (test-mode only): op explicita estende
+                        // a sessao em RAM (sem relock idle); disconnect lock
+                        // segue valendo; NVS intacta. CI-GREP: TEST-HOOK.
+                        if let Some(resp) = crate::serial_ctaphid::dispatch_serial_bench_line(
+                            line,
+                            &mut secure_guard,
+                            &mut fw_log,
+                            freertos_now_ms,
+                        ) {
+                            serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                        }
                         if outcome.reboot_to_download {
                             kprintln!("[TEST] download via software (RTC_CNTL).");
                             // Reboot p/ download ROM via RTC_CNTL;
@@ -797,8 +808,21 @@ pub fn run_authenticator_freertos() {
                 }
                 e if e == ble::BLE_EVT_DISCONNECTED => {
                     common::note_ble_disconnected(&mut ble_adv_active, &mut ble_bond_pending);
+                    if transport_monitor.observe_ble(false)
+                        == Some(crate::transport_lock::TransportKind::Ble)
+                    {
+                        common::lock_session_on_transport_loss(
+                            &mut secure_guard,
+                            &mut ctap_engine.pin_state,
+                            &mut rescue_engine,
+                            &mut fw_log,
+                            crate::transport_lock::TransportKind::Ble,
+                            freertos_now_ms,
+                        );
+                    }
                 }
                 e if e == ble::BLE_EVT_CONNECTED => {
+                    transport_monitor.observe_ble(true);
                     kprintln!("[BLE] central conectou (aguardando bonding).");
                 }
                 _ => {}
@@ -930,6 +954,12 @@ pub fn run_authenticator_freertos() {
                 let pin_uv_session = pin_verified
                     || ctap_engine.pin_state.has_valid_pin_uv_session()
                     || (cfg!(feature = "test-mode") && (pairing_live || touch_latched));
+                // Hook 1x p/ COMMIT OTA sem BOOT (test-mode only, host-only;
+                // default `false`; release ignora no `commit_up_ok`).
+                #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                let ota_hook_now = freertos_test.ota_hook_armed();
+                #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+                let ota_hook_now = false;
                 let mut vendor_ctx = SerialVendorCtx {
                     pairing_open: pairing_live,
                     up_latched: touch_latched,
@@ -956,6 +986,7 @@ pub fn run_authenticator_freertos() {
                         || cfg!(feature = "test-mode"),
                     ota_pubkey: crate::ota::OtaKeyProvider::active_pubkey_for_build(),
                     ota_current_version: 1,
+                    up_hook: ota_hook_now,
                 };
                 let out = route_ctaphid_event(
                     &mut ctaphid_usb,
@@ -978,6 +1009,10 @@ pub fn run_authenticator_freertos() {
                     prox.note_presence(prox_now_ms);
                 } else if out.consumed_up {
                     touch_latched = false;
+                    // Hook 1x: consumido junto com o latch (mesma semantica
+                    // do TEST_UP; sem isto o hook valeria para sempre).
+                    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                    freertos_test.clear_ota_hook();
                 }
                 // Fio compartilhado UART: marca janela quieta em qualquer
                 // pacote serial (recebido ou respondido) p/ o dreno TEST
@@ -1067,17 +1102,23 @@ pub fn run_authenticator_freertos() {
                 // Relógio do roteamento + expiração do latch UP (1,5 s).
                 freertos_now_ms = t.saturating_mul(10);
                 let usb_active = unsafe { aegis_usb_is_mounted() };
-                if was_usb_mounted && !usb_active {
-                    let _ = secure_guard.on_transport_disconnect(freertos_now_ms);
-                    crate::hmac_cr_compat_layer::set_secure_guard_unlocked(false);
-                    kprintln!("[SECURE_GUARD] Sessão trancada por desconexão USB.");
+                if transport_monitor.observe_usb(usb_active)
+                    == Some(crate::transport_lock::TransportKind::UsbHid)
+                {
+                    common::lock_session_on_transport_loss(
+                        &mut secure_guard,
+                        &mut ctap_engine.pin_state,
+                        &mut rescue_engine,
+                        &mut fw_log,
+                        crate::transport_lock::TransportKind::UsbHid,
+                        freertos_now_ms,
+                    );
                     if let Some(ref mut led) = display_mgr.led_controller {
                         led.set_effect(crate::pairing_led::effect_for_secure_guard_state(
                             secure_guard.state(),
                         ));
                     }
                 }
-                was_usb_mounted = usb_active;
                 if touch_latched && freertos_now_ms >= touch_expire_ms {
                     touch_latched = false;
                     rescue_engine.set_user_presence(false);
@@ -1239,6 +1280,25 @@ pub fn run_authenticator_freertos() {
                         has_creds,
                         freertos_now_ms,
                     );
+                    // WiFi: borda ativo-para-inativo (inclui timeout da station) e
+                    // quiescencia travam a sessao (transport_lock).
+                    {
+                        let wifi_active = wifi_ap_mgr.is_active(freertos_now_ms) || sta_mgr.is_up();
+                        if transport_monitor.observe_wifi(wifi_active, freertos_now_ms)
+                            == Some(crate::transport_lock::TransportKind::Wifi)
+                            || transport_monitor.poll(freertos_now_ms)
+                                == Some(crate::transport_lock::TransportKind::Wifi)
+                        {
+                            common::lock_session_on_transport_loss(
+                                &mut secure_guard,
+                                &mut ctap_engine.pin_state,
+                                &mut rescue_engine,
+                                &mut fw_log,
+                                crate::transport_lock::TransportKind::Wifi,
+                                freertos_now_ms,
+                            );
+                        }
+                    }
                     // TOTP sem bateria: SNTP quando a station esta up (ver `time_sync`).
                     #[cfg(all(
                         target_os = "espidf",

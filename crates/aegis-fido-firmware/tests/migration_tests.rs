@@ -2,7 +2,10 @@
 //!
 //! Uses public `SecureStorage` + `migrations` API only (no private access).
 //! Envelope v1 preserved: asserts legacy bytes still readable after migrate.
-#![cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#![cfg(any(
+    feature = "cap-fido-totp",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 
 use aegis_fido_firmware::migrations::{is_migrated, migrate_v1_to_v2};
 use aegis_fido_firmware::persistence::{MockFlashBackend, SecureStorage};

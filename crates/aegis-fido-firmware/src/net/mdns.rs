@@ -128,7 +128,10 @@ impl Default for MdnsManager {
 // `ble_nimble.rs` com `aegis_ble`: sem bindgen, sem novos deps.
 // ---------------------------------------------------------------------------
 
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 extern "C" {
     fn aegis_mdns_start(host: *const u8, host_len: i32) -> i32;
     fn aegis_mdns_stop() -> i32;
@@ -136,25 +139,37 @@ extern "C" {
 
 /// Liga o responder mDNS (`0` ok, negativo = erro do C).
 /// `host` SEM o sufixo `.local` (ex.: `aegiskey-00af`).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_mdns_start(host: &str) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "mdns");
     unsafe { aegis_mdns_start(host.as_ptr(), host.len().min(i32::MAX as usize) as i32) }
 }
 
 /// Desliga o responder (`0` ok).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_mdns_stop() -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "mdns");
     unsafe { aegis_mdns_stop() }
 }
 
 // Shims inertes no host (sem radio; politica testada por unidade).
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_mdns_start(_host: &str) -> i32 {
     0
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_mdns_stop() -> i32 {
     0
 }

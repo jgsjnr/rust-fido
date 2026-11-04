@@ -42,6 +42,15 @@ pub const EV_ERR: u8 = 0x10;
 /// ADV recusado por falta de memoria no controller (rc=519 HCI
 /// Memory Capacity Exceeded com instancia residual). Nao consome retry.
 pub const EV_ADV_NOMEM: u8 = 0x11;
+/// Trava automatica por perda do transporte ativo (ver transport_lock):
+/// USB HID desconectado, BLE desconectado/desligado ou WiFi caido/quiescente.
+/// arg = canal (TransportKind::fw_log_arg: 0x01 USB, 0x02 BLE, 0x03 WiFi).
+/// Sem PII/segredo, so canal + tempo.
+pub const EV_TRANSPORT_LOCK: u8 = 0x12;
+/// MODO BANCADA test-mode (`secure_guard_exec::bench`): arg `0x01` = ON
+/// (sessao estendida em RAM), `0x00` = OFF (policy restaurada). Marca BENCH
+/// p/ auditoria de laboratorio; sem PII/segredo, so on/off + tempo.
+pub const EV_BENCH: u8 = 0x13;
 
 /// Capacidade do anel (16 B/entrada -> 1 KiB de RAM).
 pub const FW_LOG_CAP: usize = 64;

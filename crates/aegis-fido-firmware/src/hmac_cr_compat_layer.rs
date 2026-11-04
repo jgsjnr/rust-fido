@@ -58,7 +58,11 @@ pub fn is_secure_guard_unlocked() -> bool {
 }
 
 /// Configure Slot 1 or Slot 2 with a 20-byte HMAC-SHA1 key.
-pub fn configure_cr_compat_slot(slot_num: u8, key: &[u8], require_touch: bool) -> Result<(), &'static str> {
+pub fn configure_cr_compat_slot(
+    slot_num: u8,
+    key: &[u8],
+    require_touch: bool,
+) -> Result<(), &'static str> {
     if key.len() != 20 {
         return Err("invalid_key_length_must_be_20_bytes");
     }
@@ -92,7 +96,10 @@ pub fn clear_cr_compat_slot(slot_num: u8) -> Result<(), &'static str> {
 
 /// Calculate 20-byte HMAC-SHA1 + 2-byte CRC-16 ISO 13239 (22 bytes total).
 /// Loads key on-demand in internal SRAM buffer with immediate Zeroize upon exit.
-pub fn process_cr_compat_challenge(slot_num: u8, challenge: &[u8]) -> Result<[u8; 22], &'static str> {
+pub fn process_cr_compat_challenge(
+    slot_num: u8,
+    challenge: &[u8],
+) -> Result<[u8; 22], &'static str> {
     if challenge.len() > 64 {
         return Err("challenge_too_long");
     }

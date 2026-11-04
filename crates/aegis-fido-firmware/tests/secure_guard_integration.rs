@@ -130,6 +130,7 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         ota_provisioned: false,
         ota_pubkey: [0u8; 32],
         ota_current_version: 0,
+        up_hook: false,
     };
 
     // 1. Status inicial via 0x3A (deve ser Unprovisioned)
@@ -353,6 +354,7 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
         ota_provisioned: false,
         ota_pubkey: [0u8; 32],
         ota_current_version: 0,
+        up_hook: false,
     };
 
     // Submete 5 tentativas erradas com avanço de tempo para superar os delays de rate limit

@@ -1,9 +1,9 @@
 use super::to_cbor_bytes;
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::secure_guard_storage::save_secure_guard_record;
 use aegis_fido_core::secure_guard::SecureGuardEngine;
 use ciborium::value::Value;
 use std::vec::Vec;
-use crate::persistence::{FlashStorageBackend, SecureStorage};
-use crate::secure_guard_storage::save_secure_guard_record;
 /// 0x3C: OP_SECURE_GUARD_LOCK
 pub(crate) fn handle_lock<B: FlashStorageBackend>(
     engine: &mut SecureGuardEngine,

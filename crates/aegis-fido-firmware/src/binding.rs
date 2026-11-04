@@ -933,7 +933,10 @@ mod tests {
         assert_eq!(BleGattError::PinRequired.to_vendor_status(), 0x02);
     }
 
-    #[cfg(any(feature = "cap-fido-totp", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+    #[cfg(any(
+        feature = "cap-fido-totp",
+        not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+    ))]
     #[test]
     fn wifi_and_oath_bound_gates_require_binding_first() {
         use crate::oath_store::{

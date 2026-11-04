@@ -21,7 +21,7 @@ use crate::{
     display::{DisplayManager, UiScreen},
     efuse::{EfuseManager, RamEfuseStorage},
     led::{EspWs2812Output, Ws2812Controller},
-    persistence::{SecureStorage},
+    persistence::SecureStorage,
     provision::load_device_keys,
     totp_view::{collect_totp_codes, NO_ACCOUNTS_MSG, TOTP_SHOW_TICKS},
     usb_descriptors,
@@ -152,6 +152,8 @@ fn ota_provisioned(efuse_mgr: &crate::efuse::EfuseManager<crate::efuse::RamEfuse
 /// ao poll USB binário) e roteia via `SerialRouter`/dispatch existentes:
 /// - `TEST_UP` arma 1 latch de presença (consumo único, mesma semântica do
 ///   legado: vale no próximo Tick, 1,5 s via `prox.note_presence`).
+/// - `TEST_OTA_COMMIT_HOOK` arma o hook 1x p/ COMMIT OTA sem BOOT
+///   (só COMMIT; BEGIN/CHUNK/FINISH inalterados; release ignora).
 /// - `TEST_PAIRING_OPEN[_300]` delega a `dispatch_serial_pairing_line`
 ///   (usa o ponto de pareamento `PairingManager::open_test_window[_secs]`;
 ///   UP/bonding seguem exigidos, sem auto-parear).
@@ -189,6 +191,8 @@ mod freertos_test_mode {
         Download,
         /// `TEST_USB_RECONNECT`: re-enumera o USB nativo.
         UsbReconnect,
+        /// `TEST_OTA_COMMIT_HOOK`: arma o hook 1x p/ COMMIT OTA sem BOOT.
+        OtaCommitHook,
         /// `TEST_LED_STATE`: estado textual (sem segredos).
         LedState,
         /// `TEST_LED_{RED,GREEN,BLUE,OFF}`: ack compatível, sem latch no FreeRTOS.
@@ -212,6 +216,7 @@ mod freertos_test_mode {
             "TEST_PAIRING_CLOSE" => FreertosTestLine::PairingClose,
             "TEST_DOWNLOAD" => FreertosTestLine::Download,
             "TEST_USB_RECONNECT" => FreertosTestLine::UsbReconnect,
+            "TEST_OTA_COMMIT_HOOK" => FreertosTestLine::OtaCommitHook,
             "TEST_LED_STATE" => FreertosTestLine::LedState,
             "TEST_LED_RED" | "TEST_LED_GREEN" | "TEST_LED_BLUE" | "TEST_LED_OFF" => {
                 FreertosTestLine::LedSet
@@ -237,6 +242,8 @@ mod freertos_test_mode {
     pub struct FreertosTestState {
         up_pending: bool,
         pairing: PairingManager,
+        /// Hook 1x p/ COMMIT OTA sem BOOT (host-only; default `false`).
+        ota_commit_hook: bool,
     }
 
     impl FreertosTestState {
@@ -245,6 +252,7 @@ mod freertos_test_mode {
             Self {
                 up_pending: false,
                 pairing: PairingManager::new(),
+                ota_commit_hook: false,
             }
         }
 
@@ -261,6 +269,21 @@ mod freertos_test_mode {
         /// Latch armado? (só metadado p/ `extra_states` do dump).
         pub fn up_pending(&self) -> bool {
             self.up_pending
+        }
+
+        /// Arma o hook 1x p/ COMMIT OTA sem BOOT (host-only; test-mode).
+        pub fn arm_ota_hook(&mut self) {
+            self.ota_commit_hook = true;
+        }
+
+        /// Hook armado? (lido pelo funil OTA a cada pacote; sem efeito colateral).
+        pub fn ota_hook_armed(&self) -> bool {
+            self.ota_commit_hook
+        }
+
+        /// Consome o hook 1x (junto com o latch UP; sem isto valeria p/ sempre).
+        pub fn clear_ota_hook(&mut self) {
+            self.ota_commit_hook = false;
         }
 
         /// Janela de pareamento atual (p/ `prox.tick`; `Idle` sem `TEST_PAIRING_OPEN`).
@@ -365,6 +388,18 @@ mod freertos_test_mode {
                 reboot_to_download: false,
                 usb_reconnect: true,
             },
+            // CI-GREP: TEST-HOOK (test-mode only).
+            // Arma o hook 1x p/ COMMIT OTA sem BOOT (host-only;
+            // BEGIN/CHUNK/FINISH seguem exigindo as chaves; release ignora
+            // o hook em `commit_up_ok` e exige o BOOT físico).
+            FreertosTestLine::OtaCommitHook => {
+                state.arm_ota_hook();
+                TestLineOutcome {
+                    response: Some(String::from("ota_commit_hook armed\n")),
+                    reboot_to_download: false,
+                    usb_reconnect: false,
+                }
+            }
             FreertosTestLine::LedState => {
                 // Sem pipeline LED/display no FreeRTOS (o latch `led_test_hold`
                 // + `display_mgr` vivem no loop legado): responde só metadados.
@@ -433,6 +468,10 @@ mod freertos_test_mode {
                 FreertosTestLine::UsbReconnect
             );
             assert_eq!(
+                classify_freertos_test_line("TEST_OTA_COMMIT_HOOK"),
+                FreertosTestLine::OtaCommitHook
+            );
+            assert_eq!(
                 classify_freertos_test_line("TEST_PAIRING_OPEN"),
                 FreertosTestLine::PairingOpen
             );
@@ -487,6 +526,21 @@ mod freertos_test_mode {
             assert!(s.up_pending());
             assert!(s.take_up());
             assert!(!s.take_up());
+        }
+
+        #[test]
+        fn ota_hook_arma_e_consome_uma_vez() {
+            // Default `false` (fail-closed); a linha arma; o consumo é
+            // explícito via `clear_ota_hook` (o run loop chama junto com o
+            // consumo do latch UP).
+            let mut s = FreertosTestState::new();
+            assert!(!s.ota_hook_armed());
+            let out = handle_freertos_test_line(&mut s, "TEST_OTA_COMMIT_HOOK", 1000, "");
+            assert_eq!(out.response.as_deref(), Some("ota_commit_hook armed\n"));
+            assert!(!out.reboot_to_download && !out.usb_reconnect);
+            assert!(s.ota_hook_armed());
+            s.clear_ota_hook();
+            assert!(!s.ota_hook_armed());
         }
 
         #[test]

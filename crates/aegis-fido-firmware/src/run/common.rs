@@ -7,11 +7,16 @@
 //! state (no behavior change; time arrives via args, never from a clock).
 
 use crate::display::{DisplayManager, UiScreen};
+use crate::fw_log::FwLog;
 use crate::led::LedOutput;
 use crate::mdns::MdnsManager;
 use crate::pairing::PairingManager;
 use crate::persistence::{PlatformFlashBackend, SecureStorage};
+use crate::transport_lock::{TransportKind, TransportLockReport};
 use crate::wifi_station::WifiStationManager;
+use aegis_fido_core::ctap::client_pin::ClientPinState;
+use aegis_fido_core::otp::rescue::RescueEngine;
+use aegis_fido_core::secure_guard::SecureGuardEngine;
 
 /// Step 3 init: NVS flash backend with persistence probe (shared boot line).
 pub(crate) fn init_flash_backend() -> PlatformFlashBackend {
@@ -138,9 +143,8 @@ pub(crate) fn poll_wifi_station_radio(
     let mdns_want = mdns_mgr.is_active();
     if mdns_want != *mdns_active {
         if mdns_want {
-            let host = crate::mdns::mdns_hostname_for_serial(
-                crate::usb_descriptors::SERIAL_NUMBER_STRING,
-            );
+            let host =
+                crate::mdns::mdns_hostname_for_serial(crate::usb_descriptors::SERIAL_NUMBER_STRING);
             let bare = crate::mdns::mdns_bare_hostname(&host);
             let rc = crate::mdns::esp_mdns_start(bare);
             if rc == 0 {
@@ -187,4 +191,29 @@ pub(crate) fn note_ble_disconnected(ble_adv_active: &mut bool, ble_bond_pending:
     kprintln!("[BLE] central desconectou.");
     *ble_adv_active = false;
     *ble_bond_pending = false;
+}
+
+/// Trava de sessao na perda do transporte ativo (USB/BLE/WiFi).
+///
+/// Involucro fino sobre transport_lock::lock_on_transport_loss para os dois
+/// run loops (freertos + legado): nestes pontos nao ha scratch do chamador em
+/// escopo, entao a lista vai vazia. Audita EV_TRANSPORT_LOCK no FwLog e
+/// loga so o canal (sem segredo). Sem wipe/NVS-erase/eFuse, sem mudar o PIN.
+pub(crate) fn lock_session_on_transport_loss(
+    engine: &mut SecureGuardEngine,
+    pin_state: &mut ClientPinState,
+    rescue: &mut RescueEngine,
+    fw_log: &mut FwLog,
+    kind: TransportKind,
+    now_ms: u64,
+) -> TransportLockReport {
+    let mut empty: [&mut [u8]; 0] = [];
+    let report = crate::transport_lock::lock_on_transport_loss(
+        engine, pin_state, rescue, &mut empty, fw_log, kind, now_ms,
+    );
+    kprintln!(
+        "[SECURE_GUARD] Sessao trancada por perda de transporte ({}).",
+        kind.name()
+    );
+    report
 }

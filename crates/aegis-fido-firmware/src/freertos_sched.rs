@@ -760,9 +760,7 @@ pub fn app_main_freertos_demo() -> (usize, usize, u64) {
     // após o corpo do loop). Aguarda o bit EVT_TICK_10MS (não
     // destrutivo; não consome a fila nem altera gates de segurança).
     let tick_deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while sched.events.get() & EVT_TICK_10MS == 0
-        && std::time::Instant::now() < tick_deadline
-    {
+    while sched.events.get() & EVT_TICK_10MS == 0 && std::time::Instant::now() < tick_deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
     sched.request_stop();

@@ -54,23 +54,32 @@ pub const CONTROL_BYTE_DATA_STREAM: u8 = 0x40;
 
 /// Tabela de inicialização canônica do controlador SSD1306.
 pub const SSD1306_INIT_SEQUENCE: &[u8] = &[
-    CMD_DISPLAY_OFF,             // 0xAE: Desliga o display durante configuração
-    CMD_SET_DISPLAY_CLOCK_DIV, 0x80, // 0xD5: Frequência do oscilador e divisor de clock
-    CMD_SET_MULTIPLEX, 0x3F,     // 0xA8: Razão de multiplexação 64 MUX (0x3F)
-    CMD_SET_DISPLAY_OFFSET, 0x00,// 0xD3: Offset vertical zero
-    CMD_SET_START_LINE,          // 0x40: Linha inicial da GDDRAM = 0
-    CMD_CHARGE_PUMP, 0x14,       // 0x8D: Ativa a bomba de carga interna de 7.5V (0x14)
-    CMD_MEMORY_MODE, 0x00,       // 0x20: Modo de endereçamento horizontal (0x00)
-    CMD_SEG_REMAP_127,           // 0xA1: Remapeia coluna 127 para SEG0
-    CMD_COM_SCAN_DEC,            // 0xC8: Direção de varredura COM invertida
-    CMD_SET_COM_PINS, 0x12,      // 0xDA: Configuração de hardware de pinos COM
-    CMD_SET_CONTRAST, 0xCF,      // 0x81: Contraste
-    CMD_SET_PRECHARGE, 0xF1,     // 0xD9: Período de pré-carga
-    CMD_SET_VCOM_DETECT, 0x40,   // 0xDB: Nível de desseleção VCOMH
-    CMD_DISPLAY_ALL_ON_RESUME,   // 0xA4: Retoma exibição a partir da GDDRAM
-    CMD_NORMAL_DISPLAY,          // 0xA6: Display normal (não invertido)
-    CMD_DEACTIVATE_SCROLL,       // 0x2E: Desativa rolagem
-    CMD_DISPLAY_ON,              // 0xAF: Liga o display
+    CMD_DISPLAY_OFF, // 0xAE: Desliga o display durante configuração
+    CMD_SET_DISPLAY_CLOCK_DIV,
+    0x80, // 0xD5: Frequência do oscilador e divisor de clock
+    CMD_SET_MULTIPLEX,
+    0x3F, // 0xA8: Razão de multiplexação 64 MUX (0x3F)
+    CMD_SET_DISPLAY_OFFSET,
+    0x00,               // 0xD3: Offset vertical zero
+    CMD_SET_START_LINE, // 0x40: Linha inicial da GDDRAM = 0
+    CMD_CHARGE_PUMP,
+    0x14, // 0x8D: Ativa a bomba de carga interna de 7.5V (0x14)
+    CMD_MEMORY_MODE,
+    0x00,              // 0x20: Modo de endereçamento horizontal (0x00)
+    CMD_SEG_REMAP_127, // 0xA1: Remapeia coluna 127 para SEG0
+    CMD_COM_SCAN_DEC,  // 0xC8: Direção de varredura COM invertida
+    CMD_SET_COM_PINS,
+    0x12, // 0xDA: Configuração de hardware de pinos COM
+    CMD_SET_CONTRAST,
+    0xCF, // 0x81: Contraste
+    CMD_SET_PRECHARGE,
+    0xF1, // 0xD9: Período de pré-carga
+    CMD_SET_VCOM_DETECT,
+    0x40,                      // 0xDB: Nível de desseleção VCOMH
+    CMD_DISPLAY_ALL_ON_RESUME, // 0xA4: Retoma exibição a partir da GDDRAM
+    CMD_NORMAL_DISPLAY,        // 0xA6: Display normal (não invertido)
+    CMD_DEACTIVATE_SCROLL,     // 0x2E: Desativa rolagem
+    CMD_DISPLAY_ON,            // 0xAF: Liga o display
 ];
 
 /// Fonte monocromática compacta 5x7 ASCII (caracteres 0x20..0x7E).
@@ -416,7 +425,10 @@ mod tests {
             .iter()
             .map(|&b| b.count_ones() as usize)
             .sum();
-        assert!(total_lit_pixels > 200, "Preview deve ter conteúdo desenhado");
+        assert!(
+            total_lit_pixels > 200,
+            "Preview deve ter conteúdo desenhado"
+        );
     }
 
     #[test]

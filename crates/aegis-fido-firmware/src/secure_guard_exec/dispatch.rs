@@ -11,6 +11,7 @@
 use super::{
     handle_config, handle_lock, handle_status, handle_unlock_or_mgmt, handle_wipe_selective,
 };
+use crate::persistence::{FlashStorageBackend, SecureStorage};
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::secure_guard::{
@@ -23,8 +24,6 @@ use rand_core::CryptoRng;
 use std::format;
 use std::string::String;
 use std::vec::Vec;
-use crate::persistence::{FlashStorageBackend, SecureStorage};
-
 
 /// Código CTAP2 de erro quando PIN / desbloqueio é requerido (0x36).
 pub const CTAP2_ERR_PIN_REQUIRED: u8 = 0x36;

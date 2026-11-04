@@ -341,8 +341,8 @@ pub fn mod_pow(base: &[u8], exp: &[u8], modulus: &[u8]) -> Result<Vec<u8>, RsaEr
 // ----------------------------------------------------------------------------
 
 const SHA256_DIGEST_INFO_PREFIX: [u8; 19] = [
-    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
-    0x05, 0x00, 0x04, 0x20,
+    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
+    0x00, 0x04, 0x20,
 ];
 
 pub fn pkcs1v15_encode_sha256(msg: &[u8], em_len: usize) -> Result<Vec<u8>, RsaError> {
@@ -554,7 +554,8 @@ pub trait RsaSign {
 
 pub trait RsaVerify {
     fn verify_pkcs1v15(&self, message: &[u8], signature: &[u8]) -> Result<(), RsaError>;
-    fn verify_pss(&self, message: &[u8], signature: &[u8], salt_len: usize) -> Result<(), RsaError>;
+    fn verify_pss(&self, message: &[u8], signature: &[u8], salt_len: usize)
+        -> Result<(), RsaError>;
 }
 
 impl RsaSign for RsaPrivateKey {
@@ -580,7 +581,12 @@ impl RsaVerify for RsaPublicKey {
         pkcs1v15_verify_sha256(&em, message)
     }
 
-    fn verify_pss(&self, message: &[u8], signature: &[u8], salt_len: usize) -> Result<(), RsaError> {
+    fn verify_pss(
+        &self,
+        message: &[u8],
+        signature: &[u8],
+        salt_len: usize,
+    ) -> Result<(), RsaError> {
         let e_bytes = match self.e {
             65537 => vec![0x01, 0x00, 0x01],
             3 => vec![0x03],
@@ -724,28 +730,44 @@ mod tests {
         let message = b"AegisKey FIDO2 / PIV RSA-2048 Hardware Security";
 
         // 1. PKCS#1 v1.5 Sign & Verify
-        let sig_pkcs1 = priv_key.sign_pkcs1v15(message).expect("PKCS#1 v1.5 sign succeeds");
+        let sig_pkcs1 = priv_key
+            .sign_pkcs1v15(message)
+            .expect("PKCS#1 v1.5 sign succeeds");
         assert_eq!(sig_pkcs1.len(), 256);
-        pub_key.verify_pkcs1v15(message, &sig_pkcs1).expect("PKCS#1 v1.5 verify succeeds");
+        pub_key
+            .verify_pkcs1v15(message, &sig_pkcs1)
+            .expect("PKCS#1 v1.5 verify succeeds");
 
         // Tamper message fails
-        pub_key.verify_pkcs1v15(b"Tampered message", &sig_pkcs1).expect_err("tamper fails");
+        pub_key
+            .verify_pkcs1v15(b"Tampered message", &sig_pkcs1)
+            .expect_err("tamper fails");
         // Tamper signature fails
         let mut bad_sig = sig_pkcs1.clone();
         bad_sig[0] ^= 0x01;
-        pub_key.verify_pkcs1v15(message, &bad_sig).expect_err("tamper sig fails");
+        pub_key
+            .verify_pkcs1v15(message, &bad_sig)
+            .expect_err("tamper sig fails");
 
         // 2. RSA-PSS Sign & Verify
         let salt = [0x5Au8; 32];
-        let sig_pss = priv_key.sign_pss(message, &salt).expect("RSA-PSS sign succeeds");
+        let sig_pss = priv_key
+            .sign_pss(message, &salt)
+            .expect("RSA-PSS sign succeeds");
         assert_eq!(sig_pss.len(), 256);
-        pub_key.verify_pss(message, &sig_pss, 32).expect("RSA-PSS verify succeeds");
+        pub_key
+            .verify_pss(message, &sig_pss, 32)
+            .expect("RSA-PSS verify succeeds");
 
         // Tamper PSS fails
-        pub_key.verify_pss(b"Tampered message", &sig_pss, 32).expect_err("PSS tamper fails");
+        pub_key
+            .verify_pss(b"Tampered message", &sig_pss, 32)
+            .expect_err("PSS tamper fails");
         let mut bad_pss = sig_pss.clone();
         bad_pss[10] ^= 0x80;
-        pub_key.verify_pss(message, &bad_pss, 32).expect_err("PSS bad sig fails");
+        pub_key
+            .verify_pss(message, &bad_pss, 32)
+            .expect_err("PSS bad sig fails");
     }
 
     #[test]
@@ -783,17 +805,27 @@ mod tests {
         let message = b"AegisKey FIDO2 / PIV RSA-3072 Hardware Security";
 
         // PKCS#1 v1.5 Sign & Verify
-        let sig = priv_key.sign_pkcs1v15(message).expect("PKCS#1 v1.5 sign 3072 succeeds");
+        let sig = priv_key
+            .sign_pkcs1v15(message)
+            .expect("PKCS#1 v1.5 sign 3072 succeeds");
         assert_eq!(sig.len(), 384);
-        pub_key.verify_pkcs1v15(message, &sig).expect("PKCS#1 v1.5 verify 3072 succeeds");
+        pub_key
+            .verify_pkcs1v15(message, &sig)
+            .expect("PKCS#1 v1.5 verify 3072 succeeds");
 
         // Tamper verification fails
-        pub_key.verify_pkcs1v15(b"tamper", &sig).expect_err("tamper fails");
+        pub_key
+            .verify_pkcs1v15(b"tamper", &sig)
+            .expect_err("tamper fails");
 
         // RSA-PSS Sign & Verify
         let salt = [0x42u8; 32];
-        let sig_pss = priv_key.sign_pss(message, &salt).expect("PSS sign 3072 succeeds");
+        let sig_pss = priv_key
+            .sign_pss(message, &salt)
+            .expect("PSS sign 3072 succeeds");
         assert_eq!(sig_pss.len(), 384);
-        pub_key.verify_pss(message, &sig_pss, 32).expect("PSS verify 3072 succeeds");
+        pub_key
+            .verify_pss(message, &sig_pss, 32)
+            .expect("PSS verify 3072 succeeds");
     }
 }

@@ -87,6 +87,7 @@ pub(crate) fn freertos_ctx(
         ota_provisioned: false,
         ota_pubkey: [0u8; 32],
         ota_current_version: 0,
+        up_hook: false,
     }
 }
 

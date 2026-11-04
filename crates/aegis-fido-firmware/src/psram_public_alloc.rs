@@ -211,24 +211,26 @@ mod tests {
         let mut ota_buf = PublicNonSensitivePsramBuffer::allocate(
             PsramBufferCategory::OtaFirmwareStaging,
             64 * 1024,
-        ).expect("Allocation of 64KB OTA staging buffer in PSRAM should succeed");
+        )
+        .expect("Allocation of 64KB OTA staging buffer in PSRAM should succeed");
 
         assert_eq!(ota_buf.category(), PsramBufferCategory::OtaFirmwareStaging);
         assert_eq!(ota_buf.capacity(), 64 * 1024);
         assert_eq!(ota_buf.len(), 0);
 
         let test_payload = [0x5A; 1024];
-        ota_buf.write_bytes(&test_payload).expect("Write to PSRAM should succeed");
+        ota_buf
+            .write_bytes(&test_payload)
+            .expect("Write to PSRAM should succeed");
         assert_eq!(ota_buf.len(), 1024);
         assert_eq!(&ota_buf.as_slice()[..1024], &test_payload[..]);
     }
 
     #[test]
     fn test_psram_oled_framebuffer() {
-        let mut oled_buf = PublicNonSensitivePsramBuffer::allocate(
-            PsramBufferCategory::DisplayFrameBuffer,
-            1024,
-        ).expect("Allocation of 1024B virtual OLED framebuffer in PSRAM should succeed");
+        let mut oled_buf =
+            PublicNonSensitivePsramBuffer::allocate(PsramBufferCategory::DisplayFrameBuffer, 1024)
+                .expect("Allocation of 1024B virtual OLED framebuffer in PSRAM should succeed");
 
         assert_eq!(oled_buf.category(), PsramBufferCategory::DisplayFrameBuffer);
         assert_eq!(oled_buf.capacity(), 1024);
@@ -242,13 +244,15 @@ mod tests {
 
     #[test]
     fn test_psram_capacity_overflow_protection() {
-        let mut log_buf = PublicNonSensitivePsramBuffer::allocate(
-            PsramBufferCategory::PublicDiagnosticLogs,
-            512,
-        ).expect("Allocation should succeed");
+        let mut log_buf =
+            PublicNonSensitivePsramBuffer::allocate(PsramBufferCategory::PublicDiagnosticLogs, 512)
+                .expect("Allocation should succeed");
 
         let oversize = [0xFF; 513];
         let err = log_buf.write_bytes(&oversize);
-        assert!(err.is_err(), "Oversize write to PSRAM buffer must fail safely");
+        assert!(
+            err.is_err(),
+            "Oversize write to PSRAM buffer must fail safely"
+        );
     }
 }

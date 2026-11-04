@@ -131,6 +131,10 @@ pub struct SerialVendorCtx<'a> {
     pub ota_pubkey: [u8; 32],
     /// Versão corrente do firmware (anti-rollback `version > current`).
     pub ota_current_version: u32,
+    /// Hook 1x p/ COMMIT OTA sem BOOT (test-mode only, host-only).
+    ///
+    /// Default `false`; release ignora (ver `OtaRequestCtx::commit_up_ok`).
+    pub up_hook: bool,
 }
 
 fn extract_pin_from_payload(payload: &[u8]) -> Option<Vec<u8>> {
@@ -194,6 +198,7 @@ pub fn dispatch_serial_vendor_msg(
         let ota_ctx = OtaRequestCtx {
             provisioned: ctx.ota_provisioned,
             up: ctx.up_latched,
+            up_hook: ctx.up_hook,
             ota_pubkey: ctx.ota_pubkey,
             current_version: ctx.ota_current_version,
         };
@@ -957,6 +962,7 @@ mod tests {
             ota_provisioned: false,
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
+            up_hook: false,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -1030,6 +1036,7 @@ mod tests {
             ota_provisioned: false,
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
+            up_hook: false,
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -1145,6 +1152,7 @@ mod tests {
                 ota_provisioned: false,
                 ota_pubkey: [0u8; 32],
                 ota_current_version: 0,
+                up_hook: false,
             };
             let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
             let (packets, consumed) =
@@ -1318,6 +1326,7 @@ mod tests {
             ota_provisioned: false,
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
+            up_hook: false,
         };
         let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, vec![crate::vendor_exec::OP_GET_CAPS]);
         let (packets, consumed) =
@@ -1574,6 +1583,7 @@ mod tests {
                 ota_provisioned: false,
                 ota_pubkey: [0u8; 32],
                 ota_current_version: 0,
+                up_hook: false,
             }
         }
 
@@ -1937,6 +1947,7 @@ mod tests {
             ota_provisioned: false,
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
+            up_hook: false,
         };
         let out_unprov = route_ctaphid_event(
             &mut mgr_usb,
@@ -1991,6 +2002,7 @@ mod tests {
             ota_provisioned: false,
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
+            up_hook: false,
         };
 
         let out_prov = route_ctaphid_event(
@@ -2171,6 +2183,7 @@ mod tests {
             ota_provisioned: false,
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
+            up_hook: false,
         };
 
         // FIDO2 standard MakeCredential / GetAssertion via CMD_CBOR
@@ -2263,6 +2276,7 @@ mod ota_freertos_parity_tests {
             ota_provisioned: true,
             ota_pubkey,
             ota_current_version: OTA_CURRENT,
+            up_hook: false,
         }
     }
 
@@ -2400,6 +2414,70 @@ mod ota_freertos_parity_tests {
         assert_eq!(st, OTA_STATUS_OK);
         assert!(consumed);
         assert_eq!(body, OTA_NEXT.to_be_bytes().to_vec());
+    }
+
+    #[test]
+    fn ota_funil_commit_hook_so_test_mode() {
+        // Funil: COMMIT sem UP físico + `up_hook` armado.
+        // - test-mode: OK (hook honrado, latch consumido).
+        // - release: NEED_UP (hook ignorado, BOOT físico exigido).
+        // - sem hook: NEED_UP nos dois builds (default `false`).
+        let sk = ed25519_dalek::SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
+        let pubkey = sk.verifying_key().to_bytes();
+        let image = vec![0xA5u8; 1024];
+        let manifest = signed_manifest(OTA_NEXT, &image, &sk);
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut ota = OtaState::new(OTA_CURRENT);
+        let mut ctx = serial_ctx(
+            &mut binding,
+            &mut storage,
+            &mut wallet,
+            &mut key_mgr,
+            &mut oath,
+            &mut fwlog,
+            &mut rescue,
+            &mut pairing,
+            Some(&mut ota),
+            pubkey,
+        );
+        let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_BEGIN, &manifest).expect("BEGIN");
+        assert_eq!(st, OTA_STATUS_OK);
+        let mut off = 0u32;
+        for chunk in image.chunks(256) {
+            let p = chunk_payload(off, chunk);
+            let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_CHUNK, &p).expect("CHUNK");
+            assert_eq!(st, OTA_STATUS_OK);
+            off += chunk.len() as u32;
+        }
+        let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_FINISH, &[]).expect("FINISH");
+        assert_eq!(st, OTA_STATUS_OK);
+        // Sem UP físico e sem hook: NEED_UP nos dois builds.
+        ctx.up_latched = false;
+        ctx.up_hook = false;
+        let (st, _, consumed) = dispatch_op(&mut ctx, OP_OTA_COMMIT, &[]).expect("COMMIT sem nada");
+        assert_eq!((st, consumed), (OTA_STATUS_NEED_UP, false));
+        // Com hook: test-mode comita; release nega NEED_UP.
+        ctx.up_hook = true;
+        let (st, body, consumed) =
+            dispatch_op(&mut ctx, OP_OTA_COMMIT, &[]).expect("COMMIT com hook");
+        #[cfg(feature = "test-mode")]
+        {
+            assert_eq!(st, OTA_STATUS_OK);
+            assert!(consumed);
+            assert_eq!(body, OTA_NEXT.to_be_bytes().to_vec());
+        }
+        #[cfg(not(feature = "test-mode"))]
+        {
+            assert_eq!((st, consumed), (OTA_STATUS_NEED_UP, false));
+            assert!(body.is_empty());
+        }
     }
 
     #[test]

@@ -297,6 +297,11 @@ pub use crate::serial_text::dispatch_serial_pairing_line;
 #[cfg(not(feature = "test-mode"))]
 pub use crate::serial_text::dispatch_serial_pairing_line;
 pub use crate::serial_text::dispatch_serial_text_line;
+/// Re-export da op explicita de bancada (gated `test-mode`; release = `None`).
+#[cfg(feature = "test-mode")]
+pub use crate::secure_guard_exec::bench::dispatch_serial_bench_line;
+#[cfg(not(feature = "test-mode"))]
+pub use crate::secure_guard_exec::bench::dispatch_serial_bench_line;
 
 pub use crate::serial_vendor::{
     dispatch_serial_bind_mgmt, dispatch_serial_rescue, dispatch_serial_vendor,

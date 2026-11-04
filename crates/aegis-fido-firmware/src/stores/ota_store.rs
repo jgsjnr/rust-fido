@@ -282,10 +282,26 @@ pub struct OtaRequestCtx {
     pub provisioned: bool,
     /// Physical UP latch (`touch_latched`; COMMIT-only gate).
     pub up: bool,
+    /// Test-mode one-shot COMMIT hook (host-only; default `false`).
+    ///
+    /// Honored ONLY with `test-mode` (see [`OtaRequestCtx::commit_up_ok`]);
+    /// release ignores it and demands the physical BOOT latch (`up`).
+    pub up_hook: bool,
     /// Offline release Ed25519 pubkey (FINISH verification).
     pub ota_pubkey: [u8; 32],
     /// Running firmware version (FINISH rejects downgrade/equal).
     pub current_version: u32,
+}
+
+impl OtaRequestCtx {
+    /// `true` when COMMIT may proceed: physical UP latch, or — test-mode
+    /// ONLY — the armed `up_hook` (host-only, default `false`).
+    ///
+    /// Release ignores `up_hook` by construction (`cfg!` folds the second
+    /// arm to `false` without the feature): BOOT físico segue exigido.
+    pub fn commit_up_ok(&self) -> bool {
+        self.up || (cfg!(feature = "test-mode") && self.up_hook)
+    }
 }
 
 fn ota_fail<P: OtaProvider, B: FlashStorageBackend>(
@@ -310,8 +326,9 @@ fn ota_fail<P: OtaProvider, B: FlashStorageBackend>(
 /// `storage` budget (fail-fast); CHUNK carries `offset BE u32 || data`;
 /// FINISH denies a denied (all-zeros) key before verifying, then verifies the
 /// staged manifest with the real release pubkey via the `verify_with` seam;
-/// COMMIT denies a denied key before anything, then requires the physical UP
-/// latch (checked here, consumed by the caller) and records the commit
+/// COMMIT denies a denied key before anything, then requires presence —
+/// the physical UP latch, or (test-mode only) the armed `up_hook`
+/// (`OtaRequestCtx::commit_up_ok`; release ignores the hook) — and records the commit
 /// marker — NUNCA COMMIT sem chave válida (fail-closed documentado);
 /// ABORT rolls back. Any `OtaError` rolls the session back to `Idle` and
 /// discards staging, preserving NVS — except COMMIT-without-UP, which keeps
@@ -387,8 +404,13 @@ pub fn dispatch_ota_request<P: OtaProvider, B: FlashStorageBackend>(
             if OtaKeyProvider::is_denied(&ctx.ota_pubkey) {
                 return Some(ota_fail(state, sink));
             }
-            if P::requires_up() && !ctx.up {
+            if P::requires_up() && !ctx.commit_up_ok() {
                 return Some((OTA_STATUS_NEED_UP, Vec::new()));
+            }
+            // CI-GREP: TEST-HOOK (test-mode only).
+            #[cfg(feature = "test-mode")]
+            if !ctx.up && ctx.up_hook {
+                log::info!("[HOOK][OTA] commit hook honored (test)");
             }
             match state.commit(sink) {
                 Ok(version) => match sink.mark_committed(version) {

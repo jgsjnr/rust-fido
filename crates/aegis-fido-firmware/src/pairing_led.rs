@@ -214,4 +214,3 @@ mod sg_status_led_tests {
         assert_eq!(effect_for_sg_status(0xF0), None);
     }
 }
-

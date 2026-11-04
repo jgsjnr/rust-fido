@@ -292,6 +292,8 @@ pub fn run_authenticator() {
     let mut wifi_ap_mgr = crate::wifi_ap::WifiApManager::new();
     let mut mdns_mgr = crate::mdns::MdnsManager::new();
     let mut sta_mgr = crate::wifi_station::WifiStationManager::new();
+    // Trava automatica (transport_lock): bordas USB/BLE/WiFi observadas por tick.
+    let mut transport_monitor = crate::transport_lock::TransportMonitor::new();
     // Etapa B (WiFi real): espelhos do radio p/ edge-trigger + backoff.
     let mut wifi_ap_active = false;
     // Backoff do AP start: sem isso, uma falha (ex. radio com BLE) repete
@@ -332,6 +334,10 @@ pub fn run_authenticator() {
     // UP por software (TEST_UP, test-mode only): injeta UM toque BOOT.
     #[cfg(all(target_os = "espidf", feature = "test-mode"))]
     let mut test_up_latch = false;
+    // Hook 1x p/ COMMIT OTA sem BOOT (TEST_OTA_COMMIT_HOOK, test-mode only,
+    // host-only): presence simulada só no COMMIT; default `false`.
+    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+    let mut test_ota_hook = false;
 
     let mut watchdog = Watchdog::new(300); // L5: feed sem mudar timing USB
                                            // Wave2 proximidade (feature proximity): carrega o K_prox da NVS cifrada.
@@ -554,6 +560,25 @@ pub fn run_authenticator() {
             has_creds,
             now_ms,
         );
+        // WiFi: borda ativo-para-inativo (inclui timeout da station) e
+        // quiescencia travam a sessao (transport_lock).
+        {
+            let wifi_active = wifi_ap_mgr.is_active(now_ms) || sta_mgr.is_up();
+            if transport_monitor.observe_wifi(wifi_active, now_ms)
+                == Some(crate::transport_lock::TransportKind::Wifi)
+                || transport_monitor.poll(now_ms)
+                    == Some(crate::transport_lock::TransportKind::Wifi)
+            {
+                common::lock_session_on_transport_loss(
+                    &mut secure_guard,
+                    &mut ctap_engine.pin_state,
+                    &mut rescue_engine,
+                    &mut fw_log,
+                    crate::transport_lock::TransportKind::Wifi,
+                    now_ms,
+                );
+            }
+        }
         // TOTP sem bateria: SNTP quando a station esta up; ancora NVS
         // sobrevive ao reboot (max() + fail-closed). Ver `time_sync`.
         #[cfg(any(
@@ -761,8 +786,21 @@ pub fn run_authenticator() {
                 }
                 e if e == ble::BLE_EVT_DISCONNECTED => {
                     common::note_ble_disconnected(&mut ble_adv_active, &mut ble_bond_pending);
+                    if transport_monitor.observe_ble(false)
+                        == Some(crate::transport_lock::TransportKind::Ble)
+                    {
+                        common::lock_session_on_transport_loss(
+                            &mut secure_guard,
+                            &mut ctap_engine.pin_state,
+                            &mut rescue_engine,
+                            &mut fw_log,
+                            crate::transport_lock::TransportKind::Ble,
+                            now_ms,
+                        );
+                    }
                 }
                 e if e == ble::BLE_EVT_CONNECTED => {
+                    transport_monitor.observe_ble(true);
                     kprintln!("[BLE] central conectou (aguardando bonding).");
                 }
                 _ => {}
@@ -1010,6 +1048,23 @@ pub fn run_authenticator() {
             }
         }
 
+        // USB: borda montado-para-desmontado trava a sessao (transport_lock).
+        #[cfg(target_os = "espidf")]
+        if transport_monitor.observe_usb(if usb_installed {
+            unsafe { aegis_usb_is_mounted() }
+        } else {
+            false
+        }) == Some(crate::transport_lock::TransportKind::UsbHid)
+        {
+            common::lock_session_on_transport_loss(
+                &mut secure_guard,
+                &mut ctap_engine.pin_state,
+                &mut rescue_engine,
+                &mut fw_log,
+                crate::transport_lock::TransportKind::UsbHid,
+                now_ms,
+            );
+        }
         // C. Service USB CTAPHID Packets (native USB-OTG; classic serves
         // the same UART through the serial section D below instead).
         #[cfg(all(target_os = "espidf", not(feature = "board-ttgo-classic")))]
@@ -1084,9 +1139,16 @@ pub fn run_authenticator() {
                                     None
                                 };
                                 if let Some(op) = ota_op {
+                                    // Hook 1x p/ COMMIT OTA sem BOOT (test-mode
+                                    // only; default `false`; release ignora).
+                                    #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                                    let ota_hook_now = test_ota_hook;
+                                    #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+                                    let ota_hook_now = false;
                                     let ota_ctx = OtaRequestCtx {
                                         provisioned: ota_provisioned(&efuse_mgr),
                                         up: touch_latched,
+                                        up_hook: ota_hook_now,
                                         ota_pubkey: ota_active_pubkey(),
                                         current_version: FIRMWARE_VERSION,
                                     };
@@ -1124,6 +1186,11 @@ pub fn run_authenticator() {
                                     if ota_consumed_up {
                                         touch_latched = false;
                                         rescue_engine.set_user_presence(true);
+                                        // Hook 1x: consumido junto com o latch.
+                                        #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                                        {
+                                            test_ota_hook = false;
+                                        }
                                     }
                                     let ota_pkts =
                                         CtapHidFramer::frame_message(msg.cid, msg.cmd, &ota_resp);
@@ -1550,7 +1617,11 @@ pub fn run_authenticator() {
                 SerialGate,
             };
             #[cfg(feature = "test-mode")]
-            use crate::serial_ctaphid::{dispatch_serial_pairing_line, dispatch_serial_text_line};
+            use crate::serial_ctaphid::{
+                dispatch_serial_bench_line,
+                dispatch_serial_pairing_line,
+                dispatch_serial_text_line,
+            };
 
             // D1. Diagnostic text lines (test-mode only; idle use only).
             // CI-GREP: TEST-HOOK (test-mode only; absent in release).
@@ -1576,6 +1647,16 @@ pub fn run_authenticator() {
                                 test_up_latch = true;
                                 kprintln!("[TEST] UP via software (latch 1x).");
                                 let resp = "up_latched source=software\n";
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if t == "TEST_OTA_COMMIT_HOOK" {
+                                // CI-GREP: TEST-HOOK (test-mode only).
+                                // Arma o hook 1x p/ COMMIT OTA sem BOOT
+                                // (host-only; BEGIN/CHUNK/FINISH seguem
+                                // exigindo as chaves; release ignora o hook
+                                // em `commit_up_ok` e exige o BOOT físico).
+                                test_ota_hook = true;
+                                kprintln!("[HOOK][OTA] commit hook armed (test).");
+                                let resp = "ota_commit_hook armed\n";
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
                             } else if t == "TEST_DOWNLOAD" {
                                 // CI-GREP: TEST-HOOK (test-mode only).
@@ -1635,6 +1716,13 @@ pub fn run_authenticator() {
                                     led.set_effect(held);
                                 }
                                 let resp = format!("led_set {}\n", t);
+                                serial_send_bytes(resp.as_ptr(), resp.len() as u16);
+                            } else if let Some(resp) = dispatch_serial_bench_line(
+                                line,
+                                &mut secure_guard,
+                                &mut fw_log,
+                                now_ms,
+                            ) {
                                 serial_send_bytes(resp.as_ptr(), resp.len() as u16);
                             } else if let Some(resp) =
                                 dispatch_serial_pairing_line(line, &mut pairing_mgr, now_ms)
@@ -2092,9 +2180,16 @@ pub fn run_authenticator() {
                                             dispatch_ota_request, FlashOtaSink, OtaRequestCtx,
                                             OTA_STATUS_OK,
                                         };
+                                        // Hook 1x p/ COMMIT OTA sem BOOT (test-mode
+                                        // only; default `false`; release ignora).
+                                        #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                                        let ota_hook_now = test_ota_hook;
+                                        #[cfg(not(all(target_os = "espidf", feature = "test-mode")))]
+                                        let ota_hook_now = false;
                                         let ota_ctx = OtaRequestCtx {
                                             provisioned: ota_provisioned(&efuse_mgr),
                                             up: touch_latched,
+                                            up_hook: ota_hook_now,
                                             ota_pubkey: ota_active_pubkey(),
                                             current_version: FIRMWARE_VERSION,
                                         };
@@ -2120,6 +2215,11 @@ pub fn run_authenticator() {
                                         if st == OTA_STATUS_OK && op == OP_OTA_COMMIT {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
+                                            // Hook 1x: consumido junto com o latch.
+                                            #[cfg(all(target_os = "espidf", feature = "test-mode"))]
+                                            {
+                                                test_ota_hook = false;
+                                            }
                                         }
                                         let mut resp = Vec::with_capacity(1 + body.len());
                                         resp.push(st);

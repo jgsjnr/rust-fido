@@ -46,7 +46,11 @@ impl fmt::Display for EfuseSafetyError {
                 write!(f, "Invalid eFuse block {}: expected {}", block, expected)
             }
             Self::InvalidKeyLength { expected, found } => {
-                write!(f, "Invalid key length: expected {}, found {}", expected, found)
+                write!(
+                    f,
+                    "Invalid key length: expected {}, found {}",
+                    expected, found
+                )
             }
             Self::RollbackAttemptDetected { current, attempted } => {
                 write!(
@@ -88,7 +92,11 @@ pub struct FlashEncryptionAesXtsSpec {
 
 impl FlashEncryptionAesXtsSpec {
     /// Cria uma especificação para AES-XTS com chave primária de 256 bits.
-    pub fn new_256bit(primary_block: u8, spi_boot_crypt_cnt: u8, key: [u8; 32]) -> Result<Self, EfuseSafetyError> {
+    pub fn new_256bit(
+        primary_block: u8,
+        spi_boot_crypt_cnt: u8,
+        key: [u8; 32],
+    ) -> Result<Self, EfuseSafetyError> {
         if !(4..=6).contains(&primary_block) {
             return Err(EfuseSafetyError::InvalidBlockSpecification {
                 block: primary_block,
@@ -138,9 +146,13 @@ impl FlashEncryptionAesXtsSpec {
     /// Valida logicamente os parâmetros da especificação.
     pub fn validate(&self) -> Result<(), EfuseSafetyError> {
         if self.key_bytes.iter().all(|&b| b == 0) {
-            return Err(EfuseSafetyError::ValidationFailed("All-zero key is not permitted"));
+            return Err(EfuseSafetyError::ValidationFailed(
+                "All-zero key is not permitted",
+            ));
         }
-        if self.spi_boot_crypt_cnt == 0 || (self.spi_boot_crypt_cnt & (self.spi_boot_crypt_cnt + 1)) != 0 {
+        if self.spi_boot_crypt_cnt == 0
+            || (self.spi_boot_crypt_cnt & (self.spi_boot_crypt_cnt + 1)) != 0
+        {
             // No ESP32-S3, SPI_BOOT_CRYPT_CNT deve ter um número ímpar de bits ligados (0b001, 0b011, 0b111)
             // para ativar a criptografia.
         }
@@ -198,7 +210,9 @@ impl SecureBootV2Rsa3072Spec {
     /// Valida logicamente a integridade do digest RSA-3072.
     pub fn validate(&self) -> Result<(), EfuseSafetyError> {
         if self.digest.iter().all(|&b| b == 0) {
-            return Err(EfuseSafetyError::ValidationFailed("Digest RSA-3072 cannot be all zeroes"));
+            return Err(EfuseSafetyError::ValidationFailed(
+                "Digest RSA-3072 cannot be all zeroes",
+            ));
         }
         Ok(())
     }
@@ -246,7 +260,9 @@ impl HardwareHmacEfuseBlock7Spec {
             });
         }
         if self.key.iter().all(|&b| b == 0) {
-            return Err(EfuseSafetyError::ValidationFailed("HMAC master key cannot be all zeroes"));
+            return Err(EfuseSafetyError::ValidationFailed(
+                "HMAC master key cannot be all zeroes",
+            ));
         }
         Ok(())
     }
@@ -368,7 +384,8 @@ pub fn inspect_efuse_safety_status() -> EfuseSafetyStatusReport {
         monotonic_security_version: 0,
         uart_usb_flashing_allowed: true,
         safety_lock_engaged: EFUSE_WRITE_HARD_LOCKED,
-        audit_disclaimer: "Development mode active: OTP eFuse write locked. Safe for continuous flashing.",
+        audit_disclaimer:
+            "Development mode active: OTP eFuse write locked. Safe for continuous flashing.",
     }
 }
 
@@ -379,7 +396,9 @@ mod tests {
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn test_efuse_safety_lock_burn_always_fails() {
-        const { assert!(EFUSE_WRITE_HARD_LOCKED); }
+        const {
+            assert!(EFUSE_WRITE_HARD_LOCKED);
+        }
         assert!(EFUSE_WRITE_HARD_LOCKED);
 
         let flash_spec = FlashEncryptionAesXtsSpec::new_256bit(4, 0b001, [0x42; 32]).unwrap();
@@ -390,7 +409,8 @@ mod tests {
             ))
         );
 
-        let flash_512_spec = FlashEncryptionAesXtsSpec::new_512bit(4, 5, 0b001, [0x42; 32], [0x43; 32]).unwrap();
+        let flash_512_spec =
+            FlashEncryptionAesXtsSpec::new_512bit(4, 5, 0b001, [0x42; 32], [0x43; 32]).unwrap();
         assert_eq!(
             flash_512_spec.burn(),
             Err(EfuseSafetyError::PermanentFuseWriteForbiddenByPolicy(
@@ -428,7 +448,10 @@ mod tests {
         let invalid_rollback = MonotonicAntiRollbackEfuseSpec::new(3, 2);
         assert!(matches!(
             invalid_rollback.validate(),
-            Err(EfuseSafetyError::RollbackAttemptDetected { current: 3, attempted: 2 })
+            Err(EfuseSafetyError::RollbackAttemptDetected {
+                current: 3,
+                attempted: 2
+            })
         ));
 
         let valid_forward = MonotonicAntiRollbackEfuseSpec::new(2, 3);
@@ -439,7 +462,9 @@ mod tests {
     fn test_hardware_hmac_software_emulation_derivation() {
         let hmac_spec = HardwareHmacEfuseBlock7Spec::new([0x55; 32]);
         let msg = b"test_challenge_data";
-        let derived = hmac_spec.derive_hardware_hmac(msg).expect("HMAC derivation should succeed");
+        let derived = hmac_spec
+            .derive_hardware_hmac(msg)
+            .expect("HMAC derivation should succeed");
         assert_ne!(derived, [0u8; 32]);
 
         // Determinismo

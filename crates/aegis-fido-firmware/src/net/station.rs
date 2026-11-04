@@ -231,7 +231,10 @@ pub fn sta_retry_due(now_ms: u64, last_attempt_ms: Option<u64>) -> bool {
     }
 }
 
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 extern "C" {
     fn aegis_wifi_sta_start(ssid: *const u8, ssid_len: i32, pass: *const u8, pass_len: i32) -> i32;
     fn aegis_wifi_sta_stop() -> i32;
@@ -240,7 +243,10 @@ extern "C" {
 }
 
 /// Conecta a station real (`0` ok, negativo = erro do C; nao bloqueia).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_sta_start(ssid: &str, pass: &str) -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "station");
     unsafe {
@@ -254,20 +260,29 @@ pub fn esp_sta_start(ssid: &str, pass: &str) -> i32 {
 }
 
 /// Desconecta a station (`0` ok).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_sta_stop() -> i32 {
     crate::ltrace!(LtCat::Transport, LtEvt::TpClose, "station");
     unsafe { aegis_wifi_sta_stop() }
 }
 
 /// Estado atual do radio (`STA_*`; poll sem bloqueio).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_sta_state() -> i32 {
     unsafe { aegis_wifi_sta_state() }
 }
 
 /// IP atual da station (zeros quando sem IP).
-#[cfg(all(target_os = "espidf", not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+#[cfg(all(
+    target_os = "espidf",
+    not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
+))]
 pub fn esp_sta_ip() -> [u8; 4] {
     let mut out = [0u8; 4];
     unsafe {
@@ -277,19 +292,31 @@ pub fn esp_sta_ip() -> [u8; 4] {
 }
 
 // Shims inertes no host (sem radio; politica testada por unidade).
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_sta_start(_ssid: &str, _pass: &str) -> i32 {
     0
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_sta_stop() -> i32 {
     0
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_sta_state() -> i32 {
     STA_OFF
 }
-#[cfg(any(not(target_os = "espidf"), any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[cfg(any(
+    not(target_os = "espidf"),
+    any(feature = "cap-fido-only", feature = "cap-fido-totp")
+))]
 pub fn esp_sta_ip() -> [u8; 4] {
     [0, 0, 0, 0]
 }

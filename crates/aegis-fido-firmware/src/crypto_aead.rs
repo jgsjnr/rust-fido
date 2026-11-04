@@ -156,11 +156,7 @@ impl Poly1305State {
         ];
 
         r_bytes.zeroize();
-        Self {
-            r,
-            h: [0; 5],
-            pad,
-        }
+        Self { r, h: [0; 5], pad }
     }
 
     fn update_padded_16(&mut self, data: &[u8]) {
@@ -605,7 +601,9 @@ mod tests {
     #[test]
     fn chacha20_poly1305_rfc8439_kat_and_roundtrip() {
         // RFC 8439 Section 2.8.2 Test Vector
-        let key_bytes = hex::decode("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f").unwrap();
+        let key_bytes =
+            hex::decode("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+                .unwrap();
         let nonce_bytes = hex::decode("070000004041424344454647").unwrap();
         let aad = hex::decode("50515253c0c1c2c3c4c5c6c7").unwrap();
         let plaintext = hex::decode(
@@ -636,9 +634,17 @@ mod tests {
              3ff4def08e4b7a9de576d26586cec64b6116",
         )
         .unwrap();
-        assert_eq!(&ct[..ct.len() - 16], expected_ct.as_slice(), "Ciphertext matches RFC 8439 Section 2.8.2 KAT");
+        assert_eq!(
+            &ct[..ct.len() - 16],
+            expected_ct.as_slice(),
+            "Ciphertext matches RFC 8439 Section 2.8.2 KAT"
+        );
         let tag = &ct[ct.len() - 16..];
-        assert_eq!(tag, expected_tag.as_slice(), "Tag matches RFC 8439 Section 2.8.2 KAT");
+        assert_eq!(
+            tag,
+            expected_tag.as_slice(),
+            "Tag matches RFC 8439 Section 2.8.2 KAT"
+        );
 
         let pt = SoftwareAead::open(
             AeadAlgorithm::ChaCha20Poly1305,
@@ -654,7 +660,13 @@ mod tests {
         let mut tampered = ct.clone();
         tampered[0] ^= 0x01;
         assert_eq!(
-            SoftwareAead::open(AeadAlgorithm::ChaCha20Poly1305, &key_bytes, &nonce, &aad, &tampered),
+            SoftwareAead::open(
+                AeadAlgorithm::ChaCha20Poly1305,
+                &key_bytes,
+                &nonce,
+                &aad,
+                &tampered
+            ),
             Err(AeadError::DecryptFailed)
         );
     }
@@ -662,7 +674,8 @@ mod tests {
     #[test]
     fn poly1305_rfc8439_standalone_kat() {
         // RFC 8439 Section 2.5.2
-        let key = hex::decode("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b").unwrap();
+        let key = hex::decode("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b")
+            .unwrap();
         let msg = b"Cryptographic Forum Research Group";
         let expected_tag = hex::decode("a8061dc1305136c6c22b8baf0c0127a9").unwrap();
 
@@ -695,7 +708,10 @@ mod tests {
                 let r2 = poly.r[2] as u64;
                 let r3 = poly.r[3] as u64;
                 let r4 = poly.r[4] as u64;
-                let s1 = r1 * 5; let s2 = r2 * 5; let s3 = r3 * 5; let s4 = r4 * 5;
+                let s1 = r1 * 5;
+                let s2 = r2 * 5;
+                let s3 = r3 * 5;
+                let s4 = r4 * 5;
                 let mut h0 = (poly.h[0] + h[0]) as u64;
                 let mut h1 = (poly.h[1] + h[1]) as u64;
                 let mut h2 = (poly.h[2] + h[2]) as u64;
@@ -706,12 +722,24 @@ mod tests {
                 let d2 = h0 * r2 + h1 * r1 + h2 * r0 + h3 * s4 + h4 * s3;
                 let d3 = h0 * r3 + h1 * r2 + h2 * r1 + h3 * r0 + h4 * s4;
                 let d4 = h0 * r4 + h1 * r3 + h2 * r2 + h3 * r1 + h4 * r0;
-                let mut c: u64 = d0 >> 26; h0 = d0 & 0x03ffffff;
-                let mut d = d1 + c; c = d >> 26; h1 = d & 0x03ffffff;
-                d = d2 + c; c = d >> 26; h2 = d & 0x03ffffff;
-                d = d3 + c; c = d >> 26; h3 = d & 0x03ffffff;
-                d = d4 + c; c = d >> 26; h4 = d & 0x03ffffff;
-                h0 += c * 5; c = h0 >> 26; h0 &= 0x03ffffff; h1 += c;
+                let mut c: u64 = d0 >> 26;
+                h0 = d0 & 0x03ffffff;
+                let mut d = d1 + c;
+                c = d >> 26;
+                h1 = d & 0x03ffffff;
+                d = d2 + c;
+                c = d >> 26;
+                h2 = d & 0x03ffffff;
+                d = d3 + c;
+                c = d >> 26;
+                h3 = d & 0x03ffffff;
+                d = d4 + c;
+                c = d >> 26;
+                h4 = d & 0x03ffffff;
+                h0 += c * 5;
+                c = h0 >> 26;
+                h0 &= 0x03ffffff;
+                h1 += c;
                 poly.h = [h0 as u32, h1 as u32, h2 as u32, h3 as u32, h4 as u32];
             }
         }
@@ -796,7 +824,13 @@ mod tests {
             Err(AeadError::UnsupportedAlgorithm)
         );
         assert_eq!(
-            SoftwareAead::open(AeadAlgorithm::Aes128Ccm, &ZERO_128, &ZERO_NONCE, b"", &[0u8; 16]),
+            SoftwareAead::open(
+                AeadAlgorithm::Aes128Ccm,
+                &ZERO_128,
+                &ZERO_NONCE,
+                b"",
+                &[0u8; 16]
+            ),
             Err(AeadError::UnsupportedAlgorithm)
         );
     }

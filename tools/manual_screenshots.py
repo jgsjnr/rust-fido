@@ -20,9 +20,15 @@ SAFETY RAILS (hard rules, do not relax):
   - ``--full`` unlock enters the owner PIN AT MOST ONCE, read ONLY from
     the ``MANUAL_TOUR_PIN`` environment variable. The value is never
     hardcoded, never printed, never written to disk (dumps/logcat go
-    through :func:`redact` before persisting). When the variable is
-    absent (or the keypad does not expose every digit) the run ABORTS
-    before typing anything -- zero keypresses, zero attempts consumed.
+    through :func:`redact` before persisting). The keypad identity gate
+    (:func:`keypad_identity`: Hardware Session Authentication title +
+    Minimum 4 digits hint + exact digit node, EN/PT) is proven BEFORE
+    any tap and every digit resolves ONLY by exact match
+    (:func:`find_exact_digit`, center+bounds logged without the value);
+    pre/post dumps go to evidence as ``pin-entry-pre.xml`` /
+    ``pin-entry-post.xml``. When the variable is absent (or the gate
+    fails) the run ABORTS before typing anything -- zero keypresses,
+    zero attempts consumed.
     A failed unlock STOPS the run; there is exactly one attempt, never
     a retry (ZERO wrong-PIN attempts beyond the single authorized one).
   - Recovery screen is opened for VIEWING ONLY; it is closed with
@@ -140,6 +146,46 @@ FORBIDDEN_TAP_SUBSTRINGS = (
     "proceed to transfer",
     "erase all",
     "apagar todos",
+)
+
+# Keypad identity gate for pin-entry (parent gate): the unlock dialog must
+# prove it is the Hardware Session Authentication keypad BEFORE any tap.
+# Requires the title (EN/PT) + the min-digits hint (EN/PT) + at least one
+# exact digit node (text/content-desc == "0".."9"). Absent -> STOP with
+# zero keypresses. Digits are tapped ONLY by exact match (a substring hit
+# such as "Minimum 4 digits" must NEVER satisfy digit "4"); every digit
+# tap logs index+center+bounds WITHOUT the digit value (PIN never printed).
+KEYPAD_TITLE_ANY = (
+    "Hardware Session Authentication",
+    "Autenticação de Sessão de Hardware",
+)
+KEYPAD_HINT_ANY = (
+    "Minimum 4 digits",
+    "Mínimo de 4 dígitos",
+)
+
+# Residual-session guard (22:18 dumps: UNLOCKED + timer 04:55->04:44 +
+# tour-215946 Slot #0 still listed). A previous run may leave the session
+# UNLOCKED, so the unlock-pin step must not blindly hunt the LOCKED UI.
+# :func:`is_unlocked` proves the real state BEFORE any PIN tap; when
+# unlocked, run_full tries Lock Now/Bloquear Agora + re-dump proving
+# LOCKED, else marks unlock SKIP explicitly and proceeds from the real
+# (unlocked) state with ZERO PIN consumes.
+UNLOCKED_ANY = (
+    "UNLOCKED",
+    "Session Unlocked",
+    "Session Active",
+    "Sessão Ativa",
+    "Remaining authorization time",
+    "Tempo de autorização",
+    "Lock Now",
+    "Bloquear Agora",
+)
+LOCKED_ANY = (
+    "Session Locked",
+    "Sessão Bloqueada",
+    "Unlock Session",
+    "Desbloquear Sessão",
 )
 
 # Dialog identity for the vault-create step (defect 1: wrong-field typing).
@@ -353,8 +399,10 @@ FULL_STEPS: list[dict] = [
                 ("type-tour-label",),
                 ("tap", "Generate Key"), ("tap", "Gerar")],
         "expect_any": [
+            # Gate is tour_label_listed (list query); generic capability
+            # markers (FIDO2/WebAuthn/create-button text) must NOT pass
+            # this step alone.
             "tour-", "Slot #", "Toque Obrigat\u00f3rio", "Touch Required",
-            "FIDO2", "WebAuthn", "Generate Key in Security Key",
         ],
     },
     {
@@ -816,6 +864,138 @@ def find_center_for_text(dump_xml: str, needle: str) -> tuple[int, int] | None:
     return center(exact) or center(partial)
 
 
+def find_bounds_for_text(dump_xml: str, needle: str) -> str | None:
+    """Raw uiautomator bounds string for ``needle`` (exact wins)."""
+    try:
+        root = ET.fromstring(dump_xml or "")
+    except ET.ParseError:
+        return None
+    want = (needle or "").strip().lower()
+    if not want or not dump_xml:
+        return None
+    exact, partial = [], []
+    for node in root.iter("node"):
+        for attr in ("text", "content-desc"):
+            val = (node.get(attr) or "")
+            if not val or not val.strip():
+                continue
+            low = val.strip().lower()
+            if low == want:
+                exact.append(node)
+            elif want in low:
+                partial.append(node)
+    for node in exact + partial:
+        b = (node.get("bounds") or "").strip()
+        if re.match(r"\[\d+,\d+\]\[\d+,\d+\]$", b):
+            return b
+    return None
+
+
+def find_exact_digit(dump_xml: str, digit: str) -> tuple[tuple[int, int], str] | None:
+    """Center+bounds of the keypad node whose text IS ``digit`` (exact only).
+
+    Substring hits NEVER count: a hint such as "Minimum 4 digits" must not
+    satisfy digit "4". Returns (center, bounds_str) or None. The caller
+    must log center+bounds WITHOUT the digit value.
+    """
+    want = (digit or "").strip()
+    if len(want) != 1 or not want.isdigit():
+        return None
+    try:
+        root = ET.fromstring(dump_xml or "")
+    except ET.ParseError:
+        return None
+    for node in root.iter("node"):
+        for attr in ("text", "content-desc"):
+            val = (node.get(attr) or "").strip()
+            if val == want:
+                b = (node.get("bounds") or "").strip()
+                if not re.match(r"\[\d+,\d+\]\[\d+,\d+\]$", b):
+                    continue
+                c = parse_bounds(b)
+                if c is None:
+                    continue
+                return c, b
+    return None
+
+
+def keypad_identity(dump_xml: str) -> tuple[bool, str]:
+    """Prove the Hardware Session Authentication keypad is foreground.
+
+    Requires title (EN/PT) + min-digits hint (EN/PT) + at least one exact
+    digit node ("0".."9" as whole-text). Returns (ok, reason). Anything
+    missing -> abort BEFORE any tap (zero keypresses, STOP upstream).
+    """
+    low = (dump_xml or "").lower()
+    title = next((t for t in KEYPAD_TITLE_ANY if t.lower() in low), None)
+    if title is None:
+        return False, "keypad identity unproven: title missing"
+    hint = next((h for h in KEYPAD_HINT_ANY if h.lower() in low), None)
+    if hint is None:
+        return False, "keypad identity unproven: min-digits hint missing"
+    for d in "0123456789":
+        if find_exact_digit(dump_xml or "", d) is not None:
+            return True, f"keypad proven by {title!r}+{hint!r}+digit node"
+    return False, "keypad identity unproven: no exact digit node"
+
+
+def is_unlocked(dump_xml: str) -> bool:
+    """True when the dump proves a residual UNLOCKED session.
+
+    Any UNLOCKED_ANY marker (EN/PT title, auth-timer line, Lock Now)
+    counts. Empty/bad dumps are never unlocked (conservative False).
+    """
+    low = (dump_xml or "").lower()
+    if not low.strip():
+        return False
+    for m in UNLOCKED_ANY:
+        if m.lower() in low:
+            return True
+    return False
+
+
+def is_locked(dump_xml: str) -> bool:
+    """True when the dump proves the LOCKED precondition.
+
+    Standalone LOCKED token uses a word-boundary regex so UNLOCKED never
+    counts as locked; explicit Session Locked / Unlock Session markers
+    (EN/PT) also count. Empty dumps are never locked.
+    """
+    low = (dump_xml or "").lower()
+    if not low.strip():
+        return False
+    for m in LOCKED_ANY:
+        if m.lower() in low:
+            return True
+    if re.search(r"\blocked\b", low) is not None:
+        return True
+    return False
+
+
+def slots_used_summary(dump_xml: str) -> str:
+    """Auxiliary Slots-evidence: lines mentioning slot + Slot # count."""
+    if not dump_xml:
+        return "slots=unknown (empty dump)"
+    try:
+        root = ET.fromstring(dump_xml)
+    except ET.ParseError:
+        return "slots=unknown (bad xml)"
+    hits: list[str] = []
+    slot_hash = 0
+    for node in root.iter("node"):
+        for attr in ("text", "content-desc"):
+            val = (node.get(attr) or "").strip()
+            if not val:
+                continue
+            if "slot" in val.lower():
+                if val not in hits:
+                    hits.append(val)
+            slot_hash += val.count("Slot #")
+    count_line = f"slot_hash_count={slot_hash}"
+    lines = hits[:20] + [count_line]
+    return redact("\n".join(lines))
+
+
 def lane_busy(now: float | None = None) -> tuple[bool, str]:
     """True when another lane holds the rig (lockfile or fresh lane dirs)."""
     lp = lock_path()
@@ -887,14 +1067,18 @@ def safe_tap_text(serial: str, dump: str, label: str) -> tuple[str, tuple[int, i
     """Tap a visible label unless it is destruction-scoped.
 
     Returns ("tapped"|"missing"|"forbidden", center). Forbidden targets
-    are never tapped.
+    are never tapped. Every attempt logs label+center+bounds.
     """
     bad = forbidden_tap(label)
     if bad is not None:
+        print(f"[tap] label={label!r} status=forbidden:{bad}")
         return f"forbidden:{bad}", None
     center = find_center_for_text(dump, label)
+    bounds = find_bounds_for_text(dump, label)
     if center is None:
+        print(f"[tap] label={label!r} status=missing bounds={bounds!r}")
         return "missing", None
+    print(f"[tap] label={label!r} center={center} bounds={bounds!r}")
     do_tap(serial, *center)
     return "tapped", center
 
@@ -953,11 +1137,36 @@ def do_input_text(serial: str, text: str) -> bool:
     return proc.returncode == 0
 
 
+def dismiss_keyboard_after_typing(serial: str, dump: str) -> tuple[str, str]:
+    """Dismiss the soft keyboard so Generate Key is tappable.
+
+    Prefers an IME Done action when visible, else a single KEYCODE_BACK
+    (when the keyboard is open BACK dismisses the keyboard, not the
+    dialog). Returns (fresh_dump, method). The caller must re-dump
+    before tapping Generate Key; the fresh dump is the pre-submit dump.
+    """
+    for done_label in ("Done", "Concluir", "Conclu\u00eddo", "Concluido"):
+        c = find_center_for_text(dump or "", done_label)
+        if c is not None:
+            print(f"[tap] label={done_label!r} center={c} "
+                  f"bounds={find_bounds_for_text(dump or '', done_label)!r}")
+            do_tap(serial, *c)
+            time.sleep(0.8)
+            return ui_dump(serial), f"ime-done:{done_label}"
+    do_back(serial)
+    return ui_dump(serial), "keycode-back"
+
+
 def do_pin_entry(serial: str) -> tuple[bool, str]:
     """Single owner-PIN attempt from MANUAL_TOUR_PIN. Never logs the value.
 
-    Returns (submitted, reason). Zero keypresses when the env var is
-    absent or a digit button is missing; exactly one submit otherwise.
+    Parent gate: the Hardware Session Authentication keypad identity
+    (title + min-digits hint + exact digit node) is proven BEFORE any tap;
+    absent -> return False with ZERO keypresses (run_full STOPs upstream).
+    Digits resolve ONLY by exact match (:func:`find_exact_digit`); every
+    digit tap logs index+center+bounds WITHOUT the digit value. Pre/post
+    dumps are saved to the evidence dir (never the PIN).
+    Returns (submitted, reason). Exactly one submit otherwise.
     """
     pin = os.environ.get(PIN_ENV) or ""
     if not pin:
@@ -965,18 +1174,45 @@ def do_pin_entry(serial: str) -> tuple[bool, str]:
     if not re.fullmatch(r"[0-9]{4,16}", pin):
         return False, f"{PIN_ENV} malformed -- aborting before any keypress"
     dump = ui_dump(serial)
-    centers: list[tuple[int, int]] = []
+    try:
+        os.makedirs(evidence_dir(), exist_ok=True)
+        with open(os.path.join(evidence_dir(), "pin-entry-pre.xml"),
+                  "w", encoding="utf-8") as fh:
+            fh.write(dump)
+    except OSError:
+        pass
+    print("pin-entry: pre dump saved (evidence/pin-entry-pre.xml "
+          f"{len(dump)}B)")
+    id_ok, id_reason = keypad_identity(dump)
+    if not id_ok:
+        print(f"pin-entry: identity gate FAIL ({id_reason}) -- "
+              "zero keypresses, STOP")
+        return False, f"keypad identity unproven ({id_reason}) -- nothing tapped"
+    print(f"pin-entry: identity gate PASS ({id_reason})")
+    hits: list[tuple[tuple[int, int], str]] = []
     for digit in pin:
-        c = find_center_for_text(dump, digit)
-        if c is None:
-            do_back(serial)
-            return False, "keypad digit missing -- backed out, nothing submitted"
-        centers.append(c)
-    for x, y in centers:
+        hit = find_exact_digit(dump, digit)
+        if hit is None:
+            print("pin-entry: exact digit node missing -- "
+                  "zero keypresses, STOP")
+            return False, "keypad digit missing (exact) -- nothing tapped"
+        hits.append(hit)
+    for i, ((x, y), bounds) in enumerate(hits):
+        print(f"[pin-digit] i={i + 1}/{len(hits)} center={(x, y)} "
+              f"bounds={bounds!r} status=exact")
         run_adb(serial, ["shell", "input", "tap", str(x), str(y)], timeout=15)
         time.sleep(0.6)
     # Single submit on the unlock/confirm control.
     dump2 = ui_dump(serial)
+    try:
+        os.makedirs(evidence_dir(), exist_ok=True)
+        with open(os.path.join(evidence_dir(), "pin-entry-post.xml"),
+                  "w", encoding="utf-8") as fh:
+            fh.write(dump2)
+    except OSError:
+        pass
+    print("pin-entry: post dump saved (evidence/pin-entry-post.xml "
+          f"{len(dump2)}B)")
     for label in ("Desbloquear", "Unlock", "Confirm", "Confirmar"):
         c = find_center_for_text(dump2, label)
         if c is not None:
@@ -1068,11 +1304,13 @@ def guarded_screencap(serial: str, dump_xml: str,
 
 
 def logcat_snippet(serial: str) -> str:
+    """Last 40 app lines (no *:W filter), filtered by package + redacted."""
     try:
-        proc = run_adb(serial, ["logcat", "-d", "-t", "200", "*:W"], timeout=20)
+        proc = run_adb(serial, ["logcat", "-d", "-t", "500"], timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return "(logcat unavailable)"
-    lines = (proc.stdout or "").splitlines()
+    lines = [ln for ln in (proc.stdout or "").splitlines()
+             if APP_PACKAGE in ln]
     return redact("\n".join(lines[-40:])) or "(logcat empty)"
 
 
@@ -1330,6 +1568,94 @@ def cmd_self_test() -> int:
           and 'list query' in _src.lower(),
           "vault-create-tour gates PASS on list-query hit")
 
+    # 12. Keypad identity gate: pin-entry proves the Hardware Session
+    # Authentication keypad BEFORE any tap; digits resolve ONLY by exact
+    # match; pre/post dumps are persisted (PIN never logged).
+    keypad_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                   '<node text="Hardware Session Authentication" '
+                   'bounds="[100,100][900,200]" />'
+                   '<node text="Minimum 4 digits" '
+                   'bounds="[100,200][900,300]" />'
+                   '<node text="1" bounds="[100,400][300,500]" />'
+                   '<node text="2" bounds="[350,400][550,500]" />'
+                   "</node></hierarchy>")
+    hint_only_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                      '<node text="Hardware Session Authentication" '
+                      'bounds="[100,100][900,200]" />'
+                      '<node text="Minimum 4 digits" '
+                      'bounds="[100,200][900,300]" />'
+                      "</node></hierarchy>")
+    no_keypad_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                      '<node text="Vault" bounds="[0,0][200,200]" />'
+                      "</node></hierarchy>")
+    ok_k, reason_k = keypad_identity(keypad_dump)
+    ok_h, _ = keypad_identity(hint_only_dump)
+    ok_n, _ = keypad_identity(no_keypad_dump)
+    ok_pt, _ = keypad_identity(
+        keypad_dump.replace("Hardware Session Authentication",
+                            "Autenticação de Sessão de Hardware").replace(
+            "Minimum 4 digits", "Mínimo de 4 dígitos"))
+    check("keypad-gate: title+hint+digit proves keypad (EN and PT)",
+          ok_k and ok_pt, f"gate -> {reason_k!r}")
+    check("keypad-gate: hint-only / blank never prove keypad",
+          not ok_h and not ok_n,
+          "absent -> STOP with zero keypresses")
+    check("keypad-gate: digits resolve ONLY by exact match",
+          find_exact_digit(keypad_dump, "1") is not None
+          and find_exact_digit(hint_only_dump, "4") is None
+          and find_exact_digit("not xml", "1") is None
+          and find_exact_digit(keypad_dump, "x") is None,
+          "hint 'Minimum 4 digits' must NOT satisfy digit '4'")
+    check("keypad-gate: exact center+bounds logged (no substring)",
+          find_exact_digit(keypad_dump, "1") == ((200, 450),
+                                                 "[100,400][300,500]"),
+          "digit '1' -> center (200,450) bounds [100,400][300,500]")
+    check("keypad-gate: do_pin_entry gates + saves pre/post dumps",
+          "keypad_identity(dump)" in _src
+          and "find_exact_digit(dump" in _src
+          and "pin-entry-pre.xml" in _src
+          and "pin-entry-post.xml" in _src,
+          "identity before any tap, exact digits, dumps persisted")
+
+    # 13. Residual-session guard: is_unlocked/is_locked prove the real
+    # state BEFORE unlock-pin hunts the LOCKED keypad (22:18 dumps:
+    # UNLOCKED + Remaining 04:55->04:44 + tour-215946 Slot #0).
+    unlocked_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                     '<node text="UNLOCKED" bounds="[100,100][300,180]" />'
+                     '<node text="Session Unlocked" '
+                     'bounds="[100,200][500,280]" />'
+                     '<node text="Remaining authorization time: 04:55" '
+                     'bounds="[100,280][700,360]" />'
+                     '<node text="Lock Now" bounds="[100,360][400,440]" />'
+                     '<node text="tour-215946" '
+                     'bounds="[100,600][500,680]" />'
+                     "</node></hierarchy>")
+    locked_dump = ('<hierarchy><node bounds="[0,0][1080,2400]">'
+                   '<node text="Session Locked" '
+                   'bounds="[100,100][500,180]" />'
+                   '<node text="Unlock Session" '
+                   'bounds="[100,200][500,280]" />'
+                   "</node></hierarchy>")
+    check("session-guard: UNLOCKED residual detected (timer+Lock Now)",
+          is_unlocked(unlocked_dump) and not is_locked(unlocked_dump),
+          "UNLOCKED+timer+Lock Now -> unlocked only")
+    check("session-guard: LOCKED proven, never confused with UNLOCKED",
+          is_locked(locked_dump) and not is_unlocked(locked_dump),
+          "Session Locked/Unlock Session -> locked only")
+    check("session-guard: UNLOCKED never counts as LOCKED (boundary)",
+          not is_locked(unlocked_dump),
+          "word-boundary LOCKED: UNLOCKED must not match")
+    check("session-guard: empty/bad dumps are neither state",
+          not is_unlocked("") and not is_locked("")
+          and not is_unlocked("not xml") and not is_locked("not xml"),
+          "conservative False on empty/garbage")
+    check("session-guard: run_full relocks or SKIPs without extra PIN",
+          "is_unlocked(pre)" in _src
+          and "unlock-pin-relock" in _src
+          and "already UNLOCKED residual -- no PIN consumed" in _src
+          and "Lock Now" in _src and "Bloquear Agora" in _src,
+          "Lock Now/Bloquear Agora + re-dump, else explicit SKIP")
+
     n_ok = sum(1 for _, ok, _ in results if ok)
     print(f"\n==== SELF-TEST: {n_ok}/{len(results)} PASS ====")
     return 0 if n_ok == len(results) else 1
@@ -1451,6 +1777,54 @@ def run_full(serial: str, png_dir: str) -> int:
         do_wake(serial)
         dump = ""
         skipped_step = ""
+        if sid == "unlock-pin":
+            # Residual-session guard: a previous run may leave UNLOCKED
+            # (timer 04:55->04:44 + tour-215946 still listed). Prove the
+            # real state BEFORE hunting the LOCKED keypad UI.
+            pre = ui_dump(serial)
+            if is_unlocked(pre):
+                print("unlock-pin: residual UNLOCKED session detected "
+                      "(auth timer still valid) -- restoring LOCKED via "
+                      "Lock Now/Bloquear Agora, else SKIP without PIN")
+                relocked: str | None = None
+                cur = pre
+                for lock_label in ("Lock Now", "Bloquear Agora"):
+                    st, _cc = safe_tap_text(serial, cur, lock_label)
+                    if st != "tapped":
+                        continue
+                    time.sleep(2.0)
+                    cand = ui_dump(serial)
+                    evidence("unlock-pin-relock", cand)
+                    if is_locked(cand) and not is_unlocked(cand):
+                        print(f"unlock-pin: relock via {lock_label!r} "
+                              "proved LOCKED -- proceeding to PIN unlock")
+                        relocked = cand
+                        break
+                    print(f"unlock-pin: relock via {lock_label!r} did not "
+                          "prove LOCKED (still unlocked?)")
+                    cur = cand
+                if relocked is None and is_unlocked(cur):
+                    # Explicit SKIP: already unlocked, ZERO PIN consumes.
+                    # expect_any for this step is the UNLOCKED markers, so
+                    # the real state already satisfies the postcondition.
+                    evidence(sid, cur)
+                    shot_path = os.path.join(png_dir, step["shot"])
+                    shot_ok, w, shot_mode = guarded_screencap(
+                        serial, cur, shot_path)
+                    results.append(
+                        (sid, "SKIP",
+                         "already UNLOCKED residual -- no PIN consumed, "
+                         f"proceeding from real state "
+                         f"(shot={step['shot']}:{shot_ok} [{w}px] "
+                         f"mode={shot_mode})"))
+                    print(f"[SKIP] step {i}/{len(FULL_STEPS)} {sid:16s} "
+                          f"already UNLOCKED residual -- no PIN consumed "
+                          f"[{w}px] mode={shot_mode}")
+                    continue
+                # Relocked (or lock state ambiguous): fall through to the
+                # normal nav below; pin-entry consumes the single
+                # authorized PIN only when the LOCKED keypad is proven.
+                dump = ""
         for action in step.get("nav", []):
             verb = action[0]
             if verb == "start":
@@ -1493,6 +1867,8 @@ def run_full(serial: str, png_dir: str) -> int:
                 for label_hint in ("Label", "R\u00f3tulo", "Nome", "Name"):
                     c = find_center_for_text(dump, label_hint)
                     if c is not None:
+                        print(f"[tap] label={label_hint!r} center={c} "
+                              f"bounds={find_bounds_for_text(dump, label_hint)!r}")
                         do_tap(serial, *c)
                         tapped = True
                         break
@@ -1504,6 +1880,9 @@ def run_full(serial: str, png_dir: str) -> int:
                             if (node.get("class") or "").endswith("EditText"):
                                 c = parse_bounds(node.get("bounds") or "")
                                 if c is not None:
+                                    print(f"[tap] label='<EditText-fallback>' "
+                                          f"center={c} "
+                                          f"bounds={node.get('bounds')!r}")
                                     do_tap(serial, *c)
                                     tapped = True
                                     break
@@ -1511,7 +1890,25 @@ def run_full(serial: str, png_dir: str) -> int:
                         pass
                 if tapped and do_input_text(serial, tour_label):
                     print(f"typed throwaway label (len {len(tour_label)})")
-                    dump = ""
+                    # Pre-dismiss dump (post-type, keyboard may cover
+                    # Generate Key) then dismiss keyboard, re-dump, and
+                    # only then let the next nav tap Generate Key.
+                    dump_typed = ui_dump(serial)
+                    evidence(sid + "-typed", dump_typed)
+                    dump_ready, kb_method = dismiss_keyboard_after_typing(
+                        serial, dump_typed)
+                    evidence(sid + "-pre-submit", dump_ready)
+                    print(f"keyboard dismissed via {kb_method} "
+                          f"(typed={len(dump_typed)}B "
+                          f"pre-submit={len(dump_ready)}B)")
+                    id_ok2, id_reason2 = create_dialog_identity(dump_ready)
+                    if not id_ok2:
+                        evidence(sid, dump_ready)
+                        results.append((sid, "SKIP",
+                                        f"post-keyboard dialog lost "
+                                        f"({id_reason2}) -- nothing submitted"))
+                        return stop(f"keyboard-dismiss guard: {id_reason2}")
+                    dump = dump_ready
                 else:
                     evidence(sid, dump)
                     results.append((sid, "SKIP", "label field not typable"))
@@ -1519,14 +1916,18 @@ def run_full(serial: str, png_dir: str) -> int:
             elif verb == "delete-tour":
                 dump = ui_dump(serial)
                 c = find_center_for_text(dump, tour_label)
+                used_needle = tour_label
                 if c is None:
                     # Entry may already be listed under a truncated label;
                     # look for any tour- entry before giving up.
                     c = find_center_for_text(dump, TOUR_LABEL_PREFIX)
+                    used_needle = TOUR_LABEL_PREFIX
                 if c is None:
                     evidence(sid, dump)
                     results.append((sid, "SKIP", "tour- entry not on screen"))
                     return stop("throwaway entry missing -- nothing to delete")
+                print(f"[tap] label={used_needle!r} center={c} "
+                      f"bounds={find_bounds_for_text(dump, used_needle)!r}")
                 do_tap(serial, *c)
                 time.sleep(1.5)
                 dlg = ui_dump(serial)
@@ -1544,6 +1945,8 @@ def run_full(serial: str, png_dir: str) -> int:
                             "Apagar", "Delete"):
                     cc = find_center_for_text(dlg, btn)
                     if cc is not None:
+                        print(f"[tap] label={btn!r} center={cc} "
+                              f"bounds={find_bounds_for_text(dlg, btn)!r}")
                         do_tap(serial, *cc)
                         confirmed = True
                         break
@@ -1624,12 +2027,35 @@ def run_full(serial: str, png_dir: str) -> int:
             # Defect 3: typed text in the input field is NOT a created
             # entry. Verify via a subsequent list query: the throwaway
             # label must appear as a non-EditText list/detail node.
+            # Slots pré (aux evidence) before the refresh/list-query.
+            slots_pre = slots_used_summary(dump)
+            with open(os.path.join(ev_dir, f"{sid}_slots_pre.txt"),
+                      "w", encoding="utf-8") as fh:
+                fh.write(f"step={sid} phase=pre\n{slots_pre}\n")
+            print(f"slots pre: {slots_pre!r}")
+            # Refresh the list before querying: tap Refresh, swipe-up,
+            # re-dump (best-effort; the list-query gate decides PASS).
+            refresh_base = dump
+            for refresh_label in ("Refresh", "Atualizar"):
+                st, _cc = safe_tap_text(serial, refresh_base,
+                                         refresh_label)
+                if st == "tapped":
+                    refresh_base = ui_dump(serial)
+                    break
+            do_swipe_up(serial)
+            dump = ui_dump(serial)
+            evidence(sid + "-refreshed", dump)
             if not tour_label_listed(dump, tour_label):
                 queried = ui_dump(serial)
                 if tour_label_listed(queried, tour_label):
                     dump = queried
                     evidence(sid + "-list", dump)
                 else:
+                    slots_post = slots_used_summary(dump)
+                    with open(os.path.join(ev_dir, f"{sid}_slots_post.txt"),
+                              "w", encoding="utf-8") as fh:
+                        fh.write(f"step={sid} phase=post-fail\n"
+                                 f"pre:\n{slots_pre}\npost:\n{slots_post}\n")
                     results.append(
                         (sid, "STOP",
                          f"create unverified: {tour_label!r} absent from "
@@ -1646,6 +2072,12 @@ def run_full(serial: str, png_dir: str) -> int:
                           f"{tour_label!r}")
                     return stop(f"step {sid} create unverified "
                                 f"(list query miss)")
+            slots_post = slots_used_summary(dump)
+            with open(os.path.join(ev_dir, f"{sid}_slots_post.txt"),
+                      "w", encoding="utf-8") as fh:
+                fh.write(f"step={sid} phase=post\n"
+                         f"pre:\n{slots_pre}\npost:\n{slots_post}\n")
+            print(f"slots post: {slots_post!r}")
         shot_path = os.path.join(png_dir, step["shot"])
         shot_ok, w, shot_mode = guarded_screencap(serial, dump, shot_path)
         if "SKIP-SECRET-VISIBLE" in shot_mode:

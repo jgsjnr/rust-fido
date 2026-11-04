@@ -2,19 +2,19 @@ use super::{
     cbor_err, extract_bytes, get_field, hex_decode, hex_encode, shamir_2_of_3_recover,
     shamir_2_of_3_split, to_cbor_bytes, CTAP2_ERR_PIN_AUTH_INVALID, CTAP2_ERR_PIN_REQUIRED,
 };
+use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::secure_guard_storage::save_secure_guard_record;
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::oath::OathApplet;
-use aegis_fido_core::secure_guard::{MAX_ATTEMPTS, SecureGuardEngine, SecureGuardState};
+use aegis_fido_core::secure_guard::{SecureGuardEngine, SecureGuardState, MAX_ATTEMPTS};
 use aegis_fido_core::wallet::WalletStore;
 use ciborium::value::Value;
+use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
+use p256::SecretKey;
 use rand_core::CryptoRng;
 use std::format;
 use std::vec::Vec;
-use p256::elliptic_curve::Generate;
-use p256::elliptic_curve::sec1::ToSec1Point;
-use p256::SecretKey;
-use crate::persistence::{FlashStorageBackend, SecureStorage};
-use crate::secure_guard_storage::save_secure_guard_record;
 /// F-05: deadline (ms monotonicos) ate a qual `change_pin` e negado sem oraculo.
 ///
 /// O `change_pin` do engine nao arma `rate_limit_until_ms` (so o unlock arma);
@@ -62,12 +62,30 @@ fn change_pin_backoff_body(engine: &SecureGuardEngine, rate_limit_remaining_ms: 
     let rem_attempts = MAX_ATTEMPTS.saturating_sub(engine.failed_attempts());
     let out_map = vec![
         (Value::Text("success".into()), Value::Bool(false)),
-        (Value::Text("state".into()), Value::from(engine.state().wire_code())),
-        (Value::Text("state_name".into()), Value::Text(format!("{:?}", engine.state()))),
-        (Value::Text("failed_attempts".into()), Value::from(engine.failed_attempts())),
-        (Value::Text("remaining_attempts".into()), Value::from(rem_attempts)),
-        (Value::Text("rate_limit_remaining_ms".into()), Value::from(rate_limit_remaining_ms)),
-        (Value::Text("error".into()), Value::Text("rate_limited_change_pin_backoff".into())),
+        (
+            Value::Text("state".into()),
+            Value::from(engine.state().wire_code()),
+        ),
+        (
+            Value::Text("state_name".into()),
+            Value::Text(format!("{:?}", engine.state())),
+        ),
+        (
+            Value::Text("failed_attempts".into()),
+            Value::from(engine.failed_attempts()),
+        ),
+        (
+            Value::Text("remaining_attempts".into()),
+            Value::from(rem_attempts),
+        ),
+        (
+            Value::Text("rate_limit_remaining_ms".into()),
+            Value::from(rate_limit_remaining_ms),
+        ),
+        (
+            Value::Text("error".into()),
+            Value::Text("rate_limited_change_pin_backoff".into()),
+        ),
     ];
     to_cbor_bytes(&Value::Map(out_map))
 }
@@ -84,7 +102,10 @@ fn deny_change_pin_if_rate_limited(
     if remaining_ms == 0 {
         return None;
     }
-    Some((CTAP2_ERR_PIN_REQUIRED, change_pin_backoff_body(engine, remaining_ms)))
+    Some((
+        CTAP2_ERR_PIN_REQUIRED,
+        change_pin_backoff_body(engine, remaining_ms),
+    ))
 }
 /// 0x3B: OP_SECURE_GUARD_UNLOCK
 #[allow(clippy::too_many_arguments)]
@@ -400,11 +421,20 @@ where
         let pub_bytes = encoded_point.as_bytes().to_vec();
 
         let out_map = vec![
-            (Value::Text("status".into()), Value::Text("ecdh_ready".into())),
+            (
+                Value::Text("status".into()),
+                Value::Text("ecdh_ready".into()),
+            ),
             (Value::Text("curve".into()), Value::Text("P-256".into())),
             (Value::Text("kdf".into()), Value::Text("HKDF-SHA256".into())),
-            (Value::Text("aead".into()), Value::Text("AES-256-GCM".into())),
-            (Value::Text("device_public_key".into()), Value::Bytes(pub_bytes)),
+            (
+                Value::Text("aead".into()),
+                Value::Text("AES-256-GCM".into()),
+            ),
+            (
+                Value::Text("device_public_key".into()),
+                Value::Bytes(pub_bytes),
+            ),
         ];
         (0x00, to_cbor_bytes(&Value::Map(out_map)))
     } else if action_str == Some("shamir_split") {
@@ -455,13 +485,19 @@ where
         }
 
         if extracted_shares.len() < 2 {
-            return (0x04, to_cbor_bytes(&cbor_err("insufficient_shares_need_at_least_2")));
+            return (
+                0x04,
+                to_cbor_bytes(&cbor_err("insufficient_shares_need_at_least_2")),
+            );
         }
 
         match shamir_2_of_3_recover(&extracted_shares[0], &extracted_shares[1]) {
             Ok(recovered_secret) => {
                 let out_map = vec![
-                    (Value::Text("status".into()), Value::Text("recovered".into())),
+                    (
+                        Value::Text("status".into()),
+                        Value::Text("recovered".into()),
+                    ),
                     (Value::Text("secret".into()), Value::Bytes(recovered_secret)),
                 ];
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
@@ -502,10 +538,14 @@ where
             .unwrap_or("0.0001 ETH");
 
         let mut oled = crate::oled_ssd1306_code_only::Ssd1306Driver::new();
-        oled.virtual_buffer.render_clear_sign(chain, tx_type, recipient, amount, fee);
+        oled.virtual_buffer
+            .render_clear_sign(chain, tx_type, recipient, amount, fee);
 
         let mut out_map = Vec::new();
-        out_map.push((Value::Text("status".into()), Value::Text("preview_rendered".into())));
+        out_map.push((
+            Value::Text("status".into()),
+            Value::Text("preview_rendered".into()),
+        ));
         out_map.push((
             Value::Text("hardware_oled_attached".into()),
             Value::Bool(crate::oled_ssd1306_code_only::HARDWARE_I2C_OLED_ATTACHED),
@@ -517,7 +557,10 @@ where
         ));
         out_map.push((
             Value::Text("summary".into()),
-            Value::Text(format!("{}: {} to {} (val: {}, fee: {})", chain, tx_type, recipient, amount, fee)),
+            Value::Text(format!(
+                "{}: {} to {} (val: {}, fee: {})",
+                chain, tx_type, recipient, amount, fee
+            )),
         ));
         (0x00, to_cbor_bytes(&Value::Map(out_map)))
     } else if action_str == Some("keepassxc_slot_config") {
@@ -527,19 +570,31 @@ where
         };
         let key_bytes = match get_field(&entries, "key").and_then(extract_bytes) {
             Some(k) if k.len() == 20 => k,
-            _ => return (0x04, to_cbor_bytes(&cbor_err("invalid_or_missing_20byte_key"))),
+            _ => {
+                return (
+                    0x04,
+                    to_cbor_bytes(&cbor_err("invalid_or_missing_20byte_key")),
+                )
+            }
         };
         let require_touch = match get_field(&entries, "require_touch") {
             Some(Value::Bool(b)) => *b,
             _ => false,
         };
 
-        match crate::hmac_cr_compat_layer::configure_cr_compat_slot(slot, &key_bytes, require_touch) {
+        match crate::hmac_cr_compat_layer::configure_cr_compat_slot(slot, &key_bytes, require_touch)
+        {
             Ok(()) => {
                 let out_map = vec![
-                    (Value::Text("status".into()), Value::Text("slot_configured".into())),
+                    (
+                        Value::Text("status".into()),
+                        Value::Text("slot_configured".into()),
+                    ),
                     (Value::Text("slot".into()), Value::from(slot)),
-                    (Value::Text("require_touch".into()), Value::Bool(require_touch)),
+                    (
+                        Value::Text("require_touch".into()),
+                        Value::Bool(require_touch),
+                    ),
                 ];
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
             }
@@ -558,16 +613,27 @@ where
         };
         let challenge = match get_field(&entries, "challenge").and_then(extract_bytes) {
             Some(c) if !c.is_empty() && c.len() <= 64 => c,
-            _ => return (0x04, to_cbor_bytes(&cbor_err("invalid_or_missing_challenge"))),
+            _ => {
+                return (
+                    0x04,
+                    to_cbor_bytes(&cbor_err("invalid_or_missing_challenge")),
+                )
+            }
         };
 
         match crate::hmac_cr_compat_layer::process_cr_compat_challenge(slot, &challenge) {
             Ok(resp) => {
                 let crc = u16::from_le_bytes([resp[20], resp[21]]);
                 let out_map = vec![
-                    (Value::Text("status".into()), Value::Text("challenge_response_ok".into())),
+                    (
+                        Value::Text("status".into()),
+                        Value::Text("challenge_response_ok".into()),
+                    ),
                     (Value::Text("slot".into()), Value::from(slot)),
-                    (Value::Text("response".into()), Value::Bytes(resp[..20].to_vec())),
+                    (
+                        Value::Text("response".into()),
+                        Value::Bytes(resp[..20].to_vec()),
+                    ),
                     (Value::Text("crc".into()), Value::from(crc)),
                 ];
                 (0x00, to_cbor_bytes(&Value::Map(out_map)))
@@ -604,10 +670,22 @@ where
         let _ = save_secure_guard_record(storage, engine);
 
         let out_map = vec![
-            (Value::Text("status".into()), Value::Text("ble_proximity_registered".into())),
-            (Value::Text("paired_ble_mac".into()), Value::Bytes(engine.paired_ble_mac().to_vec())),
-            (Value::Text("ble_proximity_registered".into()), Value::Bool(true)),
-            (Value::Text("auto_lock_on_ble_away".into()), Value::Bool(engine.auto_lock_on_ble_away())),
+            (
+                Value::Text("status".into()),
+                Value::Text("ble_proximity_registered".into()),
+            ),
+            (
+                Value::Text("paired_ble_mac".into()),
+                Value::Bytes(engine.paired_ble_mac().to_vec()),
+            ),
+            (
+                Value::Text("ble_proximity_registered".into()),
+                Value::Bool(true),
+            ),
+            (
+                Value::Text("auto_lock_on_ble_away".into()),
+                Value::Bool(engine.auto_lock_on_ble_away()),
+            ),
         ];
         (0x00, to_cbor_bytes(&Value::Map(out_map)))
     } else if action_str == Some("update_ble_rssi") {
@@ -629,18 +707,35 @@ where
             _ => rssi_dbm < -75,
         };
 
-        let locked = engine.on_ble_proximity_update(&mac, rssi_dbm, is_away, now_ms).unwrap_or(false);
+        let locked = engine
+            .on_ble_proximity_update(&mac, rssi_dbm, is_away, now_ms)
+            .unwrap_or(false);
         if locked {
             let _ = save_secure_guard_record(storage, engine);
         }
 
         let out_map = vec![
-            (Value::Text("status".into()), Value::Text("ble_rssi_updated".into())),
+            (
+                Value::Text("status".into()),
+                Value::Text("ble_rssi_updated".into()),
+            ),
             (Value::Text("locked".into()), Value::Bool(locked)),
-            (Value::Text("state".into()), Value::from(engine.state().wire_code())),
-            (Value::Text("unlocked".into()), Value::Bool(engine.is_unlocked())),
-            (Value::Text("ble_proximity_away".into()), Value::Bool(engine.ble_proximity_away())),
-            (Value::Text("last_ble_rssi_dbm".into()), Value::from(engine.last_ble_rssi_dbm() as i64)),
+            (
+                Value::Text("state".into()),
+                Value::from(engine.state().wire_code()),
+            ),
+            (
+                Value::Text("unlocked".into()),
+                Value::Bool(engine.is_unlocked()),
+            ),
+            (
+                Value::Text("ble_proximity_away".into()),
+                Value::Bool(engine.ble_proximity_away()),
+            ),
+            (
+                Value::Text("last_ble_rssi_dbm".into()),
+                Value::from(engine.last_ble_rssi_dbm() as i64),
+            ),
         ];
         (0x00, to_cbor_bytes(&Value::Map(out_map)))
     } else {
