@@ -30,9 +30,19 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use ciborium::value::Value;
 
+use crate::persistence::{FlashStorageBackend, SecureStorage};
 use crate::pm_store::{
-    authorize_pm_op, PmGateState, OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
+    authorize_pm_op, pm_blob_load_opt, pm_blob_save, PmGateState, OP_PM_DELETE, OP_PM_GET,
+    OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
 };
+
+/// Device PM vault master key (RAM session key material; the sealed NVS blob
+/// is AEAD under this key via `PmVault::seal_to_blob`). Placeholder constant
+/// until a TRNG-provisioned device key lands; no eFuse/Secure Boot surface.
+pub const PM_VAULT_MASTER_KEY: [u8; 32] = [0x5Au8; 32];
+/// Fixed domain separation token for the PM envelope seal (no user secret;
+/// the same token seals and opens on every transport).
+pub const PM_SEAL_PIN_TOKEN: &[u8] = b"aegis-pm-v1";
 
 /// Wire status for a vault-level failure (gates already passed).
 fn pm_error_to_wire(e: PmError) -> u8 {
@@ -120,6 +130,76 @@ fn decode_id_body(bytes: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     Some(id)
+}
+
+/// Loads the sealed PM blob (if any) from NVS into `vault`.
+///
+/// Absent blob = fresh vault (`Ok(0)`). Corrupt/tampered blob = fail-closed
+/// fresh vault (`Ok(0)`; the next mutating op overwrites the torn slot).
+/// Never logs secrets, no panics.
+pub fn pm_vault_load<B: FlashStorageBackend>(
+    storage: &SecureStorage<B>,
+    vault: &mut PmVault,
+    policy: &PmPolicy,
+    gate: &PmGateState,
+) -> usize {
+    let Some(blob) = pm_blob_load_opt(storage) else {
+        return 0;
+    };
+    let vgate = to_vault_gate(gate);
+    match vault.load_from_blob(policy, &vgate, &blob, PM_SEAL_PIN_TOKEN) {
+        Ok(n) => n,
+        Err(_) => {
+            *vault = PmVault::new(PM_VAULT_MASTER_KEY);
+            0
+        }
+    }
+}
+
+/// Seals `vault` and persists the opaque blob to NVS (single-blob
+/// `vault-pm/blob` semantics, mirroring `key_slots_v1` via `NamespacedStore`).
+/// Seal/verify failure = `false` (caller keeps the RAM copy, fail-closed).
+pub fn pm_vault_save<B: FlashStorageBackend, R: rand_core::CryptoRng>(
+    storage: &mut SecureStorage<B>,
+    vault: &PmVault,
+    policy: &PmPolicy,
+    gate: &PmGateState,
+    rng: &mut R,
+) -> bool {
+    let vgate = to_vault_gate(gate);
+    let blob = match vault.seal_to_blob(policy, &vgate, PM_SEAL_PIN_TOKEN, rng) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    pm_blob_save(storage, &blob).is_ok()
+}
+
+/// Dispatches one PM op with NVS persistence (all transports).
+///
+/// Loads the sealed blob before dispatch; on success (`0x00`) of a mutating
+/// op (`PUT`/`DELETE`) seals and saves afterwards. Read ops (`GET`/`LIST/
+/// `STATUS`) never write. Gate/vault failures map exactly like
+/// [`dispatch_pm_op`].
+#[allow(clippy::too_many_arguments)]
+pub fn dispatch_pm_op_persist<B: FlashStorageBackend, R: rand_core::CryptoRng>(
+    op: u8,
+    body: &[u8],
+    gate: &PmGateState,
+    storage: &mut SecureStorage<B>,
+    policy: &PmPolicy,
+    now_secs: u64,
+    rng: &mut R,
+) -> (u8, Vec<u8>) {
+    let mut vault = PmVault::new(PM_VAULT_MASTER_KEY);
+    let _ = pm_vault_load(storage, &mut vault, policy, gate);
+    let (st, out) = dispatch_pm_op(op, body, gate, &mut vault, policy, now_secs, rng);
+    if st == 0x00
+        && (op == OP_PM_PUT || op == OP_PM_DELETE)
+        && !pm_vault_save(storage, &vault, policy, gate, rng)
+    {
+        return (0x04, Vec::new());
+    }
+    (st, out)
 }
 
 /// Dispatches one PM op over a RAM vault.
@@ -594,5 +674,112 @@ mod tests {
         // Debug of errors carries no blob bytes.
         let dbg = alloc::format!("{:?}", PmError::Sealed);
         assert!(!dbg.contains("s3cr3t"));
+    }
+
+    fn list_req(cursor: u32, limit: u32) -> Vec<u8> {
+        let map = alloc::vec![
+            (Value::Text("cursor".into()), Value::from(cursor as u64)),
+            (Value::Text("limit".into()), Value::from(limit as u64)),
+        ];
+        let mut out = Vec::new();
+        ciborium::into_writer(&Value::Map(map), &mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn persist_put_list_get_delete_survives_reboot() {
+        use crate::persistence::{MockFlashBackend, SecureStorage};
+        let mut storage = SecureStorage::new(MockFlashBackend::new(), &[0x11u8; 32], &[0x22u8; 32]);
+        let policy = PmPolicy::default();
+        let gate = gate();
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        // PUT persists.
+        let (st, body) = dispatch_pm_op_persist(
+            OP_PM_PUT,
+            &put_body("bank", "alice", b"s3cr3t"),
+            &gate,
+            &mut storage,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        let id = decode_id_body(&body).expect("opaque id");
+        // LIST sees it on a fresh call (blob reloaded from NVS).
+        let (st, body) = dispatch_pm_op_persist(
+            OP_PM_LIST,
+            &list_req(0, 32),
+            &gate,
+            &mut storage,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        let entries = from_cbor(&body).expect("list cbor");
+        let ids = match field(&entries, "ids").unwrap() {
+            Value::Array(a) => a.clone(),
+            _ => panic!("ids array"),
+        };
+        assert_eq!(ids.len(), 1);
+        // GET returns the record.
+        let (st, _) = dispatch_pm_op_persist(
+            OP_PM_GET,
+            &encode_id_body(&id).unwrap(),
+            &gate,
+            &mut storage,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        // Simulated reboot: new engine over the persisted backend image.
+        let backend_clone = storage.backend().clone();
+        let mut rebooted = SecureStorage::new(backend_clone, &[0x11u8; 32], &[0x22u8; 32]);
+        let (st, body) = dispatch_pm_op_persist(
+            OP_PM_LIST,
+            &list_req(0, 32),
+            &gate,
+            &mut rebooted,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        let entries = from_cbor(&body).expect("reboot list cbor");
+        let ids = match field(&entries, "ids").unwrap() {
+            Value::Array(a) => a.clone(),
+            _ => panic!("ids array"),
+        };
+        assert_eq!(ids.len(), 1);
+        // DELETE persists; post-reboot LIST is empty.
+        let (st, _) = dispatch_pm_op_persist(
+            OP_PM_DELETE,
+            &encode_id_body(&id).unwrap(),
+            &gate,
+            &mut rebooted,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        let backend_clone = rebooted.backend().clone();
+        let mut rebooted2 = SecureStorage::new(backend_clone, &[0x11u8; 32], &[0x22u8; 32]);
+        let (st, body) = dispatch_pm_op_persist(
+            OP_PM_LIST,
+            &list_req(0, 32),
+            &gate,
+            &mut rebooted2,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+        );
+        assert_eq!(st, 0x00);
+        let entries = from_cbor(&body).expect("empty list cbor");
+        let ids = match field(&entries, "ids").unwrap() {
+            Value::Array(a) => a.clone(),
+            _ => panic!("ids array"),
+        };
+        assert!(ids.is_empty());
     }
 }

@@ -2096,17 +2096,12 @@ pub fn run_authenticator() {
                                                     )))]
                                                     {
                                                         // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre
-                                                        // PmVault em RAM de sessao; blob selado NVS =
-                                                        // follow-up via `pm_store`).
+                                                        // PmVault com persistencia NVS `vault-pm/blob`).
                                                         let mut rng =
                                                             rand_core::UnwrapErr(getrandom::SysRng);
-                                                        let mut vault =
-                                                            aegis_pm_vault::PmVault::new(
-                                                                [0x5Au8; 32],
-                                                            );
                                                         let policy =
                                                             aegis_pm_vault::PmPolicy::default();
-                                                        crate::serial_vendor::dispatch_serial_pm(
+                                                        crate::serial_vendor::dispatch_serial_pm_persist(
                                                             op,
                                                             &msg.payload[1..],
                                                             binding_mgr.is_claimed(),
@@ -2121,7 +2116,7 @@ pub fn run_authenticator() {
                                                                         || touch_latched)),
                                                             true,
                                                             0,
-                                                            &mut vault,
+                                                            &mut storage,
                                                             &policy,
                                                             now_secs,
                                                             &mut rng,

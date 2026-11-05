@@ -83,6 +83,33 @@ pub fn dispatch_serial_pm<R: rand_core::CryptoRng>(
     crate::pm_dispatch::dispatch_pm_op(op, body, &gate, vault, policy, now_secs, rng)
 }
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[allow(clippy::too_many_arguments)]
+pub fn dispatch_serial_pm_persist<
+    B: crate::persistence::FlashStorageBackend,
+    R: rand_core::CryptoRng,
+>(
+    op: u8,
+    body: &[u8],
+    binding_ok: bool,
+    pin_authenticated: bool,
+    up: bool,
+    bound_within_ms: u64,
+    storage: &mut crate::persistence::SecureStorage<B>,
+    policy: &aegis_pm_vault::PmPolicy,
+    now_secs: u64,
+    rng: &mut R,
+) -> (u8, Vec<u8>) {
+    use crate::pm_store::PmGateState;
+    let gate = PmGateState {
+        binding_bound: binding_ok,
+        presence_confirmed: up,
+        pin_authenticated,
+        bound_within_ms,
+    };
+    crate::pm_dispatch::dispatch_pm_op_persist(op, body, &gate, storage, policy, now_secs, rng)
+}
+
 /// Dispatches one wallet op (0x35-0x37) with the exact BLE gates.
 ///
 /// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device

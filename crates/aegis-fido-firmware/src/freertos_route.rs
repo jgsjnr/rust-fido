@@ -490,20 +490,19 @@ pub fn dispatch_serial_vendor_msg(
                     #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
                     {
                         // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre
-                        // PmVault em RAM de sessao; blob selado NVS =
-                        // follow-up via `pm_store`). `bound_within_ms = 0`:
+                        // PmVault com persistencia NVS `vault-pm/blob`).
+                        // `bound_within_ms = 0`:
                         // a janela de 60 s e a do pareamento ja aprovada no
                         // gate acima (walk-away fecha via `NeedPairing`).
-                        let mut vault = aegis_pm_vault::PmVault::new([0x5Au8; 32]);
                         let policy = aegis_pm_vault::PmPolicy::default();
-                        crate::serial_vendor::dispatch_serial_pm(
+                        crate::serial_vendor::dispatch_serial_pm_persist(
                             op,
                             &payload[1..],
                             binding_claimed_effective,
                             pin_effective,
                             true,
                             0,
-                            &mut vault,
+                            ctx.storage,
                             &policy,
                             ctx.now_secs,
                             &mut rng,

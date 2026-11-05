@@ -247,8 +247,8 @@ pub(crate) fn ble_dispatch_complete(
         }
         #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         o if g::is_pm_fragment_opcode(o) => {
-            // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre PmVault em
-            // RAM de sessao; blob selado NVS = follow-up via `pm_store`).
+            // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre PmVault com
+            // persistencia NVS `vault-pm/blob` via `pm_dispatch`).
             // Gates binding -> UP -> PIN -> janela 60 s (fail-closed com o
             // vocabulario 9.5 congelado).
             let pin_ok =
@@ -256,7 +256,6 @@ pub(crate) fn ble_dispatch_complete(
             let effective_claimed =
                 binding_mgr.is_claimed() || secure_guard.is_unlocked() || bonded;
             let effective_up = up || secure_guard.is_unlocked();
-            let mut vault = aegis_pm_vault::PmVault::new([0x5Au8; 32]);
             let policy = aegis_pm_vault::PmPolicy::default();
             let gate = crate::pm_store::PmGateState {
                 binding_bound: effective_claimed,
@@ -265,8 +264,8 @@ pub(crate) fn ble_dispatch_complete(
                 bound_within_ms: 0,
             };
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
-            let (st, body) = crate::pm_dispatch::dispatch_pm_op(
-                o, p, &gate, &mut vault, &policy, now_secs, &mut rng,
+            let (st, body) = crate::pm_dispatch::dispatch_pm_op_persist(
+                o, p, &gate, storage, &policy, now_secs, &mut rng,
             );
             if st == 0x00 {
                 kprintln!("[BLE] op pm 0x{:02X} executada.", o);
