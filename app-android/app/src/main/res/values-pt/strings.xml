@@ -871,4 +871,11 @@
     <string name="oob_err_pin">Desbloqueie a sessão com seu PIN e tente de novo.</string>
     <string name="oob_err_envelope">Troca rejeitada. Verifique o cabo e tente de novo.</string>
     <string name="oob_err_transport">Sem resposta via USB. Verifique o cabo e tente de novo.</string>
+
+    <!-- Preenchimento do cofre em outros apps (Autofill do Android, exige sessão) -->
+    <string name="autofill_title">Preenchimento em outros apps</string>
+    <string name="autofill_desc">Oferece senhas do cofre em telas de login de outros apps. Funciona só com o Secure Guard desbloqueado.</string>
+    <string name="autofill_open_system">Escolher AegisKey como serviço de preenchimento</string>
+    <string name="autofill_locked_hint">Desbloqueie o Secure Guard para oferecer senhas do cofre.</string>
+    <string name="autofill_off_hint">Ative para oferecer senhas do cofre em outros apps.</string>
 </resources>

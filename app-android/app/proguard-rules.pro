@@ -4,6 +4,7 @@
 -keep class uniffi.** { *; }
 -dontwarn java.awt.**
 -keep class dev.aegiskey.app.bridge.** { *; }
+-keep class dev.aegiskey.app.autofill.AegisAutofillService { *; }
 
 # Google Tink / ErrorProne annotation suppressions for R8
 -dontwarn com.google.errorprone.annotations.**

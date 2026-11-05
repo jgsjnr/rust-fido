@@ -65,5 +65,21 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_FILTER"
                 android:resource="@xml/device_filter" />
         </activity>
+
+        <!-- Vault autofill in other apps (Android Autofill Framework).
+             Fail-closed: the service answers null unless the Settings
+             master switch is on AND a Secure Guard session is unlocked.
+             Binding is granted by the OS picker only. -->
+        <service
+            android:name=".autofill.AegisAutofillService"
+            android:exported="true"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.autofill"
+                android:resource="@xml/autofillservice" />
+        </service>
     </application>
 </manifest>

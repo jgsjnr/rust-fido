@@ -109,6 +109,7 @@ import androidx.compose.ui.platform.LocalContext
 import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.di.AppContainer
+import dev.aegiskey.app.autofill.AutofillSettingsCard
 import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.ui.RescueOps
@@ -512,6 +513,11 @@ fun FriendlySettingsAndThemeScreen(
                     }
                 }
             }
+        }
+
+        // --- 2.1 Vault autofill in other apps (session-gated, default off) ---
+        item {
+            AutofillSettingsCard()
         }
 
         // --- KeePassXC & Advanced Cryptography Compatibility ---

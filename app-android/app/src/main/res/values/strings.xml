@@ -871,4 +871,11 @@
     <string name="oob_err_pin">Unlock the session with your PIN, then retry.</string>
     <string name="oob_err_envelope">Exchange rejected. Check the cable and retry.</string>
     <string name="oob_err_transport">No answer over USB. Check the cable and retry.</string>
+
+    <!-- Vault autofill in other apps (Android Autofill Framework, session-gated) -->
+    <string name="autofill_title">Autofill in other apps</string>
+    <string name="autofill_desc">Offer vault passwords in login fields of other apps. Works only while Secure Guard is unlocked.</string>
+    <string name="autofill_open_system">Choose AegisKey as autofill service</string>
+    <string name="autofill_locked_hint">Unlock Secure Guard to offer vault passwords.</string>
+    <string name="autofill_off_hint">Turn on to offer vault passwords in other apps.</string>
 </resources>
