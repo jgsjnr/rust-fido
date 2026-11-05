@@ -16,7 +16,7 @@ Uso (SEM hardware p/ --help):
   python tools/e2e_harness.py bridge --help     # USB-HID/UART <-> emulador Android (porta 5678)
   python tools/e2e_harness.py user --help       # E2E como usuario (fases base/pairing/all-safe/destructive/wipe/bench)
   python tools/e2e_harness.py session           # sessao emulada app+server (offline, UP-SIMULATED, sem HW)
-  python tools/e2e_harness.py onboard [--bridge]  # HIL full-app na placa real (COM7; EXIGE hardware)
+  python tools/e2e_harness.py onboard --confirm [--bridge]  # HIL full-app na placa real (COM7; EXIGE hardware; --help nunca executa HIL)
 
 Subcomandos repassam argv intactos ao main() original do cenario.
 """
@@ -4999,12 +4999,27 @@ def send_arm(sess: Session, op_name: str, cmd_byte: int, payload: bytes = b"", t
     return st, body
 
 
+ONBOARD_HELP = """HIL onboard na placa real (COM7; DESTRUTIVO: faz wipe via OP_BIND_RELEASE).
+Uso:
+  python tools/e2e_harness.py onboard --confirm [--bridge]
+  python tools/e2e_harness.py onboard --help
+Seguranca: --help nunca toca em hardware; sem --confirm nada executa;
+sem hardware detectado recusa antes de qualquer escrita."""
+
 def onboard_main():
+    argv = list(sys.argv)
+    if any(a in ("-h", "--help", "help") for a in argv[1:]):
+        print(ONBOARD_HELP)
+        return 0
+    if "--confirm" not in argv[1:]:
+        print(ONBOARD_HELP)
+        print("ERRO: onboard exige --confirm (opera HIL destrutivo na placa real). Nada foi executado.")
+        return 2
     print("=" * 70)
     print("  HIL EMULATION: JORNADA COMPLETA DO APP NA CHAVE REAL (COM7)")
     print("=" * 70)
 
-    use_bridge = "--bridge" in sys.argv
+    use_bridge = "--bridge" in argv
     if not use_bridge:
         try:
             with socket.create_connection(("127.0.0.1", 5678), timeout=0.5):
@@ -5021,8 +5036,16 @@ def onboard_main():
 
     try:
         print(f"\n[+] 1. Inicializando conexão com a chave real...")
-        sess.connect(PORT, BAUD)
-        cid = sess.cmd_init()
+        try:
+            sess.connect(PORT, BAUD)
+            cid = sess.cmd_init()
+        except Exception as e:
+            print(f"ERRO: hardware nao detectado ({e}). Conecte a placa em {PORT} ou suba o bridge em 127.0.0.1:5678. Nada foi alterado.")
+            try:
+                sess.close()
+            except Exception:
+                pass
+            return 1
         print(f"    CID CTAPHID alocado: 0x{cid:08X}")
 
         dump = sess.lifetime_dump(timeout_s=3.0)
@@ -5275,6 +5298,15 @@ def main(argv=None):
         print("ex.: tools/e2e_harness.py bridge --help  (ajuda ORIGINAL do cenario)")
         return 0
     scenario, rest = args[0], args[1:]
+    if scenario == "onboard":
+        # Inspecao nunca executa HIL: intercepta antes de qualquer socket/porta.
+        if any(a in ("-h", "--help", "help") for a in rest):
+            print(ONBOARD_HELP)
+            return 0
+        if "--confirm" not in rest:
+            print(ONBOARD_HELP)
+            print("ERRO: onboard exige --confirm (opera HIL destrutivo na placa real). Nada foi executado.")
+            return 2
     entry = {"bridge": bridge_main, "user": user_main,
              "session": session_main, "onboard": onboard_main}.get(scenario)
     if entry is None:
