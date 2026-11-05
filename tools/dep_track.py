@@ -55,6 +55,17 @@ GOD_ALLOWLIST = frozenset({
     "crates/aegis-fido-firmware/src/serial_ctaphid.rs",
     "crates/aegis-fido-firmware/src/trust_facade.rs",
     "crates/aegis-fido-firmware/src/vault_aead.rs",
+    # NAO-FATIAVEL (score por fan_in heuristico, nao por tamanho):
+    # - zeroize.rs: 86 linhas; score 25.86 vem de fan_in=47 porque o heuristico
+    #   conta cada `use zeroize::...` (crate externo) como referencia ao stem
+    #   "zeroize". Primitiva minima de scrub (scrub + SecretBytes<N>); dividir
+    #   criaria acoplamento artificial sem reduzir fan_in.
+    # - aegis-fido-core lib.rs: 39 linhas, crate-root re-export hub;
+    #   fan_in=50 e' por desenho (todo consumidor referencia o crate).
+    #   Goal continua SHRINK; estas 2 entradas documentam falso-positivo de
+    #   fan_in, nao god-files reais.
+    "crates/aegis-fido-firmware/src/zeroize.rs",
+    "crates/aegis-fido-core/src/lib.rs",
     "crates/aegis-fido-usb/src/piv/piv_cmd.rs",
     "crates/aegis-secure-guard/src/engine.rs",
     "crates/aegis-secure-guard/src/persistence.rs",

@@ -49,6 +49,7 @@ exceptions = [
   { name = "aegis-fido-core", allow = ["GPL-3.0-only"] },
   { name = "aegis-fido-usb", allow = ["GPL-3.0-only"] },
   { name = "aegis-fido-firmware", allow = ["GPL-3.0-only"] },
+  { name = "aegis-pm-vault", allow = ["GPL-3.0-only"] },
   { name = "universal-device-sdk", allow = ["GPL-3.0-only"] },
   { name = "uniffi-bridge", allow = ["GPL-3.0-only"] },
 ]
