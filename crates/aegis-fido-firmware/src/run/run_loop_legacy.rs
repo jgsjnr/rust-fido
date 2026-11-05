@@ -1295,9 +1295,9 @@ pub fn run_authenticator() {
                                         touch_latched = false;
                                     }
                                     // LED: SG error class (0x36/0x04) -> existing
-                                    // ErrorFlash (no new effects, no WS2812 timing
-                                    // changes; `None` keeps the state pipeline).
-                                    match crate::pairing_led::effect_for_sg_status(st) {
+                                    // ErrorFlash; read-only polling denied Locked (0x36)
+                                    // keeps the pipeline (no flash per poll).
+                                    match crate::pairing_led::effect_for_sg_denial(op, st) {
                                         Some(fx) => {
                                             if let Some(ref mut led) = display_mgr.led_controller {
                                                 led.set_effect(fx);
