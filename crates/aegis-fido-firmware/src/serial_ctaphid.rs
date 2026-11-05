@@ -97,6 +97,17 @@ pub fn is_text_line(raw: &[u8; PACKET_SIZE]) -> bool {
     seen
 }
 
+/// `true` for the PM opcode family `0x43..=0x47` (diet builds: always false).
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+pub fn serial_is_pm_op(op: u8) -> bool {
+    crate::pm_store::is_pm_op(op)
+}
+/// Diet stub: PM outside the capability presets (fail-closed, never routed).
+#[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+pub fn serial_is_pm_op(_op: u8) -> bool {
+    false
+}
+
 /// `true` when a serial message is privileged and requires pairing-mode.
 ///
 /// Mirrors the simulator `PRIVILEGED` set: MakeCredential, ClientPIN
@@ -120,7 +131,8 @@ pub fn serial_requires_pairing(cmd: u8, payload: &[u8]) -> bool {
                 | OP_OATH_DELETE
                 | OP_PIV_ENROLL
         ) || crate::ble_gatt::is_wallet_op(payload[0])
-            || crate::vendor_exec::is_vendor_sign_op(payload[0]);
+            || crate::vendor_exec::is_vendor_sign_op(payload[0])
+            || serial_is_pm_op(payload[0]);
     }
     false
 }
@@ -155,6 +167,7 @@ pub fn serial_is_up_required(cmd: u8, payload: &[u8]) -> bool {
             || is_wallet_op(op)
             || is_piv_enroll_op(op)
             || crate::vendor_exec::is_vendor_sign_op(op)
+            || serial_is_pm_op(op)
         {
             return true;
         }
@@ -259,7 +272,8 @@ pub fn deny_response(msg: &CtapHidMessage) -> Vec<[u8; PACKET_SIZE]> {
         && (is_vendor_keys_oath_op(msg.payload[0])
             || is_wallet_op(msg.payload[0])
             || is_piv_enroll_op(msg.payload[0])
-            || crate::vendor_exec::is_vendor_sign_op(msg.payload[0]))
+            || crate::vendor_exec::is_vendor_sign_op(msg.payload[0])
+            || serial_is_pm_op(msg.payload[0]))
     {
         return CtapHidFramer::frame_message(msg.cid, msg.cmd, &[VENDOR_STATUS_NEED_BINDING]);
     }
@@ -309,6 +323,8 @@ pub use crate::serial_text::dispatch_serial_pairing_line;
 pub use crate::serial_text::dispatch_serial_pairing_line;
 pub use crate::serial_text::dispatch_serial_text_line;
 
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+pub use crate::serial_vendor::dispatch_serial_pm;
 pub use crate::serial_vendor::{
     dispatch_serial_bind_mgmt, dispatch_serial_rescue, dispatch_serial_vendor,
     dispatch_serial_wallet,
@@ -630,6 +646,44 @@ mod tests {
             assert_eq!(back.payload, vec![VENDOR_STATUS_NEED_BINDING]);
         } else {
             panic!("deny do 0x41 deve enquadrar NEED_BINDING (0x05)");
+        }
+    }
+    #[test]
+    fn pm_serial_predicates_mirror_gates_and_deny() {
+        use crate::pm_store::{OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS};
+        // Predicado do funil: familia 0x43..=0x47; vizinhos congelados intactos.
+        for op in [OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS] {
+            assert!(serial_is_pm_op(op), "op {:02X}", op);
+            // PM exige pairing + UP (PIN via plumbing no executor).
+            assert!(serial_requires_pairing(CMD_MSG, &[op]), "op {:02X}", op);
+            assert!(serial_is_up_required(CMD_MSG, &[op]), "op {:02X}", op);
+        }
+        for op in [0x20u8, 0x27, 0x3F, 0x40, 0x41, 0x42, 0x48] {
+            assert!(!serial_is_pm_op(op), "vizinho {:02X}", op);
+        }
+        assert_eq!(
+            authorize_serial(CMD_MSG, &[OP_PM_GET], false, true),
+            SerialGate::NeedPairing
+        );
+        assert_eq!(
+            authorize_serial(CMD_MSG, &[OP_PM_GET], true, false),
+            SerialGate::NeedUp
+        );
+        assert_eq!(
+            authorize_serial(CMD_MSG, &[OP_PM_GET], true, true),
+            SerialGate::Ok
+        );
+        // Deny enquadra NEED_BINDING (0x05), como o BLE.
+        let pkts = deny_response(&CtapHidMessage::new(
+            0x01020304,
+            CMD_MSG,
+            vec![OP_PM_STATUS],
+        ));
+        let mut router = SerialRouter::new();
+        if let SerialFeed::Message(back) = router.feed(&pkts[0], 1000) {
+            assert_eq!(back.payload, vec![VENDOR_STATUS_NEED_BINDING]);
+        } else {
+            panic!("deny do PM deve enquadrar NEED_BINDING (0x05)");
         }
     }
     #[test]

@@ -50,6 +50,8 @@ import dev.aegiskey.app.domain.usecase.GetPmListUseCase
 import dev.aegiskey.app.domain.usecase.GetPmReleaseUseCase
 import dev.aegiskey.app.domain.usecase.GetPmStatusUseCase
 import dev.aegiskey.app.domain.usecase.GetThemePreferenceUseCase
+import dev.aegiskey.app.domain.usecase.PutPmEntryUseCase
+import dev.aegiskey.app.domain.usecase.DeletePmEntryUseCase
 import dev.aegiskey.app.domain.usecase.GetTotpAccountsUseCase
 import dev.aegiskey.app.domain.usecase.GetVaultEntriesUseCase
 import dev.aegiskey.app.domain.usecase.IncrementHotpCounterUseCase
@@ -205,6 +207,8 @@ class AppContainer(val context: Context) {
     val getPmListUseCase: GetPmListUseCase by lazy { GetPmListUseCase(passwordManagerRepository) }
     val getPmReleaseUseCase: GetPmReleaseUseCase by lazy { GetPmReleaseUseCase(passwordManagerRepository) }
     val getPmStatusUseCase: GetPmStatusUseCase by lazy { GetPmStatusUseCase(passwordManagerRepository) }
+    val putPmEntryUseCase: PutPmEntryUseCase by lazy { PutPmEntryUseCase(passwordManagerRepository) }
+    val deletePmEntryUseCase: DeletePmEntryUseCase by lazy { DeletePmEntryUseCase(passwordManagerRepository) }
 
     // --- Casos de Uso: Secure Guard (Zero-Trust On-Device Authority) ---
     val getSecureGuardStatusUseCase: GetSecureGuardStatusUseCase by lazy {
@@ -440,6 +444,8 @@ class AppContainer(val context: Context) {
             getList = getPmListUseCase,
             getRelease = getPmReleaseUseCase,
             getStatus = getPmStatusUseCase,
+            putUseCase = putPmEntryUseCase,
+            deleteUseCase = deletePmEntryUseCase,
         )
     }
 

@@ -2052,9 +2052,11 @@ pub fn run_authenticator() {
                                     && (is_vendor_keys_oath_op(msg.payload[0])
                                         || is_wallet_op(msg.payload[0])
                                         || is_piv_enroll_op(msg.payload[0])
-                                        || crate::vendor_exec::is_vendor_sign_op(msg.payload[0]))
+                                        || crate::vendor_exec::is_vendor_sign_op(msg.payload[0])
+                                        || crate::serial_ctaphid::serial_is_pm_op(msg.payload[0]))
                                 {
-                                    // Vendor keys/OATH + VENDOR_SIGN (0x41, classe GEN) + carteira + PIV enroll:
+                                    // Vendor keys/OATH + VENDOR_SIGN (0x41, classe GEN) + carteira + PIV enroll
+                                    // + PM (0x43..=0x47, binding -> UP -> PIN -> janela 60 s):
                                     // app-driven UP (latch, like BLE); denial
                                     // carries the BLE wire status.
                                     let op = msg.payload[0];
@@ -2086,70 +2088,120 @@ pub fn run_authenticator() {
                                         SerialGate::Ok => {
                                             touch_latched = false;
                                             rescue_engine.set_user_presence(true);
-                                            let (st, body) = if is_wallet_op(op) {
-                                                #[cfg(not(any(
-                                                    feature = "cap-fido-only",
-                                                    feature = "cap-fido-totp"
-                                                )))]
-                                                {
-                                                    // Carteira Fase7: executa de verdade
-                                                    // (gate pairing+UP já passou acima).
+                                            let (st, body) =
+                                                if crate::serial_ctaphid::serial_is_pm_op(op) {
+                                                    #[cfg(not(any(
+                                                        feature = "cap-fido-only",
+                                                        feature = "cap-fido-totp"
+                                                    )))]
+                                                    {
+                                                        // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre
+                                                        // PmVault em RAM de sessao; blob selado NVS =
+                                                        // follow-up via `pm_store`).
+                                                        let mut rng =
+                                                            rand_core::UnwrapErr(getrandom::SysRng);
+                                                        let mut vault =
+                                                            aegis_pm_vault::PmVault::new(
+                                                                [0x5Au8; 32],
+                                                            );
+                                                        let policy =
+                                                            aegis_pm_vault::PmPolicy::default();
+                                                        crate::serial_vendor::dispatch_serial_pm(
+                                                            op,
+                                                            &msg.payload[1..],
+                                                            binding_mgr.is_claimed(),
+                                                            ctap_engine
+                                                                .pin_state
+                                                                .has_valid_pin_uv_session()
+                                                                || (cfg!(feature = "test-mode")
+                                                                    && (pairing_mgr
+                                                                        .is_pairing_window_open(
+                                                                            now_ms,
+                                                                        )
+                                                                        || touch_latched)),
+                                                            true,
+                                                            0,
+                                                            &mut vault,
+                                                            &policy,
+                                                            now_secs,
+                                                            &mut rng,
+                                                        )
+                                                    }
+                                                    // Diet: PM fora da capability (fail-closed, 0x06).
+                                                    #[cfg(any(
+                                                        feature = "cap-fido-only",
+                                                        feature = "cap-fido-totp"
+                                                    ))]
+                                                    {
+                                                        (crate::UNSUPPORTED_FEATURE, Vec::new())
+                                                    }
+                                                } else if is_wallet_op(op) {
+                                                    #[cfg(not(any(
+                                                        feature = "cap-fido-only",
+                                                        feature = "cap-fido-totp"
+                                                    )))]
+                                                    {
+                                                        // Carteira Fase7: executa de verdade
+                                                        // (gate pairing+UP já passou acima).
+                                                        let mut rng =
+                                                            rand_core::UnwrapErr(getrandom::SysRng);
+                                                        use crate::wallet_exec as w;
+                                                        match op {
+                                                            OP_WALLET_GEN => w::wallet_gen(
+                                                                &mut wallet_store,
+                                                                &msg.payload[1..],
+                                                                now_secs,
+                                                                true,
+                                                                &mut rng,
+                                                            ),
+                                                            OP_WALLET_LIST => {
+                                                                w::wallet_list(&wallet_store, true)
+                                                            }
+                                                            OP_WALLET_ADDR => w::wallet_addr(
+                                                                &wallet_store,
+                                                                &msg.payload[1..],
+                                                                true,
+                                                            ),
+                                                            _ => (0x04, Vec::new()),
+                                                        }
+                                                    }
+                                                    // Diet: carteira fora da capability (fail-closed, 0x06).
+                                                    #[cfg(any(
+                                                        feature = "cap-fido-only",
+                                                        feature = "cap-fido-totp"
+                                                    ))]
+                                                    {
+                                                        (crate::UNSUPPORTED_FEATURE, Vec::new())
+                                                    }
+                                                } else {
+                                                    // F2: executor real on-device
+                                                    // (gate pairing+UP já passou;
+                                                    // PIN via plumbing ClientPIN).
                                                     let mut rng =
                                                         rand_core::UnwrapErr(getrandom::SysRng);
-                                                    use crate::wallet_exec as w;
-                                                    match op {
-                                                        OP_WALLET_GEN => w::wallet_gen(
-                                                            &mut wallet_store,
+                                                    let (st, body) =
+                                                        crate::vendor_exec::exec_vendor_op(
+                                                            &mut key_mgr,
+                                                            &mut oath_applet,
+                                                            &mut storage,
+                                                            op,
                                                             &msg.payload[1..],
+                                                            binding_mgr.is_claimed(),
+                                                            ctap_engine
+                                                                .pin_state
+                                                                .has_valid_pin_uv_session()
+                                                                || (cfg!(feature = "test-mode")
+                                                                    && (pairing_mgr
+                                                                        .is_pairing_window_open(
+                                                                            now_ms,
+                                                                        )
+                                                                        || touch_latched)),
+                                                            true,
                                                             now_secs,
-                                                            true,
                                                             &mut rng,
-                                                        ),
-                                                        OP_WALLET_LIST => {
-                                                            w::wallet_list(&wallet_store, true)
-                                                        }
-                                                        OP_WALLET_ADDR => w::wallet_addr(
-                                                            &wallet_store,
-                                                            &msg.payload[1..],
-                                                            true,
-                                                        ),
-                                                        _ => (0x04, Vec::new()),
-                                                    }
-                                                }
-                                                // Diet: carteira fora da capability (fail-closed, 0x06).
-                                                #[cfg(any(
-                                                    feature = "cap-fido-only",
-                                                    feature = "cap-fido-totp"
-                                                ))]
-                                                {
-                                                    (crate::UNSUPPORTED_FEATURE, Vec::new())
-                                                }
-                                            } else {
-                                                // F2: executor real on-device
-                                                // (gate pairing+UP já passou;
-                                                // PIN via plumbing ClientPIN).
-                                                let mut rng =
-                                                    rand_core::UnwrapErr(getrandom::SysRng);
-                                                let (st, body) = crate::vendor_exec::exec_vendor_op(
-                                                    &mut key_mgr,
-                                                    &mut oath_applet,
-                                                    &mut storage,
-                                                    op,
-                                                    &msg.payload[1..],
-                                                    binding_mgr.is_claimed(),
-                                                    ctap_engine
-                                                        .pin_state
-                                                        .has_valid_pin_uv_session()
-                                                        || (cfg!(feature = "test-mode")
-                                                            && (pairing_mgr
-                                                                .is_pairing_window_open(now_ms)
-                                                                || touch_latched)),
-                                                    true,
-                                                    now_secs,
-                                                    &mut rng,
-                                                );
-                                                (st, body)
-                                            };
+                                                        );
+                                                    (st, body)
+                                                };
                                             let mut resp = Vec::with_capacity(1 + body.len());
                                             resp.push(st);
                                             resp.extend_from_slice(&body);

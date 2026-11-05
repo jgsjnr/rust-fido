@@ -152,6 +152,25 @@
     <string name="pm_eye_hide_cd">Ocultar segredo e apagar</string>
     <string name="pm_authenticating">Aguardando digital…</string>
     <string name="pm_biometric_unavailable">Digital indisponível — desbloqueie a sessão e tente de novo</string>
+    <!-- Create (PUT 0x43): user-typed transient fields, sealed device-side -->
+    <string name="pm_new_entry">Nova senha</string>
+    <string name="pm_create_title">Nova senha no dispositivo</string>
+    <string name="pm_create_service_label">Serviço</string>
+    <string name="pm_create_service_hint">ex.: banco</string>
+    <string name="pm_create_account_label">Conta</string>
+    <string name="pm_create_account_hint">ex.: alice</string>
+    <string name="pm_create_secret_hint">Digite o segredo (fica só na memória)</string>
+    <string name="pm_create_show_cd">Mostrar segredo digitado</string>
+    <string name="pm_create_hide_cd">Ocultar segredo digitado</string>
+    <string name="pm_create_save">Salvar no dispositivo</string>
+    <string name="pm_create_blank_error">Preencha serviço, conta e segredo</string>
+    <string name="pm_saved">Senha salva no dispositivo</string>
+    <!-- Scoped per-item delete (DELETE 0x46): this record only -->
+    <string name="pm_delete_cd">Apagar esta senha</string>
+    <string name="pm_delete_title">Apagar senha?</string>
+    <string name="pm_delete_desc">Remover este registro do dispositivo? Apagado escopado — chaves FIDO2 e outros slots ficam intactos.</string>
+    <string name="pm_delete_confirm_btn">Apagar</string>
+    <string name="pm_deleted">Senha apagada do dispositivo</string>
 
     <!-- Key Generation Dialog -->
     <string name="keygen_title">Gerar Chave no Hardware</string>

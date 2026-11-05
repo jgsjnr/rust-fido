@@ -15,6 +15,25 @@ interface PasswordManagerRepository {
     suspend fun listPage(cursor: Long, limit: Int): Result<PmListResult>
     suspend fun getRelease(id: ByteArray): Result<PmCbor.PmRelease>
     suspend fun getStatus(): Result<PmCbor.PmStatus>
+
+    /**
+     * Stores (or replaces) one login record (`0x43`). The [secret] bytes are
+     * transient: the implementation copies them into the request frame and
+     * never persists them; the caller wipes its copy after the call.
+     * Fail-closed: over-cap fields throw before any transport byte.
+     */
+    suspend fun putEntry(
+        label: String,
+        username: String,
+        secret: ByteArray,
+        url: String? = null,
+    ): Result<Unit>
+
+    /**
+     * Removes one record by opaque id (`0x46`, scoped: only this record;
+     * FIDO2/OATH slots are never touched). Fail-closed on gate denials.
+     */
+    suspend fun deleteEntry(id: ByteArray): Result<Unit>
 }
 
 data class PmListResult(

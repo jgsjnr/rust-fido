@@ -427,12 +427,14 @@ pub fn dispatch_serial_vendor_msg(
         }
     }
     // Vendor keys/OATH + VENDOR_SIGN (0x41, classe GEN: binding + UP, sem PIN)
-    // + carteira + PIV enroll: UP do latch (como o BLE);
+    // + carteira + PIV enroll + PM (0x43..=0x47, binding -> UP -> PIN ->
+    // janela 60 s): UP do latch (como o BLE);
     // negação carrega o wire status.
     if is_vendor_keys_oath_op(op)
         || is_wallet_op(op)
         || is_piv_enroll_op(op)
         || crate::vendor_exec::is_vendor_sign_op(op)
+        || crate::serial_ctaphid::serial_is_pm_op(op)
     {
         let sg_unlocked = ctx
             .secure_guard
@@ -484,7 +486,35 @@ pub fn dispatch_serial_vendor_msg(
                     || ctx.pin_verified
                     || sg_unlocked
                     || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
-                let (st, body) = if is_wallet_op(op) {
+                let (st, body) = if crate::serial_ctaphid::serial_is_pm_op(op) {
+                    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                    {
+                        // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre
+                        // PmVault em RAM de sessao; blob selado NVS =
+                        // follow-up via `pm_store`). `bound_within_ms = 0`:
+                        // a janela de 60 s e a do pareamento ja aprovada no
+                        // gate acima (walk-away fecha via `NeedPairing`).
+                        let mut vault = aegis_pm_vault::PmVault::new([0x5Au8; 32]);
+                        let policy = aegis_pm_vault::PmPolicy::default();
+                        crate::serial_vendor::dispatch_serial_pm(
+                            op,
+                            &payload[1..],
+                            binding_claimed_effective,
+                            pin_effective,
+                            true,
+                            0,
+                            &mut vault,
+                            &policy,
+                            ctx.now_secs,
+                            &mut rng,
+                        )
+                    }
+                    // Diet: PM fora da capability (fail-closed, 0x06).
+                    #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+                    {
+                        (crate::UNSUPPORTED_FEATURE, Vec::new())
+                    }
+                } else if is_wallet_op(op) {
                     #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
                     {
                         use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};

@@ -33,8 +33,10 @@ object PmCbor {
     const val STATUS_NEED_BINDING: Int = 0x05
 
     const val PM_ID_MAX_BYTES: Int = 64
+    const val PM_LABEL_MAX_BYTES: Int = 128
     const val PM_USERNAME_MAX_BYTES: Int = 256
     const val PM_SECRET_MAX_BYTES: Int = 512
+    const val PM_URL_MAX_BYTES: Int = 512
     const val PM_LIST_DEFAULT_LIMIT: Int = 32
 
     /** Fail-closed gate outcome carried as data (mirrors SDK `PmStatus`). */
@@ -104,6 +106,68 @@ object PmCbor {
                 "limit" to limit.coerceIn(1, 255),
             )
         )
+
+    /**
+     * Punctual create body (transient on the phone: user-typed fields sealed
+     * by the device on receipt; the device assigns the opaque record id).
+     * Mirrors `universal-device-sdk` `encode_pm_put_request` over `0x43`.
+     */
+    data class PmPutBody(
+        val label: String,
+        val username: String,
+        val secret: ByteArray,
+        val url: String? = null,
+    ) {
+        fun wipe() {
+            secret.fill(0)
+        }
+    }
+
+    fun encodePutRequest(
+        label: String,
+        username: String,
+        secret: ByteArray,
+        url: String? = null,
+    ): ByteArray {
+        require(label.toByteArray(Charsets.UTF_8).size <= PM_LABEL_MAX_BYTES) { "invalid pm label" }
+        require(username.toByteArray(Charsets.UTF_8).size <= PM_USERNAME_MAX_BYTES) { "invalid pm username" }
+        require(secret.isNotEmpty() && secret.size <= PM_SECRET_MAX_BYTES) { "invalid pm secret" }
+        if (url != null) {
+            require(url.toByteArray(Charsets.UTF_8).size <= PM_URL_MAX_BYTES) { "invalid pm url" }
+        }
+        return SecureGuardCbor.encodeMap(
+            linkedMapOf(
+                "label" to label,
+                "username" to username,
+                "secret" to secret.copyOf(),
+                "url" to url,
+            )
+        )
+    }
+
+    fun decodePutRequest(body: ByteArray): PmPutBody {
+        val decoded = SecureGuardCbor.decode(body) as? Map<*, *>
+            ?: throw IllegalStateException("invalid pm put request")
+        val label = decoded["label"] as? String
+            ?: throw IllegalStateException("invalid pm put request")
+        val username = decoded["username"] as? String
+            ?: throw IllegalStateException("invalid pm put request")
+        val secret = decoded["secret"] as? ByteArray
+            ?: throw IllegalStateException("invalid pm put request")
+        val url = decoded["url"] as? String
+        require(label.toByteArray(Charsets.UTF_8).size <= PM_LABEL_MAX_BYTES) { "invalid pm label" }
+        require(username.toByteArray(Charsets.UTF_8).size <= PM_USERNAME_MAX_BYTES) { "invalid pm username" }
+        require(secret.isNotEmpty() && secret.size <= PM_SECRET_MAX_BYTES) { "invalid pm secret" }
+        if (url != null) {
+            require(url.toByteArray(Charsets.UTF_8).size <= PM_URL_MAX_BYTES) { "invalid pm url" }
+        }
+        return PmPutBody(label, username, secret, url)
+    }
+
+    fun encodeDeleteRequest(id: ByteArray): ByteArray {
+        require(id.isNotEmpty() && id.size <= PM_ID_MAX_BYTES) { "invalid pm id" }
+        return SecureGuardCbor.encodeMap(linkedMapOf("id" to id.copyOf()))
+    }
 
     fun encodeGetRequest(id: ByteArray): ByteArray {
         require(id.isNotEmpty() && id.size <= PM_ID_MAX_BYTES) { "invalid pm id" }

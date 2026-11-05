@@ -246,6 +246,37 @@ pub(crate) fn ble_dispatch_complete(
             ble::notify_frame(o, st, &body)
         }
         #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+        o if g::is_pm_fragment_opcode(o) => {
+            // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre PmVault em
+            // RAM de sessao; blob selado NVS = follow-up via `pm_store`).
+            // Gates binding -> UP -> PIN -> janela 60 s (fail-closed com o
+            // vocabulario 9.5 congelado).
+            let pin_ok =
+                ctap_engine.pin_state.has_valid_pin_uv_session() || secure_guard.is_unlocked();
+            let effective_claimed =
+                binding_mgr.is_claimed() || secure_guard.is_unlocked() || bonded;
+            let effective_up = up || secure_guard.is_unlocked();
+            let mut vault = aegis_pm_vault::PmVault::new([0x5Au8; 32]);
+            let policy = aegis_pm_vault::PmPolicy::default();
+            let gate = crate::pm_store::PmGateState {
+                binding_bound: effective_claimed,
+                presence_confirmed: effective_up,
+                pin_authenticated: pin_ok,
+                bound_within_ms: 0,
+            };
+            let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+            let (st, body) = crate::pm_dispatch::dispatch_pm_op(
+                o, p, &gate, &mut vault, &policy, now_secs, &mut rng,
+            );
+            if st == 0x00 {
+                kprintln!("[BLE] op pm 0x{:02X} executada.", o);
+            }
+            ble::notify_frame(o, st, &body)
+        }
+        // Diet: PM fora da capability (fail-closed, 0x06).
+        #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+        o if g::is_pm_fragment_opcode(o) => ble::notify_frame(o, crate::UNSUPPORTED_FEATURE, &[]),
+        #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         o if g::is_wallet_op(o) => {
             use crate::wallet_exec as w;
             // Carteira Fase7 (R-07): binding + UP já aprovados; executa de

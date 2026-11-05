@@ -44,6 +44,7 @@ cap-fido-totp = []
 aegis-secure-guard = { path = "../aegis-secure-guard" }
 aegis-fido-core = { path = "../aegis-fido-core" }
 aegis-fido-usb = { path = "../aegis-fido-usb" }
+aegis-pm-vault = { path = "../aegis-pm-vault" }
 embedded-graphics = { version = "0.8", optional = true }
 ciborium = { workspace = true }
 log = { workspace = true }

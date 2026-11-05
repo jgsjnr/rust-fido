@@ -108,6 +108,51 @@ class PasswordManagerRepositoryImpl(
             }
         }
 
+    override suspend fun putEntry(
+        label: String,
+        username: String,
+        secret: ByteArray,
+        url: String?,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val req = PmCbor.encodePutRequest(label, username, secret, url)
+                try {
+                    val raw = sendPm(PmCbor.OP_PM_PUT, req)
+                        ?: throw PmGateError(
+                            PmGateError.Kind.NO_TRANSPORT, -1, "Unknown",
+                            "Password vault unreachable (no transport)",
+                        )
+                    val frame = frameFor(PmCbor.OP_PM_PUT, raw)
+                    DeviceLog.append(
+                        DeviceLog.Category.SYSTEM,
+                        "pm put op=0x43 status=" + PmCbor.statusName(frame.status),
+                    )
+                    if (frame.status != PmCbor.STATUS_OK) throw gateError(frame.status)
+                } finally {
+                    req.fill(0)
+                }
+            }
+        }
+
+    override suspend fun deleteEntry(id: ByteArray): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val req = PmCbor.encodeDeleteRequest(id.copyOf())
+                val raw = sendPm(PmCbor.OP_PM_DELETE, req)
+                    ?: throw PmGateError(
+                        PmGateError.Kind.NO_TRANSPORT, -1, "Unknown",
+                        "Password vault unreachable (no transport)",
+                    )
+                val frame = frameFor(PmCbor.OP_PM_DELETE, raw)
+                DeviceLog.append(
+                    DeviceLog.Category.SYSTEM,
+                    "pm delete op=0x46 status=" + PmCbor.statusName(frame.status),
+                )
+                if (frame.status != PmCbor.STATUS_OK) throw gateError(frame.status)
+            }
+        }
+
     override suspend fun getStatus(): Result<PmCbor.PmStatus> =
         withContext(Dispatchers.IO) {
             runCatching {

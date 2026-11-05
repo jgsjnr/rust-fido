@@ -113,7 +113,9 @@ pub const OTA_OP_MAX: u8 = 0x34;
 /// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D`, OTA `0x30-0x34`,
 /// GET_CAPS `0x3F` (advertisement read-only, sem auth) e SET_UP_POLICY
 /// `0x40` (management gated: binding + sessao PIN viva, sem latch UP) e
-/// VENDOR_SIGN `0x41` (SIGN dedicado, classe GEN: binding + UP, sem PIN).
+/// VENDOR_SIGN `0x41` (SIGN dedicado, classe GEN: binding + UP, sem PIN) e
+/// PM `0x43..=0x47` (password manager device-only: binding -> UP -> PIN ->
+/// janela 60 s; fora da capability o reassembler rejeita fail-closed).
 ///
 /// `0xBE` CANCEL tem caminho proprio (aborta a transacao); `0x2E` rescue
 /// viaja SOMENTE como payload de `OP_MSG` (`[0x2E, frame...]`), nunca como
@@ -127,6 +129,24 @@ pub fn is_ble_fragment_opcode(op: u8) -> bool {
         || crate::vendor_exec::is_get_caps_op(op)
         || crate::ctap_cmd::is_set_up_policy_op(op)
         || crate::vendor_exec::is_vendor_sign_op(op)
+        || is_pm_fragment_opcode(op)
+}
+
+/// `true` para a familia PM `0x43..=0x47` no reassembler BLE.
+///
+/// Diet: fora da capability (`cap-fido-only` / `cap-fido-totp`) sempre
+/// `false` (fail-closed `InvalidOpcode`, sem queda silenciosa); o funil
+/// BLE responde `UNSUPPORTED_FEATURE` (`0x06`) antes de qualquer gate.
+pub fn is_pm_fragment_opcode(op: u8) -> bool {
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+    {
+        crate::pm_store::is_pm_op(op)
+    }
+    #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+    {
+        let _ = op;
+        false
+    }
 }
 
 /// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.

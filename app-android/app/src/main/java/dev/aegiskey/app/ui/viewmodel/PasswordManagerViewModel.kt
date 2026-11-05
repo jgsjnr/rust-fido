@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.domain.repository.PmGateError
+import dev.aegiskey.app.domain.usecase.DeletePmEntryUseCase
 import dev.aegiskey.app.domain.usecase.GetPmListUseCase
 import dev.aegiskey.app.domain.usecase.GetPmReleaseUseCase
 import dev.aegiskey.app.domain.usecase.GetPmStatusUseCase
+import dev.aegiskey.app.domain.usecase.PutPmEntryUseCase
 import dev.aegiskey.app.pm.PmCbor
 import dev.aegiskey.app.ui.VaultGate
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +36,12 @@ data class PasswordManagerUiState(
     val gate: VaultGate = VaultGate.READY,
     val isLoading: Boolean = false,
     val isReleaseLoading: Boolean = false,
+    val isSaving: Boolean = false,
+    val deletingIdHex: String? = null,
+    /** Incremented on each confirmed device-side create (screen maps to i18n). */
+    val putOkNonce: Long = 0L,
+    /** Incremented on each confirmed device-side delete (screen maps to i18n). */
+    val deleteOkNonce: Long = 0L,
     val userMessage: String? = null,
     val errorMessage: String? = null,
 ) {
@@ -50,6 +58,8 @@ class PasswordManagerViewModel(
     private val getList: GetPmListUseCase,
     private val getRelease: GetPmReleaseUseCase,
     private val getStatus: GetPmStatusUseCase,
+    private val putUseCase: PutPmEntryUseCase,
+    private val deleteUseCase: DeletePmEntryUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PasswordManagerUiState())
@@ -141,6 +151,57 @@ class PasswordManagerViewModel(
     }
 
     /**
+     * Stores one login record on the device (`0x43`). Blank service/account/
+     * secret never reach the transport (fail-closed at the edge); the
+     * transient [secret] copy is zeroized after the call either way.
+     * On device-confirmed success the list refreshes and [putOkNonce]
+     * ticks so the screen can show its own i18n confirmation.
+     */
+    fun putEntry(label: String, username: String, secret: ByteArray, url: String? = null) {
+        if (label.isBlank() || username.isBlank() || secret.isEmpty()) return
+        val secretCopy = secret.copyOf()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, gate = VaultGate.READY) }
+            try {
+                putUseCase(label, username, secretCopy, url)
+                    .onSuccess {
+                        _uiState.update { it.copy(putOkNonce = it.putOkNonce + 1) }
+                        refresh()
+                    }
+                    .onFailure { err -> applyGateFailure(err) }
+            } finally {
+                secretCopy.fill(0)
+                _uiState.update { it.copy(isSaving = false) }
+            }
+        }
+    }
+
+    /**
+     * Removes one record by opaque id (`0x46`, scoped per-item delete —
+     * FIDO2/OATH slots are never touched device-side). If the deleted
+     * record was the open release, it is wiped first. On device-confirmed
+     * success the list refreshes and [deleteOkNonce] ticks.
+     */
+    fun deleteEntry(id: ByteArray) {
+        val idCopy = id.copyOf()
+        val hex = PmCbor.opaqueIdHex(idCopy)
+        viewModelScope.launch {
+            _uiState.update { it.copy(deletingIdHex = hex, gate = VaultGate.READY) }
+            try {
+                deleteUseCase(idCopy)
+                    .onSuccess {
+                        if (_uiState.value.releaseIdHex == hex) closeRelease()
+                        _uiState.update { it.copy(deleteOkNonce = it.deleteOkNonce + 1) }
+                        refresh()
+                    }
+                    .onFailure { err -> applyGateFailure(err) }
+            } finally {
+                _uiState.update { it.copy(deletingIdHex = null) }
+            }
+        }
+    }
+
+    /**
      * Closes the release dialog and zeroizes the transient secret +
      * username buffers. Must run on every dialog dismiss (confirm or
      * cancel) so nothing survives the frame.
@@ -185,6 +246,8 @@ class PasswordManagerViewModel(
                         getList = container.getPmListUseCase,
                         getRelease = container.getPmReleaseUseCase,
                         getStatus = container.getPmStatusUseCase,
+                        putUseCase = container.putPmEntryUseCase,
+                        deleteUseCase = container.deletePmEntryUseCase,
                     ) as T
                 }
             }

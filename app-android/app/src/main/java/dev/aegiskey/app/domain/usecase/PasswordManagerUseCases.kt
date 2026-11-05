@@ -18,3 +18,18 @@ class GetPmReleaseUseCase(private val repo: PasswordManagerRepository) {
 class GetPmStatusUseCase(private val repo: PasswordManagerRepository) {
     suspend operator fun invoke() = repo.getStatus()
 }
+
+/** Stores (or replaces) one login record on the device (`0x43`). */
+class PutPmEntryUseCase(private val repo: PasswordManagerRepository) {
+    suspend operator fun invoke(
+        label: String,
+        username: String,
+        secret: ByteArray,
+        url: String? = null,
+    ) = repo.putEntry(label, username, secret, url)
+}
+
+/** Removes one record by opaque id (`0x46`, scoped per-item delete). */
+class DeletePmEntryUseCase(private val repo: PasswordManagerRepository) {
+    suspend operator fun invoke(id: ByteArray) = repo.deleteEntry(id)
+}

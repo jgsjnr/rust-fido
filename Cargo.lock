@@ -50,6 +50,7 @@ version = "1.0.0"
 dependencies = [
  "aegis-fido-core",
  "aegis-fido-usb",
+ "aegis-pm-vault",
  "aegis-secure-guard",
  "aes",
  "aes-gcm",

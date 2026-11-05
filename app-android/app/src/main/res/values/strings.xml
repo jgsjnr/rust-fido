@@ -152,6 +152,25 @@
     <string name="pm_eye_hide_cd">Hide secret and wipe</string>
     <string name="pm_authenticating">Waiting for fingerprint…</string>
     <string name="pm_biometric_unavailable">Fingerprint unavailable — unlock the session and try again</string>
+    <!-- Create (PUT 0x43): user-typed transient fields, sealed device-side -->
+    <string name="pm_new_entry">New password</string>
+    <string name="pm_create_title">New device password</string>
+    <string name="pm_create_service_label">Service</string>
+    <string name="pm_create_service_hint">e.g. bank</string>
+    <string name="pm_create_account_label">Account</string>
+    <string name="pm_create_account_hint">e.g. alice</string>
+    <string name="pm_create_secret_hint">Type the secret (kept only in memory)</string>
+    <string name="pm_create_show_cd">Show typed secret</string>
+    <string name="pm_create_hide_cd">Hide typed secret</string>
+    <string name="pm_create_save">Save on device</string>
+    <string name="pm_create_blank_error">Fill in service, account and secret</string>
+    <string name="pm_saved">Password saved on device</string>
+    <!-- Scoped per-item delete (DELETE 0x46): this record only -->
+    <string name="pm_delete_cd">Delete this password</string>
+    <string name="pm_delete_title">Delete password?</string>
+    <string name="pm_delete_desc">Remove this record from the device? Scoped delete — FIDO2 keys and other slots are untouched.</string>
+    <string name="pm_delete_confirm_btn">Delete</string>
+    <string name="pm_deleted">Password deleted from device</string>
 
     <!-- Key Generation Dialog -->
     <string name="keygen_title">Generate Key in Security Key</string>

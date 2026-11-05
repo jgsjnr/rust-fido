@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -62,12 +64,17 @@ import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
 import kotlinx.coroutines.launch
 
 /**
- * Password vault viewer (F-PM2, blind transport).
+ * Password vault viewer + creator (F-PM2, blind transport).
  *
  * - Lists opaque device record ids only (truncated-hex handles; the
  *   device never sends labels to this edge).
  * - Search filters the loaded opaque-id handles in RAM (no index, no
  *   cache, no disk).
+ * - "New password" opens a create form (service/account/secret → PUT
+ *   `0x43`); typed fields are transient RAM only, sealed device-side,
+ *   never logged or persisted. Blank fields never reach the transport.
+ * - Each row has a scoped per-item delete (`0x46`, confirm dialog): only
+ *   that record is removed — FIDO2 keys and other slots are untouched.
  * - Tapping a row opens a detail popup (no navigation): opaque id plus
  *   a masked secret field with a closed-by-default eye button.
  * - The eye runs a framework [BiometricPrompt] (fingerprint). Only after
@@ -101,14 +108,39 @@ fun PasswordManagerScreen(
     // device-chosen bytes already held in RAM; never persisted, never
     // logged). Null = popup closed.
     var selectedId by remember { mutableStateOf<ByteArray?>(null) }
+    // Create form visibility (transient typed fields live in the dialog).
+    var showCreate by remember { mutableStateOf(false) }
+    // Opaque id awaiting delete confirmation (copy; wiped on dismiss).
+    var pendingDelete by remember { mutableStateOf<ByteArray?>(null) }
     fun dismissPopup() {
         viewModel.closeRelease()
         selectedId = null
+    }
+    fun dismissDelete() {
+        pendingDelete?.fill(0)
+        pendingDelete = null
     }
 
     LaunchedEffect(uiState.errorMessage, uiState.userMessage) {
         uiState.errorMessage?.let { snackbarHostState.showSnackbar(it); viewModel.clearMessages() }
         uiState.userMessage?.let { snackbarHostState.showSnackbar(it); viewModel.clearMessages() }
+    }
+
+    // Device-confirmed outcomes tick nonces; the screen maps them to its
+    // own i18n strings (the ViewModel carries no prose of its own).
+    var shownPutNonce by remember { mutableStateOf(0L) }
+    var shownDeleteNonce by remember { mutableStateOf(0L) }
+    LaunchedEffect(uiState.putOkNonce) {
+        if (uiState.putOkNonce > shownPutNonce) {
+            shownPutNonce = uiState.putOkNonce
+            snackbarHostState.showSnackbar(context.getString(R.string.pm_saved))
+        }
+    }
+    LaunchedEffect(uiState.deleteOkNonce) {
+        if (uiState.deleteOkNonce > shownDeleteNonce) {
+            shownDeleteNonce = uiState.deleteOkNonce
+            snackbarHostState.showSnackbar(context.getString(R.string.pm_deleted))
+        }
     }
 
     /**
@@ -260,6 +292,16 @@ fun PasswordManagerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp),
                 )
+                Button(
+                    onClick = { showCreate = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                ) {
+                    Icon(imageVector = Icons.Filled.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.pm_new_entry))
+                }
             }
 
             if (uiState.visibleIds.isEmpty() && !uiState.isLoading) {
@@ -323,6 +365,23 @@ fun PasswordManagerScreen(
                                     imageVector = Icons.Filled.Visibility,
                                     contentDescription = stringResource(R.string.pm_eye_show_cd),
                                 )
+                            }
+                            // Scoped per-item delete (0x46): confirm dialog,
+                            // only this record is removed device-side.
+                            val deleteHex = PmCbor.opaqueIdHex(id)
+                            val isDeletingThis = uiState.deletingIdHex == deleteHex
+                            if (isDeletingThis) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            } else {
+                                IconButton(
+                                    onClick = { pendingDelete = id.copyOf() },
+                                    enabled = uiState.deletingIdHex == null && !uiState.isSaving,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Delete,
+                                        contentDescription = stringResource(R.string.pm_delete_cd),
+                                    )
+                                }
                             }
                         }
                     }
@@ -465,6 +524,203 @@ fun PasswordManagerScreen(
             dismissButton = {
                 TextButton(onClick = { dismissPopup() }) {
                     Text(stringResource(R.string.pm_close_and_wipe))
+                }
+            },
+        )
+    }
+
+    // Create form (PUT 0x43): service/account/secret are user-typed
+    // transient RAM only. The device seals them and assigns the opaque id;
+    // nothing is logged, cached, or persisted on the phone. Blank fields
+    // never reach the transport (fail-closed at the edge).
+    if (showCreate) {
+        var service by remember { mutableStateOf("") }
+        var account by remember { mutableStateOf("") }
+        var secretText by remember { mutableStateOf("") }
+        var showTyped by remember { mutableStateOf(false) }
+        var blankError by remember { mutableStateOf(false) }
+        fun dismissCreate() {
+            service = ""
+            account = ""
+            secretText = ""
+            showTyped = false
+            blankError = false
+            showCreate = false
+        }
+        AlertDialog(
+            onDismissRequest = { dismissCreate() },
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    text = stringResource(R.string.pm_create_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = service,
+                        onValueChange = { service = it; blankError = false },
+                        label = { Text(stringResource(R.string.pm_create_service_label)) },
+                        placeholder = { Text(stringResource(R.string.pm_create_service_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = account,
+                        onValueChange = { account = it; blankError = false },
+                        label = { Text(stringResource(R.string.pm_create_account_label)) },
+                        placeholder = { Text(stringResource(R.string.pm_create_account_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = secretText,
+                        onValueChange = { secretText = it; blankError = false },
+                        label = { Text(stringResource(R.string.pm_secret_label)) },
+                        placeholder = { Text(stringResource(R.string.pm_create_secret_hint)) },
+                        trailingIcon = {
+                            IconButton(onClick = { showTyped = !showTyped }) {
+                                Icon(
+                                    imageVector = if (showTyped) {
+                                        Icons.Filled.VisibilityOff
+                                    } else {
+                                        Icons.Filled.Visibility
+                                    },
+                                    contentDescription = stringResource(
+                                        if (showTyped) {
+                                            R.string.pm_create_hide_cd
+                                        } else {
+                                            R.string.pm_create_show_cd
+                                        }
+                                    ),
+                                )
+                            }
+                        },
+                        visualTransformation = if (showTyped) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (blankError) {
+                        Text(
+                            text = stringResource(R.string.pm_create_blank_error),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (uiState.isSaving) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Text(
+                                text = stringResource(R.string.pm_authenticating),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (service.isBlank() || account.isBlank() || secretText.isEmpty()) {
+                            blankError = true
+                            return@TextButton
+                        }
+                        viewModel.putEntry(
+                            service.trim(),
+                            account.trim(),
+                            secretText.toByteArray(Charsets.UTF_8),
+                            null,
+                        )
+                        dismissCreate()
+                    },
+                    enabled = !uiState.isSaving,
+                ) {
+                    Text(stringResource(R.string.pm_create_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissCreate() }) {
+                    Text(stringResource(R.string.guard_btn_cancel))
+                }
+            },
+        )
+    }
+
+    // Scoped per-item delete (DELETE 0x46): confirm dialog. Only this
+    // record is removed device-side; FIDO2 keys and other slots stay.
+    // Any dismiss wipes the pending id copy without touching the device.
+    val deleteId = pendingDelete
+    if (deleteId != null) {
+        val deleteHex = PmCbor.opaqueIdHex(deleteId)
+        val isDeletingThis = uiState.deletingIdHex == deleteHex
+        AlertDialog(
+            onDismissRequest = { dismissDelete() },
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    text = stringResource(R.string.pm_delete_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = PmCbor.opaqueIdLabel(deleteId),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = stringResource(R.string.pm_delete_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (isDeletingThis) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Text(
+                                text = stringResource(R.string.pm_authenticating),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = deleteId.copyOf()
+                        dismissDelete()
+                        viewModel.deleteEntry(id)
+                    },
+                    enabled = !isDeletingThis,
+                ) {
+                    Text(stringResource(R.string.pm_delete_confirm_btn))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissDelete() }) {
+                    Text(stringResource(R.string.guard_btn_cancel))
                 }
             },
         )

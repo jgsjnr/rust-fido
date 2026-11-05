@@ -51,6 +51,38 @@ pub fn dispatch_serial_vendor(
     }
 }
 
+/// Dispatches one PM op (`0x43..=0x47`) over serial with the exact BLE gates.
+///
+/// Session RAM vault: the caller owns the [`PmVault`] (RAM only; sealed NVS
+/// blob I/O is a follow-up via `pm_store`). Gate denial maps via
+/// `authorize_pm_op` (binding -> `0x05`, UP -> `0x01`, PIN -> `0x02`,
+/// window-expiry -> `0x01`); vault failures map fail-closed (`NotFound` ->
+/// `0x03`, else `0x04`). Outside the diet the caller must answer
+/// `UNSUPPORTED_FEATURE` (`0x06`) and never call this.
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+#[allow(clippy::too_many_arguments)]
+pub fn dispatch_serial_pm<R: rand_core::CryptoRng>(
+    op: u8,
+    body: &[u8],
+    binding_ok: bool,
+    pin_authenticated: bool,
+    up: bool,
+    bound_within_ms: u64,
+    vault: &mut aegis_pm_vault::PmVault,
+    policy: &aegis_pm_vault::PmPolicy,
+    now_secs: u64,
+    rng: &mut R,
+) -> (u8, Vec<u8>) {
+    use crate::pm_store::PmGateState;
+    let gate = PmGateState {
+        binding_bound: binding_ok,
+        presence_confirmed: up,
+        pin_authenticated,
+        bound_within_ms,
+    };
+    crate::pm_dispatch::dispatch_pm_op(op, body, &gate, vault, policy, now_secs, rng)
+}
+
 /// Dispatches one wallet op (0x35-0x37) with the exact BLE gates.
 ///
 /// Returns `(wire_status, body)`; gate pass answers `0x04` (on-device
