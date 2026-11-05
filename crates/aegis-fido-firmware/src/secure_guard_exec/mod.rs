@@ -24,6 +24,6 @@ pub use dispatch::{
     CTAP2_ERR_PIN_REQUIRED, CTAP2_ERR_VENDOR_INTERNAL,
 };
 pub(crate) use lock::handle_lock;
-pub use status::handle_status;
+pub use status::{handle_status, handle_status_with_ota};
 pub(crate) use unlock::handle_unlock_or_mgmt;
 pub(crate) use wipe::handle_wipe_selective;

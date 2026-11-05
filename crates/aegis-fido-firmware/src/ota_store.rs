@@ -109,7 +109,13 @@ mod ota_wiring_tests {
                 dispatch_ota_request(ota, sink, OP_OTA_CHUNK, &p, ctx).expect("chunk dispatch");
             assert_eq!(st, OTA_STATUS_OK);
             off += chunk.len() as u32;
-            assert_eq!(body, off.to_be_bytes().to_vec());
+            // Resposta CHUNK: `received BE u32 || ota_progress u8` (0..=100).
+            assert_eq!(body.len(), 5);
+            assert_eq!(&body[..4], &off.to_be_bytes());
+            assert_eq!(
+                body[4],
+                crate::ota::ota_progress(off as usize, image.len() as u32)
+            );
         }
         assert_eq!(
             dispatch_ota_request(ota, sink, OP_OTA_FINISH, &[], ctx),

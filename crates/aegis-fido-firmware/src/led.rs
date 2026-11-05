@@ -92,6 +92,39 @@ impl Color {
     }
 }
 
+/// OTA reception progress color for the single WS2812 pixel.
+///
+/// Maps `0..=100` to a red-to-green hue ramp (`0` = red, `100` = green) via
+/// the existing [`Color::from_hue`] wheel (hue `0..=85`). Pure: no
+/// RMT/hardware touch — the main loop feeds the result to
+/// [`Ws2812Controller`] with [`LedEffect::Solid`] after each `BEGIN`/`CHUNK`
+/// (single pixel: hue carries the "bar"). Inputs above `100` clamp.
+pub fn ota_progress_color(progress: u8) -> Color {
+    let p = progress.min(100);
+    Color::from_hue(((p as u16 * 85) / 100) as u8)
+}
+
+/// LED effect for OTA reception progress (`BEGIN`/`CHUNK` path).
+///
+/// Below `100` yields [`LedEffect::Solid`] in [`ota_progress_color`];
+/// `100` yields [`LedEffect::AuthSuccessPulse`] (visual confirmation of a
+/// fully received image, before verify/commit). Pure mapping — the caller
+/// applies it with `Ws2812Controller::set_effect`; no hardware touch here.
+pub fn ota_progress_effect(progress: u8) -> LedEffect {
+    if progress >= 100 {
+        LedEffect::AuthSuccessPulse
+    } else {
+        LedEffect::Solid(ota_progress_color(progress))
+    }
+}
+
+/// Distinct LED pattern for an OTA reception error (failed/empty/out-of-order
+/// chunk, overflow, verify deny): rapid red flash, visually distinct from the
+/// progress ramp and from the `100%` confirmation pulse.
+pub fn ota_error_effect() -> LedEffect {
+    LedEffect::ErrorFlash
+}
+
 /// Visual feedback states for the authenticator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LedEffect {
@@ -553,6 +586,57 @@ mod tests {
         assert_eq!((word >> 15) & 1, 1);
         assert_eq!((word >> 16) & 0x7FFF, u32::from(WS2812_T1L_TICKS));
         assert_eq!((word >> 31) & 1, 0);
+    }
+
+    #[test]
+    fn ota_progress_color_ramps_red_to_green() {
+        assert_eq!(ota_progress_color(0), Color::RED);
+        assert_eq!(ota_progress_color(100), Color::GREEN);
+        // Clamp defensivo: >100 comporta-se como 100.
+        assert_eq!(ota_progress_color(255), Color::GREEN);
+        // Rampa monotona: vermelho cai, verde sobe (vermelho puro -> verde puro).
+        let mut prev_r = u8::MAX;
+        let mut prev_g = 0u8;
+        for p in (0..=100).step_by(10) {
+            let c = ota_progress_color(p);
+            assert!(c.r <= prev_r, "r deve cair em p={p}");
+            assert!(c.g >= prev_g, "g deve subir em p={p}");
+            prev_r = c.r;
+            prev_g = c.g;
+        }
+    }
+
+    #[test]
+    fn ota_progress_effect_confirms_at_hundred_and_errors_distinct() {
+        // Progresso parcial = cor solida do progresso.
+        assert_eq!(
+            ota_progress_effect(0),
+            LedEffect::Solid(ota_progress_color(0))
+        );
+        assert_eq!(
+            ota_progress_effect(57),
+            LedEffect::Solid(ota_progress_color(57))
+        );
+        // 100% = confirmacao visual (pulso verde), nao solido.
+        assert_eq!(ota_progress_effect(100), LedEffect::AuthSuccessPulse);
+        assert_eq!(ota_progress_effect(200), LedEffect::AuthSuccessPulse);
+        // Erro = padrao distinto (flash vermelho), diferente de qualquer
+        // efeito de progresso parcial ou do pulso de 100%.
+        assert_eq!(ota_error_effect(), LedEffect::ErrorFlash);
+        assert_ne!(ota_error_effect(), ota_progress_effect(100));
+        assert_ne!(ota_error_effect(), ota_progress_effect(0));
+    }
+
+    #[test]
+    fn ota_progress_drives_controller_solid_then_pulse() {
+        let mock = MockLedOutput::new();
+        let mut ctrl = Ws2812Controller::new(mock);
+        ctrl.set_effect(ota_progress_effect(0));
+        ctrl.update(Duration::from_millis(0)).unwrap();
+        assert_eq!(ctrl.output.last_color, ota_progress_color(0));
+        ctrl.set_effect(ota_progress_effect(100));
+        ctrl.update(Duration::from_millis(10_000)).unwrap();
+        assert_eq!(ctrl.output.last_color, Color::GREEN);
     }
 
     #[test]

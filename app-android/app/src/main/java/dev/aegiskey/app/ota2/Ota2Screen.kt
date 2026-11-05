@@ -110,8 +110,21 @@ fun Ota2Screen(
             Text(stringResource(R.string.ota2_version, m.version, currentVersion))
         }
         if (total > 0) {
-            LinearProgressIndicator(progress = { sent.toFloat() / total.coerceAtLeast(1) })
-            Text(stringResource(R.string.ota2_progress, sent, total))
+            val percent = otaProgressPercent(sent, total)
+            // FINISH in flight: every CHUNK acked (sent == total), device is
+            // verifying. No status-poll opcode exists, so this engine-derived
+            // transition is the honest "verifying" signal — never invented.
+            val verifying = busy && sent >= total && !done
+            if (verifying) {
+                LinearProgressIndicator()
+                Text(stringResource(R.string.ota2_verifying))
+            } else if (percent != null) {
+                LinearProgressIndicator(progress = { percent / 100f })
+            }
+            if (percent != null) {
+                Text(stringResource(R.string.ota2_progress, sent, total))
+                Text(stringResource(R.string.ota2_percent, percent))
+            }
         }
         failure?.let { Text(stringResource(it.stringRes())) }
         if (done) Text(stringResource(R.string.ota2_verified))

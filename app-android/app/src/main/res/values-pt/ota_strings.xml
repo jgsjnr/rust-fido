@@ -12,6 +12,8 @@
     <string name="ota2_size">Tamanho: %1$d bytes</string>
     <string name="ota2_version">Versão %1$d (chave tem %2$d)</string>
     <string name="ota2_progress">Enviados %1$d de %2$d bytes</string>
+    <string name="ota2_percent">%1$d%%</string>
+    <string name="ota2_verifying">Verificando na chave.</string>
     <string name="ota2_verified">Verificado. Confirme na chave.</string>
     <string name="ota2_paused">Link caiu em %1$d bytes. Tente de novo.</string>
     <string name="ota2_fail_gate">Atualização bloqueada.</string>

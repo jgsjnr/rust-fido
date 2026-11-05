@@ -5,6 +5,21 @@ use std::format;
 use std::vec::Vec;
 /// 0x3A: OP_SECURE_GUARD_STATUS
 pub fn handle_status(engine: &mut SecureGuardEngine, now_ms: u64) -> (u8, Vec<u8>) {
+    handle_status_with_ota(engine, now_ms, None)
+}
+
+/// 0x3A with optional OTA reception progress (`ota_progress` `0..=100`).
+///
+/// `None` (no OTA session / legacy caller) omits the field — byte-identical
+/// to [`handle_status`]. `Some(p)` appends `ota_progress` (clamped) so the
+/// app can poll reception without parsing `CHUNK` responses; the value must
+/// come from `OtaState::progress` (never fabricated). Pure additive surface:
+/// no SecureGuard semantics change, no flash/NVS touch.
+pub fn handle_status_with_ota(
+    engine: &mut SecureGuardEngine,
+    now_ms: u64,
+    ota_progress: Option<u8>,
+) -> (u8, Vec<u8>) {
     // Touch / check de sessão se Unlocked
     let _ = engine.check_and_touch_session(now_ms);
 
@@ -133,6 +148,12 @@ pub fn handle_status(engine: &mut SecureGuardEngine, now_ms: u64) -> (u8, Vec<u8
         Value::Text("bench_active".into()),
         Value::Bool(crate::secure_guard_exec::bench::policy::is_bench_active()),
     ));
+    if let Some(p) = ota_progress {
+        map.push((
+            Value::Text("ota_progress".into()),
+            Value::from(p.min(100)),
+        ));
+    }
 
     let device_ble_mac = {
         #[cfg(target_os = "espidf")]

@@ -12,6 +12,8 @@
     <string name="ota2_size">Size: %1$d bytes</string>
     <string name="ota2_version">Version %1$d (key has %2$d)</string>
     <string name="ota2_progress">Sent %1$d of %2$d bytes</string>
+    <string name="ota2_percent">%1$d%%</string>
+    <string name="ota2_verifying">Verifying on the key.</string>
     <string name="ota2_verified">Verified. Confirm commit on the key.</string>
     <string name="ota2_paused">Link lost at %1$d bytes. Retry to resume.</string>
     <string name="ota2_fail_gate">Update blocked by policy.</string>

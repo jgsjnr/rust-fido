@@ -135,9 +135,10 @@ object Ota2Engine {
         }
     }
 
-    /** Pure + JVM-testable: CHUNK ack is exactly 4 B received-count within budget. */
+    /** Pure + JVM-testable: CHUNK ack is 4 B received-count, tolerating the
+     * trailing `ota_progress` u8 (5 B total: `received BE u32 || progress`). */
     fun parseAck(reply: ByteArray): Int? {
-        if (reply.size != CHUNK_OFFSET_LEN) return null
+        if (reply.size != CHUNK_OFFSET_LEN && reply.size != CHUNK_OFFSET_LEN + 1) return null
         val received = u32Be(reply, 0)
         if (received > MAX_STAGED_IMAGE_BYTES) return null
         return received.toInt()

@@ -323,7 +323,11 @@ fn ota_fail<P: OtaProvider, B: FlashStorageBackend>(
 /// ramo próprio na serial).
 ///
 /// BEGIN requires a provisioned device and a manifest within the 896 KiB
-/// `storage` budget (fail-fast); CHUNK carries `offset BE u32 || data`;
+/// `storage` budget (fail-fast); CHUNK carries `offset BE u32 || data` and
+/// answers `received BE u32 || ota_progress u8` (`0..=100` real
+/// `received / manifest total`; first 4 bytes unchanged for old readers;
+/// the same ratio feeds the WS2812 progress color and the `0x3A`
+/// `ota_progress` field);
 /// FINISH denies a denied (all-zeros) key before verifying, then verifies the
 /// staged manifest with the real release pubkey via the `verify_with` seam;
 /// COMMIT denies a denied key before anything, then requires presence —
@@ -378,7 +382,15 @@ pub fn dispatch_ota_request<P: OtaProvider, B: FlashStorageBackend>(
             off.copy_from_slice(&payload[..4]);
             let offset = u32::from_be_bytes(off) as usize;
             match state.stage_chunk(offset, &payload[4..], sink) {
-                Ok(received) => Some((OTA_STATUS_OK, (received as u32).to_be_bytes().to_vec())),
+                Ok(received) => {
+                    // App surface: `received BE u32 || ota_progress u8`.
+                    // Progresso real (`received / manifest total`, 0..=100);
+                    // os 4 primeiros bytes seguem identicos p/ leitores
+                    // antigos. Falha preserva o rollback fail-closed abaixo.
+                    let mut body = (received as u32).to_be_bytes().to_vec();
+                    body.push(state.progress());
+                    Some((OTA_STATUS_OK, body))
+                }
                 Err(_) => Some(ota_fail(state, sink)),
             }
         }

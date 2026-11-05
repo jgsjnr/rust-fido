@@ -157,6 +157,22 @@ impl OtaManifest {
     }
 }
 
+/// Computes OTA reception progress as `0..=100` from raw counters.
+///
+/// Pure helper shared by the `BEGIN`/`CHUNK` reception path and the status
+/// surface (`CHUNK` response byte + `0x3A` `ota_progress` field): callers pass
+/// `received` bytes staged so far and the manifest `total` image size.
+/// `total == 0` (no session / malformed) yields `0`; overshoot clamps to
+/// `100`. Uses `u64` arithmetic so a 2 MiB image can never overflow.
+/// Never fabricates bytes: `received` must come from [`OtaState::received`].
+pub fn ota_progress(received: usize, total: u32) -> u8 {
+    if total == 0 {
+        return 0;
+    }
+    let pct = (received as u64 * 100) / (total as u64);
+    pct.min(100) as u8
+}
+
 /// Quiescent-to-terminal phases of [`OtaState`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OtaPhase {
@@ -210,6 +226,23 @@ impl OtaState {
     /// Bytes staged so far in this session.
     pub fn received(&self) -> usize {
         self.received
+    }
+
+    /// Manifest-declared total image size (`None` = no open session).
+    pub fn total_size(&self) -> Option<u32> {
+        self.manifest.as_ref().map(|m| m.size)
+    }
+
+    /// Real reception progress `0..=100` (`received / manifest total`).
+    ///
+    /// `0` with no open session; `100` only when `received == size`.
+    /// Feeds the WS2812 progress color and the `ota_progress` status field.
+    /// Read-only: never touches phase, digest, sink, or commit state.
+    pub fn progress(&self) -> u8 {
+        match self.manifest.as_ref() {
+            Some(m) => ota_progress(self.received, m.size),
+            None => 0,
+        }
     }
 
     /// Whether [`OtaState::commit`] requires a physical user-presence check.
@@ -363,6 +396,14 @@ pub trait OtaProvider {
     fn phase(&self) -> OtaPhase;
     /// Bytes staged so far in this session.
     fn received(&self) -> usize;
+    /// Real reception progress `0..=100` (default `0`; [`OtaState`] overrides).
+    fn progress(&self) -> u8 {
+        0
+    }
+    /// Manifest-declared total (`None`; [`OtaState`] overrides with the manifest size).
+    fn total_size(&self) -> Option<u32> {
+        None
+    }
     /// Running firmware version (updated only by [`OtaProvider::commit`]).
     fn committed_version(&self) -> u32;
     /// Whether commit requires a physical user-presence check (always true).
@@ -406,6 +447,14 @@ impl OtaProvider for OtaState {
 
     fn received(&self) -> usize {
         OtaState::received(self)
+    }
+
+    fn progress(&self) -> u8 {
+        OtaState::progress(self)
+    }
+
+    fn total_size(&self) -> Option<u32> {
+        OtaState::total_size(self)
     }
 
     fn committed_version(&self) -> u32 {
@@ -931,5 +980,114 @@ mod tests {
         assert_eq!(OP_OTA_FINISH, 0x32);
         assert_eq!(OP_OTA_COMMIT, 0x33);
         assert_eq!(OP_OTA_ABORT, 0x34);
+    }
+}
+
+#[cfg(test)]
+mod ota_progress_tests {
+    use super::*;
+
+    const CURRENT: u32 = 7;
+    const NEXT: u32 = 8;
+
+    fn image_bytes() -> alloc::vec::Vec<u8> {
+        alloc::vec![0xA5u8; 1024]
+    }
+
+    fn manifest_for(version: u32, image: &[u8]) -> alloc::vec::Vec<u8> {
+        let digest = Sha256::digest(image);
+        let mut raw = alloc::vec::Vec::with_capacity(OTA_MANIFEST_LEN);
+        raw.extend_from_slice(&version.to_be_bytes());
+        raw.extend_from_slice(&(image.len() as u32).to_be_bytes());
+        raw.extend_from_slice(&digest);
+        raw.extend_from_slice(&[0x5Eu8; 64]);
+        raw
+    }
+
+    #[test]
+    fn progress_helper_covers_zero_total_and_clamp() {
+        assert_eq!(ota_progress(0, 0), 0);
+        assert_eq!(ota_progress(999, 0), 0);
+        assert_eq!(ota_progress(0, 1024), 0);
+        assert_eq!(ota_progress(512, 1024), 50);
+        assert_eq!(ota_progress(1024, 1024), 100);
+        // Overshoot (defensivo, nunca esperado no fio) trava em 100.
+        assert_eq!(ota_progress(2048, 1024), 100);
+        // Trunca p/ baixo; parcial nunca fabrica 100.
+        assert_eq!(ota_progress(1, 3), 33);
+    }
+
+    #[test]
+    fn progress_zero_without_session_and_after_rollback() {
+        let mut ota = OtaState::new(CURRENT);
+        assert_eq!(ota.progress(), 0);
+        assert_eq!(ota.total_size(), None);
+        let image = image_bytes();
+        ota.begin(&manifest_for(NEXT, &image), true).expect("begin");
+        assert_eq!(ota.progress(), 0);
+        ota.rollback();
+        assert_eq!(ota.progress(), 0);
+        assert_eq!(ota.total_size(), None);
+    }
+
+    #[test]
+    fn progress_tracks_chunks_zero_to_hundred() {
+        let image = image_bytes();
+        let mut ota = OtaState::new(CURRENT);
+        let mut sink = RamOtaSink::default();
+        ota.begin(&manifest_for(NEXT, &image), true).expect("begin");
+        let mut last = 0u8;
+        let mut off = 0;
+        for chunk in image.chunks(256) {
+            off = ota.stage_chunk(off, chunk, &mut sink).expect("chunk");
+            let p = ota.progress();
+            assert!(p >= last);
+            assert_eq!(p, ota_progress(off, image.len() as u32));
+            last = p;
+        }
+        assert_eq!(off, image.len());
+        assert_eq!(ota.progress(), 100);
+        // Trait espelha o mesmo valor (superficie 0x3A/CHUNK).
+        assert_eq!(OtaProvider::progress(&ota), 100);
+        assert_eq!(OtaProvider::total_size(&ota), Some(image.len() as u32));
+    }
+
+    #[test]
+    fn progress_error_keeps_session_and_commit_unchanged() {
+        // Chunk fora de ordem nega sem mover `received`/progresso...
+        let image = image_bytes();
+        let mut ota = OtaState::new(CURRENT);
+        let mut sink = RamOtaSink::default();
+        ota.begin(&manifest_for(NEXT, &image), true).expect("begin");
+        assert_eq!(
+            ota.stage_chunk(1, &image[..16], &mut sink),
+            Err(OtaError::OutOfOrder)
+        );
+        assert_eq!(ota.received(), 0);
+        assert_eq!(ota.progress(), 0);
+        // ...e consultar progresso nunca comita nem altera versao.
+        let v = ota.committed_version();
+        let _ = ota.progress();
+        assert_eq!(ota.phase(), OtaPhase::Staged);
+        assert_eq!(ota.committed_version(), v);
+        assert_eq!(v, CURRENT);
+    }
+
+    #[test]
+    fn progress_does_not_advance_commit() {
+        // 100% recebido != comitado: COMMIT segue exigindo Verified +
+        // finalize do sink (inalterado por esta lane).
+        let image = image_bytes();
+        let mut ota = OtaState::new(CURRENT);
+        let mut sink = RamOtaSink::default();
+        ota.begin(&manifest_for(NEXT, &image), true).expect("begin");
+        let mut off = 0;
+        for chunk in image.chunks(256) {
+            off = ota.stage_chunk(off, chunk, &mut sink).expect("chunk");
+        }
+        assert_eq!(ota.progress(), 100);
+        assert_eq!(ota.phase(), OtaPhase::Staged);
+        assert_eq!(ota.commit(&mut sink), Err(OtaError::NotStaged));
+        assert_eq!(ota.committed_version(), CURRENT);
     }
 }

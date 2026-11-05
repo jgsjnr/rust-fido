@@ -82,3 +82,46 @@ fn test_status_bench_active_false_by_default() {
         panic!("expected cbor map");
     }
 }
+
+/// Contrato 0x3A com o app: `ota_progress` ausente sem sessao OTA (compat)
+/// e presente `0..=100` via `handle_status_with_ota` (nunca fabricado alem
+/// do teto; o chamador alimenta com `OtaState::progress`).
+#[test]
+fn test_status_ota_progress_field() {
+    use crate::secure_guard_exec::status::handle_status_with_ota;
+    let policy = SecureGuardPolicy::default();
+    let mut engine = SecureGuardEngine::new(policy);
+    // Sem sessao OTA: campo ausente (mesmo corpo de `handle_status`).
+    let (st, body) = handle_status(&mut engine, 1000);
+    assert_eq!(st, 0x00);
+    let val: Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let Value::Map(entries) = val {
+        assert_eq!(get_field(&entries, "ota_progress"), None);
+    } else {
+        panic!("expected cbor map");
+    }
+    // Com sessao OTA a 50%: campo presente.
+    let (st, body) = handle_status_with_ota(&mut engine, 1000, Some(50));
+    assert_eq!(st, 0x00);
+    let val: Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let Value::Map(entries) = val {
+        assert_eq!(
+            get_field(&entries, "ota_progress"),
+            Some(&Value::from(50u8))
+        );
+    } else {
+        panic!("expected cbor map");
+    }
+    // Clamp defensivo: >100 vira 100.
+    let (st, body) = handle_status_with_ota(&mut engine, 1000, Some(255));
+    assert_eq!(st, 0x00);
+    let val: Value = ciborium::from_reader(body.as_slice()).expect("cbor parse");
+    if let Value::Map(entries) = val {
+        assert_eq!(
+            get_field(&entries, "ota_progress"),
+            Some(&Value::from(100u8))
+        );
+    } else {
+        panic!("expected cbor map");
+    }
+}
