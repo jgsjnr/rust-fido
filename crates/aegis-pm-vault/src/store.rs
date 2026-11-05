@@ -528,11 +528,11 @@ mod tests {
             bound_within_ms: 0,
         };
         assert_eq!(v.list_ids(&p, &locked), Err(PmError::NeedBinding));
+        assert_eq!(v.search_ids(&p, &locked, "bank"), Err(PmError::NeedBinding));
         assert_eq!(
-            v.search_ids(&p, &locked, "bank"),
-            Err(PmError::NeedBinding)
+            v.get(&p, &locked, &[1u8; 16]).unwrap_err(),
+            PmError::NeedBinding
         );
-        assert_eq!(v.get(&p, &locked, &[1u8; 16]).unwrap_err(), PmError::NeedBinding);
         assert_eq!(
             v.release_password(&p, &locked, &[1u8; 16]),
             Err(PmError::NeedBinding)
@@ -555,10 +555,7 @@ mod tests {
         assert!(v.len() <= p.max_entries);
 
         // 4. SEARCH (device-side substring; census-filtered opaque response).
-        assert_eq!(
-            v.search_ids(&p, &open, "ban").unwrap(),
-            vec![vec![1u8; 16]]
-        );
+        assert_eq!(v.search_ids(&p, &open, "ban").unwrap(), vec![vec![1u8; 16]]);
         assert_eq!(
             v.search_ids(&p, &open, "zzz").unwrap(),
             Vec::<Vec<u8>>::new()
