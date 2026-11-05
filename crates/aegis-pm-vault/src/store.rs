@@ -500,4 +500,100 @@ mod tests {
         // `Zeroizing` wipes on drop — compile-time guaranteed by the type.
         drop(pw);
     }
+
+    /// SIMULATED full viewer flow — no hardware, no BLE, no real PIN biometry
+    /// (host-only; the phone screen flow it mirrors is `PasswordManagerScreen`:
+    /// viewer → unlock → open item → eye (`BiometricPrompt`, simulated here by
+    /// the presence+PIN gates) → wipe-on-close → reopen proving zeroed).
+    ///
+    /// Covers the SIM gap `app_simulator.py --self-test` / `e2e_harness session`
+    /// do not exercise: PM opcodes `0x43..=0x47` never cross those harnesses.
+    /// No eFuse / Secure Boot / flash-encryption surface is touched here.
+    #[test]
+    fn simulated_viewer_unlock_eye_wipe_reopen_proves_zeroed() {
+        let (v, p, _) = vault_with_two();
+        let pin = b"pin-token-sim";
+        let mut rng = rand::rng();
+        let mut store = TestStore { blob: None };
+        // Seed once so the reopen step has something to prove-zero against.
+        v.save_to_store(&p, &PmGateState::authorized(), &mut store, pin, &mut rng)
+            .unwrap();
+
+        // 1. VIEWER locked (no binding/UP/PIN — mirrors "connect hardware
+        // first" fail-closed screen): every read path denies.
+        let locked = PmGateState {
+            binding_bound: false,
+            presence_confirmed: false,
+            pin_authenticated: false,
+            bound_within_ms: 0,
+        };
+        assert_eq!(v.list_ids(&p, &locked), Err(PmError::NeedBinding));
+        assert_eq!(
+            v.search_ids(&p, &locked, "bank"),
+            Err(PmError::NeedBinding)
+        );
+        assert_eq!(v.get(&p, &locked, &[1u8; 16]).unwrap_err(), PmError::NeedBinding);
+        assert_eq!(
+            v.release_password(&p, &locked, &[1u8; 16]),
+            Err(PmError::NeedBinding)
+        );
+
+        // 2. UNLOCK (binding + presence/simulated-UP + PIN — the eye's
+        // `BiometricPrompt` success maps to the presence+PIN bits here).
+        let open = PmGateState::authorized();
+
+        // 3. VIEWER list: opaque ids only (no labels/usernames/secrets cross);
+        // census = in-RAM count against the policy quota (status `0x47` shape).
+        let ids = v.list_ids(&p, &open).unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&vec![1u8; 16]) && ids.contains(&vec![2u8; 16]));
+        let ids_dbg = alloc::format!("{ids:?}");
+        for leak in ["bank", "mail", "alice", "bob", "s3cr3t"] {
+            assert!(!ids_dbg.contains(leak), "list leaks {leak}");
+        }
+        assert_eq!(v.len(), 2);
+        assert!(v.len() <= p.max_entries);
+
+        // 4. SEARCH (device-side substring; census-filtered opaque response).
+        assert_eq!(
+            v.search_ids(&p, &open, "ban").unwrap(),
+            vec![vec![1u8; 16]]
+        );
+        assert_eq!(
+            v.search_ids(&p, &open, "zzz").unwrap(),
+            Vec::<Vec<u8>>::new()
+        );
+        assert_eq!(v.search_ids(&p, &open, "").unwrap().len(), 2);
+
+        // 5. ABRIR ITEM + OLHO (biometria simulada): punctual single-frame
+        // release; `Debug` is redacted (`Zeroizing` non-exhaustive).
+        let pw = v.release_password(&p, &open, &[1u8; 16]).unwrap();
+        assert_eq!(pw.as_slice(), b"s3cr3t-bank");
+        let pw_dbg = alloc::format!("{pw:?}");
+        assert!(!pw_dbg.contains("s3cr3t"), "release leaks: {pw_dbg}");
+
+        // 6. WIPE-ON-CLOSE (`closeRelease` mirror): drop the transient frame
+        // then scoped-wipe the persisted blob (FIDO2/OATH out of scope here —
+        // `TestStore` holds only the PM blob).
+        drop(pw);
+        store.wipe();
+
+        // 7. REABRIR PROVA QUE ZEROU: blob is gone; restore denies; RAM empty.
+        let mut reopened = PmVault::new([0x5A; 32]);
+        assert_eq!(
+            reopened.restore_from_store(&p, &open, &store, pin),
+            Err(PmError::NotFound)
+        );
+        assert!(reopened.is_empty());
+        assert_eq!(reopened.len(), 0);
+        // Walk-away also closes the viewer: stale binding denies release.
+        let stale = PmGateState {
+            bound_within_ms: PM_BINDING_WINDOW_MS + 1,
+            ..PmGateState::authorized()
+        };
+        assert_eq!(
+            v.release_password(&p, &stale, &[1u8; 16]),
+            Err(PmError::BindingWindowExpired)
+        );
+    }
 }
