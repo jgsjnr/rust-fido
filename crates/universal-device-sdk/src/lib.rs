@@ -65,17 +65,20 @@ pub use envelope::{
     MAX_ENVELOPE_BYTES, MAX_PLAINTEXT_BYTES, MIN_ENVELOPE_LEN, NONCE_LEN, REPLAY_WINDOW_CAP,
     TAG_LEN,
 };
-pub use error::{require_fido, require_hardwallet, require_pm, require_secmon, require_test_mode, SdkError};
+pub use error::{
+    require_fido, require_hardwallet, require_pm, require_secmon, require_test_mode, SdkError,
+};
 #[cfg(feature = "hardwallet")]
 pub use hardwallet::{AddressRequest, CoinKind};
 #[cfg(feature = "pm")]
 pub use pm::{
-    decode_pm_delete_request, decode_pm_get_request, decode_pm_list_request, decode_pm_list_response,
-    decode_pm_put_request, decode_pm_release_response, decode_pm_status_response,
-    encode_pm_delete_request, encode_pm_get_request, encode_pm_list_request, encode_pm_list_response,
-    encode_pm_put_request, encode_pm_release_response, encode_pm_status_response, PmDeleteRequestDto,
-    PmGetRequestDto, PmListRequestDto, PmListResponseDto, PmOp, PmPutRequestDto, PmReleaseResponseDto,
-    PmRequest, PmStatus, PmStatusDto, OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
+    decode_pm_delete_request, decode_pm_get_request, decode_pm_list_request,
+    decode_pm_list_response, decode_pm_put_request, decode_pm_release_response,
+    decode_pm_status_response, encode_pm_delete_request, encode_pm_get_request,
+    encode_pm_list_request, encode_pm_list_response, encode_pm_put_request,
+    encode_pm_release_response, encode_pm_status_response, PmDeleteRequestDto, PmGetRequestDto,
+    PmListRequestDto, PmListResponseDto, PmOp, PmPutRequestDto, PmReleaseResponseDto, PmRequest,
+    PmStatus, PmStatusDto, OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
     PM_ID_MAX_BYTES, PM_LABEL_MAX_BYTES, PM_LIST_DEFAULT_LIMIT, PM_OP_MAX, PM_OP_MIN,
     PM_SECRET_MAX_BYTES, PM_URL_MAX_BYTES, PM_USERNAME_MAX_BYTES,
 };

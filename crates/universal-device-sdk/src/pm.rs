@@ -387,10 +387,7 @@ pub fn encode_pm_put_request(dto: &PmPutRequestDto) -> Result<Vec<u8>, SdkError>
         None => Value::Null,
     };
     let map = alloc::vec![
-        (
-            Value::Text("label".into()),
-            Value::Text(dto.label.clone())
-        ),
+        (Value::Text("label".into()), Value::Text(dto.label.clone())),
         (
             Value::Text("username".into()),
             Value::Text(dto.username.clone())
@@ -468,10 +465,7 @@ pub fn decode_pm_delete_request(bytes: &[u8]) -> Result<PmDeleteRequestDto, SdkE
 /// Encodes a PM list body.
 pub fn encode_pm_list_request(dto: &PmListRequestDto) -> Result<Vec<u8>, SdkError> {
     let map = alloc::vec![
-        (
-            Value::Text("cursor".into()),
-            Value::from(dto.cursor as u64)
-        ),
+        (Value::Text("cursor".into()), Value::from(dto.cursor as u64)),
         (Value::Text("limit".into()), Value::from(dto.limit)),
     ];
     to_cbor(&Value::Map(map))
@@ -497,10 +491,7 @@ pub fn encode_pm_list_response(dto: &PmListResponseDto) -> Result<Vec<u8>, SdkEr
             Value::Text("next_cursor".into()),
             Value::from(dto.next_cursor as u64)
         ),
-        (
-            Value::Text("has_more".into()),
-            Value::Bool(dto.has_more)
-        ),
+        (Value::Text("has_more".into()), Value::Bool(dto.has_more)),
     ];
     to_cbor(&Value::Map(map))
 }
@@ -612,11 +603,11 @@ mod tests {
         decode_pm_list_response, decode_pm_put_request, decode_pm_release_response,
         decode_pm_status_response, encode_pm_delete_request, encode_pm_get_request,
         encode_pm_list_request, encode_pm_list_response, encode_pm_put_request,
-        encode_pm_release_response, encode_pm_status_response, PmDeleteRequestDto,
-        PmGetRequestDto, PmListRequestDto, PmListResponseDto, PmOp, PmPutRequestDto,
-        PmReleaseResponseDto, PmRequest, PmStatus, PmStatusDto, OP_PM_DELETE, OP_PM_GET,
-        OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS, PM_ID_MAX_BYTES, PM_LABEL_MAX_BYTES,
-        PM_OP_MAX, PM_OP_MIN, PM_SECRET_MAX_BYTES, PM_URL_MAX_BYTES, PM_USERNAME_MAX_BYTES,
+        encode_pm_release_response, encode_pm_status_response, PmDeleteRequestDto, PmGetRequestDto,
+        PmListRequestDto, PmListResponseDto, PmOp, PmPutRequestDto, PmReleaseResponseDto,
+        PmRequest, PmStatus, PmStatusDto, OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT,
+        OP_PM_STATUS, PM_ID_MAX_BYTES, PM_LABEL_MAX_BYTES, PM_OP_MAX, PM_OP_MIN,
+        PM_SECRET_MAX_BYTES, PM_URL_MAX_BYTES, PM_USERNAME_MAX_BYTES,
     };
     use crate::status::{STATUS_NEED_BINDING, STATUS_NEED_PIN, STATUS_NEED_UP, STATUS_OK};
     use alloc::string::ToString;
@@ -635,7 +626,10 @@ mod tests {
     fn opcodes_claim_first_free_range() {
         // Neighbors frozen elsewhere: 0x3E Secure Guard end, 0x3F GET_CAPS,
         // 0x40 SET_UP_POLICY, 0x41 VENDOR_SIGN, 0x42 BLE OOB.
-        assert_eq!((OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS), (0x43, 0x44, 0x45, 0x46, 0x47));
+        assert_eq!(
+            (OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS),
+            (0x43, 0x44, 0x45, 0x46, 0x47)
+        );
         assert_eq!((PM_OP_MIN, PM_OP_MAX), (0x43, 0x47));
         for (op, byte) in [
             (PmOp::Put, OP_PM_PUT),
@@ -655,10 +649,7 @@ mod tests {
     fn status_preserves_wire_bytes() {
         assert_eq!(PmStatus::Ok.to_wire_status(), STATUS_OK);
         assert_eq!(PmStatus::NeedBinding.to_wire_status(), STATUS_NEED_BINDING);
-        assert_eq!(
-            PmStatus::PresenceRequired.to_wire_status(),
-            STATUS_NEED_UP
-        );
+        assert_eq!(PmStatus::PresenceRequired.to_wire_status(), STATUS_NEED_UP);
         assert_eq!(PmStatus::PinRequired.to_wire_status(), STATUS_NEED_PIN);
         assert_eq!(PmStatus::from_wire_status(0x00), Some(PmStatus::Ok));
         assert_eq!(
@@ -732,12 +723,10 @@ mod tests {
         let bytes = encode_pm_delete_request(&del).unwrap();
         assert_eq!(decode_pm_delete_request(&bytes).unwrap(), del);
         assert!(encode_pm_get_request(&PmGetRequestDto { id: vec![] }).is_err());
-        assert!(
-            encode_pm_delete_request(&PmDeleteRequestDto {
-                id: vec![0x01; PM_ID_MAX_BYTES + 1]
-            })
-            .is_err()
-        );
+        assert!(encode_pm_delete_request(&PmDeleteRequestDto {
+            id: vec![0x01; PM_ID_MAX_BYTES + 1]
+        })
+        .is_err());
         assert!(decode_pm_get_request(b"junk").is_err());
     }
 
@@ -810,10 +799,7 @@ mod tests {
         };
         let list_dbg = alloc::format!("{:?}", list);
         assert!(!list_dbg.contains("AB"), "leak: {list_dbg}");
-        let get_dbg = alloc::format!(
-            "{:?}",
-            PmGetRequestDto { id: vec![0xAB; 16] }
-        );
+        let get_dbg = alloc::format!("{:?}", PmGetRequestDto { id: vec![0xAB; 16] });
         assert!(!get_dbg.contains("AB"), "leak: {get_dbg}");
     }
 }

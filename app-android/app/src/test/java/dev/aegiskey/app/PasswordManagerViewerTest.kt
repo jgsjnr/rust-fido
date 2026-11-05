@@ -2,6 +2,7 @@ package dev.aegiskey.app
 
 import dev.aegiskey.app.pm.PmCbor
 import dev.aegiskey.app.ui.VaultGate
+import dev.aegiskey.app.ui.navigation.AppRoutes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -135,5 +136,17 @@ class PasswordManagerViewerTest {
         val st = PmCbor.decodeStatusResponse(body)
         assertEquals(3L, st.entryCount)
         assertEquals(50L, st.maxEntries)
+    }
+
+    @Test
+    fun bottomNav_passwordsDestination_reusesExistingPmRoute() {
+        assertEquals(
+            AppRoutes.PM,
+            dev.aegiskey.app.ui.atomic.templates.HubDestination.PASSWORDS.route,
+        )
+        assertTrue(
+            "NavHost must keep the PM destination registered",
+            AppRoutes.ALL.contains(AppRoutes.PM),
+        )
     }
 }

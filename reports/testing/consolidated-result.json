@@ -1,6 +1,6 @@
 {
   "generated_by": "tools/run_all.py",
-  "timestamp_utc": "2026-11-04T11:14:53Z",
+  "timestamp_utc": "2026-11-05T01:31:27Z",
   "selector": "all",
   "include_release": true,
   "legs": [
@@ -10,8 +10,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 13.5,
-      "tail": "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_bridge\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests universal_device_sdk\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=13.5",
+      "duration_s": 14.5,
+      "tail": "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_bridge\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests universal_device_sdk\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=14.5",
       "commands": [
         "cargo test --workspace"
       ],
@@ -23,8 +23,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 30.1,
-      "tail": "     Running tests\\secure_guard_integration.rs (C:/t\\debug\\deps\\secure_guard_integration-eb5fb21692977e35.exe)\n\nrunning 2 tests\ntest test_secure_guard_full_lifecycle_and_enforcement ... ok\ntest test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_fido_firmware\n\nrunning 1 test\ntest crates\\aegis-fido-firmware\\src\\freertos.rs - freertos (line 57) ... ignored\n\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=30.1",
+      "duration_s": 13.9,
+      "tail": "     Running tests\\secure_guard_integration.rs (C:/t\\debug\\deps\\secure_guard_integration-eb5fb21692977e35.exe)\n\nrunning 2 tests\ntest test_secure_guard_full_lifecycle_and_enforcement ... ok\ntest test_five_failures_trigger_scoped_wipe_preserving_fido2 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_fido_firmware\n\nrunning 1 test\ntest crates\\aegis-fido-firmware\\src\\freertos.rs - freertos (line 57) ... ignored\n\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=13.9",
       "commands": [
         "cargo test -p aegis-fido-firmware --features freertos,proximity"
       ],
@@ -36,8 +36,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 2.6,
-      "tail": "$ cargo clippy --workspace --all-targets -- -D warnings\n    Checking aegis-fido-core v1.0.0 (E:\\projetos\\fido\\crates\\aegis-fido-core)\n    Checking uniffi-bridge v1.0.0 (E:\\projetos\\fido\\crates\\uniffi-bridge)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.37s\nexit=0 duration_s=2.6",
+      "duration_s": 3.9,
+      "tail": "$ cargo clippy --workspace --all-targets -- -D warnings\n    Checking universal-device-sdk v1.0.0 (E:\\projetos\\fido\\crates\\universal-device-sdk)\n    Checking aegis-fido-core v1.0.0 (E:\\projetos\\fido\\crates\\aegis-fido-core)\n   Compiling aegis-fido-firmware v1.0.0 (E:\\projetos\\fido\\crates\\aegis-fido-firmware)\n    Checking uniffi-bridge v1.0.0 (E:\\projetos\\fido\\crates\\uniffi-bridge)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.63s\nexit=0 duration_s=3.9",
       "commands": [
         "cargo clippy --workspace --all-targets -- -D warnings"
       ],
@@ -47,10 +47,10 @@
       "name": "fmt",
       "desc": "cargo fmt check (ADVISORY record-only)",
       "advisory": true,
-      "status": "PASS",
-      "exit": 0,
-      "duration_s": 1.2,
-      "tail": "$ cargo fmt --all -- --check\n(no output)\nexit=0 duration_s=1.2",
+      "status": "FAIL",
+      "exit": 1,
+      "duration_s": 1.0,
+      "tail": "             v.release_password(&p, &locked, &[1u8; 16]),\n             Err(PmError::NeedBinding)\nDiff in \\\\?\\E:\\projetos\\fido\\crates\\aegis-pm-vault\\src\\store.rs:555:\n         assert!(v.len() <= p.max_entries);\n \n         // 4. SEARCH (device-side substring; census-filtered opaque response).\n\u001b[31m-        assert_eq!(\n\u001b[0m\u001b[31m-            v.search_ids(&p, &open, \"ban\").unwrap(),\n\u001b[0m\u001b[31m-            vec![vec![1u8; 16]]\n\u001b[0m\u001b[31m-        );\n\u001b[0m\u001b[32m+        assert_eq!(v.search_ids(&p, &open, \"ban\").unwrap(), vec![vec![1u8; 16]]);\n\u001b[0m         assert_eq!(\n             v.search_ids(&p, &open, \"zzz\").unwrap(),\n             Vec::<Vec<u8>>::new()\nexit=1 duration_s=1.0",
       "commands": [
         "cargo fmt --all -- --check"
       ],
@@ -62,8 +62,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 2.9,
-      "tail": "      \u251c\u2500\u2500 rustix v1.1.5 (*)\n      \u251c\u2500\u2500 tempfile v3.27.0 (*)\n      \u2514\u2500\u2500 winapi-util v0.1.11\n          \u251c\u2500\u2500 ignore v0.4.33\n          \u2502   \u2514\u2500\u2500 globwalk v0.8.1\n          \u2502       \u2514\u2500\u2500 embuild v0.33.5 (*)\n          \u251c\u2500\u2500 same-file v1.0.6\n          \u2502   \u251c\u2500\u2500 ignore v0.4.33 (*)\n          \u2502   \u2514\u2500\u2500 walkdir v2.5.0\n          \u2502       \u251c\u2500\u2500 globwalk v0.8.1 (*)\n          \u2502       \u2514\u2500\u2500 ignore v0.4.33 (*)\n          \u2514\u2500\u2500 walkdir v2.5.0 (*)\n\nadvisories ok, bans ok, licenses ok, sources ok\nexit=0 duration_s=2.9",
+      "duration_s": 1.7,
+      "tail": "      \u251c\u2500\u2500 rustix v1.1.5 (*)\n      \u251c\u2500\u2500 tempfile v3.27.0 (*)\n      \u2514\u2500\u2500 winapi-util v0.1.11\n          \u251c\u2500\u2500 ignore v0.4.33\n          \u2502   \u2514\u2500\u2500 globwalk v0.8.1\n          \u2502       \u2514\u2500\u2500 embuild v0.33.5 (*)\n          \u251c\u2500\u2500 same-file v1.0.6\n          \u2502   \u251c\u2500\u2500 ignore v0.4.33 (*)\n          \u2502   \u2514\u2500\u2500 walkdir v2.5.0\n          \u2502       \u251c\u2500\u2500 globwalk v0.8.1 (*)\n          \u2502       \u2514\u2500\u2500 ignore v0.4.33 (*)\n          \u2514\u2500\u2500 walkdir v2.5.0 (*)\n\nadvisories ok, bans ok, licenses ok, sources ok\nexit=0 duration_s=1.7",
       "commands": [
         "cargo deny check licenses advisories bans sources"
       ],
@@ -75,8 +75,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 0.4,
-      "tail": "$ C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/dep_track.py --check\nwrote reports/refactoring/dep-track.json (265 files, 22 gods)\ncheck ok: no new god-files beyond 24 allowlisted\nexit=0 duration_s=0.4",
+      "duration_s": 0.3,
+      "tail": "$ C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/dep_track.py --check\nwrote reports/refactoring/dep-track.json (273 files, 24 gods)\ncheck ok: no new god-files beyond 26 allowlisted\nexit=0 duration_s=0.3",
       "commands": [
         "C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/dep_track.py --check"
       ],
@@ -89,7 +89,7 @@
       "status": "PASS",
       "exit": 0,
       "duration_s": 0.4,
-      "tail": "STYLE-HINT: docs\\evaluation\\EVALUATION.md:178 (38 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:213 (44 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:250 (26 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:295 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:301 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:368 (27 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:376 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:413 (26 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:413 (31 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:421 (28 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:430 (34 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:431 (30 words)\nSTYLE-HINT: docs\\plans\\PLANS.md:45 (29 words)\nexit=0 duration_s=0.1\nREPORTS-SCAN: links checked=1 broken=0",
+      "tail": "STYLE-HINT: docs\\evaluation\\EVALUATION.md:178 (38 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:213 (44 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:250 (26 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:295 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:301 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:368 (27 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:376 (42 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:413 (26 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:413 (31 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:421 (28 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:430 (34 words)\nSTYLE-HINT: docs\\evaluation\\EVALUATION.md:431 (30 words)\nSTYLE-HINT: docs\\plans\\PASSWORD_MANAGER_PLAN.md:33 (28 words)\nexit=0 duration_s=0.1\nREPORTS-SCAN: links checked=1 broken=0",
       "commands": [
         "C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/docs-lint/docs_lint.py --root reports",
         "C:\\Users\\junior\\AppData\\Local\\Programs\\Python\\Python312\\python.exe tools/docs-lint/docs_lint.py --root docs"
@@ -102,8 +102,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 11.0,
-      "tail": "$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.5\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.5\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.5\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.5\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.4",
+      "duration_s": 8.4,
+      "tail": "$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.3\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.4\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.4\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.3\n$ C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }\nSYNTAX-OK\nexit=0 duration_s=0.3",
       "commands": [
         "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\battery-serial.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
         "C:\\Program Files\\PowerShell\\7\\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\\projetos\\fido\\scripts\\bench-freertos.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }",
@@ -137,8 +137,8 @@
       "advisory": false,
       "status": "PASS",
       "exit": 0,
-      "duration_s": 47.7,
-      "tail": "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_bridge\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests universal_device_sdk\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=47.7",
+      "duration_s": 34.9,
+      "tail": "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests aegis_bridge\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests universal_device_sdk\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nexit=0 duration_s=34.9",
       "commands": [
         "cargo test --workspace --release"
       ],
@@ -146,9 +146,9 @@
     }
   ],
   "summary": {
-    "passed": 9,
+    "passed": 8,
     "failed": 0,
-    "advisory_failures": 0,
+    "advisory_failures": 1,
     "skipped": 0,
     "exit": 0
   }

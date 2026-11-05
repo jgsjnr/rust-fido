@@ -1,5 +1,10 @@
 package dev.aegiskey.app.ui.screens
 
+import android.app.Activity
+import android.hardware.biometrics.BiometricManager
+import android.hardware.biometrics.BiometricPrompt
+import android.os.CancellationSignal
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,16 +13,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -30,11 +40,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.R
@@ -43,6 +59,7 @@ import dev.aegiskey.app.ui.GateBanner
 import dev.aegiskey.app.ui.VaultGate
 import dev.aegiskey.app.ui.viewmodel.PasswordManagerViewModel
 import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
+import kotlinx.coroutines.launch
 
 /**
  * Password vault viewer (F-PM2, blind transport).
@@ -51,10 +68,21 @@ import dev.aegiskey.app.ui.viewmodel.SecureGuardViewModel
  *   device never sends labels to this edge).
  * - Search filters the loaded opaque-id handles in RAM (no index, no
  *   cache, no disk).
- * - The released username/secret shows once in a dialog and is zeroized
- *   on dismiss via [PasswordManagerViewModel.closeRelease].
+ * - Tapping a row opens a detail popup (no navigation): opaque id plus
+ *   a masked secret field with a closed-by-default eye button.
+ * - The eye runs a framework [BiometricPrompt] (fingerprint). Only after
+ *   a successful authentication does it call
+ *   [PasswordManagerViewModel.openRelease] (ReleaseUseCase); the released
+ *   username/secret shows transiently and is zeroized on ANY dismiss via
+ *   [PasswordManagerViewModel.closeRelease]. Without a usable sensor the
+ *   eye falls back to the existing session unlock prompt
+ *   ([SecureGuardViewModel.openUnlockPrompt]) — the secret is never
+ *   fetched without an explicit user gate.
  * - Gate denials (NeedBinding/PresenceRequired/PinRequired) reuse the
  *   vault [GateBanner] UX and the existing unlock flow.
+ * - Screenshots of secrets rely on the app-wide FLAG_SECURE policy
+ *   (release builds; debug clears it for QA) — this screen adds no
+ *   cache, log, disk, or screenshot payload of its own.
  */
 @Composable
 fun PasswordManagerScreen(
@@ -66,10 +94,79 @@ fun PasswordManagerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Opaque id handle selected for the detail popup (copy of the
+    // device-chosen bytes already held in RAM; never persisted, never
+    // logged). Null = popup closed.
+    var selectedId by remember { mutableStateOf<ByteArray?>(null) }
+    fun dismissPopup() {
+        viewModel.closeRelease()
+        selectedId = null
+    }
 
     LaunchedEffect(uiState.errorMessage, uiState.userMessage) {
         uiState.errorMessage?.let { snackbarHostState.showSnackbar(it); viewModel.clearMessages() }
         uiState.userMessage?.let { snackbarHostState.showSnackbar(it); viewModel.clearMessages() }
+    }
+
+    /**
+     * Eye gate: fingerprint first. The release use-case runs only inside
+     * [BiometricPrompt.AuthenticationCallback.onAuthenticationSucceeded].
+     * Fail-closed: any failure, error, or cancel leaves the popup masked
+     * and never touches [PasswordManagerViewModel.openRelease]. Without
+     * a usable sensor, falls back to the existing Secure Guard session
+     * unlock prompt — the masked secret stays masked either way.
+     */
+    fun onEyeClick(id: ByteArray, revealed: Boolean) {
+        if (revealed) {
+            // Tapping the open eye re-hides and wipes immediately; the
+            // next view needs a fresh fingerprint.
+            viewModel.closeRelease()
+            return
+        }
+        val activity = context as? Activity
+        val manager = activity?.getSystemService(BiometricManager::class.java)
+        val biometricReady = manager?.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_WEAK,
+        ) == BiometricManager.BIOMETRIC_SUCCESS
+        if (activity == null || !biometricReady) {
+            scope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.pm_biometric_unavailable))
+            }
+            secureGuardViewModel?.openUnlockPrompt()
+            return
+        }
+        val prompt = BiometricPrompt.Builder(activity)
+            .setTitle(activity.getString(R.string.biogate_title))
+            .setSubtitle(activity.getString(R.string.biogate_subtitle))
+            .setNegativeButton(
+                activity.getString(R.string.guard_btn_cancel),
+                activity.mainExecutor,
+            ) { _, _ -> }
+            .build()
+        // No CryptoObject: the fingerprint gates the *fetch* of the
+        // transient release (punctual display + zeroize), not a key
+        // unwrap. Framework-only APIs (minSdk 31), no new dependency.
+        prompt.authenticate(
+            CancellationSignal(),
+            activity.mainExecutor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                    viewModel.openRelease(id)
+                }
+
+                override fun onAuthenticationFailed() {
+                    // Stay masked (fail closed); no snackbar spam while
+                    // the finger is still on the sensor.
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                    // Stay masked (fail closed), including user cancel.
+                }
+            },
+        )
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -192,7 +289,9 @@ fun PasswordManagerScreen(
                 items(uiState.visibleIds, key = { PmCbor.opaqueIdHex(it) }) { id ->
                     OutlinedCard(
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedId = id.copyOf() },
                     ) {
                         Row(
                             modifier = Modifier
@@ -217,11 +316,13 @@ fun PasswordManagerScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = { viewModel.openRelease(id) },
-                                enabled = !uiState.isReleaseLoading,
+                            IconButton(
+                                onClick = { selectedId = id.copyOf() },
                             ) {
-                                Text(stringResource(R.string.pm_reveal_btn))
+                                Icon(
+                                    imageVector = Icons.Filled.Visibility,
+                                    contentDescription = stringResource(R.string.pm_eye_show_cd),
+                                )
                             }
                         }
                     }
@@ -248,18 +349,23 @@ fun PasswordManagerScreen(
         )
     }
 
-    // Punctual release dialog: single display, zeroized on ANY dismiss.
-    val release = uiState.release
-    if (release != null) {
-        val secretText = remember(release) { String(release.secret) }
+    // Detail popup (dialog, not navigation): opaque id + masked secret
+    // field with a closed-by-default eye. The transient release renders
+    // only after fingerprint success; ANY dismiss wipes via closeRelease.
+    val popupId = selectedId
+    if (popupId != null) {
+        val popupHex = PmCbor.opaqueIdHex(popupId)
+        val release = uiState.release
+        val revealed = release != null && uiState.releaseIdHex == popupHex
+        val secretText = remember(release, popupHex) {
+            if (revealed && release != null) String(release.secret) else null
+        }
         AlertDialog(
-            onDismissRequest = {
-                viewModel.closeRelease()
-            },
+            onDismissRequest = { dismissPopup() },
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = stringResource(R.string.pm_release_title),
+                    text = stringResource(R.string.pm_detail_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -269,35 +375,95 @@ fun PasswordManagerScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = stringResource(R.string.pm_release_user, release.username),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
+                        text = PmCbor.opaqueIdLabel(popupId),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = secretText,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(R.string.pm_release_wipe_note),
+                        text = popupHex,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    OutlinedTextField(
+                        value = secretText ?: stringResource(R.string.pm_masked_secret),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.pm_secret_label)) },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { onEyeClick(popupId, revealed) },
+                                enabled = !uiState.isReleaseLoading,
+                            ) {
+                                Icon(
+                                    imageVector = if (revealed) {
+                                        Icons.Filled.VisibilityOff
+                                    } else {
+                                        Icons.Filled.Visibility
+                                    },
+                                    contentDescription = stringResource(
+                                        if (revealed) {
+                                            R.string.pm_eye_hide_cd
+                                        } else {
+                                            R.string.pm_eye_show_cd
+                                        }
+                                    ),
+                                )
+                            }
+                        },
+                        visualTransformation = if (revealed) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (uiState.isReleaseLoading) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Text(
+                                text = stringResource(R.string.pm_authenticating),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (revealed && release != null) {
+                        Text(
+                            text = stringResource(R.string.pm_release_user, release.username),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = stringResource(R.string.pm_release_wipe_note),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onCopyText(secretText)
-                        viewModel.closeRelease()
-                    },
-                ) {
-                    Text(stringResource(R.string.pm_copy_and_close))
+                if (revealed && secretText != null) {
+                    TextButton(
+                        onClick = {
+                            onCopyText(secretText)
+                            dismissPopup()
+                        },
+                    ) {
+                        Text(stringResource(R.string.pm_copy_and_close))
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.closeRelease() }) {
+                TextButton(onClick = { dismissPopup() }) {
                     Text(stringResource(R.string.pm_close_and_wipe))
                 }
             },

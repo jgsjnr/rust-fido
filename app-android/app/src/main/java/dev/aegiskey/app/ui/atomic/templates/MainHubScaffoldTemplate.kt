@@ -3,6 +3,7 @@ package dev.aegiskey.app.ui.atomic.templates
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Settings
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.SecureGuardStateEnum
 import dev.aegiskey.app.ui.atomic.organisms.ConnectedKeyHeaderOrganism
+import dev.aegiskey.app.ui.navigation.AppRoutes
 
 /**
  * Main navigation destinations for AegisKey Hub.
@@ -36,6 +38,7 @@ enum class HubDestination(
 ) {
     VAULT(route = "vault", label = "Vault", icon = Icons.Filled.Lock),
     CODES(route = "codes", label = "TOTP", icon = Icons.Filled.Password),
+    PASSWORDS(route = AppRoutes.PM, label = "Passwords", icon = Icons.Filled.Key),
     KEYS(route = "keys", label = "Devices", icon = Icons.Filled.VpnKey),
     SETTINGS(route = "settings", label = "Settings", icon = Icons.Filled.Settings),
 }
@@ -80,6 +83,7 @@ fun MainHubScaffoldTemplate(
                     val labelText = when (destination) {
                         HubDestination.VAULT -> stringResource(R.string.nav_vault)
                         HubDestination.CODES -> stringResource(R.string.nav_totp)
+                        HubDestination.PASSWORDS -> stringResource(R.string.pm_nav_label)
                         HubDestination.KEYS -> stringResource(R.string.nav_devices)
                         HubDestination.SETTINGS -> stringResource(R.string.nav_settings)
                     }

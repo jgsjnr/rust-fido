@@ -142,6 +142,16 @@
     <string name="pm_release_wipe_note">Closes wipe the secret from memory. Nothing is saved on this phone.</string>
     <string name="pm_copy_and_close">Copy &amp; close</string>
     <string name="pm_close_and_wipe">Close &amp; wipe</string>
+    <!-- Password bottom-tab destination (HubDestination.PASSWORDS, route AppRoutes.PM) -->
+    <string name="pm_nav_label">Passwords</string>
+    <!-- Per-item detail popup: masked secret + eye gated by fingerprint -->
+    <string name="pm_detail_title">Password</string>
+    <string name="pm_secret_label">Secret</string>
+    <string name="pm_masked_secret">••••••••</string>
+    <string name="pm_eye_show_cd">Show secret with fingerprint</string>
+    <string name="pm_eye_hide_cd">Hide secret and wipe</string>
+    <string name="pm_authenticating">Waiting for fingerprint…</string>
+    <string name="pm_biometric_unavailable">Fingerprint unavailable — unlock the session and try again</string>
 
     <!-- Key Generation Dialog -->
     <string name="keygen_title">Generate Key in Security Key</string>

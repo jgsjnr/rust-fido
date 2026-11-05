@@ -727,3 +727,51 @@ Detalhe aberto via `Manage` por slot (`Back to Vault` para voltar), 5/5 capturad
 - **Badge bancada: AUSENTE em todos os dumps (só `0.1.0-wave5`); documentado por falta de autoridade no status, nada forjado.**
 - **Flip final (`UNLOCKED 0 used` → `UNPROVISIONED` × silício `Unlocked`): tratado exatamente como ordenado (Refresh → reopen, sem unlock) → STOP total. Estado final: display apagado, placa `0 failed / 5 restantes`, nada criado/deletado/enviado.**
 - **Devolução ao pai: (a) arbitrar curva real dos 5 slots (detalhe diz ES256 em todos — divulgação vs criação default?); (b) arbitrar fantasma de lista (`5 used`→`0 used` com sessão viva, Refresh não reconciliou desta vez); (c) decidir se S9 fecha a matriz HW no observável ou se reemite pós-relock com LIST com UP.**
+
+---
+
+# SESSÃO S10 — Passwords viewer E2E no moto g(60) físico (2026-11-05 01:23 UTC)
+
+- **Branch:** `fd/finalizacao-linux` — **HEAD:** `30ae0ac` (merge password manager device-only)
+- **Working tree:** DIRTY herdado do pai (MainActivity.kt, MainHubScaffoldTemplate.kt, PasswordManagerScreen.kt, strings.xml x2, PasswordManagerViewerTest.kt, SESSION_HANDOFF.md + untracked PM_E2E_REPORT_2026-11-05.md); este lane: zero edições de fonte, só este relatório. Sem push.
+- **Ordem do pai:** aba Senhas → tap no item → popup → olho (mostrar) → digital (biometria do aparelho; se pedir PIN do sistema e não houver env, PARE). PARE ANTES de qualquer wipe/delete/confirmação destrutiva (screenshot do diálogo + BACK). PIN 1111 via env só se a sessão precisar (zero retry). Documentar cada passo com dump+screenshot em %TEMP% + nota aqui. PROIBIDO wipe.
+- **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente, `device`; APK `dev.aegiskey.app` `versionCode=1 / versionName=0.1.0-wave5`, `lastUpdateTime=2026-11-04 21:47:11`.
+- **PIN:** `$env:FIDO_PIN` e `$env:MANUAL_TOUR_PIN` **AUSENTES** neste lane → zero submits possíveis; valor `1111` da ordem NÃO materializado em env; nenhum valor tentado/adivinhado; regra zero retry intacta por vacuidade (0 submits).
+
+## S10-1. Passos executados (todos read-only + taps não-destrutivos)
+
+| # | Passo | Ação | Evidência %TEMP% | Resultado |
+|---|---|---|---|---|
+| 0 | Tela inicial apagada | `uiautomator dump` pré-wake | `hw_pw0_init.xml` (422 bytes, só `com.motorola.motodisplay`) | Tela apagada, nada tocado |
+| 1 | Wake + foreground | `input keyevent WAKEUP` (físico, fora do app) | `hw_pw1_wake.xml` (18560 bytes) + `hw_pw1_wake.png` (156224 bytes) | App já na rota Senhas: `Password Manager` + `Device-only viewer. IDs are opaque; secrets show once and are wiped on close.` + gate `Connect hardware device first` / `BLE connection is offline. Connect device before operation.` + `OK` + `Search loaded IDs (hex)` + `Device census unavailable` + `No password entries loaded` + `Refresh while the device is connected and Secure Guard is unlocked.` + header `Minha Chave Principal / USB Cable Connected / LOCKED` + bottom nav Vault/TOTP/Passwords/Devices/Settings |
+| 2 | Aba Senhas (confirmação explícita) | `input tap 540 2338` (centro `Passwords [466,2320][613,2356]`) + `uiautomator dump` + `screencap` | `hw_pw2_senhas.xml` (18560 bytes) + `hw_pw2_senhas.png` (155857 bytes) | Mesma rota, mesmos textos do passo 1. PASS que a aba Senhas renderiza sem crash. |
+| 3 | Tap no item (tentativa) | `input tap 540 1100` (área do card `No password entries loaded`) + `dump` + `screencap` | `hw_pw3_tapitem.xml` (18560 bytes) + `hw_pw3_tapitem.png` (155857 bytes) | Nenhum item para abrir: `Compare-Object` pw2 vs pw3 = zero diff (dumps idênticos). Nenhum popup abriu, nenhum diálogo destrutivo, nenhum `Delete from vault` / `Clear` / `Wipe` tocado. STOP aqui para popup/olho/digital (pré-requisito ausente). |
+| 4 | Biometria (somente-leitura, sem acionar prompt) | `dumpsys fingerprint` + `dumpsys biometric` (sem `BiometricPrompt.authenticate`, sem tap no olho) | log neste relatório (sem dump de segredo) | Sensor presente: `ID 0, Strength 2, Type 1, MaxEnrollmentsPerUser 5, 540,1636 r130`; `Fingerprint21 isUdfps=false isPowerbuttonFps=false`. Nenhum `BiometricPrompt` exibido (não havia olho para tocar); nenhum PIN do sistema pedido; regra "se pedir PIN do sistema e não houver env, PARE" não precisou disparar porque nada foi autenticado. Nenhum tap destrutivo; BACK não precisou (nenhum diálogo abriu). |
+
+## S10-2. Por que parou (gate do viewer, fail-closed correto)
+
+- Header `LOCKED` + gate `Connect hardware device first` + `BLE offline` + `Device census unavailable` + `No password entries loaded` = viewer sem hardware key conectada e sem sessão Secure Guard desbloqueada. Sem `id` opaco carregado não há `selectedId`, sem popup não há olho (`Visibility`), sem olho não há `BiometricPrompt`, sem digital não há `openRelease`. Cadeia travada no primeiro elo por desenho fail-closed — nenhum segredo exibido, nenhum wipe executado (PROIBIDO por ordem, e sem objeto para wipear).
+- Contador: **0 submits, 0 dígitos, 0 retry** neste lane (env ausente impossibilita unlock; nenhum tap em `Unlock`/`Save`/`Delete`/`Clear`/`Wipe`).
+- Display deixado como encontrado (rota Senhas, sem diálogo aberto); telefone não relockado (já LOCKED).
+
+## S10-3. Teste focado designado (resultado exato)
+
+- Arquivo pai-designado: `app-android/app/src/test/java/dev/aegiskey/app/PasswordManagerViewerTest.kt` (único arquivo de teste tocado; nenhuma outra suíte executada neste lane).
+- Comando: `./gradlew :app:testDebugUnitTest --tests "dev.aegiskey.app.PasswordManagerViewerTest" --rerun-tasks` (em `app-android`).
+- Resultado exato: **`tests=8 skipped=0 failures=0 errors=0` — BUILD SUCCESSFUL.** Casos: `release_roundtrip_and_wipe`, `release_rejects_empty_secret_and_oversize_id`, `bottomNav_passwordsDestination_reusesExistingPmRoute`, `gates_preserve_wire_bytes_and_vault_ux`, `pm_opcodes_claim_first_free_range`, `status_response_roundtrip`, `opaque_handles_carry_no_invented_labels`, `list_request_response_roundtrip`. XML: `app/build/test-results/testDebugUnitTest/TEST-dev.aegiskey.app.PasswordManagerViewerTest.xml`.
+- Multiprocess authority E2E com `--test-threads=1`: **N/A neste lane** — nenhuma suíte multiprocess executada (só o unit focado acima; builds/mocked traffic/ports/screenshots/emuladores/handshakes não contam como aceitação física, por ordem).
+
+## S10-4. Limites / evidência
+
+- Test doubles: nenhum; zero edições de fonte; nenhum Mock/Fake/Stub em produção tocado.
+- Emissões: `WAKEUP` físico + 2 taps não-destrutivos (aba Senhas + área vazia) + `uiautomator dump`x4 + `screencap`x3 + `pull`x7 + `dumpsys` read-only (window/package/fingerprint/biometric). Nenhum `POST`/vendor, nenhum unlock/commit, nenhum `Generate`/`Save`/`Delete`/`Unbind`/`Clear`/`Wipe`, nenhum `0x2B/0x23/0x2E/0x38/0x3B/0x3F`, nenhum reboot/OTA/recovery.
+- Screenshots/dumps: só `%TEMP%\hw_pw*.xml/png` + `/sdcard/hw_pw*.xml/png`, fora do git; recovery code nunca exibido neste lane.
+- Sem push (ordem do pai).
+
+## Veredito S10
+
+- **Aba Senhas: PASS (renderiza, lista vazia fail-closed, sem crash, sem segredo).**
+- **Tap no item → popup → olho → digital: NÃO EXECUTADOS — PAREADO no gate vazio (zero itens; dumps pw2==pw3 provam nenhum popup). Nenhum wipe/delete/confirmação alcançado, nenhum BACK necessário (nenhum diálogo para dispensar).**
+- **Teste focado: 8/8 PASS (resultado exato acima).**
+- **Estado final: telefone na rota Senhas `LOCKED / No password entries loaded`, placa intocada, `0 submits / 0 retry`, nada criado/deletado/enviado.**
+- **Devolução ao pai: para cobrir popup/olho/digital/wipe é preciso HIL L3 com hardware key conectada + sessão desbloqueada (PIN via env, 1x zero retry) + digital cadastrada no usuário corrente; este lane parou exatamente onde a ordem manda (antes de qualquer wipe).**

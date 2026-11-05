@@ -146,6 +146,7 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
             val currentDestination = when (currentRoute) {
                 HubDestination.VAULT.route -> HubDestination.VAULT
                 HubDestination.CODES.route -> HubDestination.CODES
+                HubDestination.PASSWORDS.route -> HubDestination.PASSWORDS
                 HubDestination.KEYS.route -> HubDestination.KEYS
                 HubDestination.SETTINGS.route -> HubDestination.SETTINGS
                 else -> HubDestination.VAULT
@@ -217,15 +218,16 @@ fun AegisApp(container: AppContainer, client: AegisBleClient) {
                                 }
                             },
                             onNavigateToPm = {
-                                nav.navigate(AppRoutes.PM) {
+                                nav.navigate(HubDestination.PASSWORDS.route) {
                                     launchSingleTop = true
                                 }
                             }
                         )
                     }
 
-                    // Password vault viewer (F-PM2 blind transport).
-                    composable(AppRoutes.PM) {
+                    // Passwords bottom-bar page (F-PM2 blind transport):
+                    // dedicated destination, same route the bottom bar targets.
+                    composable(HubDestination.PASSWORDS.route) {
                         PasswordManagerScreen(
                             viewModel = pmViewModel,
                             secureGuardViewModel = secureGuardViewModel,

@@ -142,6 +142,16 @@
     <string name="pm_release_wipe_note">Fechar apaga o segredo da memória. Nada é salvo neste celular.</string>
     <string name="pm_copy_and_close">Copiar e fechar</string>
     <string name="pm_close_and_wipe">Fechar e apagar</string>
+    <!-- Destino Senhas na barra inferior (HubDestination.PASSWORDS, rota AppRoutes.PM) -->
+    <string name="pm_nav_label">Senhas</string>
+    <!-- Popup de detalhe por item: segredo mascarado + olho com digital -->
+    <string name="pm_detail_title">Senha</string>
+    <string name="pm_secret_label">Segredo</string>
+    <string name="pm_masked_secret">••••••••</string>
+    <string name="pm_eye_show_cd">Mostrar segredo com digital</string>
+    <string name="pm_eye_hide_cd">Ocultar segredo e apagar</string>
+    <string name="pm_authenticating">Aguardando digital…</string>
+    <string name="pm_biometric_unavailable">Digital indisponível — desbloqueie a sessão e tente de novo</string>
 
     <!-- Key Generation Dialog -->
     <string name="keygen_title">Gerar Chave no Hardware</string>

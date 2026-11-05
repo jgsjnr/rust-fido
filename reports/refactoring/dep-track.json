@@ -5145,8 +5145,8 @@
     },
     {
       "path": "crates/aegis-pm-vault/src/store.rs",
-      "bytes": 17168,
-      "lines": 503,
+      "bytes": 21391,
+      "lines": 599,
       "mods": [
         "tests"
       ],
@@ -5174,7 +5174,7 @@
       ],
       "fan_out": 10,
       "fan_in": 5,
-      "god_score": 22.53,
+      "god_score": 23.49,
       "flag": false,
       "flag_reason": null
     },
@@ -6716,8 +6716,8 @@
   "summary": {
     "totals": {
       "files": 273,
-      "bytes": 3371654,
-      "lines": 90648,
+      "bytes": 3375877,
+      "lines": 90744,
       "flagged": 38,
       "gods": 24
     },

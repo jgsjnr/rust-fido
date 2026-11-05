@@ -108,7 +108,10 @@ mod tests {
         // 0x40 SET_UP_POLICY, 0x41 VENDOR_SIGN, 0x42 BLE OOB (taken).
         // Parity: mirrors universal-device-sdk/src/pm.rs OP_PM_* (the SDK
         // owns the DTOs; this crate only transports frames).
-        assert_eq!((OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS), (0x43, 0x44, 0x45, 0x46, 0x47));
+        assert_eq!(
+            (OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS),
+            (0x43, 0x44, 0x45, 0x46, 0x47)
+        );
         assert_eq!((PM_OP_MIN, PM_OP_MAX), (0x43, 0x47));
         for op in PM_OP_MIN..=PM_OP_MAX {
             assert!(pm_opcode_valid(op), "opcode {op:#04x} should be PM");
@@ -154,7 +157,10 @@ mod tests {
             let (status, body) = pm_frame_unwrap(vec![known]).unwrap();
             assert_eq!((status, body), (known, Vec::new()));
         }
-        assert_eq!(pm_frame_unwrap(Vec::new()), Err(BridgeError::InvalidEnvelope));
+        assert_eq!(
+            pm_frame_unwrap(Vec::new()),
+            Err(BridgeError::InvalidEnvelope)
+        );
         assert_eq!(
             pm_frame_unwrap(vec![0x03, 0xAA]),
             Err(BridgeError::InvalidEnvelope)
