@@ -323,7 +323,8 @@ pub fn dispatch_serial_vendor_msg(
       // Sucesso arma o latch de radio (C no ESP, modelo atomico no host)
       // e consome o latch UP; qq falha nega fail-closed sem tocar estado
       // (0x05 sem janela/vinculo, 0x01 sem UP, 0x02 travado, 0x04 forma
-      // ou radio sem latch). Sem barreira SecureGuard dedicada: opcode
+      // ou radio sem latch; sessao exigida em todos os modos, sem
+      // bypass test-mode). Sem barreira SecureGuard dedicada: opcode
       // desconhecido passa livre la (`Unknown`); SG unlocked conta como
       // sessao/presenca efetivas (mesma regra do ramo vendor).
     if crate::ble::oob::is_ble_oob_op(op) {
@@ -340,10 +341,10 @@ pub fn dispatch_serial_vendor_msg(
         }
         let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let binding_claimed_effective = ctx.binding.is_claimed() || sg_unlocked || ctx.pairing_open;
-        let pin_effective = ctx.pin_uv_session
-            || ctx.pin_verified
-            || sg_unlocked
-            || (cfg!(feature = "test-mode") && (ctx.pairing_open || ctx.up_latched));
+        // Sessao sempre exigida em todos os modos (sem bypass test-mode:
+        // OOB arma o latch de radio, fail-open proibido). `sg_unlocked`
+        // conta como sessao viva (mesma regra do ramo vendor).
+        let pin_effective = ctx.pin_uv_session || ctx.pin_verified || sg_unlocked;
         let up_effective = ctx.up_latched || sg_unlocked;
         let (st, body) = crate::vendor_exec::exec_vendor_op(
             ctx.key_mgr,
@@ -2078,8 +2079,9 @@ mod tests {
         assert!(!crate::vendor_exec::is_vendor_sign_op(0x2F));
         {
             // Args do ramo: `binding_mgr.is_claimed()` (host: sem vinculo) +
-            // sessao PIN + latch UP. Release nega 0x05 (bypass com ltrace no
-            // test-mode); malformado nega 0x04 em qualquer modo.
+            // sessao PIN + latch UP. SIGN exige vinculo em todos os modos
+            // (sem bypass test-mode: ordem canonica binding -> UP);
+            // malformado nega 0x04 em qualquer modo.
             let mut key_mgr = KeyManager::new();
             let mut oath = OathApplet::new();
             let backend = PlatformFlashBackend::new();
@@ -2098,13 +2100,10 @@ mod tests {
                 0,
                 &mut rng,
             );
-            if crate::binding::binding_bypass_enabled() {
-                assert_eq!(st, 0x00);
-                assert!(!body.is_empty());
-            } else {
-                assert_eq!(st, 0x05);
-                assert!(body.is_empty());
-            }
+            // Sem vinculo: 0x05 em todos os modos (SIGN exige vinculo,
+            // sem bypass test-mode).
+            assert_eq!(st, 0x05);
+            assert!(body.is_empty());
             let (st, _) = crate::vendor_exec::exec_vendor_op(
                 &mut key_mgr,
                 &mut oath,
@@ -2221,8 +2220,8 @@ mod tests {
         let backend = PlatformFlashBackend::new();
         let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
         let mut engine = CtapEngine::new([0x11; 32], 0);
-        // Sem vinculo: 0x05 (NEED_BINDING) no release; test-mode faz bypass
-        // com ltrace e executa (0x00) -- mesma regra do GEN no executor.
+        // Sem vinculo: 0x05 (NEED_BINDING) em todos os modos (SIGN exige
+        // vinculo; sem bypass test-mode -- ordem canonica binding -> UP).
         let mut unclaimed = BindingManager::new();
         let text = ble_case(
             &mut unclaimed,
@@ -2232,15 +2231,7 @@ mod tests {
             false,
             true,
         );
-        if crate::binding::binding_bypass_enabled() {
-            assert!(
-                text.contains(" EV=10 ARG=0 "),
-                "BLE bypass test-mode: {}",
-                text
-            );
-        } else {
-            assert!(text.contains(" EV=10 ARG=5 "), "BLE sem vinculo: {}", text);
-        }
+        assert!(text.contains(" EV=10 ARG=5 "), "BLE sem vinculo: {}", text);
         // Vinculado sem UP: 0x01 (presenca nunca pulada).
         let mut claimed = claimed_binding();
         let text = ble_case(

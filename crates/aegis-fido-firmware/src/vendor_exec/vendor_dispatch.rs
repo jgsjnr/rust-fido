@@ -61,8 +61,11 @@ where
     // próprio idêntico ao GEN 0x20 (classe CONFIG sem PIN: binding -> UP,
     // ordem canônica, app alheio sempre vê NEED_BINDING; nunca mais fraco
     // que o GEN). PIN nunca exigido aqui (GEN também não exige).
+    // Vínculo OBRIGATÓRIO em todos os modos (sem bypass test-mode: SIGN
+    // libera assinatura, fail-open proibido); UP segue exigido nas duas
+    // modalidades (sem oráculo sem toque).
     if super::vendor_keys::is_vendor_sign_op(op) {
-        if !crate::binding::binding_bypass_enabled() && !binding_ok {
+        if !binding_ok {
             return (BleGattError::NeedBinding.to_vendor_status(), Vec::new());
         }
         if !up {

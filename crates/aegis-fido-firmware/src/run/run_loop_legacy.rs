@@ -1864,12 +1864,11 @@ pub fn run_authenticator() {
                                     // arma o latch de radio e consome o latch
                                     // UP; negacoes nao tocam estado (fail-closed:
                                     // 0x05 sem janela/vinculo, 0x01 sem UP,
-                                    // 0x02 travado, 0x04 forma ou radio sem latch).
+                                    // 0x02 travado, 0x04 forma ou radio sem latch; sessao
+                                    // exigida em todos os modos, sem bypass test-mode
+                                    // (paridade com o funil FreeRTOS).
                                     let op = msg.payload[0];
-                                    let pin_live = ctap_engine.pin_state.has_valid_pin_uv_session()
-                                        || (cfg!(feature = "test-mode")
-                                            && (pairing_mgr.is_pairing_window_open(now_ms)
-                                                || touch_latched));
+                                    let pin_live = ctap_engine.pin_state.has_valid_pin_uv_session();
                                     let (st, body) = if !pairing_mgr.is_pairing_window_open(now_ms)
                                     {
                                         (0x05, Vec::new())
