@@ -51,26 +51,59 @@ let residentCredentials = [
   }
 ];
 
-let oathAccounts = [
-  {
-    id: "oath-1",
-    issuer: "AWS Cloud Security",
-    account: "admin@infra-core.io",
-    secret: "JBSWY3DPEHPK3PXP",
-    digits: 6,
-    period: 30,
-    algo: "SHA1"
-  },
-  {
-    id: "oath-2",
-    issuer: "GitHub Enterprise",
-    account: "alice-sec",
-    secret: "KRSXG5CTMVRXEZLU",
-    digits: 6,
-    period: 30,
-    algo: "SHA1"
+// OATH fail-closed store: the app NEVER holds OATH secrets and NEVER
+// computes TOTP locally. `oathReleases` keeps only punctual device
+// releases ({issuer, account, code, remainingSeconds}) in memory,
+// cleared on disconnect/lock. No persistence (no disk/prefs).
+// Codes are rendered verbatim from GET /api/oath/list only.
+let oathReleases = [];
+let hardwareLink = { connected: false, provisioned: false, unlocked: false };
+const OATH_LOCKED_PLACEHOLDER = "── ── ── (SEM SESSÃO)";
+
+/**
+ * Fail-closed gate: codes exist only under a live hardware session.
+ * `link` defaults to the authority-fed `hardwareLink`.
+ */
+function isOathLive(link) {
+  const l = link || hardwareLink;
+  return !!(l && l.connected && l.unlocked);
+}
+
+function getOathReleases() {
+  return oathReleases;
+}
+
+/**
+ * Accepts ONLY punctual device releases under a live session.
+ * Anything carrying a `secret` has it dropped (never stored).
+ * Returns the in-memory release list (empty when not live).
+ */
+function setOathReleases(releases, link) {
+  if (!isOathLive(link)) {
+    oathReleases = [];
+    return oathReleases;
   }
-];
+  if (!Array.isArray(releases)) {
+    oathReleases = [];
+    return oathReleases;
+  }
+  oathReleases = releases
+    .filter((r) => r && typeof r.code === "string" && /^\d{6,8}$/.test(r.code))
+    .map((r) => {
+      const remainingRaw = r.remainingSeconds !== undefined ? r.remainingSeconds : r.remaining_seconds;
+      let remaining = Number(remainingRaw);
+      if (!Number.isFinite(remaining)) remaining = 30;
+      remaining = Math.max(0, Math.min(30, Math.floor(remaining)));
+      return {
+        issuer: String(r.issuer || r.account || r.name || "—").slice(0, 64),
+        account: String(r.account || r.name || "—").slice(0, 128),
+        code: r.code,
+        period: 30,
+        remainingSeconds: remaining
+      };
+    });
+  return oathReleases;
+}
 
 let currentMnemonicWords = [];
 
@@ -176,7 +209,7 @@ function setupNavigation() {
 
   document.getElementById("btnRefreshDevice").addEventListener("click", () => {
     checkHardwareStatus();
-    showToast("Hardware status refreshed from ESP32-S3", "info");
+    showToast("Verificando sessão hardware…", "info");
   });
 }
 
@@ -362,11 +395,17 @@ window.deleteCredential = function(index) {
 // ============================================================================
 function setupOathTimer() {
   setInterval(updateOathCodes, 1000);
+  renderOathCards();
   updateOathCodes();
 
   document.querySelectorAll(".btn-copy-otp").forEach(btn => {
     btn.addEventListener("click", () => {
-      const code = btn.getAttribute("data-code");
+      if (!isOathLive()) {
+        showToast("Sem sessão hardware viva — sem código.", "error");
+        return;
+      }
+      const code = btn.getAttribute("data-code") || "";
+      if (!code) return;
       navigator.clipboard.writeText(code);
       showToast(`Copied OTP ${code} to clipboard!`, "success");
     });
@@ -374,42 +413,31 @@ function setupOathTimer() {
 
   document.querySelectorAll(".btn-type-otp").forEach(btn => {
     btn.addEventListener("click", () => {
-      showToast("Simulating USB Keyboard OTP injection...", "info");
-      // Simulate inter-key typing
-      setTimeout(() => {
-        showToast("OTP typed via USB HID Keyboard endpoint!", "success");
-      }, 600);
+      if (!isOathLive()) {
+        showToast("Sem sessão hardware viva — digitação USB bloqueada.", "error");
+        return;
+      }
+      showToast("USB Keyboard OTP injection via hardware session...", "info");
     });
   });
 
+  // Fail-closed: account enrollment happens ON DEVICE (UP+PIN).
+  // The app never collects, stores, or persists OATH secrets.
   document.getElementById("btnOpenAddOathModal").addEventListener("click", () => {
-    const issuer = prompt("Enter Account Issuer (e.g. Example Co, Cloud):", "Cloudflare");
-    if (!issuer) return;
-    const account = prompt("Enter Account Name (e.g. user@email.com):", "devops@company.org");
-    if (!account) return;
-    const secret = prompt("Enter Base32 Secret Key:", "JBSWY3DPEHPK3PXP");
-    if (!secret) return;
-
-    oathAccounts.push({
-      id: `oath-${Date.now()}`,
-      issuer,
-      account,
-      secret,
-      digits: 6,
-      period: 30,
-      algo: "SHA1"
-    });
-
-    renderOathCards();
-    showToast(`Added OATH account for ${issuer}!`, "success");
+    showToast("Cadastro OATH ocorre no dispositivo (UP+PIN). O app nunca armazena segredos.", "info");
   });
 }
 
+// Fail-closed countdown: reflects ONLY device-released codes under a
+// live session. Without hardware the pane shows the locked placeholder
+// and the rings park at "—". This function NEVER generates a code.
 function updateOathCodes() {
+  const live = isOathLive() && oathReleases.length > 0;
   const epoch = Math.floor(Date.now() / 1000);
-  const remaining = 30 - (epoch % 30);
+  const period = 30;
+  const remaining = live ? period - (epoch % period) : 0;
   const circumference = 88; // 2 * PI * 14
-  const offset = circumference - (remaining / 30) * circumference;
+  const offset = live ? circumference - (remaining / period) * circumference : circumference;
 
   const ring1 = document.getElementById("timerProgress1");
   const ring2 = document.getElementById("timerProgress2");
@@ -418,182 +446,76 @@ function updateOathCodes() {
 
   if (ring1) ring1.style.strokeDashoffset = offset;
   if (ring2) ring2.style.strokeDashoffset = offset;
-  if (sec1) sec1.textContent = remaining;
-  if (sec2) sec2.textContent = remaining;
+  if (sec1) sec1.textContent = live ? remaining : "—";
+  if (sec2) sec2.textContent = live ? remaining : "—";
 
-  // Recalculate TOTP values when period resets
-  if (remaining === 30 || !document.getElementById("totpCode1").textContent) {
-    const code1Elem = document.getElementById("totpCode1");
-    const code2Elem = document.getElementById("totpCode2");
-
-    if (code1Elem) {
-      if (!OATH_DEMO_ENABLED) {
-        code1Elem.textContent = OATH_DEMO_PLACEHOLDER;
-      } else {
-        const c1 = generateMockTotp(epoch, "aws-salt");
-        code1Elem.textContent = `${c1.slice(0, 3)} ${c1.slice(3)}`;
-        const btn = code1Elem.closest(".oath-card").querySelector(".btn-copy-otp");
-        if (btn) btn.setAttribute("data-code", c1);
-      }
-    }
-    if (code2Elem) {
-      if (!OATH_DEMO_ENABLED) {
-        code2Elem.textContent = OATH_DEMO_PLACEHOLDER;
-      } else {
-        const c2 = generateMockTotp(epoch, "github-salt");
-        code2Elem.textContent = `${c2.slice(0, 3)} ${c2.slice(3)}`;
-        const btn = code2Elem.closest(".oath-card").querySelector(".btn-copy-otp");
-        if (btn) btn.setAttribute("data-code", c2);
-      }
-    }
+  // Static pre-render cards (first paint): never show a live-looking code.
+  const code1Elem = document.getElementById("totpCode1");
+  const code2Elem = document.getElementById("totpCode2");
+  if (code1Elem && !live) {
+    code1Elem.textContent = OATH_LOCKED_PLACEHOLDER;
+    const btn = code1Elem.closest(".oath-card").querySelector(".btn-copy-otp");
+    if (btn) btn.setAttribute("data-code", "");
+  }
+  if (code2Elem && !live) {
+    code2Elem.textContent = OATH_LOCKED_PLACEHOLDER;
+    const btn = code2Elem.closest(".oath-card").querySelector(".btn-copy-otp");
+    if (btn) btn.setAttribute("data-code", "");
   }
 }
 
-// OATH demo scaffold: static cards ship DISABLED by default so no
-// non-RFC placeholder code is ever mistaken for a real authenticator.
-// Set to true only for local UI layout previews (never for real secrets).
-const OATH_DEMO_ENABLED = false;
-const OATH_DEMO_PLACEHOLDER = "••• ••• (DEMO OFF)";
-
-function base32Decode(base32) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const clean = String(base32).toUpperCase().replace(/[^A-Z2-7]/g, "");
-  let bits = 0;
-  let value = 0;
-  const out = [];
-  for (const ch of clean) {
-    value = (value << 5) | alphabet.indexOf(ch);
-    bits += 5;
-    if (bits >= 8) {
-      out.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  return new Uint8Array(out);
-}
-
-function rotl32(x, n) { return ((x << n) | (x >>> (32 - n))) | 0; }
-
-// Minimal sync SHA-1 (RFC 3174) so TOTP works without async SubtleCrypto.
-function sha1Bytes(msg) {
-  const ml = msg.length;
-  const bitLenHi = Math.floor((ml * 8) / 0x100000000);
-  const bitLenLo = (ml * 8) >>> 0;
-  const paddedLen = (((ml + 8) >> 6) + 1) << 6;
-  const buf = new Uint8Array(paddedLen);
-  buf.set(msg);
-  buf[ml] = 0x80;
-  const dv = new DataView(buf.buffer);
-  dv.setUint32(paddedLen - 8, bitLenHi);
-  dv.setUint32(paddedLen - 4, bitLenLo);
-  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
-  const w = new Int32Array(80);
-  for (let off = 0; off < paddedLen; off += 64) {
-    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
-    for (let i = 16; i < 80; i++) {
-      w[i] = rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
-    }
-    let a = h0, b = h1, c = h2, d = h3, e = h4;
-    for (let i = 0; i < 80; i++) {
-      let f, k;
-      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
-      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
-      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
-      else { f = b ^ c ^ d; k = 0xca62c1d6; }
-      const t = (rotl32(a, 5) + f + e + k + w[i]) | 0;
-      e = d; d = c; c = rotl32(b, 30); b = a; a = t;
-    }
-    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0;
-    h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
-  }
-  const out = new Uint8Array(20);
-  const odv = new DataView(out.buffer);
-  odv.setUint32(0, h0 >>> 0); odv.setUint32(4, h1 >>> 0);
-  odv.setUint32(8, h2 >>> 0); odv.setUint32(12, h3 >>> 0);
-  odv.setUint32(16, h4 >>> 0);
-  return out;
-}
-
-function hmacSha1(key, msg) {
-  let k = key;
-  if (k.length > 64) k = sha1Bytes(k);
-  const padded = new Uint8Array(64);
-  padded.set(k);
-  const ipad = new Uint8Array(64);
-  const opad = new Uint8Array(64);
-  for (let i = 0; i < 64; i++) {
-    ipad[i] = padded[i] ^ 0x36;
-    opad[i] = padded[i] ^ 0x5c;
-  }
-  const inner = new Uint8Array(64 + msg.length);
-  inner.set(ipad);
-  inner.set(msg, 64);
-  const innerHash = sha1Bytes(inner);
-  const outer = new Uint8Array(64 + innerHash.length);
-  outer.set(opad);
-  outer.set(innerHash, 64);
-  return sha1Bytes(outer);
-}
-
-/**
- * TOTP RFC 6238 (SHA-1, dynamic truncation). Returns a zero-padded string.
- * Throws on invalid base32 secrets (fail-closed: callers catch and show DEMO OFF).
- */
-function totpRfc6238(secretBase32, timeSec, digits = 6, period = 30) {
-  const key = base32Decode(secretBase32);
-  if (key.length === 0) throw new Error("invalid secret");
-  const counter = Math.floor(timeSec / period);
-  const msg = new Uint8Array(8);
-  const dv = new DataView(msg.buffer);
-  dv.setUint32(0, Math.floor(counter / 0x100000000));
-  dv.setUint32(4, counter >>> 0);
-  const mac = hmacSha1(key, msg);
-  const offset = mac[mac.length - 1] & 0x0f;
-  const code = ((mac[offset] & 0x7f) << 24) |
-    (mac[offset + 1] << 16) | (mac[offset + 2] << 8) | mac[offset + 3];
-  return (code % Math.pow(10, digits)).toString().padStart(digits, "0");
-}
-
-/**
- * DEMO-ONLY placeholder (NOT RFC 6238): kept for static layout previews.
- * Disabled by default ([OATH_DEMO_ENABLED] = false).
- */
-function generateMockTotp(epoch, salt) {
-  void epoch; void salt;
-  return "000000";
-}
+// NOTE: no local TOTP/SHA-1/HMAC helpers live in this module on purpose:
+// the app must not invent codes. OATH codes arrive verbatim as punctual
+// device releases via GET /api/oath/list (see refreshOathFromDevice).
 
 // Export for host unit tests (node --test); no-op in browsers.
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { base32Decode, sha1Bytes, hmacSha1, totpRfc6238, generateMockTotp, OATH_DEMO_ENABLED };
+  module.exports = { isOathLive, getOathReleases, setOathReleases, OATH_LOCKED_PLACEHOLDER };
 }
 
+// Renders ONLY device-released codes (verbatim). Without a live
+// hardware session the pane shows the locked/empty state — never a code.
 function renderOathCards() {
   const grid = document.getElementById("oathGrid");
+  if (!grid) return;
   grid.innerHTML = "";
 
-  oathAccounts.forEach((acc, idx) => {
+  if (!isOathLive() || oathReleases.length === 0) {
+    const reason = !hardwareLink.connected
+      ? "Dispositivo desconectado — conecte a chave para liberar códigos."
+      : "Cofre bloqueado — desbloqueie para liberar códigos do dispositivo.";
+    const empty = document.createElement("div");
+    empty.className = "oath-card glass";
+    empty.innerHTML = `
+      <div class="oath-card-header">
+        <span class="oath-issuer">OATH / TOTP</span>
+        <span class="badge-oath-type">OFFLINE</span>
+      </div>
+      <div class="oath-account">${escapeHtml(reason)}</div>
+      <div class="oath-code-row">
+        <span class="oath-code">${escapeHtml(OATH_LOCKED_PLACEHOLDER)}</span>
+      </div>
+    `;
+    grid.appendChild(empty);
+    return;
+  }
+
+  oathReleases.forEach((rel) => {
     const card = document.createElement("div");
     card.className = "oath-card glass";
-    let code = "------";
-    try {
-      code = totpRfc6238(acc.secret, Math.floor(Date.now() / 1000), acc.digits || 6, acc.period || 30);
-    } catch (e) {
-      code = "------";
-    }
-
+    const code = rel.code;
     card.innerHTML = `
       <div class="oath-card-header">
-        <span class="oath-issuer">${escapeHtml(acc.issuer)}</span>
-        <span class="badge-oath-type">TOTP ${acc.period}s</span>
+        <span class="oath-issuer">${escapeHtml(rel.issuer)}</span>
+        <span class="badge-oath-type">TOTP ${rel.period}s</span>
       </div>
-      <div class="oath-account">${escapeHtml(acc.account)}</div>
+      <div class="oath-account">${escapeHtml(rel.account)}</div>
       <div class="oath-code-row">
-        <span class="oath-code">${code.slice(0, 3)} ${code.slice(3)}</span>
+        <span class="oath-code">${escapeHtml(code.slice(0, 3))} ${escapeHtml(code.slice(3))}</span>
       </div>
       <div class="oath-actions">
-        <button class="btn btn-xs btn-outline" onclick="copyOathCode('${code}')">Copy Code</button>
-        <button class="btn btn-xs btn-secondary" onclick="typeOathCode('${code}')">Type USB</button>
+        <button class="btn btn-xs btn-outline" onclick="copyOathCode('${escapeHtml(code)}')">Copy Code</button>
+        <button class="btn btn-xs btn-secondary" onclick="typeOathCode('${escapeHtml(code)}')">Type USB</button>
       </div>
     `;
     grid.appendChild(card);
@@ -601,11 +523,19 @@ function renderOathCards() {
 }
 
 window.copyOathCode = function(code) {
+  if (!isOathLive()) {
+    showToast("Sem sessão hardware viva — sem código.", "error");
+    return;
+  }
   navigator.clipboard.writeText(code);
   showToast(`Copied OTP ${code}!`, "success");
 };
 
 window.typeOathCode = function(code) {
+  if (!isOathLive()) {
+    showToast("Sem sessão hardware viva — digitação USB bloqueada.", "error");
+    return;
+  }
   showToast(`Injecting OTP ${code} via USB Keyboard...`, "info");
 };
 
@@ -685,7 +615,8 @@ function setupVault() {
       exportedAt: new Date().toISOString(),
       authenticator: "AegisKey S3 (ESP32-S3)",
       residentCredentials,
-      oathAccounts,
+      // OATH: device-only. Secrets never leave silicon; nothing to export.
+      oath: [],
       bip39Mnemonic: currentMnemonicWords.join(" ")
     };
 
@@ -722,10 +653,13 @@ function setupVault() {
           residentCredentials = vault.residentCredentials;
           renderCredentialsTable();
         }
-        if (vault.oathAccounts) {
-          oathAccounts = vault.oathAccounts;
-          renderOathCards();
+        // OATH secrets are never imported: they live only on the device.
+        // Legacy vaults carrying oathAccounts/oath are dropped fail-closed.
+        if (vault.oathAccounts || vault.oath) {
+          showToast("Contas OATH ignoradas: segredos vivem só no dispositivo.", "info");
         }
+        oathReleases = [];
+        renderOathCards();
         showToast("Aegis Vault restored successfully!", "success");
       } catch (err) {
         showToast("Failed to parse vault file: Corrupted or invalid JSON.", "error");
@@ -807,7 +741,8 @@ function setupPinPolicies() {
     const confirmText = prompt("Type 'RESET' to confirm permanent wipe of AegisKey S3:");
     if (confirmText === "RESET") {
       residentCredentials = [];
-      oathAccounts = [];
+      oathReleases = [];
+      hardwareLink = { connected: false, provisioned: false, unlocked: false };
       renderCredentialsTable();
       renderOathCards();
       showToast("AegisKey S3 factory reset complete. Device ready for re-provisioning.", "info");
@@ -818,18 +753,78 @@ function setupPinPolicies() {
 // ============================================================================
 // Hardware Status & Polling
 // ============================================================================
+// Authority-fed session state: set ONLY from /api/status +
+// /api/secure-guard/status. Any failure parks the app OFFLINE and
+// clears device releases (fail-closed: no live session, no code).
 async function checkHardwareStatus() {
   const statusElem = document.getElementById("deviceStatusText");
+  const setOffline = (msg) => {
+    hardwareLink = { connected: false, provisioned: false, unlocked: false };
+    oathReleases = [];
+    if (statusElem) statusElem.textContent = msg;
+    renderOathCards();
+    updateOathCodes();
+  };
   try {
     const res = await fetch("/api/status");
-    if (res.ok) {
-      const data = await res.json();
-      statusElem.textContent = `${data.product} • FW ${data.firmware} • ESP32-S3`;
+    if (!res.ok) throw new Error(`status HTTP ${res.status}`);
+    const data = await res.json();
+    const online = !!(data && (data.status === "online" || data.ok === true || data.connected === true));
+    if (!online) throw new Error("device reports offline");
+
+    let provisioned = false;
+    let unlocked = false;
+    try {
+      const sg = await fetch("/api/secure-guard/status");
+      if (sg.ok) {
+        const s = await sg.json();
+        provisioned = !!s.provisioned;
+        unlocked = !!s.unlocked;
+      }
+    } catch (_) {
+      // Authority unreadable -> stay locked (fail-closed).
     }
+    hardwareLink = { connected: true, provisioned, unlocked };
+    if (statusElem) {
+      const product = data.product || "AegisKey S3";
+      statusElem.textContent = unlocked
+        ? `${product} • sessão hardware viva`
+        : `${product} • cofre bloqueado (códigos bloqueados)`;
+    }
+    if (unlocked) {
+      await refreshOathFromDevice();
+    } else {
+      oathReleases = [];
+      renderOathCards();
+    }
+    updateOathCodes();
   } catch (err) {
-    // Offline / Standalone static mode
-    statusElem.textContent = "Online • VID: 0x303A PID: 0xAE61";
+    setOffline("Desconectado — sem sessão hardware (códigos bloqueados)");
   }
+}
+
+// Punctual device release: fetches codes ONLY under a live session and
+// stores them verbatim in memory. Any denial/failure clears the list.
+async function refreshOathFromDevice() {
+  if (!isOathLive()) {
+    oathReleases = [];
+    renderOathCards();
+    return oathReleases;
+  }
+  try {
+    const res = await fetch("/api/oath/list");
+    if (!res.ok) throw new Error(`oath list HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || data.ok !== true || !Array.isArray(data.accounts)) {
+      throw new Error("oath não autorizado pelo dispositivo");
+    }
+    setOathReleases(data.accounts, hardwareLink);
+  } catch (err) {
+    oathReleases = [];
+    showToast("OATH indisponível sem sessão do dispositivo — sem código.", "error");
+  }
+  renderOathCards();
+  return oathReleases;
 }
 
 // ============================================================================

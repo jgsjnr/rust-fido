@@ -1,5 +1,12 @@
-// Host unit test for web/app.js TOTP RFC 6238 (no browser, no board).
+// Host unit tests for web/app.js OATH fail-closed contract (no browser, no board).
 // Run: node --test web/totp.test.cjs
+//
+// Contract under test:
+//  1. sem sessão hardware viva -> sem código (estado vazio/bloqueado);
+//  2. segredo OATH nunca é persistido nem armazenado (sem disco/prefs,
+//     sem campo `secret` no store em memória);
+//  3. códigos vêm SOMENTE de release pontual do device (verbatim,
+//     sem computação local de TOTP no app).
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -23,34 +30,91 @@ function loadLib() {
     crypto: {},
   };
   vm.createContext(sandbox);
-  // Provide minimal browser stubs so top-level DOM code is not executed:
-  // app.js only defines functions at load; nothing runs until called.
   vm.runInContext(src, sandbox, { filename: "app.js" });
-  // The module.exports assignment runs inside the VM context; read it back.
   return vm.runInContext("module.exports", sandbox);
 }
 
-const SECRET_B32 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // "12345678901234567890"
+const LIVE = { connected: true, provisioned: true, unlocked: true };
+const OFFLINE = { connected: false, provisioned: false, unlocked: false };
+const LOCKED = { connected: true, provisioned: true, unlocked: false };
 
-test("RFC 6238 SHA-1 vectors (8 digits)", () => {
+function deviceRelease() {
+  return [
+    { issuer: "Example", account: "user@example.com", code: "123456", remainingSeconds: 17 },
+  ];
+}
+
+test("sem sessão (desconectado) -> sem código", () => {
   const lib = loadLib();
-  assert.equal(lib.totpRfc6238(SECRET_B32, 59, 8, 30), "94287082");
-  assert.equal(lib.totpRfc6238(SECRET_B32, 1111111109, 8, 30), "07081804");
-  assert.equal(lib.totpRfc6238(SECRET_B32, 1234567890, 8, 30), "89005924");
+  const out = lib.setOathReleases(deviceRelease(), OFFLINE);
+  assert.equal(out.length, 0);
+  assert.equal(lib.getOathReleases().length, 0);
+  assert.equal(lib.isOathLive(OFFLINE), false);
 });
 
-test("RFC 6238 6-digit truncation", () => {
+test("sem sessão (cofre bloqueado) -> sem código", () => {
   const lib = loadLib();
-  assert.equal(lib.totpRfc6238(SECRET_B32, 59, 6, 30), "287082");
-  assert.equal(lib.totpRfc6238(SECRET_B32, 1111111109, 6, 30), "081804");
+  const out = lib.setOathReleases(deviceRelease(), LOCKED);
+  assert.equal(out.length, 0);
+  assert.equal(lib.getOathReleases().length, 0);
+  assert.equal(lib.isOathLive(LOCKED), false);
 });
 
-test("demo disabled by default; mock is DEMO-only", () => {
+test("link ausente/inválido -> sem código", () => {
   const lib = loadLib();
-  assert.equal(lib.OATH_DEMO_ENABLED, false);
+  assert.equal(lib.setOathReleases(deviceRelease(), null).length, 0);
+  assert.equal(lib.setOathReleases(deviceRelease(), undefined).length, 0);
+  assert.equal(lib.setOathReleases("123456", LIVE).length, 0);
+  assert.equal(lib.getOathReleases().length, 0);
 });
 
-test("invalid secret fails closed", () => {
+test("com sessão viva -> libera códigos verbatim do device", () => {
   const lib = loadLib();
-  assert.throws(() => lib.totpRfc6238("!!!", 59, 6, 30), /invalid secret/);
+  const out = lib.setOathReleases(deviceRelease(), LIVE);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].code, "123456");
+  assert.equal(out[0].account, "user@example.com");
+  assert.equal(lib.isOathLive(LIVE), true);
+});
+
+test("segredo nunca entra no store (campo secret é descartado)", () => {
+  const lib = loadLib();
+  const out = lib.setOathReleases(
+    [{ account: "x", code: "654321", secret: "JBSWY3DPEHPK3PXP", remainingSeconds: 10 }],
+    LIVE,
+  );
+  assert.equal(out.length, 1);
+  assert.equal("secret" in out[0], false);
+  assert.equal(JSON.stringify(out).includes("JBSWY3DPEHPK3PXP"), false);
+});
+
+test("código não-numérico do device é rejeitado (nada vivo)", () => {
+  const lib = loadLib();
+  assert.equal(lib.setOathReleases([{ account: "x", code: "344017 " }], LIVE).length, 0);
+  assert.equal(lib.setOathReleases([{ account: "x", code: "abcdef" }], LIVE).length, 0);
+  assert.equal(lib.getOathReleases().length, 0);
+});
+
+test("app não inventa TOTP local: sem API de computação exportada", () => {
+  const lib = loadLib();
+  for (const name of ["totpRfc6238", "generateMockTotp", "base32Decode", "sha1Bytes", "hmacSha1", "OATH_DEMO_ENABLED"]) {
+    assert.equal(lib[name], undefined, `${name} não deve existir`);
+  }
+  assert.equal(typeof lib.OATH_LOCKED_PLACEHOLDER, "string");
+});
+
+test("segredo nunca em disco/prefs: app.js sem persistência nem segredo embutido", () => {
+  const src = fs.readFileSync(__dirname + "/app.js", "utf8");
+  assert.match(src, /nunca armazena segredos|never stores/i);
+  assert.doesNotMatch(src, /localStorage/);
+  assert.doesNotMatch(src, /sessionStorage/);
+  assert.doesNotMatch(src, /JBSWY3DPEHPK3PXP/);
+  assert.doesNotMatch(src, /KRSXG5CTMVRXEZLU/);
+});
+
+test("index.html pré-JS nunca exibe código vivo", () => {
+  const html = fs.readFileSync(__dirname + "/index.html", "utf8");
+  assert.doesNotMatch(html, />\d{3} \d{3}</);
+  assert.doesNotMatch(html, /data-code="\d+"/);
+  assert.match(html, /SEM SESSÃO/);
 });
