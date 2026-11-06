@@ -1,3 +1,4 @@
+#![cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 //! Wipe total cobre o vault PM (decisao do dono: wipe = chaves + senhas).
 //!
 //! Host-only (sem placa/push, sem eFuse/secure-boot/COMMIT): cada caminho de
