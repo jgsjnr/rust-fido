@@ -277,20 +277,16 @@ pub(crate) fn ble_dispatch_complete(
         o if g::is_pm_fragment_opcode(o) => ble::notify_frame(o, crate::UNSUPPORTED_FEATURE, &[]),
         #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         o if g::is_wallet_op(o) => {
-            use crate::wallet_exec as w;
-            // Carteira Fase7 (R-07): binding + UP já aprovados; executa de
-            // verdade no WalletStore de sessão (chaves TRNG no device).
+            // Carteira (GEN/LIST/ADDR/PSBT): binding + UP já aprovados;
+            // ponto único `wallet_sign::wallet_dispatch` (PSBT exige
+            // ainda o recibo de aprovação mediada pelo app; dieta 0x06).
+            use crate::wallet_sign as w;
             let effective_claimed = binding_mgr.is_claimed() || secure_guard.is_unlocked();
             let effective_up = up || secure_guard.is_unlocked();
             match g::authorize_wallet_op(o, effective_claimed, effective_up) {
                 Ok(()) => {
                     let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
-                    let (st, body) = match o {
-                        g::OP_WALLET_GEN => w::wallet_gen(wallet, p, now_secs, true, &mut rng),
-                        g::OP_WALLET_LIST => w::wallet_list(wallet, true),
-                        g::OP_WALLET_ADDR => w::wallet_addr(wallet, p, true),
-                        _ => (0x04, Vec::new()),
-                    };
+                    let (st, body) = w::wallet_dispatch(wallet, o, p, now_secs, true, &mut rng);
                     kprintln!(
                         "[BLE] op wallet 0x{:02X} executada (status 0x{:02X}).",
                         o,

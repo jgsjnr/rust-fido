@@ -35,6 +35,7 @@ pub mod clear_signing;
 pub mod hd;
 pub mod hd_codec;
 pub mod hd_paths;
+pub mod psbt;
 pub mod shamir_slip39;
 pub mod store;
 pub mod types;
@@ -60,6 +61,7 @@ pub use hd_paths::{
     wallet_account_path, wallet_address_path, ChildNumber, DerivationPath, COIN_TYPE_BITCOIN,
     COIN_TYPE_EVM, PURPOSE_BIP44, PURPOSE_BIP84,
 };
+pub use psbt::{parse_psbt, ParsedPsbt, PsbtError, PsbtSummary};
 pub use shamir_slip39::{
     gf256_div, gf256_inv, gf256_mul, recover_secret_from_2_shares, split_secret_2_of_3,
     DsHmacSeedEnvelope, ShamirError, ShamirShare,

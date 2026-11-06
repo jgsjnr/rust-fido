@@ -127,10 +127,10 @@ pub fn authorize_vendor_op(
 ///
 /// GEN/LIST/ADDR nao expoem import/delete (sem PIN nesta faixa); a ordem
 /// canonica binding -> UP e a mesma de vendor. A reserva F1 (`0x48`-`0x4A`)
-/// usa o mesmo gate: DERIVE/XPUB como GEN/LIST/ADDR; PSBT exigira ainda a
+/// usa o mesmo gate: DERIVE/XPUB como GEN/LIST/ADDR; PSBT exige ainda a
 /// aprovacao mediada pelo app em F4 (ver `wallet_op_requires_app_approval`;
-/// ate la o executor responde `0x04` fail-closed apos gate ok). Executor
-/// on-device = follow-up (Wire: gate ok -> `0x04`, como vendor Sec.9.4).
+/// sem o recibo `approve` o executor responde `0x04` fail-closed antes de
+/// qualquer toque em chave). DERIVE/XPUB seguem `0x04` (execucao no core).
 pub fn authorize_wallet_op(
     op: u8,
     binding_ok: bool,

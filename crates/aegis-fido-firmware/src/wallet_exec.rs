@@ -5,6 +5,18 @@
 //! do conjunto 9.5 fechado via [`WalletError::status`]; nenhum status
 //! novo, nenhum segredo no fio (só slot/label/address públicos).
 //!
+//! F4 — PSBT/BIP-174 (`0x4A`): o executor
+//! [`crate::wallet_sign::wallet_sign_psbt`] parseia o
+//! envelope, exige o recibo de aprovação mediada pelo app
+//! ([`TAG_WALLET_APPROVAL`] `== "approve"`, decisão do dono: sem display
+//! na placa, o app companheiro exibe os detalhes e retorna approve/deny)
+//! e só então assina o digest com a chave do slot. Sem aprovação, sem
+//! assinatura — fail-closed `0x04`, antes de qualquer toque em chave.
+//! O despacho é o ponto único [`crate::wallet_sign::wallet_dispatch`],
+//! chamado pelos quatro funis (serial legado, FreeRTOS, BLE,
+//! serial-vendor); dietas (`cap-fido-only` / `cap-fido-totp`) respondem
+//! `0x06` nos funis sem tocar no store.
+//!
 //! Escopo: sessão de boot (sem NVS aqui — o codec
 //! `export/import_routing` + chaves `wallet_slot_*` já prontos no core
 //! viram persistência no follow-up com envelope-por-slot). TLV BER igual
@@ -46,11 +58,13 @@ pub const TAG_WALLET_PSBT: u8 = 0x0B;
 /// congeladas; decoders antigos ignoram por §9.6.
 pub const TAG_WALLET_APPROVAL: u8 = 0x0C;
 
-fn fail(e: WalletError) -> (u8, Vec<u8>) {
+pub(crate) fn fail(e: WalletError) -> (u8, Vec<u8>) {
     (e.status(), Vec::new())
 }
 
-fn slot_of(records: &[aegis_fido_core::oath::tlv::TlvRecord<'_>]) -> Result<u8, WalletError> {
+pub(crate) fn slot_of(
+    records: &[aegis_fido_core::oath::tlv::TlvRecord<'_>],
+) -> Result<u8, WalletError> {
     match find_tlv(records, TAG_WALLET_SLOT) {
         Some(v) if v.len() == 1 => Ok(v[0]),
         _ => Err(WalletError::BadEnvelope),

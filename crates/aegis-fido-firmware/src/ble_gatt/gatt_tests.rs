@@ -192,6 +192,47 @@ fn only_psbt_requires_app_mediated_approval() {
 }
 
 #[test]
+fn wallet_ops_open_fragment_transactions() {
+    // F4: a familia wallet (congelada 0x35-0x37 + compat 0x48-0x4A)
+    // abre transacao no reassembler para alcancar o funil BLE
+    // (`ble_dispatch_complete` executa via `wallet_dispatch` com os
+    // gates canonicos; PSBT exige ainda o recibo de aprovacao).
+    for op in [
+        OP_WALLET_GEN,
+        OP_WALLET_LIST,
+        OP_WALLET_ADDR,
+        OP_WALLET_DERIVE,
+        OP_WALLET_XPUB,
+        OP_WALLET_PSBT,
+    ] {
+        assert!(is_ble_fragment_opcode(op), "wallet op 0x{op:02X}");
+        BleReassembler::new()
+            .start_new(op, 1)
+            .expect("wallet abre transacao");
+    }
+    let mut r = BleReassembler::new();
+    let frag = msg_fragment(OP_WALLET_PSBT, &[0x01]);
+    let done = r.feed(&frag).expect("psbt ok").expect("completa");
+    assert_eq!(done.opcode, OP_WALLET_PSBT);
+    assert_eq!(done.payload, [0x01]);
+}
+
+#[test]
+fn wallet_fragment_neighbors_still_rejected() {
+    // Reservados e fora-de-faixa nunca abrem transacao (fail-closed);
+    // outras familias (vendor/bind/OTA/caps/policy/sign/PM) tem seus
+    // proprios testes de fragmento e seguem intactas.
+    for op in [0x00u8, 0x2E, 0x2F, 0x38, 0x39, 0x4B] {
+        assert!(!is_ble_fragment_opcode(op), "op 0x{op:02X}");
+        assert_eq!(
+            BleReassembler::new().start_new(op, 1),
+            Err(BleGattError::InvalidOpcode),
+            "op 0x{op:02X}"
+        );
+    }
+}
+
+#[test]
 fn fw_log_gate_bonded_sem_up_nem_pin() {
     // Sem vínculo: NEED_BINDING (0x05) — app alheio não lê o log.
     assert_eq!(

@@ -524,24 +524,21 @@ pub fn dispatch_serial_vendor_msg(
                         (crate::UNSUPPORTED_FEATURE, Vec::new())
                     }
                 } else if is_wallet_op(op) {
+                    // Carteira (GEN/LIST/ADDR/PSBT): ponto único
+                    // `wallet_sign::wallet_dispatch` (gates pairing+UP já
+                    // passaram acima; PSBT exige ainda o recibo de
+                    // aprovação mediada pelo app; dieta responde 0x06).
                     #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
                     {
-                        use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
-                        use crate::wallet_exec as w;
-                        match op {
-                            OP_WALLET_GEN => w::wallet_gen(
-                                ctx.wallet,
-                                &payload[1..],
-                                ctx.now_secs,
-                                true,
-                                &mut rng,
-                            ),
-                            OP_WALLET_LIST => w::wallet_list(ctx.wallet, true),
-                            OP_WALLET_ADDR => w::wallet_addr(ctx.wallet, &payload[1..], true),
-                            _ => (0x04, Vec::new()),
-                        }
+                        crate::wallet_sign::wallet_dispatch(
+                            ctx.wallet,
+                            op,
+                            &payload[1..],
+                            ctx.now_secs,
+                            true,
+                            &mut rng,
+                        )
                     }
-                    // Diet: carteira fora da capability (fail-closed, 0x06).
                     #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
                     {
                         (crate::UNSUPPORTED_FEATURE, Vec::new())
@@ -2632,6 +2629,186 @@ mod tests {
         // O comando alcança o CtapEngine (que responde erro CTAP de payload inválido, e NUNCA é interceptado pelo SG)
         assert_eq!(out.responses.len(), 1);
         assert_ne!(out.responses[0][7], 0x36); // Não foi barrado pelo Secure Guard!
+    }
+
+    /// F4: `0x4A` PSBT assina no funil serial FreeRTOS com gates canonicos.
+    ///
+    /// - Janela fechada nega `0x05` sem consumir o latch.
+    /// - Janela aberta + sem UP nega `0x01`.
+    /// - Janela aberta + UP + recibo `deny` nega `0x04` sem tocar em chave.
+    /// - Janela aberta + UP + recibo `approve` assina (`0x00` + `[slot, sig]`)
+    ///   e a assinatura verifica off-device contra a pubkey do slot.
+    #[test]
+    fn psbt_funil_serial_executa_com_approval_e_gates_canonicos() {
+        use crate::binding::BindingManager;
+        use crate::ble_gatt::OP_WALLET_PSBT;
+        use crate::fw_log::FwLog;
+        use crate::pairing::PairingManager;
+        use crate::persistence::{PlatformFlashBackend, SecureStorage};
+        use crate::wallet_exec::{TAG_WALLET_APPROVAL, TAG_WALLET_PSBT, TAG_WALLET_SLOT};
+        use crate::wallet_sign::TAG_WALLET_SIGNATURE;
+        use aegis_fido_core::credential::key_manager::KeyManager;
+        use aegis_fido_core::oath::tlv::write_tlv;
+        use aegis_fido_core::oath::OathApplet;
+        use aegis_fido_core::otp::rescue::RescueEngine;
+        use aegis_fido_core::wallet::types::CryptoNetwork;
+        use aegis_fido_core::wallet::WalletStore;
+        use aegis_fido_usb::ctaphid::{CtapHidMessage, CMD_MSG};
+
+        fn psbt_1in_1out() -> Vec<u8> {
+            let mut tx = Vec::new();
+            tx.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]);
+            tx.push(0x01);
+            tx.extend_from_slice(&[0xAAu8; 32]);
+            tx.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+            tx.push(0x00);
+            tx.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+            tx.push(0x01);
+            tx.extend_from_slice(&1000u64.to_le_bytes());
+            let mut script = Vec::from([0x00, 0x14]);
+            script.extend_from_slice(&[0x11u8; 20]);
+            tx.push(script.len() as u8);
+            tx.extend_from_slice(&script);
+            tx.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+            let mut out = Vec::from([0x70, 0x73, 0x62, 0x74, 0xFF]);
+            out.push(0x01);
+            out.push(0x00);
+            out.push(tx.len() as u8);
+            out.extend_from_slice(&tx);
+            out.push(0x00);
+            out.push(0x00);
+            out.push(0x00);
+            out
+        }
+
+        fn sign_body(slot: u8, psbt: &[u8], approval: &[u8]) -> Vec<u8> {
+            let mut v = Vec::with_capacity(1 + 8 + psbt.len());
+            v.push(OP_WALLET_PSBT);
+            write_tlv(&mut v, TAG_WALLET_SLOT, &[slot]);
+            write_tlv(&mut v, TAG_WALLET_PSBT, psbt);
+            write_tlv(&mut v, TAG_WALLET_APPROVAL, approval);
+            v
+        }
+
+        fn deframe(packets: &[[u8; CTAPHID_PACKET_SIZE]]) -> (u8, Vec<u8>) {
+            let total = ((packets[0][5] as usize) << 8) | packets[0][6] as usize;
+            let mut out = Vec::new();
+            let first = total.min(CTAPHID_PACKET_SIZE - 7);
+            out.extend_from_slice(&packets[0][7..7 + first]);
+            let mut taken = first;
+            for p in &packets[1..] {
+                let need = (total - taken).min(CTAPHID_PACKET_SIZE - 5);
+                out.extend_from_slice(&p[5..5 + need]);
+                taken += need;
+            }
+            (out[0], out[1..].to_vec())
+        }
+
+        fn dispatch_case(
+            binding: &mut BindingManager,
+            wallet: &mut WalletStore,
+            pairing_open: bool,
+            up_latched: bool,
+            body: Vec<u8>,
+        ) -> (u8, Vec<u8>, bool) {
+            let backend = PlatformFlashBackend::new();
+            let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
+            let mut key_mgr = KeyManager::new();
+            let mut oath = OathApplet::new();
+            let mut fwlog = FwLog::new();
+            let mut rescue = RescueEngine::new();
+            let mut pairing = PairingManager::new();
+            let mut vendor = SerialVendorCtx {
+                pairing_open,
+                up_latched,
+                now_ms: 7,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding,
+                storage: &mut storage,
+                wallet,
+                key_mgr: &mut key_mgr,
+                oath: &mut oath,
+                fwlog: &mut fwlog,
+                rescue: &mut rescue,
+                pairing: &mut pairing,
+                pin_uv_session: false,
+                secure_guard: None,
+                verified_pin: None,
+                ota_state: None,
+                ota_provisioned: false,
+                ota_pubkey: [0u8; 32],
+                ota_current_version: 0,
+                up_hook: false,
+            };
+            let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
+            let (packets, consumed) =
+                dispatch_serial_vendor_msg(&mut vendor, &msg).expect("0x4A tratado no funil");
+            let (st, resp) = deframe(&packets);
+            (st, resp, consumed)
+        }
+
+        let psbt = psbt_1in_1out();
+        let mut binding = BindingManager::new();
+        let mut wallet = WalletStore::new();
+        wallet
+            .generate(CryptoNetwork::Bitcoin, 3, "btc", 0, true, &mut rand::rng())
+            .unwrap();
+
+        // Janela fechada: 0x05, sem consumo.
+        let (st, resp, consumed) = dispatch_case(
+            &mut binding,
+            &mut wallet,
+            false,
+            true,
+            sign_body(3, &psbt, b"approve"),
+        );
+        assert_eq!(st, 0x05);
+        assert!(resp.is_empty());
+        assert!(!consumed);
+        // Janela aberta + sem UP: 0x01.
+        let (st, _, consumed) = dispatch_case(
+            &mut binding,
+            &mut wallet,
+            true,
+            false,
+            sign_body(3, &psbt, b"approve"),
+        );
+        assert_eq!(st, 0x01);
+        assert!(!consumed);
+        // UP + recibo `deny`: 0x04, sem assinatura.
+        let (st, resp, consumed) = dispatch_case(
+            &mut binding,
+            &mut wallet,
+            true,
+            true,
+            sign_body(3, &psbt, b"deny"),
+        );
+        assert_eq!(st, 0x04);
+        assert!(resp.is_empty());
+        assert!(consumed);
+        // UP + `approve`: 0x00 + `[slot, sig]`; verifica off-device.
+        let (st, resp, consumed) = dispatch_case(
+            &mut binding,
+            &mut wallet,
+            true,
+            true,
+            sign_body(3, &psbt, b"approve"),
+        );
+        assert_eq!(st, 0x00);
+        assert!(consumed);
+        let recs = aegis_fido_core::oath::tlv::parse_tlv_records(&resp).unwrap();
+        assert_eq!(
+            aegis_fido_core::oath::tlv::find_tlv(&recs, TAG_WALLET_SLOT),
+            Some(&[3u8][..])
+        );
+        let sig = aegis_fido_core::oath::tlv::find_tlv(&recs, TAG_WALLET_SIGNATURE).unwrap();
+        assert!(!sig.is_empty());
+        let cose = wallet.public_cose(3, true).unwrap();
+        let pubkey = aegis_fido_core::crypto::PublicKey::from_cose_cbor(&cose).unwrap();
+        let digest = aegis_fido_core::crypto::hash::sha256(&psbt[8..8 + psbt[7] as usize]);
+        pubkey.verify(&digest, sig).unwrap();
     }
 }
 

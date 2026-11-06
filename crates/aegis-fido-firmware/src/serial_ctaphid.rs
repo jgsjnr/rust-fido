@@ -692,6 +692,10 @@ mod tests {
         // Sem UP (com binding) -> NEED_UP (0x01) em qualquer modo.
         assert_eq!(dispatch_serial_wallet(0x35, true, false).0, 0x01);
         assert_eq!(dispatch_serial_wallet(0x36, true, false).0, 0x01);
+        // PSBT (0x4A) passa pelos mesmos gates canonicos binding -> UP
+        // (a aprovacao mediada pelo app vive no funil executor, que tem
+        // payload; este helper status-only nunca assina por construcao).
+        assert_eq!(dispatch_serial_wallet(0x4A, true, false).0, 0x01);
         // Sem binding: release nega NEED_BINDING; test-mode faz bypass.
         let (st, _) = dispatch_serial_wallet(0x37, false, true);
         if crate::binding::binding_bypass_enabled() {
@@ -699,8 +703,15 @@ mod tests {
         } else {
             assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
         }
+        let (st, _) = dispatch_serial_wallet(0x4A, false, true);
+        if crate::binding::binding_bypass_enabled() {
+            assert_eq!(st, 0x04);
+        } else {
+            assert_eq!(st, VENDOR_STATUS_NEED_BINDING);
+        }
         // Gate ok -> 0x04 (executor on-device = follow-up).
         assert_eq!(dispatch_serial_wallet(0x35, true, true).0, 0x04);
+        assert_eq!(dispatch_serial_wallet(0x4A, true, true).0, 0x04);
         // Fora da faixa -> opcode invalido.
         assert_eq!(
             dispatch_serial_wallet(0x20, true, true).0,

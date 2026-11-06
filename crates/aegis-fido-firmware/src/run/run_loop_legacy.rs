@@ -1609,8 +1609,6 @@ pub fn run_authenticator() {
             use crate::ble_gatt::{
                 is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op, is_wallet_op,
             };
-            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
-            use crate::ble_gatt::{OP_WALLET_ADDR, OP_WALLET_GEN, OP_WALLET_LIST};
             use crate::serial_ctaphid::{
                 authorize_serial, deny_response, dispatch_serial_bind_mgmt, dispatch_serial_rescue,
                 is_rescue_msg, serial_bind_mgmt_consumes_up, serial_is_up_required, SerialFeed,
@@ -2141,36 +2139,26 @@ pub fn run_authenticator() {
                                                         (crate::UNSUPPORTED_FEATURE, Vec::new())
                                                     }
                                                 } else if is_wallet_op(op) {
+                                                    // Carteira (GEN/LIST/ADDR/PSBT): ponto único
+                                                    // `wallet_sign::wallet_dispatch` (gate pairing+UP
+                                                    // já passou acima; PSBT exige ainda o recibo de
+                                                    // aprovação mediada pelo app; dieta 0x06).
                                                     #[cfg(not(any(
                                                         feature = "cap-fido-only",
                                                         feature = "cap-fido-totp"
                                                     )))]
                                                     {
-                                                        // Carteira Fase7: executa de verdade
-                                                        // (gate pairing+UP já passou acima).
                                                         let mut rng =
                                                             rand_core::UnwrapErr(getrandom::SysRng);
-                                                        use crate::wallet_exec as w;
-                                                        match op {
-                                                            OP_WALLET_GEN => w::wallet_gen(
-                                                                &mut wallet_store,
-                                                                &msg.payload[1..],
-                                                                now_secs,
-                                                                true,
-                                                                &mut rng,
-                                                            ),
-                                                            OP_WALLET_LIST => {
-                                                                w::wallet_list(&wallet_store, true)
-                                                            }
-                                                            OP_WALLET_ADDR => w::wallet_addr(
-                                                                &wallet_store,
-                                                                &msg.payload[1..],
-                                                                true,
-                                                            ),
-                                                            _ => (0x04, Vec::new()),
-                                                        }
+                                                        crate::wallet_sign::wallet_dispatch(
+                                                            &mut wallet_store,
+                                                            op,
+                                                            &msg.payload[1..],
+                                                            now_secs,
+                                                            true,
+                                                            &mut rng,
+                                                        )
                                                     }
-                                                    // Diet: carteira fora da capability (fail-closed, 0x06).
                                                     #[cfg(any(
                                                         feature = "cap-fido-only",
                                                         feature = "cap-fido-totp"
