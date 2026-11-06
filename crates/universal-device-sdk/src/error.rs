@@ -88,11 +88,8 @@ pub const fn require_test_mode() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `ota`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_OTA` via `option_env!` (identical to
-/// `cfg!(feature = "ota")` once declared) to keep R6 zero without touching
-/// `Cargo.toml` (owned by another lane).
 pub const fn require_ota() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_OTA").is_some() {
+    if cfg!(feature = "ota") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -102,11 +99,8 @@ pub const fn require_ota() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `piv`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_PIV` via `option_env!` (identical to
-/// `cfg!(feature = "piv")` once declared) to keep R6 zero without touching
-/// `Cargo.toml` (owned by another lane).
 pub const fn require_piv() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_PIV").is_some() {
+    if cfg!(feature = "piv") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -116,11 +110,8 @@ pub const fn require_piv() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `otp`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_OTP` via `option_env!` (identical to
-/// `cfg!(feature = "otp")` once declared) to keep R6 zero without touching
-/// `Cargo.toml` (owned by another lane).
 pub const fn require_otp() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_OTP").is_some() {
+    if cfg!(feature = "otp") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -130,11 +121,8 @@ pub const fn require_otp() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `proximity`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_PROXIMITY` via `option_env!` (identical to
-/// `cfg!(feature = "proximity")` once declared) to keep R6 zero without
-/// touching `Cargo.toml` (owned by another lane).
 pub const fn require_proximity() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_PROXIMITY").is_some() {
+    if cfg!(feature = "proximity") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -144,11 +132,8 @@ pub const fn require_proximity() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `oath`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_OATH` via `option_env!` (identical to
-/// `cfg!(feature = "oath")` once declared) to keep R6 zero without touching
-/// `Cargo.toml` (owned by another lane).
 pub const fn require_oath() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_OATH").is_some() {
+    if cfg!(feature = "oath") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -158,11 +143,8 @@ pub const fn require_oath() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `backup`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_BACKUP` via `option_env!` (identical to
-/// `cfg!(feature = "backup")` once declared) to keep R6 zero without
-/// touching `Cargo.toml` (owned by another lane).
 pub const fn require_backup() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_BACKUP").is_some() {
+    if cfg!(feature = "backup") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -172,11 +154,8 @@ pub const fn require_backup() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `audit`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_AUDIT` via `option_env!` (identical to
-/// `cfg!(feature = "audit")` once declared) to keep R6 zero without touching
-/// `Cargo.toml` (owned by another lane).
 pub const fn require_audit() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_AUDIT").is_some() {
+    if cfg!(feature = "audit") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -186,11 +165,8 @@ pub const fn require_audit() -> Result<(), SdkError> {
 /// R12 gate: `Ok` only with feature `policy`, else `NotCompiled`.
 ///
 /// Phase 0 contract only: no execution logic lives behind this gate here.
-/// Probes `CARGO_FEATURE_POLICY` via `option_env!` (identical to
-/// `cfg!(feature = "policy")` once declared) to keep R6 zero without
-/// touching `Cargo.toml` (owned by another lane).
 pub const fn require_policy() -> Result<(), SdkError> {
-    if option_env!("CARGO_FEATURE_POLICY").is_some() {
+    if cfg!(feature = "policy") {
         Ok(())
     } else {
         Err(SdkError::NotCompiled)
@@ -228,42 +204,42 @@ mod tests {
         } else {
             assert_eq!(require_test_mode(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_OTA").is_some() {
+        if cfg!(feature = "ota") {
             assert_eq!(require_ota(), Ok(()));
         } else {
             assert_eq!(require_ota(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_PIV").is_some() {
+        if cfg!(feature = "piv") {
             assert_eq!(require_piv(), Ok(()));
         } else {
             assert_eq!(require_piv(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_OTP").is_some() {
+        if cfg!(feature = "otp") {
             assert_eq!(require_otp(), Ok(()));
         } else {
             assert_eq!(require_otp(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_PROXIMITY").is_some() {
+        if cfg!(feature = "proximity") {
             assert_eq!(require_proximity(), Ok(()));
         } else {
             assert_eq!(require_proximity(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_OATH").is_some() {
+        if cfg!(feature = "oath") {
             assert_eq!(require_oath(), Ok(()));
         } else {
             assert_eq!(require_oath(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_BACKUP").is_some() {
+        if cfg!(feature = "backup") {
             assert_eq!(require_backup(), Ok(()));
         } else {
             assert_eq!(require_backup(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_AUDIT").is_some() {
+        if cfg!(feature = "audit") {
             assert_eq!(require_audit(), Ok(()));
         } else {
             assert_eq!(require_audit(), Err(SdkError::NotCompiled));
         }
-        if option_env!("CARGO_FEATURE_POLICY").is_some() {
+        if cfg!(feature = "policy") {
             assert_eq!(require_policy(), Ok(()));
         } else {
             assert_eq!(require_policy(), Err(SdkError::NotCompiled));

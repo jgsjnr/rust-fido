@@ -30,3 +30,12 @@ secmon = []
 pm = []
 # Lab-only: never in `default`; without it there is no test surface at all.
 test-mode = []
+# Phase 0 contract-only gates (R12): empty, off by default.
+ota = []
+piv = []
+otp = []
+proximity = []
+oath = []
+backup = []
+audit = []
+policy = []
