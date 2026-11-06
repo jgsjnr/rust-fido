@@ -98,7 +98,7 @@ Abertura dessas telas dispara tráfego vendor para a placa (`0x3F` etc.); com be
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `0dea539` (`refactor(firmware): split secure_guard_exec bench em mod policy/dispatch/tests`)
 - **Working tree:** DIRTY herdado (mesmo conjunto do lane anterior; este lane: zero edições de fonte, só este relatório)
-- **Premissa do pai:** placa UNLOCKED 24h (`0x3A` state 4, session 86400000, 5/5), ponte PID 48820 no ar (UART COM7, online); pular unlock (SKIP), ir direto a K2/K3/K4 + telas + criações `hw-*`; PIN 1111 via env SÓ se sessão cair (zero retry); STOP na surpresa, nada destrutivo
+- **Premissa do pai:** placa UNLOCKED 24h (`0x3A` state 4, session 86400000, 5/5), ponte PID 48820 no ar (UART COM7, online); pular unlock (SKIP), ir direto a K2/K3/K4 + telas + criações `hw-*`; PIN $env:FIDO_PIN via env SÓ se sessão cair (zero retry); STOP na surpresa, nada destrutivo
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente (`moto g(60)`, APK `versionCode=1` / `versionName=0.1.0-wave5`, `lastUpdateTime=2026-11-03 23:58:26`)
 - **Ponte:** PID 48820 CONFIRMADO no ar (`tools/host_hardware_android_bri…`, porta 5678 LISTENING); UART COM7 CONFIRMADA (`Silicon Labs CP210x USB\VID_10C4&PID_EA60\0001`)
 - **PIN:** `$env:FIDO_PIN` **NÃO definido** neste lane → zero submits possíveis; nenhum valor tentado/adivinhado
@@ -171,7 +171,7 @@ Nenhuma Passkey criada (P-256/Ed25519/ES384/ES512/ES256K), nenhum toggle touch/U
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `0dea539e5a1c5befc6ab89874b9b1016e66a331a` (`refactor(firmware): split secure_guard_exec bench em mod policy/dispatch/tests`)
 - **Working tree:** DIRTY herdado do pai; este lane: zero edições de fonte, só este relatório. Sem push/merge.
-- **Premissa do pai:** placa UNLOCKED 24h (`0x3A` direto state 4, session 86400000, 5/5), ponte no ar; ignorar espelho `/api/secure-guard/status` (fallback host Unprovisioned); pular unlock (SKIP); keypads FIDO primeiro (K2/K3/K4), todas as telas, criações `hw-*` por tipo+config; PIN 1111 via env SÓ se sessão cair; STOP na surpresa, nada destrutivo.
+- **Premissa do pai:** placa UNLOCKED 24h (`0x3A` direto state 4, session 86400000, 5/5), ponte no ar; ignorar espelho `/api/secure-guard/status` (fallback host Unprovisioned); pular unlock (SKIP); keypads FIDO primeiro (K2/K3/K4), todas as telas, criações `hw-*` por tipo+config; PIN $env:FIDO_PIN via env SÓ se sessão cair; STOP na surpresa, nada destrutivo.
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente.
 - **Ponte:** `tools/host_hardware_android_bridge.py --port COM7`, porta 5678 LISTENING; `GET /bridge/info` → `connected=true`, `transport=UART`, `port=COM7`, `vid_pid=10C4:EA60`, `cid=0x60201`, `status=online`, `uptime_s=330` (placa reiniciou fora deste lane; sessão anterior perdida no reboot).
 - **PIN:** `$env:FIDO_PIN` **AUSENTE** neste lane → zero submits possíveis; nada tentado/adivinhado; regra 1 unlock / zero retry intacta.
@@ -318,10 +318,10 @@ Nenhuma Passkey criada (P-256/Ed25519/ES384/ES512/ES256K), nenhum toggle touch/U
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `0dea539e5a1c5befc6ab89874b9b1016e66a331a` (mesmo de S2–S4)
 - **Working tree:** DIRTY herdado do pai; este lane: zero edições de fonte, só este relatório. Sem push/merge.
-- **Premissa do pai:** perícia fechou — LIST direto tem 4 (`hw-p256`/`hw-ed25519`/`hw-es384`/`hw-es512`), sem wipe/sem perda (era lock+fail-closed). Placa Locked (5/5 intacto), ponte no ar. Continuar do ponto: 1 unlock `1111` via env se preciso (zero retry), depois `hw-es256k` + tipos/configs restantes (touch/UP `0x40`/curva/resident) + telas restantes (K2/K3/K4, TOTP, caps, `0x2E`, `0x38`, OTA/recovery view-only, devices, PIV, idioma, badge). STOP na surpresa, nada destrutivo.
+- **Premissa do pai:** perícia fechou — LIST direto tem 4 (`hw-p256`/`hw-ed25519`/`hw-es384`/`hw-es512`), sem wipe/sem perda (era lock+fail-closed). Placa Locked (5/5 intacto), ponte no ar. Continuar do ponto: 1 unlock `$env:FIDO_PIN` via env se preciso (zero retry), depois `hw-es256k` + tipos/configs restantes (touch/UP `0x40`/curva/resident) + telas restantes (K2/K3/K4, TOTP, caps, `0x2E`, `0x38`, OTA/recovery view-only, devices, PIV, idioma, badge). STOP na surpresa, nada destrutivo.
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente, APK `versionCode=1 / versionName=0.1.0-wave5`, `lastUpdateTime=2026-11-03 23:58:26`, `MainActivity` resumed/focused.
 - **Ponte:** PID 4352 (`tools/host_hardware_android_bridge.py --port COM7`), porta 5678 LISTENING; UART COM7 (`Silicon Labs CP210x`); `GET /bridge/info` → `connected=true`, `transport=UART`, `port=COM7`, `vid_pid=10C4:EA60`, `cid=0xd0201`, `status=online`, `uptime_s=1884` **congelado nas 2 leituras deste lane (possível cache da ponte; registrado sem concluir)**.
-- **PIN:** `$env:FIDO_PIN` / `$env:MANUAL_TOUR_PIN` **AUSENTES** neste lane → zero submits possíveis; valor `1111` da ordem do pai NÃO foi materializado em env (unlock mostrou-se desnecessário/proibido pelo STOP antes de qualquer tentativa). Nenhum valor tentado/adivinhado.
+- **PIN:** `$env:FIDO_PIN` / `$env:MANUAL_TOUR_PIN` **AUSENTES** neste lane → zero submits possíveis; valor `$env:FIDO_PIN` da ordem do pai NÃO foi materializado em env (unlock mostrou-se desnecessário/proibido pelo STOP antes de qualquer tentativa). Nenhum valor tentado/adivinhado.
 
 ## S5-0. GATE direto `0x3A` (silício, ground-truth, 2 leituras) → bench LOCKED sem sessão
 
@@ -342,7 +342,7 @@ Nenhuma Passkey criada (P-256/Ed25519/ES384/ES512/ES256K), nenhum toggle touch/U
 
 | Passo | Resultado |
 |---|---|
-| Unlock (1 submit `1111` via env, zero retry) | **NÃO EXECUTADO.** Gate mostrava bench Locked sem sessão (unlock seria "preciso"), mas antes de qualquer dígito o telefone revelou sessão ativa (S5-2) — e a regra manda STOP na 1ª surpresa. Total deste lane: **0 submits, 0 dígitos, 0 retry.** Contador segue `0 failed / 5 restantes` (direto, antes e depois). |
+| Unlock (1 submit `$env:FIDO_PIN` via env, zero retry) | **NÃO EXECUTADO.** Gate mostrava bench Locked sem sessão (unlock seria "preciso"), mas antes de qualquer dígito o telefone revelou sessão ativa (S5-2) — e a regra manda STOP na 1ª surpresa. Total deste lane: **0 submits, 0 dígitos, 0 retry.** Contador segue `0 failed / 5 restantes` (direto, antes e depois). |
 
 ## S5-2. SURPRESA — app UNLOCKED com silício Locked (split-brain) → STOP TOTAL
 
@@ -398,7 +398,7 @@ Nenhuma Passkey criada (`hw-es256k` inclusive), nenhum toggle touch/UP `0x40`/cu
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `0dea539e5a1c5befc6ab89874b9b1016e66a331a` (`refactor(firmware): split secure_guard_exec bench em mod policy/dispatch/tests`)
 - **Working tree:** DIRTY herdado do pai; este lane: zero edições de fonte, só este relatório. Sem push/merge.
-- **Ordem do pai:** pre-flight (`adb reverse --list` com `-s` + `GET status` liveness) e, se silício Locked, 1 unlock `1111` via keypad gate (`MANUAL_TOUR_PIN` env, zero retry, STOP se gate falhar). Depois seguir matriz HW: `hw-es256k` + restantes + telas K2/K3/K4 + view-onlys. Split-brain conhecido: app pode dizer UNLOCKED com silício Locked — fonte de verdade é o `0x3A` direto; se divergir, reporte e pare. Nada destrutivo. Log em `HW_MATRIX.md`.
+- **Ordem do pai:** pre-flight (`adb reverse --list` com `-s` + `GET status` liveness) e, se silício Locked, 1 unlock `$env:FIDO_PIN` via keypad gate (`MANUAL_TOUR_PIN` env, zero retry, STOP se gate falhar). Depois seguir matriz HW: `hw-es256k` + restantes + telas K2/K3/K4 + view-onlys. Split-brain conhecido: app pode dizer UNLOCKED com silício Locked — fonte de verdade é o `0x3A` direto; se divergir, reporte e pare. Nada destrutivo. Log em `HW_MATRIX.md`.
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` (sempre com `-s`); 2º transporte `adb-0075473612-QLbiZc._adb-tls-connect._tcp` presente, intocado. APK `versionCode=1 / versionName=0.1.0-wave5`.
 - **Ponte:** PID 4352 (`tools/host_hardware_android_bridge.py --port COM7`), porta 5678 LISTENING (`0.0.0.0:5678` → PID 4352); UART COM7 (`Silicon Labs CP210x USB\VID_10C4&PID_EA60`); `GET /bridge/info` → `connected=true`, `transport=UART`, `port=COM7`, `vid_pid=10C4:EA60`, `cid=0xd0201`, `status=online`, `uptime_s=1884` **congelado nas leituras (igual S5; possível cache da ponte; registrado sem concluir)**.
 - **PIN:** `$env:MANUAL_TOUR_PIN` e `$env:FIDO_PIN` **AUSENTES** neste lane → gate de unlock FALHA por ausência de credencial; nenhum valor tentado/adivinhado; regra 1 unlock / zero retry intacta por vacuidade (0 submits).
@@ -429,7 +429,7 @@ Nenhuma Passkey criada (`hw-es256k` inclusive), nenhum toggle touch/UP `0x40`/cu
 
 | Passo | Resultado |
 |---|---|
-| Unlock 1× `1111` via keypad gate (`MANUAL_TOUR_PIN`, zero retry) | **NÃO EXECUTADO — GATE FALHOU.** Env ausente → zero dígitos, zero submits, zero retry possíveis. Adicionalmente PROIBIDO pelo split-brain S6-3. Contador segue `0 failed / 5 restantes` (direto, antes e depois). |
+| Unlock 1× `$env:FIDO_PIN` via keypad gate (`MANUAL_TOUR_PIN`, zero retry) | **NÃO EXECUTADO — GATE FALHOU.** Env ausente → zero dígitos, zero submits, zero retry possíveis. Adicionalmente PROIBIDO pelo split-brain S6-3. Contador segue `0 failed / 5 restantes` (direto, antes e depois). |
 
 ## S6-3. SURPRESA — app UNLOCKED × silício Locked (split-brain persiste) → STOP TOTAL
 
@@ -538,7 +538,7 @@ Hub LOCKED pós-`Lock Now`, K1 (abertura/dígitos), hub UNLOCKED (`4 used`, curv
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `aa73bfa0570470e2c62394d0ae7aae193075b7b5` (`firmware: borda WiFi suprimida em bancada (transport lock bench-aware)`)
 - **Working tree:** DIRTY herdado do pai (mesmo conjunto; este lane: zero edições de fonte, só este relatório). Sem push/merge.
-- **Ordem do pai:** sessão bench 24h PROVADA estável 150s (build 808A4E9B, silício Unlocked, ponte no ar). Pular unlock se Unlocked (SKIP explícito; 1 unlock 1111 via env só se Locked), keypads FIDO primeiro, `hw-es256k` + restantes + telas K2/K3/K4 + view-onlys (TOTP, caps, 0x2E, 0x38, OTA/recovery view-only, devices, PIV, idioma, badge). STOP na surpresa, nada destrutivo. Log em `HW_MATRIX.md`.
+- **Ordem do pai:** sessão bench 24h PROVADA estável 150s (build 808A4E9B, silício Unlocked, ponte no ar). Pular unlock se Unlocked (SKIP explícito; 1 unlock $env:FIDO_PIN via env só se Locked), keypads FIDO primeiro, `hw-es256k` + restantes + telas K2/K3/K4 + view-onlys (TOTP, caps, 0x2E, 0x38, OTA/recovery view-only, devices, PIV, idioma, badge). STOP na surpresa, nada destrutivo. Log em `HW_MATRIX.md`.
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente (2º transporte TLS intocado). APK `versionCode=1 / versionName=0.1.0-wave5`, `lastUpdateTime=2026-11-03 23:58:26`.
 - **Ponte:** PID 29324 (`tools/host_hardware_android_bridge.py --port COM7`), porta 5678 LISTENING; UART COM7 (`Silicon Labs CP210x`); `connected=true`, `transport=UART`, `cid=0x30201`, `status=online`. `uptime_s` do `/bridge/info` CONGELADO em 209 (lifetime dump avançou 451→682 monotônico — `info` stale, registrado sem concluir).
 - **PIN:** `$env:FIDO_PIN` / `$env:MANUAL_TOUR_PIN` **AUSENTES** → zero submits possíveis; nenhum valor tentado/adivinhado.
@@ -621,7 +621,7 @@ Hub LOCKED pós-`Lock Now`, K1 (abertura/dígitos), hub UNLOCKED (`4 used`, curv
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `aa73bfa0570470e2c62394d0ae7aae193075b7b5` (`firmware: borda WiFi suprimida em bancada (transport lock bench-aware)`)
 - **Working tree:** DIRTY herdado do pai (mesmo conjunto; este lane: zero edições de fonte, só este relatório). Sem push/merge.
-- **Ordem do pai:** LIST direto confirma 5/5 (slots 0-4, sessão bench válida, ponte no ar). Fechar matriz: configs por tipo (touch required on/off, UP policy 0x40, resident) nas 5 chaves hw-*, telas K3 presença/UP, K4 por tela, PIV (navegação + PIN/PUK só-vista), TOTP-add só se não-destrutivo (se pedir enroll real, SKIP), badge (documente ausente por falta de autoridade no status). Se app flipar para UNPROVISIONED com silício Unlocked, Refresh/reabra em vez de unlock; unlock 1111 via env só se silício Locked. STOP na surpresa, nada destrutivo. Log em HW_MATRIX.md.
+- **Ordem do pai:** LIST direto confirma 5/5 (slots 0-4, sessão bench válida, ponte no ar). Fechar matriz: configs por tipo (touch required on/off, UP policy 0x40, resident) nas 5 chaves hw-*, telas K3 presença/UP, K4 por tela, PIV (navegação + PIN/PUK só-vista), TOTP-add só se não-destrutivo (se pedir enroll real, SKIP), badge (documente ausente por falta de autoridade no status). Se app flipar para UNPROVISIONED com silício Unlocked, Refresh/reabra em vez de unlock; unlock $env:FIDO_PIN via env só se silício Locked. STOP na surpresa, nada destrutivo. Log em HW_MATRIX.md.
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente. APK `versionCode=1 / versionName=0.1.0-wave5`.
 - **Ponte:** `tools/host_hardware_android_bridge.py` (PID 8932), porta 5678 LISTENING; UART COM7 (`Silicon Labs CP210x`); `GET /bridge/info` → `connected=true`, `transport=UART`, `cid=0x60201`, `status=online`, `uptime_s=963` CONGELADO nas leituras (igual S7/S8; tratado como stale, sem concluir reboot).
 - **PIN:** `$env:FIDO_PIN` / `$env:MANUAL_TOUR_PIN` **AUSENTES** → zero submits possíveis; nenhum valor tentado/adivinhado; regra 1 unlock / zero retry intacta por vacuidade (0 submits).
@@ -734,9 +734,9 @@ Detalhe aberto via `Manage` por slot (`Back to Vault` para voltar), 5/5 capturad
 
 - **Branch:** `fd/finalizacao-linux` — **HEAD:** `30ae0ac` (merge password manager device-only)
 - **Working tree:** DIRTY herdado do pai (MainActivity.kt, MainHubScaffoldTemplate.kt, PasswordManagerScreen.kt, strings.xml x2, PasswordManagerViewerTest.kt, SESSION_HANDOFF.md + untracked PM_E2E_REPORT_2026-11-05.md); este lane: zero edições de fonte, só este relatório. Sem push.
-- **Ordem do pai:** aba Senhas → tap no item → popup → olho (mostrar) → digital (biometria do aparelho; se pedir PIN do sistema e não houver env, PARE). PARE ANTES de qualquer wipe/delete/confirmação destrutiva (screenshot do diálogo + BACK). PIN 1111 via env só se a sessão precisar (zero retry). Documentar cada passo com dump+screenshot em %TEMP% + nota aqui. PROIBIDO wipe.
+- **Ordem do pai:** aba Senhas → tap no item → popup → olho (mostrar) → digital (biometria do aparelho; se pedir PIN do sistema e não houver env, PARE). PARE ANTES de qualquer wipe/delete/confirmação destrutiva (screenshot do diálogo + BACK). PIN $env:FIDO_PIN via env só se a sessão precisar (zero retry). Documentar cada passo com dump+screenshot em %TEMP% + nota aqui. PROIBIDO wipe.
 - **Telefone:** moto g(60) (`hanoip`) via `adb -s 192.168.15.17:38071` — presente, `device`; APK `dev.aegiskey.app` `versionCode=1 / versionName=0.1.0-wave5`, `lastUpdateTime=2026-11-04 21:47:11`.
-- **PIN:** `$env:FIDO_PIN` e `$env:MANUAL_TOUR_PIN` **AUSENTES** neste lane → zero submits possíveis; valor `1111` da ordem NÃO materializado em env; nenhum valor tentado/adivinhado; regra zero retry intacta por vacuidade (0 submits).
+- **PIN:** `$env:FIDO_PIN` e `$env:MANUAL_TOUR_PIN` **AUSENTES** neste lane → zero submits possíveis; valor `$env:FIDO_PIN` da ordem NÃO materializado em env; nenhum valor tentado/adivinhado; regra zero retry intacta por vacuidade (0 submits).
 
 ## S10-1. Passos executados (todos read-only + taps não-destrutivos)
 
@@ -775,3 +775,222 @@ Detalhe aberto via `Manage` por slot (`Back to Vault` para voltar), 5/5 capturad
 - **Teste focado: 8/8 PASS (resultado exato acima).**
 - **Estado final: telefone na rota Senhas `LOCKED / No password entries loaded`, placa intocada, `0 submits / 0 retry`, nada criado/deletado/enviado.**
 - **Devolução ao pai: para cobrir popup/olho/digital/wipe é preciso HIL L3 com hardware key conectada + sessão desbloqueada (PIN via env, 1x zero retry) + digital cadastrada no usuário corrente; este lane parou exatamente onde a ordem manda (antes de qualquer wipe).**
+
+---
+
+# SESSÃO S11 — FULL pre-flight + STOP (2026-11-06 UTC, moto g(60) físico)
+
+- **Branch:** `fd/finalizacao-linux` — **HEAD:** `cc504730380aaefed70aa8fd8ca9bcd65fb45168`
+- **Working tree:** CLEAN na abertura (zero diff); este lane: só este relatório, zero edições de fonte. Sem push/merge.
+- **Ordem do pai:** pre-flight → unlock $env:FIDO_PIN via keypad gate se Locked (env, 1 tentativa, zero retry) → tour --full + matriz HW → criar NADA novo → STOP na surpresa, nada destrutivo, log aqui, sem push, PROIBIDO eFuse/secureboot.
+- **Telefone:** Motorola moto g(60) (`hanoip`, Android 12) via `adb -s 192.168.15.17:43075` (sempre com `-s`). **SURPRESA 1:** serial `:38071` da ordem recusada (`connection refused`); aparelho re-enumerou em `:43075` (mesmo `hanoip`, `moto g(60)`, IP idêntico, dump Settings confirma `192.168.15.17:43075`). Todo `adb` abaixo usa `:43075`.
+- **APK:** `dev.aegiskey.app`, `versionCode=1`, `versionName=0.1.0-wave5` (atual esperado). Hub foreground via `monkey -p dev.aegiskey.app` (não-destrutivo).
+- **PIN:** `$env:FIDO_PIN` **AUSENTE** → zero submits possíveis; valor `$env:FIDO_PIN` da ordem NÃO materializado em env; nada tentado/adivinhado; regra 1 tentativa / zero retry intacta por vacuidade (0 submits, 0 dígitos).
+
+## S11-1. Pre-flight (somente-leitura)
+
+| # | Checagem | Resultado |
+|---|---|---|
+| P1 | Device físico (emulador proibido) | **PASS** — `moto g(60)` `device`, `transport_id=2`, `192.168.15.17:43075` (serial da ordem `:38071` recusada; mesmo aparelho re-enumerado) |
+| P2 | App instalada versão atual | **PASS** — `versionCode=1 / versionName=0.1.0-wave5`, hub abre sem crash (dump `hw_s11_app.xml`, 92 nós) |
+| P3 | Ponte :5678 | **PASS (com achado)** — porta LISTEN, `GET /api/secure-guard/status` responde `ok:true` mas `state 0 / Unprovisioned / provisioned=false / audit_count=0 / bench_active=false` |
+| P4 | Placa via 0x3A direto | **PASS (com contradição)** — `POST /bridge/vendor {"op":58}` válido: silício diz `state 02 / Locked / provisioned=true / unlocked=false / failed 0 / remaining 5` + `efuse_safety_locked / bench_active=false / paired BLE Galaxy S24 Ultra`. **SURPRESA 2:** ponte cacheia `Unprovisioned` × silício `Locked provisioned` — divergência registrada, nada forçado |
+| P5 | Hub LOCKED observável | **PASS** — `Secure Guard LOCKED / Session Locked / [5/5] / Channel: USB Cable · Slots: 0 used, 28 available / 0.1.0-wave5 / All (0) / Vault+TOTP+Passwords+Devices+Settings`, curvas P-256/Ed25519/P-384/P-521/secp256k1 listadas |
+
+**Deriva anotada (sem ação):** `Slots available` varia entre lanes (27/28/31/32) com `0 used` constante — possível dado misto default/live (cf. S9 fantasma). Pai arbitra.
+
+## S11-2. Unlock / tour --full / matriz HW — NÃO EXECUTADOS (STOP ordenado)
+
+- **Unlock $env:FIDO_PIN via keypad gate:** **SKIP** — env ausente impossibilita a única tentativa autorizada; nenhum dígito, nenhum `Unlock`, contador intacto `[5/5]` / `failed 0`. Display/navegação só view-only.
+- **tour --full (`tools/manual_screenshots.py --full`):** **SKIP explícito** — modo `--full` cria entrada `tour-` + deleta via UI (código-fonte do tour confirma); ordem deste lane proíbe criar NADA novo e proíbe delete/COMMIT; executar violaria as duas regras. Nenhum `tour-` criado/deletado.
+- **Matriz HW (5 chaves, 3 senhas tst-pm-*, TOTP, caps, 0x2E/0x38, OTA/recovery view-only, PIV, idioma, badge, autofill):** **SKIP (STOP na surpresa)** — pré-requisitos ausentes (sem sessão desbloqueada, bridge `Unprovisioned` × silício `Locked`, env sem PIN) + proibição de criar dados. Nenhum `Generate/Save/Delete/Unbind/0x2B/0x23/0x2E-manual/0x38-clear/OTA/reboot/recovery-submit` emitido. Abertura dessas telas dispara vendor `0x3F`; não tocadas com rig contraditório.
+- **eFuse/secureboot:** **NÃO TOCADO (PROIBIDO)** — nenhum burn, nenhum flash-crypt. Nota: `scripts/ci-guard-secureboot.ps1` neste HEAD CLEAN dá FAIL pré-existente em `efuse_safety_lock.rs:359/380` (`secure_boot_v2_active` campo de relatório, não burn) — falso-positivo do padrão amplo `SECURE_BOOT`; registrado como advisory, zero alteração.
+
+## S11-3. Teste focado designado (resultado exato, single-thread)
+
+- Comando: `cargo test -p aegis-secure-guard -- --test-threads=1`
+- Resultado exato: **lib `60 passed; 0 failed; 0 ignored` + doc-tests `0 passed` (exit 0), multiprocess-safe single-thread.**
+- Multiprocess authority E2E com `--test-threads=1`: **o comando acima É o run single-thread executado;** nenhuma outra suíte multiprocess executada. Builds/mocked traffic/ports/screenshots/emuladores/handshakes NÃO contam como aceitação física, por ordem.
+- Test doubles: `ci-grep-mocks.ps1` → **PASS (mocks confinados a cfg(test))**; nenhum Mock/Fake/Stub em produção tocado; zero edições de fonte.
+
+## S11-4. Evidência / limites
+
+- Emissões: `adb connect/devices/getprop/dumpsys package` + `uiautomator dump`x2 + `screencap`x1 + `pull`x3 + `monkey` foreground (não-destrutivo) + `GET status` + `POST vendor 0x3A` read-only. Nenhum POST de unlock/commit, nenhum tap em dígito/Unlock/Generate/Delete.
+- Dumps/screenshots: `/sdcard/hw_s11_*.xml/png` + `%TEMP%/opencode/hw_s11_*`, fora do git. Sem push.
+- Estado final: app em hub `LOCKED [5/5] 0 used`, display aceso no hub, placa `0 failed / 5 restantes`, nada criado/deletado/enviado.
+- **Devolução ao pai:** (a) arbitrar serial `:38071` vs `:43075` (re-enumeração Wi-Fi); (b) arbitrar ponte `Unprovisioned/audit 0` × silício `Locked/provisioned` (cache/stale?); (c) prover `$env:FIDO_PIN` para 1 tentativa futura ou manter STOP; (d) decidir se tour --full permanece proibido (cria+deleta) face a "crie NADA novo"; (e) arbitrar guard secureboot falso-positivo pré-existente.
+
+## Veredito S11
+
+| Item | Resultado |
+|---|---|
+| Pre-flight device/app/ponte/0x3A/hub | **PASS (com 2 surpresas registradas)** |
+| Unlock $env:FIDO_PIN (env, 1x, zero retry) | **SKIP (env ausente, 0 submits)** |
+| tour --full | **SKIP (criaria+deletaria; proibido)** |
+| Matriz HW (chaves/senhas/TOTP/caps/0x2E/0x38/OTA/recovery/PIV/idioma/badge/autofill) | **SKIP (STOP na surpresa, nada criado)** |
+| Teste focado `--test-threads=1` | **PASS 60/0/0** |
+
+---
+
+# SESSÃO S12 — Unlock 1x PASS + 5/5 + detalhe #4, depois contenção inter-lane → STOP (2026-11-06 UTC, moto g(60) físico)
+
+- **Branch:** `fd/finalizacao-linux` — **HEAD:** `cc50473` (`test(evidence): gate 9/9 consolidated run`)
+- **Working tree:** DIRTY só por este relatório (zero edições de fonte). Sem push/merge.
+- **Ordem do pai:** PIN correto `$env:FIDO_PIN` (`$env:MANUAL_TOUR_PIN` + `$env:FIDO_PIN` setados no início, nunca logados/commitados); serial via `adb devices` (`192.168.15.17:43075`, mudou de `:38071`); fonte de verdade = `0x3A` direto; pre-flight → unlock 1x via keypad gate se Locked (zero retry) → tour --full → matriz HW completa; nada novo criado; STOP na surpresa; nada destrutivo; PROIBIDO eFuse/secureboot.
+- **Ordem complementar (mid-lane):** outra sessão usa o mesmo Moto G → modo defensivo (foco/staleness antes de cada passo, backoff sem forçar taps, STOP em contenção persistente, nunca matar processos/desconectar).
+- **Telefone:** Motorola moto g(60) (`hanoip`) via `adb -s 192.168.15.17:43075` (sempre com `-s`). APK `dev.aegiskey.app`, `versionCode=1`, `versionName=0.1.0-wave5`.
+- **Ponte:** `tools/host_hardware_android_bridge.py` em COM7 (`Silicon Labs CP210x`), porta 5678 LISTENING; `GET /bridge/info` → `connected=true`, `transport=UART`, `cid=0x40201`, `uptime_s=166` (sem reboot observado).
+- **PIN:** valor somente via env (4 dígitos, nunca impresso); regra 1 unlock / zero retry: **1 submit total, zero retry, zero wrong-PIN**.
+
+## S12-0. Pre-flight — PASS (read-only)
+
+`adb devices -l` (só `192.168.15.17:43075 device hanoip`), `getprop` (`moto g(60)`), `GET /bridge/info` online COM7, `GET /api/secure-guard/status` responde (espelho `Unprovisioned/provisioned=false/audit 0/Galaxy S24 Ultra` — fallback conhecido, sem decisão).
+
+## S12-1. Gate `0x3A` direto (silício, ground-truth) — LOCKED provisionado, sem sessão
+
+`POST /bridge/vendor {op:58}` decodificado: `state 02 Locked`, `provisioned true`, `unlocked false`, `failed 0x00 / remaining 0x05 / max 0x05`, `session_remaining 0x00`, `audit 0x18 0x20 (=32)`, `efuse_safety_locked true`, `bench_active false`, `paired BLE Galaxy S24 Ultra`. Espelho diverge do direto (segue fallback `Unprovisioned/audit 0`).
+
+## S12-2. Unlock 1x via keypad gate — PASS (1 submit, zero retry)
+
+- Hub pré-unlock: `Secure Guard LOCKED`, `Session Locked`, `[5/5]`, `Unlock Session` + `Emergency Recovery`, `0 used, 28 available`, `0.1.0-wave5`, curvas P-256/Ed25519/P-384/P-521/secp256k1 (dump `hw_s12_wake.xml`).
+- Tap `Unlock Session` → K1: `Hardware Session Authentication`, `Unlock PIN`, `Minimum 4 digits`, `0/16`, `[5/5]`, dígitos `1–9/C/0/?`, `Unlock` (desabilitado vazio = fail-closed), `Cancel`. **Gate K1: PASS** (`hw_s12_k1.xml`).
+- 4 toques no dígito via env → `4/16` mascarado, `[5/5]` intacto (`hw_s12_k1digits.xml`, valor nunca logado).
+- **Submit único** → silício `state 04 Unlocked` (2 leituras concordantes); app `UNLOCKED`, `Session Active`, `Remaining 1439:41` (~24h), `[5/5]`, `Vault unlocked successfully`, **`5 used, 28 available`, `All (5)`** (`hw_s12_reopen.xml`).
+
+## S12-3. Matriz parcial executada (tudo view-only, nada submetido)
+
+| Item | Resultado |
+|---|---|
+| 5 chaves em lista (rolagem) | **PASS 5/5**: `hw-p256`/`hw-ed25519`/`hw-es384`/`hw-es512`/`hw-es256k` slots `#0–#4`, todos `Passkey` + `Secured on AegisKey slot #N` + `Manage`/`Copy` (`hw_s12_list2/3.xml`). **Achado S9 reconfirmado: os 5 exibem `ES256 (P-256)`** (curva real por slot pende revalidação via assinatura; pai decide) |
+| Detalhe slot #4 (`Manage` → `hw-es256k`) | **PASS view-only**: `Passkey FIDO2/WebAuthn`, `Touch Required`/`Require touch`, `Resident Discoverable`, `FIDO2/WebAuthn L3 (CTAP 2.1)`, `UV biometric + touch`, `Test Authentication` com challenge **NÃO submetido** (exigiria UP), `Copy` intocado, sem `Delete` (`hw_s12_d4.xml`) |
+| Detalhes slots #0–#3 | NÃO EXECUTADOS (STOP S12-4 antes) |
+| 3 senhas `tst-pm-*` / TOTP / Devices / Settings-idioma / PIV / K2-K4 / `0x2E` / `0x38` / caps `0x3F` / OTA-recovery view-only / badge / eFuse | NÃO TOCADOS (STOP S12-4; eFuse adicionalmente PROIBIDO por ordem) |
+| `tour --full` | **NÃO EXECUTADO** (STOP antes; criaria `tour-` + delete + lock + troca EN/PT — fica para após reautorização) |
+
+## S12-4. SURPRESA — contenção inter-lane (foco roubado + sessão invalidada) → STOP
+
+1. Após o detalhe #4, o foreground pulou para `io.github.universaldevice.debug` (`Runtimes/HoloMesh`, app da outra sessão): `mFocusedApp` confirmou a troca 2× (pós-submit e pós-swipe). Nenhum tap forçado com foco alheio.
+2. Backoff obedecido: 30 s → ainda ocupado; 60 s → foco de volta ao `dev.aegiskey.app/.MainActivity` (estável antes/depois do dump).
+3. Sessão invalidada pelo outro ator: direto `0x3A` voltou a **`Locked`, `session 0`** (app mostra `UNLOCKED` stale — split-brain classe S5/S6). **Contador intacto: `failed 0 / remaining 5`, `audit 32`** — outro ator NÃO queimou PIN nem wipeou; sessão caiu (Lock Now/reboot/re-enumeração pelo outro lane, causa não atribuída).
+4. **STOP total aqui** (ordem defensiva do pai): cota de unlock 1x já consumida (re-unlock seria 2º submit → viola `1x/zero retry`); brigar pelo device com a outra sessão ativa violaria o backoff. Telefone deixado intocado na tela de detalhe #4 (sem segredo em tela), nada criado/deletado/enviado além do unlock + navegação view-only.
+
+## S12-5. Contador — prova de 1 PIN / zero retry
+
+- Antes: direto `0 failed / 5 restantes`, hub `[5/5]`. Depois de tudo (pós-STOP): direto `0 failed / 5 restantes`, `audit 32`, app `[5/5]` sem erro.
+- **Total: 1 submit autorizado, 0 dígitos extras, zero retry, zero wrong-PIN.**
+
+## S12-6. Teste focado + limites / evidência
+
+- **Teste focado designado (resultado exato, single-thread):** `cargo test -p aegis-secure-guard -- --test-threads=1` → **lib `60 passed; 0 failed; 0 ignored`** + **doc-tests `0 passed`** (exit 0). Host-only, sem tocar device/ponte.
+- **Multiprocess authority E2E com `--test-threads=1`:** **N/A neste lane** — harness E2E exigiria device/ponte sob contenção ativa (violaria STOP + backoff); builds/mocked traffic/ports/screenshots/emuladores/handshakes não contam como aceitação física, por ordem.
+- Test doubles: nenhum; zero edições de fonte (só este relatório); nenhum Mock/Fake/Stub em produção.
+- Emissões: 1 unlock PIN via keypad in-app (env, sem log de valor); taps de navegação (`Unlock Session`, 4 dígitos, `Unlock`, 2 swipes, 1 `Manage`); `POST /bridge/vendor 0x3A` read-only (N×); `GET` info/status; `adb` read-only (`devices/getprop/dumpsys/uiautomator/pull`) + `am start` foreground (não-destrutivo) + `WAKEUP` físico. Nenhum `Generate/Save/Delete/Unbind/Copy/TestAuth`, nenhum `0x2B/0x23/0x2E-manual/0x38-clear/0x3B/0x3F`, nenhum commit/OTA/reboot/recovery/delete/rename, nenhum burn eFuse/secureboot.
+- Dumps: `/sdcard/hw_s12_*.xml` + `%TEMP%\opencode\hw_s12_*`, fora do git. Sem push (ordem do pai).
+
+## Veredito S12
+
+| Item | Resultado |
+|---|---|
+| Pre-flight / gate `0x3A` direto | **PASS** (`Locked provisioned 0/5/5 session 0 audit 32`; espelho segue fallback) |
+| Unlock `$env:FIDO_PIN` via keypad gate | **PASS 1× (zero retry)** → silício `Unlocked`, app `UNLOCKED 1439:41`, `5 used` |
+| 5 chaves em lista | **PASS 5/5** (`#0–#4`, display-curva ES256 nos 5 reconfirmado) |
+| Detalhe slot #4 | **PASS view-only** (touch required, resident, CTAP 2.1; TestAuth não submetido) |
+| Detalhes #0–#3, senhas, TOTP, caps, `0x2E`/`0x38`, OTA/recovery, PIV, idioma, badge, tour --full | **NÃO EXECUTADOS (STOP contenção)** |
+| Contenção (foco roubado 2× + sessão invalidada, contador intacto) | **STOP + backoff obedecido, sem briga pelo device** |
+| Teste focado `--test-threads=1` | **PASS 60/0/0 lib + 0 doc** |
+| Mocks prod / eFuse / push | **PASS (zero, zero, zero)** |
+
+- **Devolução ao pai:** (a) arbitrar re-unlock 1× supervisionado (cota deste lane consumida) ou relock/refresh do app antes de reemitir; (b) coordenar janela exclusiva no Moto G com a outra sessão (contenção: foco roubado 2×, sessão 24h derrubada sem queimar PIN); (c) confirmar curva real dos 5 slots via assinatura/CTAP (detalhe exibe ES256 nos 5); (d) decidir se `tour --full` (cria+deleta `tour-`, troca idioma EN→PT, faz lock) permanece autorizado face a "não crie nada novo".
+| Mocks em produção / eFuse / push | **PASS (zero mocks prod, zero eFuse, zero push)** |
+
+---
+
+# SESSÃO S13 — PIN autorizado rejeitado + flip silício Locked→Unprovisioned → STOP (2026-11-06 UTC, moto g(60) físico)
+
+- **Branch:** `fd/finalizacao-linux` — **HEAD:** `cc50473` (`test(evidence): gate 9/9 consolidated run`)
+- **Working tree:** DIRTY herdado (de outros lanes: `FriendlySettingsDialogs.kt` + untracked `TerminalLogStyle*`; este lane: zero edições de fonte, só este relatório). Sem push/merge.
+- **Ordem do pai:** PIN autorizado via env (valor nunca logado/commitado); serial via `adb devices` (emulador proibido); pre-flight → unlock 1x via keypad gate se Locked (zero retry) → RESTANTE da matriz (3 senhas `tst-pm-*` lista+GET+olho, TOTP, caps `0x3F`, `0x2E`/`0x38`, OTA/recovery view-only, PIV, idioma EN→PT→EN, badge, `tour --full` criando `tour-*` e deletando ao fim). Fonte de verdade = `0x3A` direto. Contenção: backoff curto e retome (até 3x); se inviabilizar, STOP. Nada destrutivo além do `tour-*` (sem wipe/COMMIT/recovery-submit). PROIBIDO eFuse/secureboot.
+- **Telefone:** Motorola moto g(60) (`hanoip`, Android 12) via `adb -s 192.168.15.17:43075` (sempre com `-s`; serial `:38071` das ordens antigas segue ausente — aparelho re-enumerado, mesmo `hanoip`). APK `dev.aegiskey.app`, `versionCode=1`, `versionName=0.1.0-wave5`.
+- **Ponte:** PID 30936 (`tools/host_hardware_android_bridge.py --port COM7`), porta 5678 LISTENING; UART COM7 (`Silicon Labs CP210x`); `GET /bridge/info` → `connected=true`, `transport=UART`, `cid=0x40201`, `status=online`, `uptime_s=166` **CONGELADO (igual S12; tratado como stale, sem concluir reboot)**.
+- **PIN:** valor somente via env (4 dígitos, nunca impresso neste log/commitado); regra 1 unlock / zero retry: **1 submit total, zero retry**.
+
+## S13-0. Pre-flight — PASS (read-only)
+
+| # | Checagem | Resultado |
+|---|---|---|
+| P1 | Device físico (emulador proibido) | **PASS** — `192.168.15.17:43075 device hanoip`, `transport_id=2`, `moto g(60)` |
+| P2 | App instalada versão atual | **PASS** — `versionCode=1 / versionName=0.1.0-wave5`, hub abre sem crash |
+| P3 | Ponte :5678 | **PASS** — LISTEN, `GET /bridge/info` online COM7, `cid=0x40201` |
+| P4 | Espelho `GET /api/secure-guard/status` | Lido sem decisão: `Unprovisioned/provisioned=false/session 0/audit 0/Galaxy S24 Ultra` (fallback conhecido, diverge do direto — registrado sem decidir por ele) |
+| P5 | Foco/contenção | **PASS, zero contenção** — `mFocusedApp=dev.aegiskey.app/.MainActivity` nas 5 checagens deste lane; outro ator nunca tomou o foco (backoff 0/3 consumido) |
+
+## S13-1. Gate `0x3A` direto pré-unlock (silício, ground-truth) — LOCKED provisionado, sem sessão
+
+`POST /bridge/vendor {op:58}` decodificado: `state 02 Locked`, `state_name "Locked"`, `provisioned true`, `unlocked false`, `failed 0x00 / remaining 0x05 / max 0x05`, `session_remaining 0x00`, `audit 0x18 0x20 (=32)`, `efuse_safety_locked true`, `bench_active false`, `paired_ble_mac` vazio / `device BLE AegisKey 3C:84:27:C7:17:7A`. **Gate: bench Locked sem sessão → unlock 1x autorizado.**
+
+## S13-2. Split-brain inicial tratado (Lock Now, zero PIN) — PASS
+
+- Wake revelou o app no **detalhe `hw-es256k` UNLOCKED stale** (resto da tela S12) × silício **Locked session 0**. Back-arrow `[10,345][130,465]` → aba Devices; tap Vault → detalhe; back-arrow (70,405) → **hub UNLOCKED stale**: `Session Active [5/5]`, `Remaining 1396:38`, `Vault unlocked successfully.`, `5 used, 28 available`, `hw-p256` visível, `Lock Now` + `Change PIN` visíveis.
+- **Ação conforme precedente S7: 1 tap `Lock Now`** (centro do texto `[140,968][297,1013]`, zero tráfego vendor, zero PIN) → hub **LOCKED**: `Session Locked [5/5]`, `Unlock Session` + `Emergency Recovery`, `0 used, 28 available`, `0.1.0-wave5`. **PASS, foco próprio confirmado antes do tap.**
+- Dumps/screenshots: `/sdcard/hw_s13_*.xml/png` + `%TEMP%\opencode\hw_s13_*`, fora do git.
+
+## S13-3. Keypad gate K1 — PASS (zero submit até aqui)
+
+- Tap `Unlock Session` (315,800) abriu K1: `Hardware Session Authentication`, `Unlock PIN`, `Minimum 4 digits`, `0/16`, `[5/5]`, dígitos `1–9/C/0/⌫`, `Unlock` desabilitado vazio (fail-closed), `Cancel`. **Gate K1: PASS.**
+- 4 toques no dígito via env (script lê `$env:MANUAL_TOUR_PIN`/`$env:FIDO_PIN`, sem imprimir valor) → `••••`, **`4/16` mascarado, `[5/5]` intacto** (dump `hw_s13_k1digits.xml`). **Zero submits até aqui.**
+
+## S13-4. Submit único → PIN REJEITADO (1 tentativa, zero retry) — STOP parcial
+
+- **Submit único** em `Unlock` (540,1731) → diálogo fechou; após espera (4 s + 8 s) o hub segue **LOCKED**: `Session Locked [5/5]`, mensagem **`PIN incorreto. Tente novamente.`**, `0 used, 28 available`. Spinner de refresh visível transitoriamente, depois hub estável LOCKED.
+- **Total deste lane: 1 submit autorizado, zero retry, zero 2ª tentativa** (regra `1x/zero retry` cumprida — nenhum novo dígito, nenhum novo submit após a rejeição).
+
+## S13-5. SURPRESA — silício virou `Unprovisioned` sem ação destrutiva deste lane → STOP TOTAL
+
+- `0x3A` direto pós-falha (2 leituras concordantes): **`state 00 Unprovisioned`, `provisioned false`, `unlocked false`, `failed 0x00 / remaining 0x05 / max 0x05` (contador NÃO queimado)**, `session 0`, `audit 0`, `paired Galaxy S24 Ultra` registrado. Pré-unlock o mesmo silício dizia `Locked provisioned true audit 32`.
+- Ou seja: **o contador não queimou (0 failed), mas o estado do silício mudou `Locked/provisioned/audit32` → `Unprovisioned/não-provisionado/audit0` SEM nenhuma ação destrutiva deste lane** (só 1 tap `Lock Now` + navegação view-only + 1 submit UI de PIN). Nenhum `0x2B/0x23/0x38-clear/0x2B` emitido, nenhum wipe/COMMIT/reboot/OTA/recovery por este lane.
+- Hipóteses registradas **sem concluir**: (a) outro ator trocou/reprovisionou a placa entre as leituras; (b) reboot com perda de provisionamento; (c) ponte re-enumerou outro dispositivo. Origem não atribuída. **STOP total aqui por ordem do dono.**
+
+## S13-6. Matriz restante — NÃO EXECUTADA (STOP)
+
+| Item da ordem | Resultado |
+|---|---|
+| 3 senhas `tst-pm-*` (lista+GET+olho) | NÃO EXECUTADO (STOP; sem sessão) |
+| TOTP | NÃO ABERTO (STOP) |
+| Caps `0x3F` | NÃO LIDO (STOP; nenhum `POST 0x3F` além do estritamente necessário — nenhum emitido) |
+| `0x2E` / `0x38` | NÃO ABERTOS (STOP; `Re-run`/`Clear`/`Copy` intocados por construção) |
+| OTA / recovery view-only | NÃO ABERTOS (STOP; nada enviado, nenhum COMMIT) |
+| PIV (navegação + PIN/PUK só-vista) | NÃO ABERTO (STOP) |
+| Idioma EN→PT→EN | NÃO TOCADO (STOP; idioma segue como encontrado) |
+| Badge bancada | NÃO VERIFICADO nesta sessão (STOP; regra mantida: nada forjado) |
+| `tour --full` | **NÃO EXECUTADO (STOP)** — nenhum `tour-*` criado/deletado |
+| eFuse / secureboot | **NÃO TOCADO (PROIBIDO)** — nenhum burn, flash-crypt, ou relatório forçado |
+
+## S13-7. Contador — prova de 1 PIN / zero retry
+
+- Antes: direto `0 failed / 5 restantes`, hub `[5/5]`. Depois (pós-rejeição + STOP): direto `0 failed / 5 restantes`, `session 0`; app `[5/5]` com `PIN incorreto` (erro de sessão/UI, sem queima no silício).
+- **Total: 1 submit autorizado, 0 dígitos extras, zero retry, zero wrong-PIN queimado no silício.**
+
+## S13-8. Teste focado + limites / evidência
+
+- **Teste focado designado (resultado exato, single-thread, host-only, sem tocar device/ponte):** `cargo test -p aegis-secure-guard -- --test-threads=1` → **lib `60 passed; 0 failed; 0 ignored`** + **doc-tests `0 passed`** (exit 0).
+- **Multiprocess authority E2E com `--test-threads=1`:** **N/A neste lane** — harness E2E exigiria device/ponte sob rig contraditório (violaria o STOP); builds/mocked traffic/ports/screenshots/emuladores/handshakes NÃO contam como aceitação física, por ordem.
+- Test doubles: `scripts/ci-guard-mocks` → **PASS (mocks confinados a cfg(test))**; nenhum Mock/Fake/Stub em produção; zero edições de fonte (só este relatório).
+- Emissões: 1 tap `Lock Now` (stale-clear, zero vendor) + navegação view-only (back-arrow, abas) + 1 unlock PIN via keypad in-app (env, sem log de valor) + `POST /bridge/vendor 0x3A` read-only + `GET` info/status + `adb` read-only (`devices/dumpsys/uiautomator/pull/screencap/am start` foreground + `WAKEUP`/`POWER` físicos). Nenhum `Generate/Save/Delete/Unbind/Copy/TestAuth`, nenhum `0x2B/0x23/0x2E-manual/0x38-clear/0x3B/0x3F`, nenhum commit/OTA/reboot/recovery/delete/rename, nenhum eFuse/secureboot.
+- Dumps/screenshots: `/sdcard/hw_s13_*.xml/png` + `%TEMP%\opencode\hw_s13_*`, fora do git. Sem push (ordem do pai).
+
+## Veredito S13
+
+| Item | Resultado |
+|---|---|
+| Pre-flight (device físico/APK/ponte/foco) | **PASS, zero contenção (backoff 0/3)** |
+| Gate `0x3A` direto pré-unlock | **PASS** (`Locked provisioned 0/5/5 session 0 audit 32`) |
+| Split-brain inicial (app UNLOCKED stale × silício Locked) | **Tratado via `Lock Now` → LOCKED (PASS, precedente S7)** |
+| Keypad K1 (abertura/dígitos via env) | **PASS** (`0/16`→`4/16` mascarado, `[5/5]` intacto) |
+| Unlock 1x (zero retry) | **REJEITADO — `PIN incorreto`, 1 submit, zero retry** |
+| Silício pós-falha | **SURPRESA: `Unprovisioned/provisioned=false/audit 0`, contador `0/5/5` intacto → STOP TOTAL** |
+| Matriz restante (senhas/TOTP/caps/`0x2E`/`0x38`/OTA/recovery/PIV/idioma/badge/`tour --full`) | **NÃO EXECUTADOS (STOP)** |
+| Teste focado `--test-threads=1` | **PASS 60/0/0 lib + 0 doc (exit 0)** |
+| Mocks prod / eFuse / push | **PASS (zero, zero, zero)** |
+
+- **Estado final: display apagado (`POWER`, sem segredo em tela), app no hub LOCKED `[5/5] 0 used`, silício `Unprovisioned 0 failed / 5 restantes`, nada criado/deletado/enviado além do unlock.**
+- **Devolução ao pai:** (a) arbitrar o PIN autorizado rejeitado + flip do silício `Locked/provisioned/audit32` → `Unprovisioned/audit0` com contador intacto (PIN mudou no bench? placa trocada/reprovisionada por outro ator? ponte re-enumerou outro dispositivo?); (b) NENHUM retry executado (cota 1x deste lane consumida) — próximo unlock exige reautorização explícita; (c) confirmar qual placa está na bancada (MAC/BLE/serial físico) antes de qualquer novo unlock; (d) `tour --full` + matriz restante pendentes de sessão válida no silício.
