@@ -423,32 +423,149 @@ function updateOathCodes() {
 
   // Recalculate TOTP values when period resets
   if (remaining === 30 || !document.getElementById("totpCode1").textContent) {
-    const c1 = generateMockTotp(epoch, "aws-salt");
-    const c2 = generateMockTotp(epoch, "github-salt");
-
     const code1Elem = document.getElementById("totpCode1");
     const code2Elem = document.getElementById("totpCode2");
 
     if (code1Elem) {
-      code1Elem.textContent = `${c1.slice(0, 3)} ${c1.slice(3)}`;
-      const btn = code1Elem.closest(".oath-card").querySelector(".btn-copy-otp");
-      if (btn) btn.setAttribute("data-code", c1);
+      if (!OATH_DEMO_ENABLED) {
+        code1Elem.textContent = OATH_DEMO_PLACEHOLDER;
+      } else {
+        const c1 = generateMockTotp(epoch, "aws-salt");
+        code1Elem.textContent = `${c1.slice(0, 3)} ${c1.slice(3)}`;
+        const btn = code1Elem.closest(".oath-card").querySelector(".btn-copy-otp");
+        if (btn) btn.setAttribute("data-code", c1);
+      }
     }
     if (code2Elem) {
-      code2Elem.textContent = `${c2.slice(0, 3)} ${c2.slice(3)}`;
-      const btn = code2Elem.closest(".oath-card").querySelector(".btn-copy-otp");
-      if (btn) btn.setAttribute("data-code", c2);
+      if (!OATH_DEMO_ENABLED) {
+        code2Elem.textContent = OATH_DEMO_PLACEHOLDER;
+      } else {
+        const c2 = generateMockTotp(epoch, "github-salt");
+        code2Elem.textContent = `${c2.slice(0, 3)} ${c2.slice(3)}`;
+        const btn = code2Elem.closest(".oath-card").querySelector(".btn-copy-otp");
+        if (btn) btn.setAttribute("data-code", c2);
+      }
     }
   }
 }
 
-function generateMockTotp(epoch, salt) {
-  const step = Math.floor(epoch / 30);
-  let hash = 0;
-  for (let i = 0; i < salt.length; i++) {
-    hash = (hash * 31 + salt.charCodeAt(i) + step) % 1000000;
+// OATH demo scaffold: static cards ship DISABLED by default so no
+// non-RFC placeholder code is ever mistaken for a real authenticator.
+// Set to true only for local UI layout previews (never for real secrets).
+const OATH_DEMO_ENABLED = false;
+const OATH_DEMO_PLACEHOLDER = "••• ••• (DEMO OFF)";
+
+function base32Decode(base32) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const clean = String(base32).toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = 0;
+  let value = 0;
+  const out = [];
+  for (const ch of clean) {
+    value = (value << 5) | alphabet.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
   }
-  return Math.abs(hash).toString().padStart(6, '0');
+  return new Uint8Array(out);
+}
+
+function rotl32(x, n) { return ((x << n) | (x >>> (32 - n))) | 0; }
+
+// Minimal sync SHA-1 (RFC 3174) so TOTP works without async SubtleCrypto.
+function sha1Bytes(msg) {
+  const ml = msg.length;
+  const bitLenHi = Math.floor((ml * 8) / 0x100000000);
+  const bitLenLo = (ml * 8) >>> 0;
+  const paddedLen = (((ml + 8) >> 6) + 1) << 6;
+  const buf = new Uint8Array(paddedLen);
+  buf.set(msg);
+  buf[ml] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(paddedLen - 8, bitLenHi);
+  dv.setUint32(paddedLen - 4, bitLenLo);
+  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
+  const w = new Int32Array(80);
+  for (let off = 0; off < paddedLen; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
+    for (let i = 16; i < 80; i++) {
+      w[i] = rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      let f, k;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+      else { f = b ^ c ^ d; k = 0xca62c1d6; }
+      const t = (rotl32(a, 5) + f + e + k + w[i]) | 0;
+      e = d; d = c; c = rotl32(b, 30); b = a; a = t;
+    }
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0;
+    h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
+  }
+  const out = new Uint8Array(20);
+  const odv = new DataView(out.buffer);
+  odv.setUint32(0, h0 >>> 0); odv.setUint32(4, h1 >>> 0);
+  odv.setUint32(8, h2 >>> 0); odv.setUint32(12, h3 >>> 0);
+  odv.setUint32(16, h4 >>> 0);
+  return out;
+}
+
+function hmacSha1(key, msg) {
+  let k = key;
+  if (k.length > 64) k = sha1Bytes(k);
+  const padded = new Uint8Array(64);
+  padded.set(k);
+  const ipad = new Uint8Array(64);
+  const opad = new Uint8Array(64);
+  for (let i = 0; i < 64; i++) {
+    ipad[i] = padded[i] ^ 0x36;
+    opad[i] = padded[i] ^ 0x5c;
+  }
+  const inner = new Uint8Array(64 + msg.length);
+  inner.set(ipad);
+  inner.set(msg, 64);
+  const innerHash = sha1Bytes(inner);
+  const outer = new Uint8Array(64 + innerHash.length);
+  outer.set(opad);
+  outer.set(innerHash, 64);
+  return sha1Bytes(outer);
+}
+
+/**
+ * TOTP RFC 6238 (SHA-1, dynamic truncation). Returns a zero-padded string.
+ * Throws on invalid base32 secrets (fail-closed: callers catch and show DEMO OFF).
+ */
+function totpRfc6238(secretBase32, timeSec, digits = 6, period = 30) {
+  const key = base32Decode(secretBase32);
+  if (key.length === 0) throw new Error("invalid secret");
+  const counter = Math.floor(timeSec / period);
+  const msg = new Uint8Array(8);
+  const dv = new DataView(msg.buffer);
+  dv.setUint32(0, Math.floor(counter / 0x100000000));
+  dv.setUint32(4, counter >>> 0);
+  const mac = hmacSha1(key, msg);
+  const offset = mac[mac.length - 1] & 0x0f;
+  const code = ((mac[offset] & 0x7f) << 24) |
+    (mac[offset + 1] << 16) | (mac[offset + 2] << 8) | mac[offset + 3];
+  return (code % Math.pow(10, digits)).toString().padStart(digits, "0");
+}
+
+/**
+ * DEMO-ONLY placeholder (NOT RFC 6238): kept for static layout previews.
+ * Disabled by default ([OATH_DEMO_ENABLED] = false).
+ */
+function generateMockTotp(epoch, salt) {
+  void epoch; void salt;
+  return "000000";
+}
+
+// Export for host unit tests (node --test); no-op in browsers.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { base32Decode, sha1Bytes, hmacSha1, totpRfc6238, generateMockTotp, OATH_DEMO_ENABLED };
 }
 
 function renderOathCards() {
@@ -458,7 +575,12 @@ function renderOathCards() {
   oathAccounts.forEach((acc, idx) => {
     const card = document.createElement("div");
     card.className = "oath-card glass";
-    const code = generateMockTotp(Math.floor(Date.now() / 1000), acc.secret);
+    let code = "------";
+    try {
+      code = totpRfc6238(acc.secret, Math.floor(Date.now() / 1000), acc.digits || 6, acc.period || 30);
+    } catch (e) {
+      code = "------";
+    }
 
     card.innerHTML = `
       <div class="oath-card-header">

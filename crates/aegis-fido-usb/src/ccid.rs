@@ -7,8 +7,18 @@
 //! PIV routing is wired through [`crate::piv::PivApplet`] owned by
 //! [`CcidTransport`]; SELECT PIV returns the shared `PIV_FCI` from `piv`
 //! (no inline duplicate).
-// TODO(Wave 2 E-B2/S-C1): zeroizar CommandApdu.data/ResponseApdu
-// (dados sensiveis em memoria; usar `zeroize` com `Zeroizing`/`Drop`).
+//! USB CCID (Smart Card / PC/SC) Protocol Transport & APDU Parser.
+//!
+//! Compliant with ISO 7816-4 and USB CCID Specification Rev 1.1.
+//! Supports OATH applet (standard OATH compatible layer) and FIDO U2F/CTAP applet routing.
+//! 100% Native Rust implementation.
+//!
+//! PIV routing is wired through [`crate::piv::PivApplet`] owned by
+//! [`CcidTransport`]; SELECT PIV returns the shared `PIV_FCI` from `piv`
+//! (no inline duplicate).
+//!
+//! Sensitive APDU buffers ([`CommandApdu::data`], [`ResponseApdu::data`])
+//! are zeroized on drop and via `clear_sensitive` (see `ccid_parse`).
 
 use crate::piv::{PivApplet, PivKeyBackend, PivRecordStore};
 use alloc::vec::Vec;

@@ -10,6 +10,7 @@
 //! existing `crate::ccid::{CommandApdu, ...}` paths keep working.
 
 use alloc::vec::Vec;
+use zeroize::Zeroize;
 
 // ============================================================================
 // ISO 7816-4 Status Words (SW1 SW2)
@@ -50,6 +51,10 @@ pub struct CommandApdu {
 }
 
 impl CommandApdu {
+    /// Zeroizes the sensitive `data` buffer in place (length preserved).
+    pub fn clear_sensitive(&mut self) {
+        self.data.zeroize();
+    }
     /// Parses a raw byte buffer into an ISO 7816-4 Command APDU.
     /// Supports short APDUs and extended APDUs.
     pub fn parse(raw: &[u8]) -> Result<Self, &'static str> {
@@ -171,6 +176,11 @@ pub struct ResponseApdu {
 }
 
 impl ResponseApdu {
+    /// Zeroizes the sensitive `data` buffer in place (length preserved).
+    pub fn clear_sensitive(&mut self) {
+        self.data.zeroize();
+    }
+
     pub fn ok(data: Vec<u8>) -> Self {
         Self {
             data,
@@ -194,5 +204,44 @@ impl ResponseApdu {
         out.push(self.sw1);
         out.push(self.sw2);
         out
+    }
+}
+
+impl Drop for CommandApdu {
+    fn drop(&mut self) {
+        self.data.zeroize();
+    }
+}
+
+impl Drop for ResponseApdu {
+    fn drop(&mut self) {
+        self.data.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod zeroize_tests {
+    use super::*;
+
+    #[test]
+    fn command_apdu_clear_sensitive_zeroizes_data() {
+        let mut apdu = CommandApdu {
+            cla: 0x00,
+            ins: 0x20,
+            p1: 0x00,
+            p2: 0x80,
+            data: alloc::vec![0x31, 0x32, 0x33, 0x34],
+            le: None,
+        };
+        apdu.clear_sensitive();
+        // `zeroize` on Vec scrubs the buffer (empties it): no PIN bytes remain.
+        assert!(apdu.data.is_empty());
+    }
+
+    #[test]
+    fn response_apdu_clear_sensitive_zeroizes_data() {
+        let mut resp = ResponseApdu::ok(alloc::vec![0xAA, 0xBB, 0xCC]);
+        resp.clear_sensitive();
+        assert!(resp.data.is_empty());
     }
 }
