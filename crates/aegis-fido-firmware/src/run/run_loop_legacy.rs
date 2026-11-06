@@ -197,6 +197,8 @@ pub fn run_authenticator() {
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
     // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
     let mut wallet_store = WalletStore::new();
+    // F6: preview pendente mediado pelo app (RAM, mesma sessão da carteira).
+    let mut wallet_pending = crate::wallet_approval::WalletPendingApproval::new();
     // DEV-only boot resilience (test-mode ONLY): single-attempt auto-recovery
     // from the on-device code cache on ErrorLocked; release keeps the plain
     // load (fail-closed, no auto path). No eFuse operation on either path.
@@ -870,6 +872,7 @@ pub fn run_authenticator() {
                             &mut storage,
                             &mut rescue_engine,
                             &mut wallet_store,
+                            &mut wallet_pending,
                             bonded,
                             now_ms,
                             &mut fw_log,
@@ -2139,25 +2142,45 @@ pub fn run_authenticator() {
                                                         (crate::UNSUPPORTED_FEATURE, Vec::new())
                                                     }
                                                 } else if is_wallet_op(op) {
-                                                    // Carteira (GEN/LIST/ADDR/PSBT): ponto único
+                                                    // Carteira (GEN/LIST/ADDR/PENDING/PSBT): ponto único
                                                     // `wallet_sign::wallet_dispatch` (gate pairing+UP
                                                     // já passou acima; PSBT exige ainda o recibo de
-                                                    // aprovação mediada pelo app; dieta 0x06).
+                                                    // aprovação mediada pelo app + PIN — F6
+                                                    // binding -> UP -> PIN, nega 0x02 fail-closed sem
+                                                    // sessão viva; preview 0x4B não autentica;
+                                                    // dieta 0x06).
                                                     #[cfg(not(any(
                                                         feature = "cap-fido-only",
                                                         feature = "cap-fido-totp"
                                                     )))]
                                                     {
+                                                        let pin_effective = ctap_engine
+                                                            .pin_state
+                                                            .has_valid_pin_uv_session()
+                                                            || (cfg!(feature = "test-mode")
+                                                                && (pairing_mgr
+                                                                    .is_pairing_window_open(
+                                                                        now_ms,
+                                                                    )
+                                                                    || touch_latched));
                                                         let mut rng =
                                                             rand_core::UnwrapErr(getrandom::SysRng);
-                                                        crate::wallet_sign::wallet_dispatch(
-                                                            &mut wallet_store,
-                                                            op,
-                                                            &msg.payload[1..],
-                                                            now_secs,
-                                                            true,
-                                                            &mut rng,
-                                                        )
+                                                        if op == crate::ble_gatt::OP_WALLET_PSBT
+                                                            && !pin_effective
+                                                        {
+                                                            (0x02, Vec::new())
+                                                        } else {
+                                                            crate::wallet_sign::wallet_dispatch(
+                                                                &mut wallet_store,
+                                                                &mut wallet_pending,
+                                                                op,
+                                                                &msg.payload[1..],
+                                                                now_secs,
+                                                                true,
+                                                                pin_effective,
+                                                                &mut rng,
+                                                            )
+                                                        }
                                                     }
                                                     #[cfg(any(
                                                         feature = "cap-fido-only",

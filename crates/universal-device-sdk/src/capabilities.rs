@@ -51,6 +51,10 @@ impl CapabilitySet {
     /// Wallet PSBT signing compat (F1 opcode reservation `0x4A`; feature
     /// `hardwallet`; execution lands in F4 with app-mediated approval).
     pub const WALLET_PSBT: Self = Self { bits: 1 << 17 };
+    /// Wallet pending-preview compat (F6 opcode reservation `0x4B`;
+    /// feature `hardwallet`; the firmware exposes the preview the app
+    /// displays before it decides approve/deny).
+    pub const WALLET_PENDING: Self = Self { bits: 1 << 18 };
 
     /// Raw bits (for logging/metadata only).
     pub const fn bits(self) -> u32 {
@@ -86,10 +90,11 @@ pub const fn capabilities() -> CapabilitySet {
     if cfg!(feature = "hardwallet") {
         bits |= CapabilitySet::HARDWALLET.bits();
         // F1 wallet-compat reservation: same family gate, additive bits that
-        // never renumber the frozen set below.
+        // never renumber the frozen set below. F6 appends the preview bit.
         bits |= CapabilitySet::WALLET_DERIVE.bits();
         bits |= CapabilitySet::WALLET_XPUB.bits();
         bits |= CapabilitySet::WALLET_PSBT.bits();
+        bits |= CapabilitySet::WALLET_PENDING.bits();
     }
     if cfg!(feature = "secmon") {
         bits |= CapabilitySet::SECMON.bits();
@@ -160,6 +165,10 @@ mod tests {
             cfg!(feature = "hardwallet")
         );
         assert_eq!(
+            caps.contains(CapabilitySet::WALLET_PENDING),
+            cfg!(feature = "hardwallet")
+        );
+        assert_eq!(
             caps.contains(CapabilitySet::SECMON),
             cfg!(feature = "secmon")
         );
@@ -193,10 +202,11 @@ mod tests {
     #[test]
     fn wallet_compat_bits_frozen_additive_follow_hardwallet() {
         use crate::capabilities::CapabilitySet as C;
-        // F1 values are frozen once allocated: first free bits after POLICY.
+        // F1/F6 values are frozen once allocated: first free bits after POLICY.
         assert_eq!(C::WALLET_DERIVE.bits(), 1 << 15);
         assert_eq!(C::WALLET_XPUB.bits(), 1 << 16);
         assert_eq!(C::WALLET_PSBT.bits(), 1 << 17);
+        assert_eq!(C::WALLET_PENDING.bits(), 1 << 18);
         // Additive-only: fresh flags are single distinct bits that never
         // overlap the frozen set and never clear an old flag.
         let old_mask = C::FIDO
@@ -215,7 +225,12 @@ mod tests {
             .union(C::AUDIT)
             .union(C::POLICY);
         let mut seen = 0u32;
-        for cap in [C::WALLET_DERIVE, C::WALLET_XPUB, C::WALLET_PSBT] {
+        for cap in [
+            C::WALLET_DERIVE,
+            C::WALLET_XPUB,
+            C::WALLET_PSBT,
+            C::WALLET_PENDING,
+        ] {
             assert_eq!(cap.bits() & (cap.bits() - 1), 0);
             assert_eq!(cap.bits() & old_mask.bits(), 0);
             assert_eq!(cap.bits() & seen, 0);

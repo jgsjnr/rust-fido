@@ -903,4 +903,9 @@
     <string name="approval_toggle_desc">Signal when an approval waits in the app. The signal carries no details.</string>
     <string name="approval_on_hint">Signals on. Open the app to approve with fingerprint.</string>
     <string name="approval_off_hint">Signals off. Approvals still wait in the app.</string>
+    <!-- F6 wallet approval details (in-app only; the signal carries no details) -->
+    <string name="wallet_approval_title">Confirm hardware wallet signature</string>
+    <string name="wallet_approval_tx_hash">Transaction hash</string>
+    <string name="wallet_approval_counts">Inputs / outputs</string>
+    <string name="wallet_approval_biometric_hint">Approve with fingerprint to send the approval.</string>
 </resources>

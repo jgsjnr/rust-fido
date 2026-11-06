@@ -4,8 +4,9 @@
 use super::gatt_core::{
     BleGattError, BIND_MGMT_OP_MAX, BIND_MGMT_OP_MIN, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE,
     OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT,
-    OP_PIV_ENROLL, OP_WALLET_PSBT, SECURE_GUARD_OP_MAX, SECURE_GUARD_OP_MIN, VENDOR_OP_MAX,
-    VENDOR_OP_MIN, WALLET_COMPAT_OP_MAX, WALLET_COMPAT_OP_MIN, WALLET_OP_MAX, WALLET_OP_MIN,
+    OP_PIV_ENROLL, OP_WALLET_PENDING, OP_WALLET_PSBT, SECURE_GUARD_OP_MAX, SECURE_GUARD_OP_MIN,
+    VENDOR_OP_MAX, VENDOR_OP_MIN, WALLET_COMPAT_OP_MAX, WALLET_COMPAT_OP_MIN, WALLET_OP_MAX,
+    WALLET_OP_MIN,
 };
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
@@ -41,13 +42,14 @@ pub fn is_vendor_keys_oath_op(op: u8) -> bool {
 }
 
 /// Retorna true para opcodes wallet Fase7 0x35-0x37 (congelados) mais a
-/// reserva de compatibilidade F1 0x48-0x4A (DERIVE/XPUB/PSBT, sem execucao
-/// ate F2-F4; funis respondem fail-closed).
+/// reserva de compatibilidade F1/F6 0x48-0x4B (DERIVE/XPUB/PSBT/PENDING,
+/// sem execucao de custodia fora do executor dedicado; funis respondem
+/// fail-closed).
 pub fn is_wallet_op(op: u8) -> bool {
     (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&op) || is_wallet_compat_op(op)
 }
 
-/// Retorna true para a reserva de compatibilidade wallet F1 0x48-0x4A.
+/// Retorna true para a reserva de compatibilidade wallet F1/F6 0x48-0x4B.
 ///
 /// Primeiros bytes livres apos o PM `0x43`-`0x47`; nunca colidem com vendor
 /// `0x20`-`0x27`, OTA `0x30`-`0x34`, `0x2E`/`0x2F`/`0x38`/`0x39`, Secure
@@ -61,10 +63,17 @@ pub fn is_wallet_compat_op(op: u8) -> bool {
 ///
 /// Somente PSBT: o app companheiro exibe os detalhes e retorna
 /// approve/deny; o firmware so assina apos a aprovacao mais os gates
-/// canonicos (binding -> UP). Sem dependencia de display na placa (decisao
-/// do dono). Derivacao e exportacao de xpub nunca exigem.
+/// canonicos (binding -> UP -> PIN). O preview `0x4B` nunca exige
+/// aprovacao (ele e o display que a precede). Sem dependencia de display
+/// na placa (decisao do dono). Derivacao e exportacao de xpub nunca exigem.
 pub fn wallet_op_requires_app_approval(op: u8) -> bool {
     op == OP_WALLET_PSBT
+}
+
+/// `true` quando o op wallet expoe preview sem autenticar (display que
+/// precede a decisao approve/deny; gate binding -> UP, sem PIN).
+pub fn wallet_op_is_approval_preview(op: u8) -> bool {
+    op == OP_WALLET_PENDING
 }
 
 /// Retorna true para opcodes Secure Guard 0x3A-0x3E.
@@ -125,12 +134,14 @@ pub fn authorize_vendor_op(
 
 /// Gate normativo carteira Fase7 (R-07): binding valido + UP.
 ///
-/// GEN/LIST/ADDR nao expoem import/delete (sem PIN nesta faixa); a ordem
-/// canonica binding -> UP e a mesma de vendor. A reserva F1 (`0x48`-`0x4A`)
-/// usa o mesmo gate: DERIVE/XPUB como GEN/LIST/ADDR; PSBT exige ainda a
-/// aprovacao mediada pelo app em F4 (ver `wallet_op_requires_app_approval`;
-/// sem o recibo `approve` o executor responde `0x04` fail-closed antes de
-/// qualquer toque em chave). DERIVE/XPUB seguem `0x04` (execucao no core).
+/// GEN/LIST/ADDR/PENDING nao expoem import/delete (sem PIN nesta faixa,
+/// exceto o sign `0x4A` que tem gate proprio); a ordem canonica
+/// binding -> UP e a mesma de vendor. A reserva F1 (`0x48`-`0x4A`) mais o
+/// preview F6 (`0x4B`) usa o mesmo gate: DERIVE/XPUB/PENDING como
+/// GEN/LIST/ADDR; PSBT exige ainda a aprovacao mediada pelo app em F4
+/// (ver `wallet_op_requires_app_approval`; sem o recibo `approve` o
+/// executor responde `0x04` fail-closed antes de qualquer toque em chave)
+/// mais o gate de assinatura F6. DERIVE/XPUB seguem `0x04` (execucao no core).
 pub fn authorize_wallet_op(
     op: u8,
     binding_ok: bool,
@@ -146,6 +157,37 @@ pub fn authorize_wallet_op(
     }
     if !presence_confirmed {
         return Err(BleGattError::PresenceRequired);
+    }
+    Ok(())
+}
+
+/// Gate normativo da assinatura wallet F6 (PSBT `0x4A`): binding -> UP -> PIN.
+///
+/// Recusa qualquer op que nao seja `0x4A` (`InvalidOpcode`); o preview
+/// `0x4B` e as demais ops usam [`authorize_wallet_op`]. A ordem canonica
+/// e fail-closed: sem vinculo `NeedBinding` (app alheio ve `0x05`), sem UP
+/// `PresenceRequired` (`0x01`), sem sessao PIN viva `PinRequired` (`0x02`).
+/// O recibo de aprovacao e o preview intego sao checados no executor
+/// ([`crate::wallet_sign::wallet_sign_psbt`]), depois destes gates.
+pub fn authorize_wallet_sign_op(
+    op: u8,
+    binding_ok: bool,
+    presence_confirmed: bool,
+    pin_authenticated: bool,
+) -> Result<(), BleGattError> {
+    if op != OP_WALLET_PSBT {
+        return Err(BleGattError::InvalidOpcode);
+    }
+    if crate::binding::binding_bypass_enabled() {
+        crate::ltrace!(LtCat::Transport, LtEvt::TpOpen, "binding-bypass");
+    } else if !binding_ok {
+        return Err(BleGattError::NeedBinding);
+    }
+    if !presence_confirmed {
+        return Err(BleGattError::PresenceRequired);
+    }
+    if !pin_authenticated {
+        return Err(BleGattError::PinRequired);
     }
     Ok(())
 }

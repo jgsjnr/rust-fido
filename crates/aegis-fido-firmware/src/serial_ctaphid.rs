@@ -693,9 +693,12 @@ mod tests {
         assert_eq!(dispatch_serial_wallet(0x35, true, false).0, 0x01);
         assert_eq!(dispatch_serial_wallet(0x36, true, false).0, 0x01);
         // PSBT (0x4A) passa pelos mesmos gates canonicos binding -> UP
-        // (a aprovacao mediada pelo app vive no funil executor, que tem
-        // payload; este helper status-only nunca assina por construcao).
+        // (a aprovacao mediada pelo app + PIN vivem no funil executor, que
+        // tem payload; este helper status-only nunca assina por construcao).
         assert_eq!(dispatch_serial_wallet(0x4A, true, false).0, 0x01);
+        // PENDING (0x4B) expoe o preview com o mesmo gate binding -> UP.
+        assert_eq!(dispatch_serial_wallet(0x4B, true, false).0, 0x01);
+        assert_eq!(dispatch_serial_wallet(0x4B, true, true).0, 0x04);
         // Sem binding: release nega NEED_BINDING; test-mode faz bypass.
         let (st, _) = dispatch_serial_wallet(0x37, false, true);
         if crate::binding::binding_bypass_enabled() {

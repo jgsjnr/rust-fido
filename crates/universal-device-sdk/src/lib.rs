@@ -47,6 +47,8 @@ pub mod shamir;
 mod status;
 #[cfg(feature = "test-mode")]
 pub mod test_hooks;
+#[cfg(feature = "hardwallet")]
+pub mod wallet_approval;
 
 pub use auth::AuthContext;
 pub use capabilities::{capabilities, CapabilitySet};
@@ -88,11 +90,11 @@ pub use providers::{
 };
 pub use request::{
     is_wallet_compat_opcode, is_wallet_family_opcode, is_wallet_opcode,
-    wallet_op_requires_app_approval, AuditRequest, BackupRequest, BindingOp, BindingRequest,
-    FidoRequest, OathRequest, OtaRequest, OtpRequest, PivRequest, PolicyRequest, ProximityRequest,
-    RescueRequest, SdkRequest, SystemOp, SystemRequest, VendorRequest, WalletRequest,
-    WalletSignRequest, WALLET_OP_ADDR, WALLET_OP_DERIVE, WALLET_OP_GEN, WALLET_OP_LIST,
-    WALLET_OP_PSBT, WALLET_OP_XPUB,
+    wallet_op_is_approval_preview, wallet_op_requires_app_approval, AuditRequest, BackupRequest,
+    BindingOp, BindingRequest, FidoRequest, OathRequest, OtaRequest, OtpRequest, PivRequest,
+    PolicyRequest, ProximityRequest, RescueRequest, SdkRequest, SystemOp, SystemRequest,
+    VendorRequest, WalletRequest, WalletSignRequest, WALLET_OP_ADDR, WALLET_OP_DERIVE,
+    WALLET_OP_GEN, WALLET_OP_LIST, WALLET_OP_PENDING, WALLET_OP_PSBT, WALLET_OP_XPUB,
 };
 pub use response::SdkResponse;
 #[cfg(feature = "secmon")]
@@ -134,3 +136,8 @@ pub use status::{
 };
 #[cfg(feature = "test-mode")]
 pub use test_hooks::TestHookId;
+#[cfg(feature = "hardwallet")]
+pub use wallet_approval::{
+    decode_pending_summary, encode_pending_query, encode_sign_payload, receipt_for,
+    ApprovalDecision, PendingWalletTx, APPROVAL_RECEIPT_APPROVE, APPROVAL_RECEIPT_DENY,
+};

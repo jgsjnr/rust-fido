@@ -110,15 +110,16 @@ pub fn dispatch_serial_pm_persist<
     crate::pm_dispatch::dispatch_pm_op_persist(op, body, &gate, storage, policy, now_secs, rng)
 }
 
-/// Dispatches one wallet op (`0x35`-`0x37` + compat `0x48`-`0x4A`) with
+/// Dispatches one wallet op (`0x35`-`0x37` + compat `0x48`-`0x4B`) with
 /// the exact BLE gates.
 ///
 /// Returns `(wire_status, body)`; gate pass answers `0x04` (status-only
 /// helper: the executing funnels — serial legado, FreeRTOS, BLE — run
 /// the real executor via `wallet_sign::wallet_dispatch`; PSBT `0x4A`
-/// additionally requires the app-mediated approval receipt there, so
-/// this helper can never sign by construction). Denial maps via
-/// `to_vendor_status` (binding -> `0x05`, UP -> `0x01`).
+/// additionally requires the app-mediated approval receipt + PIN there,
+/// and PENDING `0x4B` exposes the preview, so this helper can never
+/// sign by construction). Denial maps via `to_vendor_status`
+/// (binding -> `0x05`, UP -> `0x01`).
 pub fn dispatch_serial_wallet(op: u8, binding_ok: bool, up: bool) -> (u8, Vec<u8>) {
     match authorize_wallet_op(op, binding_ok, up) {
         Ok(()) => (0x04, Vec::new()),

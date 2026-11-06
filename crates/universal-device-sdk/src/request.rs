@@ -37,23 +37,34 @@ pub const WALLET_OP_XPUB: u8 = 0x49;
 /// Same free-range guarantees as [`WALLET_OP_DERIVE`]; execution lands in
 /// F4 and additionally requires explicit app-mediated approval (details
 /// shown in the companion app, approve/deny, firmware signs only after
-/// approval plus the canonical binding -> UP gates). Owner decision: no
-/// on-device display dependency.
+/// approval plus the canonical binding -> UP -> PIN gates). Owner decision:
+/// no on-device display dependency.
 pub const WALLET_OP_PSBT: u8 = 0x4A;
+/// Wallet-compat opcode: pending-transaction preview (F6, headless board).
+///
+/// First free byte after [`WALLET_OP_PSBT`]; same free-range guarantees.
+/// The firmware returns the `[slot, tx_hash, counts]` preview for the app
+/// to display before it decides approve/deny (display precedes
+/// authentication: gate binding -> UP, no PIN). Execution is the preview
+/// exposure for app-mediated approval; signing stays on [`WALLET_OP_PSBT`].
+pub const WALLET_OP_PENDING: u8 = 0x4B;
 
 /// `true` for the frozen wallet range `0x35`-`0x37` (GEN/LIST/ADDR).
 pub const fn is_wallet_opcode(op: u8) -> bool {
     matches!(op, WALLET_OP_GEN | WALLET_OP_LIST | WALLET_OP_ADDR)
 }
 
-/// `true` for the F1 wallet-compat reservation `0x48`-`0x4A`
-/// (DERIVE/XPUB/PSBT; no execution until F2-F4).
+/// `true` for the F1/F6 wallet-compat reservation `0x48`-`0x4B`
+/// (DERIVE/XPUB/PSBT/PENDING; execution lands per-opcode F2-F6).
 pub const fn is_wallet_compat_opcode(op: u8) -> bool {
-    matches!(op, WALLET_OP_DERIVE | WALLET_OP_XPUB | WALLET_OP_PSBT)
+    matches!(
+        op,
+        WALLET_OP_DERIVE | WALLET_OP_XPUB | WALLET_OP_PSBT | WALLET_OP_PENDING
+    )
 }
 
-/// `true` for any wallet-family opcode (frozen `0x35`-`0x37` plus the F1
-/// reservation `0x48`-`0x4A`).
+/// `true` for any wallet-family opcode (frozen `0x35`-`0x37` plus the
+/// F1/F6 reservation `0x48`-`0x4B`).
 pub const fn is_wallet_family_opcode(op: u8) -> bool {
     is_wallet_opcode(op) || is_wallet_compat_opcode(op)
 }
@@ -63,9 +74,17 @@ pub const fn is_wallet_family_opcode(op: u8) -> bool {
 ///
 /// Only PSBT signing needs it: the companion app shows the details and
 /// returns approve/deny, and the firmware signs only after approval plus
-/// the canonical gates. Derivation and xpub export never need it.
+/// the canonical gates. The preview opcode is the display that precedes
+/// the decision: it never needs approval. Derivation and xpub export never
+/// need it.
 pub const fn wallet_op_requires_app_approval(op: u8) -> bool {
     op == WALLET_OP_PSBT
+}
+
+/// `true` when a wallet opcode exposes the approval preview without
+/// authenticating (F6: display precedes the approve/deny decision).
+pub const fn wallet_op_is_approval_preview(op: u8) -> bool {
+    op == WALLET_OP_PENDING
 }
 
 /// FIDO request (CTAP payload carried opaquely; engine lives in firmware).
@@ -311,8 +330,8 @@ mod tests {
         AuditRequest, BackupRequest, BindingOp, BindingRequest, FidoRequest, OathRequest,
         OtaRequest, OtpRequest, PivRequest, PolicyRequest, ProximityRequest, RescueRequest,
         SdkRequest, SystemOp, SystemRequest, VendorRequest, WalletRequest, WalletSignRequest,
-        WALLET_OP_ADDR, WALLET_OP_DERIVE, WALLET_OP_GEN, WALLET_OP_LIST, WALLET_OP_PSBT,
-        WALLET_OP_XPUB,
+        WALLET_OP_ADDR, WALLET_OP_DERIVE, WALLET_OP_GEN, WALLET_OP_LIST, WALLET_OP_PENDING,
+        WALLET_OP_PSBT, WALLET_OP_XPUB,
     };
     use alloc::vec::Vec;
 
@@ -341,13 +360,24 @@ mod tests {
     #[test]
     fn wallet_compat_opcodes_reserved_first_free_after_pm() {
         // F1 reservation: first free bytes after the PM range `0x43`-`0x47`;
+        // F6 appends the headless-board preview to the same range.
         // never `0x20`-`0x27`, never `0x30`-`0x34`, never
         // `0x2E`/`0x2F`/`0x38`/`0x39`.
         assert_eq!(
-            (WALLET_OP_DERIVE, WALLET_OP_XPUB, WALLET_OP_PSBT),
-            (0x48, 0x49, 0x4A)
+            (
+                WALLET_OP_DERIVE,
+                WALLET_OP_XPUB,
+                WALLET_OP_PSBT,
+                WALLET_OP_PENDING
+            ),
+            (0x48, 0x49, 0x4A, 0x4B)
         );
-        for op in [WALLET_OP_DERIVE, WALLET_OP_XPUB, WALLET_OP_PSBT] {
+        for op in [
+            WALLET_OP_DERIVE,
+            WALLET_OP_XPUB,
+            WALLET_OP_PSBT,
+            WALLET_OP_PENDING,
+        ] {
             assert!(crate::request::is_wallet_compat_opcode(op));
             assert!(crate::request::is_wallet_family_opcode(op));
             assert!(!crate::request::is_wallet_opcode(op));
@@ -366,7 +396,7 @@ mod tests {
         // Occupied neighbors are never wallet-family (frozen or reserved).
         for op in [
             0x00u8, 0x20, 0x27, 0x28, 0x2D, 0x2E, 0x2F, 0x30, 0x34, 0x38, 0x39, 0x3A, 0x3E, 0x3F,
-            0x40, 0x41, 0x42, 0x43, 0x47, 0x4B, 0x81, 0x83,
+            0x40, 0x41, 0x42, 0x43, 0x47, 0x4C, 0x81, 0x83,
         ] {
             assert!(!is_wallet_opcode(op), "op 0x{op:02X}");
             assert!(!is_wallet_compat_opcode(op), "op 0x{op:02X}");
@@ -376,19 +406,25 @@ mod tests {
 
     #[test]
     fn only_psbt_requires_app_mediated_approval() {
-        use crate::request::wallet_op_requires_app_approval;
+        use crate::request::{wallet_op_is_approval_preview, wallet_op_requires_app_approval};
         assert!(wallet_op_requires_app_approval(WALLET_OP_PSBT));
+        assert!(!wallet_op_is_approval_preview(WALLET_OP_PSBT));
+        // The preview opcode is the display that precedes the decision:
+        // it never needs approval itself.
+        assert!(wallet_op_is_approval_preview(WALLET_OP_PENDING));
         for op in [
             WALLET_OP_GEN,
             WALLET_OP_LIST,
             WALLET_OP_ADDR,
             WALLET_OP_DERIVE,
             WALLET_OP_XPUB,
+            WALLET_OP_PENDING,
         ] {
             assert!(!wallet_op_requires_app_approval(op), "op 0x{op:02X}");
         }
         assert!(!wallet_op_requires_app_approval(0x00));
         assert!(!wallet_op_requires_app_approval(0x41));
+        assert!(!wallet_op_is_approval_preview(WALLET_OP_GEN));
     }
 
     #[test]

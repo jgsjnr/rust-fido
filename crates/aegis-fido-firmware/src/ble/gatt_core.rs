@@ -111,9 +111,10 @@ pub const OTA_OP_MAX: u8 = 0x34;
 
 /// `true` para opcodes que abrem transacao no reassembler: CTAP-BLE
 /// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D`, OTA `0x30-0x34`,
-/// carteira `0x35-0x37` + compat `0x48-0x4A` (F4: o funil BLE executa
-/// GEN/LIST/ADDR/PSBT via `wallet_exec::wallet_dispatch` com os gates
-/// canonicos; PSBT exige ainda o recibo de aprovacao mediada pelo app),
+/// carteira `0x35-0x37` + compat `0x48-0x4B` (F4/F6: o funil BLE executa
+/// GEN/LIST/ADDR/PENDING/PSBT via `wallet_exec::wallet_dispatch` com os
+/// gates canonicos; PSBT exige ainda o recibo de aprovacao mediada pelo
+/// app mais PIN),
 /// GET_CAPS `0x3F` (advertisement read-only, sem auth) e SET_UP_POLICY
 /// `0x40` (management gated: binding + sessao PIN viva, sem latch UP) e
 /// VENDOR_SIGN `0x41` (SIGN dedicado, classe GEN: binding + UP, sem PIN) e
@@ -163,17 +164,20 @@ pub fn is_pm_fragment_opcode(op: u8) -> bool {
 /// FW-LOG (log da firmware em ASCII, sem PII -- ver `fw_log`).
 /// GATT/revisao/framing intactos; executor on-device via
 /// `wallet_exec::wallet_dispatch` (gates binding -> UP; PSBT exige ainda
-/// o recibo de aprovacao mediada pelo app).
+/// o recibo de aprovacao mediada pelo app mais PIN).
 ///
-/// Compatibilidade F1 (reserva, execucao parcial em F2-F4): `0x48` DERIVE
-/// (derivacao hierarquica, sem execucao no fio), `0x49` XPUB (exportacao
-/// de chave publica estendida, sem execucao no fio), `0x4A` PSBT
-/// (envelope de assinatura; com aprovacao mediada pelo app em F4 --
-/// sem dependencia de display na placa, por decisao do dono: o app exibe
-/// os detalhes e retorna approve/deny, e o firmware so assina apos a
-/// aprovacao mais binding -> UP). Faixa `0x35`-`0x37` congelada;
-/// `0x48`-`0x4A` sao os primeiros bytes livres apos o PM `0x43`-`0x47`
-/// (nunca `0x20`-`0x27`, `0x30`-`0x34`, `0x2E`/`0x2F`/`0x38`/`0x39`).
+/// Compatibilidade F1 (reserva, execucao parcial em F2-F4) + F6 preview:
+/// `0x48` DERIVE (derivacao hierarquica, sem execucao no fio), `0x49`
+/// XPUB (exportacao de chave publica estendida, sem execucao no fio),
+/// `0x4A` PSBT (envelope de assinatura; com aprovacao mediada pelo app
+/// em F4 -- sem dependencia de display na placa, por decisao do dono: o
+/// app exibe os detalhes e retorna approve/deny, e o firmware so assina
+/// apos a aprovacao mais binding -> UP -> PIN), `0x4B` PENDING (F6:
+/// expoe o preview `[slot, tx_hash, counts]` para o app exibir antes de
+/// decidir; display precede autenticacao, sem PIN). Faixa `0x35`-`0x37`
+/// congelada; `0x48`-`0x4B` sao os primeiros bytes livres apos o PM
+/// `0x43`-`0x47` (nunca `0x20`-`0x27`, `0x30`-`0x34`, `0x2E`/`0x2F`/`0x38`
+/// /`0x39`).
 pub const OP_WALLET_GEN: u8 = 0x35;
 pub const OP_WALLET_LIST: u8 = 0x36;
 pub const OP_WALLET_ADDR: u8 = 0x37;
@@ -189,9 +193,13 @@ pub const OP_WALLET_XPUB: u8 = 0x49;
 /// `wallet_exec::wallet_dispatch` com aprovacao mediada pelo app:
 /// sem recibo `approve` nao ha assinatura).
 pub const OP_WALLET_PSBT: u8 = 0x4A;
-/// Limites da faixa de compatibilidade wallet F1 (reservada).
+/// F6: preview da transacao pendente (firmware expoe `[slot, tx_hash,
+/// counts]` para o app exibir antes de decidir approve/deny; display
+/// precede autenticacao, entao o gate e binding -> UP, sem PIN).
+pub const OP_WALLET_PENDING: u8 = 0x4B;
+/// Limites da faixa de compatibilidade wallet F1/F6 (reservada).
 pub const WALLET_COMPAT_OP_MIN: u8 = OP_WALLET_DERIVE;
-pub const WALLET_COMPAT_OP_MAX: u8 = OP_WALLET_PSBT;
+pub const WALLET_COMPAT_OP_MAX: u8 = OP_WALLET_PENDING;
 
 /// Opcodes Secure Guard (0x3A..0x3E).
 pub const OP_SECURE_GUARD_STATUS: u8 = 0x3A;

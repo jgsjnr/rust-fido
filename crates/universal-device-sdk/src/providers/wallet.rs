@@ -8,12 +8,13 @@ use crate::response::SdkResponse;
 ///
 /// Derivation/signing run in firmware (RAM-only). Both typed families share
 /// this provider because both sit behind the same `require_hardwallet` gate
-/// (see `SdkRequest::check_compiled`). The F1 compat opcodes (`0x48` DERIVE,
-/// `0x49` XPUB, `0x4A` PSBT) ride this same gate: no new provider, no new
-/// error variant. PSBT signing additionally requires explicit app-mediated
-/// approval (companion app shows the details and returns approve/deny;
-/// firmware signs only after approval plus binding -> UP); no on-device
-/// display dependency (owner decision, executed in F4/F6/F7).
+/// (see `SdkRequest::check_compiled`). The F1/F6 compat opcodes (`0x48`
+/// DERIVE, `0x49` XPUB, `0x4A` PSBT, `0x4B` PENDING) ride this same gate: no
+/// new provider, no new error variant. PSBT signing additionally requires
+/// explicit app-mediated approval (companion app shows the details and
+/// returns approve/deny, receipt sent only after the in-app biometric;
+/// firmware signs only after approval plus binding -> UP -> PIN); no
+/// on-device display dependency (owner decision, executed in F4/F6/F7).
 pub trait WalletProvider {
     /// Execute one wallet request.
     fn execute(request: WalletRequest) -> Result<SdkResponse, SdkError>;

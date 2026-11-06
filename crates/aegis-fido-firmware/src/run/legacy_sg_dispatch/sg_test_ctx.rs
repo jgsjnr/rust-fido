@@ -75,6 +75,7 @@ pub(crate) fn freertos_ctx(
             &[0x22; 32],
         )),
         wallet: leak(WalletStore::new()),
+        pending: crate::wallet_approval::WalletPendingApproval::new(),
         key_mgr: leak(KeyManager::new()),
         oath: leak(OathApplet::new()),
         fwlog: leak(FwLog::new()),

@@ -7,6 +7,7 @@
 //! Contract (R15/R16): move-only de `run.rs`; fio byte-a-byte; tempo via
 //! args; sem segredo em log; `kprintln!` herdado de `super` (run).
 use crate::persistence::{PlatformFlashBackend, SecureStorage};
+use crate::wallet_approval::WalletPendingApproval;
 use aegis_fido_core::ctap::{CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL};
 use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::otp::rescue::{RescueEngine, RESCUE_TRANSPORT_OP};
@@ -31,6 +32,10 @@ pub(crate) fn ble_dispatch_complete(
     storage: &mut SecureStorage<PlatformFlashBackend>,
     rescue: &mut RescueEngine,
     wallet: &mut WalletStore,
+    // Diet builds (`cap-fido-only` / `cap-fido-totp`) answer `0x06` for the
+    // whole wallet family without touching session state; the holder only
+    // moves on full builds.
+    _pending: &mut WalletPendingApproval,
     bonded: bool,
     now_ms: u64,
     fwlog: &mut crate::fw_log::FwLog,
@@ -277,16 +282,26 @@ pub(crate) fn ble_dispatch_complete(
         o if g::is_pm_fragment_opcode(o) => ble::notify_frame(o, crate::UNSUPPORTED_FEATURE, &[]),
         #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
         o if g::is_wallet_op(o) => {
-            // Carteira (GEN/LIST/ADDR/PSBT): binding + UP já aprovados;
-            // ponto único `wallet_sign::wallet_dispatch` (PSBT exige
-            // ainda o recibo de aprovação mediada pelo app; dieta 0x06).
+            // Carteira (GEN/LIST/ADDR/PENDING/PSBT): binding + UP já aprovados
+            // no gate abaixo; ponto único `wallet_sign::wallet_dispatch`
+            // (PSBT exige ainda o recibo de aprovação mediada pelo app mais
+            // PIN — F6 binding -> UP -> PIN; preview 0x4B não autentica).
             use crate::wallet_sign as w;
             let effective_claimed = binding_mgr.is_claimed() || secure_guard.is_unlocked();
             let effective_up = up || secure_guard.is_unlocked();
-            match g::authorize_wallet_op(o, effective_claimed, effective_up) {
+            let pin_ok =
+                ctap_engine.pin_state.has_valid_pin_uv_session() || secure_guard.is_unlocked();
+            let gate = if o == g::OP_WALLET_PSBT {
+                g::authorize_wallet_sign_op(o, effective_claimed, effective_up, pin_ok)
+            } else {
+                g::authorize_wallet_op(o, effective_claimed, effective_up)
+            };
+            match gate {
                 Ok(()) => {
                     let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
-                    let (st, body) = w::wallet_dispatch(wallet, o, p, now_secs, true, &mut rng);
+                    let (st, body) = w::wallet_dispatch(
+                        wallet, _pending, o, p, now_secs, true, pin_ok, &mut rng,
+                    );
                     kprintln!(
                         "[BLE] op wallet 0x{:02X} executada (status 0x{:02X}).",
                         o,

@@ -903,4 +903,9 @@
     <string name="approval_toggle_desc">Avisa quando há aprovação no app. O aviso não traz detalhes.</string>
     <string name="approval_on_hint">Avisos ligados. Abra o app para aprovar com a digital.</string>
     <string name="approval_off_hint">Avisos desligados. Aprovações continuam no app.</string>
+    <!-- F6 wallet approval details (in-app only; the signal carries no details) -->
+    <string name="wallet_approval_title">Confirmar assinatura da hardware wallet</string>
+    <string name="wallet_approval_tx_hash">Hash da transação</string>
+    <string name="wallet_approval_counts">Entradas / saídas</string>
+    <string name="wallet_approval_biometric_hint">Aprove com a digital para enviar a aprovação.</string>
 </resources>

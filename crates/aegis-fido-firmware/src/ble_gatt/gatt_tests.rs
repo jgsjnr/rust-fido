@@ -117,16 +117,26 @@ fn wallet_gate_order_binding_then_up() {
 
 #[test]
 fn wallet_compat_reservation_first_free_after_pm() {
-    // F1: primeiros bytes livres apos o PM 0x43-0x47; nunca 0x20-0x27,
+    // F1/F6: primeiros bytes livres apos o PM 0x43-0x47; nunca 0x20-0x27,
     // nunca 0x30-0x34, nunca 0x2E/0x2F/0x38/0x39.
     assert_eq!(
-        (OP_WALLET_DERIVE, OP_WALLET_XPUB, OP_WALLET_PSBT),
-        (0x48, 0x49, 0x4A)
+        (
+            OP_WALLET_DERIVE,
+            OP_WALLET_XPUB,
+            OP_WALLET_PSBT,
+            OP_WALLET_PENDING
+        ),
+        (0x48, 0x49, 0x4A, 0x4B)
     );
-    assert_eq!((WALLET_COMPAT_OP_MIN, WALLET_COMPAT_OP_MAX), (0x48, 0x4A));
+    assert_eq!((WALLET_COMPAT_OP_MIN, WALLET_COMPAT_OP_MAX), (0x48, 0x4B));
     // Faixa congelada intacta.
     assert_eq!((WALLET_OP_MIN, WALLET_OP_MAX), (0x35, 0x37));
-    for op in [OP_WALLET_DERIVE, OP_WALLET_XPUB, OP_WALLET_PSBT] {
+    for op in [
+        OP_WALLET_DERIVE,
+        OP_WALLET_XPUB,
+        OP_WALLET_PSBT,
+        OP_WALLET_PENDING,
+    ] {
         assert!(is_wallet_compat_op(op));
         assert!(is_wallet_op(op));
         assert!(!is_vendor_keys_oath_op(op));
@@ -139,7 +149,7 @@ fn wallet_compat_reservation_first_free_after_pm() {
     }
     // Vizinhos ocupados nunca sao wallet.
     for op in [
-        0x20u8, 0x27, 0x28, 0x2D, 0x38, 0x39, 0x3A, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x47, 0x4B,
+        0x20u8, 0x27, 0x28, 0x2D, 0x38, 0x39, 0x3A, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x47, 0x4C,
         0x81, 0x83,
     ] {
         assert!(!is_wallet_op(op), "op 0x{op:02X}");
@@ -165,38 +175,95 @@ fn wallet_compat_gate_order_binding_then_up() {
         authorize_wallet_op(OP_WALLET_XPUB, true, false),
         Err(BleGattError::PresenceRequired)
     );
-    assert!(authorize_wallet_op(OP_WALLET_PSBT, true, true).is_ok());
+    assert!(authorize_wallet_op(OP_WALLET_PENDING, true, true).is_ok());
     assert_eq!(
         authorize_wallet_op(0x48 - 1, true, true),
         Err(BleGattError::InvalidOpcode)
     );
+    // Preview pede só binding -> UP (display precede autenticação).
+    assert_eq!(
+        authorize_wallet_op(OP_WALLET_PENDING, false, true),
+        if crate::binding::binding_bypass_enabled() {
+            Err(BleGattError::PresenceRequired)
+        } else {
+            Err(BleGattError::NeedBinding)
+        }
+    );
+}
+
+/// F6: o sign PSBT exige a cadeia completa binding -> UP -> PIN.
+#[test]
+fn wallet_sign_gate_order_binding_then_up_then_pin() {
+    // Ordem canônica: binding primeiro, depois UP, depois PIN.
+    if crate::binding::binding_bypass_enabled() {
+        assert_eq!(
+            authorize_wallet_sign_op(OP_WALLET_PSBT, false, false, false),
+            Err(BleGattError::PresenceRequired)
+        );
+    } else {
+        assert_eq!(
+            authorize_wallet_sign_op(OP_WALLET_PSBT, false, true, true),
+            Err(BleGattError::NeedBinding)
+        );
+    }
+    assert_eq!(
+        authorize_wallet_sign_op(OP_WALLET_PSBT, true, false, true),
+        Err(BleGattError::PresenceRequired)
+    );
+    assert_eq!(
+        authorize_wallet_sign_op(OP_WALLET_PSBT, true, true, false),
+        Err(BleGattError::PinRequired)
+    );
+    assert!(authorize_wallet_sign_op(OP_WALLET_PSBT, true, true, true).is_ok());
+    // Só o sign usa este gate: preview e vizinhos recusam como opcode inválido.
+    for op in [
+        OP_WALLET_PENDING,
+        OP_WALLET_GEN,
+        OP_WALLET_LIST,
+        OP_WALLET_ADDR,
+        OP_WALLET_DERIVE,
+        OP_WALLET_XPUB,
+        0x00,
+        0x4C,
+    ] {
+        assert_eq!(
+            authorize_wallet_sign_op(op, true, true, true),
+            Err(BleGattError::InvalidOpcode),
+            "op 0x{op:02X}"
+        );
+    }
 }
 
 #[test]
 fn only_psbt_requires_app_mediated_approval() {
     // Contrato F4/F6/F7 (F1 reserva o bit): o app exibe os detalhes e retorna
-    // approve/deny; o firmware so assina apos a aprovacao mais binding -> UP.
-    // Sem dependencia de display na placa (decisao do dono).
+    // approve/deny; o firmware so assina apos a aprovacao mais binding -> UP
+    // -> PIN. O preview 0x4B e o display que precede a decisao: nunca exige
+    // aprovacao. Sem dependencia de display na placa (decisao do dono).
     assert!(wallet_op_requires_app_approval(OP_WALLET_PSBT));
+    assert!(!wallet_op_is_approval_preview(OP_WALLET_PSBT));
+    assert!(wallet_op_is_approval_preview(OP_WALLET_PENDING));
     for op in [
         OP_WALLET_GEN,
         OP_WALLET_LIST,
         OP_WALLET_ADDR,
         OP_WALLET_DERIVE,
         OP_WALLET_XPUB,
+        OP_WALLET_PENDING,
     ] {
         assert!(!wallet_op_requires_app_approval(op), "op 0x{op:02X}");
     }
     assert!(!wallet_op_requires_app_approval(0x00));
     assert!(!wallet_op_requires_app_approval(0x41));
+    assert!(!wallet_op_is_approval_preview(OP_WALLET_GEN));
 }
 
 #[test]
 fn wallet_ops_open_fragment_transactions() {
-    // F4: a familia wallet (congelada 0x35-0x37 + compat 0x48-0x4A)
+    // F6: a familia wallet (congelada 0x35-0x37 + compat 0x48-0x4B)
     // abre transacao no reassembler para alcancar o funil BLE
     // (`ble_dispatch_complete` executa via `wallet_dispatch` com os
-    // gates canonicos; PSBT exige ainda o recibo de aprovacao).
+    // gates canonicos; PSBT exige ainda o recibo de aprovacao mais PIN).
     for op in [
         OP_WALLET_GEN,
         OP_WALLET_LIST,
@@ -204,6 +271,7 @@ fn wallet_ops_open_fragment_transactions() {
         OP_WALLET_DERIVE,
         OP_WALLET_XPUB,
         OP_WALLET_PSBT,
+        OP_WALLET_PENDING,
     ] {
         assert!(is_ble_fragment_opcode(op), "wallet op 0x{op:02X}");
         BleReassembler::new()
@@ -222,7 +290,7 @@ fn wallet_fragment_neighbors_still_rejected() {
     // Reservados e fora-de-faixa nunca abrem transacao (fail-closed);
     // outras familias (vendor/bind/OTA/caps/policy/sign/PM) tem seus
     // proprios testes de fragmento e seguem intactas.
-    for op in [0x00u8, 0x2E, 0x2F, 0x38, 0x39, 0x4B] {
+    for op in [0x00u8, 0x2E, 0x2F, 0x38, 0x39, 0x4C] {
         assert!(!is_ble_fragment_opcode(op), "op 0x{op:02X}");
         assert_eq!(
             BleReassembler::new().start_new(op, 1),

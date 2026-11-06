@@ -169,6 +169,11 @@ pub mod vault_aead;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod vault_store;
 pub mod vendor_exec;
+/// F6 app-mediated approval pending state (always compiled, like the core
+/// `WalletStore` session type): inert RAM holder with no wire execution of
+/// its own. Diet builds (`cap-fido-only` / `cap-fido-totp`) still answer
+/// `0x06` for every wallet opcode at the funnels without touching it.
+pub mod wallet_approval;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod wallet_exec;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]

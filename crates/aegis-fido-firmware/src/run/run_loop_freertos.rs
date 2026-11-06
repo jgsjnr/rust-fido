@@ -339,6 +339,8 @@ pub fn run_authenticator_freertos() {
     #[cfg(target_os = "espidf")]
     let mut wallet_store = WalletStore::new();
     #[cfg(target_os = "espidf")]
+    let mut wallet_pending = crate::wallet_approval::WalletPendingApproval::new();
+    #[cfg(target_os = "espidf")]
     let mut fw_log = crate::fw_log::FwLog::new();
     // OTA staged session (paridade secao C legada: intercept + build +
     // UP-consume em `dispatch_serial_vendor_msg`, mesma origem preservada).
@@ -876,6 +878,7 @@ pub fn run_authenticator_freertos() {
                             &mut storage,
                             &mut rescue_engine,
                             &mut wallet_store,
+                            &mut wallet_pending,
                             bonded,
                             freertos_now_ms,
                             &mut fw_log,
@@ -970,6 +973,7 @@ pub fn run_authenticator_freertos() {
                     binding: &mut binding_mgr,
                     storage: &mut storage,
                     wallet: &mut wallet_store,
+                    pending: crate::wallet_approval::WalletPendingApproval::new(),
                     key_mgr: &mut key_mgr,
                     oath: &mut oath_applet,
                     fwlog: &mut fw_log,

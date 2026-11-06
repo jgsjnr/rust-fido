@@ -106,6 +106,9 @@ pub struct SerialVendorCtx<'a> {
         &'a mut crate::persistence::SecureStorage<crate::persistence::PlatformFlashBackend>,
     /// Carteira Fase7 (sessão RAM).
     pub wallet: &'a mut aegis_fido_core::wallet::WalletStore,
+    /// Preview pendente F6 (RAM, mesma sessão da carteira; o executor
+    /// consome uso único no sign e nega tamper sem tocar em chave).
+    pub pending: crate::wallet_approval::WalletPendingApproval,
     /// Chaves vendor on-device (NVS persistente).
     pub key_mgr: &'a mut aegis_fido_core::credential::key_manager::KeyManager,
     /// Applet OATH.
@@ -239,6 +242,9 @@ pub fn dispatch_serial_vendor_msg(
         if st == 0x00 && op == crate::ble_gatt::OP_BIND_RELEASE {
             *ctx.key_mgr = aegis_fido_core::credential::key_manager::KeyManager::new();
             *ctx.wallet = aegis_fido_core::wallet::WalletStore::new();
+            // F6: o preview pendente morre com o vínculo (novo dono nunca
+            // herda um preview exibido ao dono anterior).
+            ctx.pending.clear();
             *ctx.oath = aegis_fido_core::oath::OathApplet::new();
             let _ = crate::vendor_exec::save_states(ctx.storage, ctx.key_mgr, ctx.oath);
             if let Some(ref mut sg) = ctx.secure_guard {
@@ -524,20 +530,28 @@ pub fn dispatch_serial_vendor_msg(
                         (crate::UNSUPPORTED_FEATURE, Vec::new())
                     }
                 } else if is_wallet_op(op) {
-                    // Carteira (GEN/LIST/ADDR/PSBT): ponto único
+                    // Carteira (GEN/LIST/ADDR/PENDING/PSBT): ponto único
                     // `wallet_sign::wallet_dispatch` (gates pairing+UP já
-                    // passaram acima; PSBT exige ainda o recibo de
-                    // aprovação mediada pelo app; dieta responde 0x06).
+                    // passaram acima; PSBT exige ainda recibo de aprovação
+                    // mediada pelo app + PIN — F6 binding -> UP -> PIN, nega
+                    // 0x02 fail-closed sem sessão viva; preview 0x4B não
+                    // autentica; dieta responde 0x06).
                     #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
                     {
-                        crate::wallet_sign::wallet_dispatch(
-                            ctx.wallet,
-                            op,
-                            &payload[1..],
-                            ctx.now_secs,
-                            true,
-                            &mut rng,
-                        )
+                        if op == crate::ble_gatt::OP_WALLET_PSBT && !pin_effective {
+                            (0x02, Vec::new())
+                        } else {
+                            crate::wallet_sign::wallet_dispatch(
+                                ctx.wallet,
+                                &mut ctx.pending,
+                                op,
+                                &payload[1..],
+                                ctx.now_secs,
+                                true,
+                                pin_effective,
+                                &mut rng,
+                            )
+                        }
                     }
                     #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
                     {
@@ -992,6 +1006,7 @@ mod tests {
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr: &mut key_mgr,
             oath: &mut oath,
             fwlog: &mut fwlog,
@@ -1066,6 +1081,7 @@ mod tests {
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr: &mut key_mgr,
             oath: &mut oath,
             fwlog: &mut fwlog,
@@ -1182,6 +1198,7 @@ mod tests {
                 binding,
                 storage: &mut storage,
                 wallet: &mut wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr: &mut key_mgr,
                 oath: &mut oath,
                 fwlog: &mut fwlog,
@@ -1356,6 +1373,7 @@ mod tests {
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr: &mut key_mgr,
             oath: &mut oath,
             fwlog: &mut fwlog,
@@ -1480,6 +1498,7 @@ mod tests {
                 &mut storage,
                 &mut rescue,
                 &mut wallet,
+                &mut crate::wallet_approval::WalletPendingApproval::new(),
                 false,
                 0,
                 &mut fwlog,
@@ -1613,6 +1632,7 @@ mod tests {
                 binding,
                 storage,
                 wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr,
                 oath,
                 fwlog,
@@ -1854,6 +1874,7 @@ mod tests {
                 storage,
                 &mut rescue,
                 &mut wallet,
+                &mut crate::wallet_approval::WalletPendingApproval::new(),
                 bonded,
                 11,
                 &mut fwlog,
@@ -2017,6 +2038,7 @@ mod tests {
                 binding,
                 storage,
                 wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr,
                 oath,
                 fwlog,
@@ -2241,6 +2263,7 @@ mod tests {
                 storage,
                 &mut rescue,
                 &mut wallet,
+                &mut crate::wallet_approval::WalletPendingApproval::new(),
                 bonded,
                 11,
                 &mut fwlog,
@@ -2360,6 +2383,7 @@ mod tests {
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr: &mut key_mgr,
             oath: &mut oath,
             fwlog: &mut fwlog,
@@ -2415,6 +2439,7 @@ mod tests {
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr: &mut key_mgr,
             oath: &mut oath,
             fwlog: &mut fwlog,
@@ -2596,6 +2621,7 @@ mod tests {
             binding: &mut binding,
             storage: &mut storage,
             wallet: &mut wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr: &mut key_mgr,
             oath: &mut oath,
             fwlog: &mut fwlog,
@@ -2631,12 +2657,13 @@ mod tests {
         assert_ne!(out.responses[0][7], 0x36); // Não foi barrado pelo Secure Guard!
     }
 
-    /// F4: `0x4A` PSBT assina no funil serial FreeRTOS com gates canonicos.
+    /// F6: `0x4A` PSBT assina no funil serial FreeRTOS com gates canonicos.
     ///
     /// - Janela fechada nega `0x05` sem consumir o latch.
     /// - Janela aberta + sem UP nega `0x01`.
-    /// - Janela aberta + UP + recibo `deny` nega `0x04` sem tocar em chave.
-    /// - Janela aberta + UP + recibo `approve` assina (`0x00` + `[slot, sig]`)
+    /// - Janela aberta + UP + sem PIN nega `0x02` (binding -> UP -> PIN).
+    /// - Janela aberta + UP + PIN + recibo `deny` nega `0x04` sem tocar em chave.
+    /// - Janela aberta + UP + PIN + recibo `approve` assina (`0x00` + `[slot, sig]`)
     ///   e a assinatura verifica off-device contra a pubkey do slot.
     #[test]
     fn psbt_funil_serial_executa_com_approval_e_gates_canonicos() {
@@ -2709,6 +2736,7 @@ mod tests {
             wallet: &mut WalletStore,
             pairing_open: bool,
             up_latched: bool,
+            pin_authenticated: bool,
             body: Vec<u8>,
         ) -> (u8, Vec<u8>, bool) {
             let backend = PlatformFlashBackend::new();
@@ -2728,12 +2756,13 @@ mod tests {
                 binding,
                 storage: &mut storage,
                 wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr: &mut key_mgr,
                 oath: &mut oath,
                 fwlog: &mut fwlog,
                 rescue: &mut rescue,
                 pairing: &mut pairing,
-                pin_uv_session: false,
+                pin_uv_session: pin_authenticated,
                 secure_guard: None,
                 verified_pin: None,
                 ota_state: None,
@@ -2762,6 +2791,7 @@ mod tests {
             &mut wallet,
             false,
             true,
+            true,
             sign_body(3, &psbt, b"approve"),
         );
         assert_eq!(st, 0x05);
@@ -2773,14 +2803,28 @@ mod tests {
             &mut wallet,
             true,
             false,
+            true,
             sign_body(3, &psbt, b"approve"),
         );
         assert_eq!(st, 0x01);
         assert!(!consumed);
-        // UP + recibo `deny`: 0x04, sem assinatura.
+        // Janela aberta + UP + sem PIN: 0x02 (binding -> UP -> PIN).
         let (st, resp, consumed) = dispatch_case(
             &mut binding,
             &mut wallet,
+            true,
+            true,
+            false,
+            sign_body(3, &psbt, b"approve"),
+        );
+        assert_eq!(st, 0x02);
+        assert!(resp.is_empty());
+        assert!(consumed);
+        // UP + PIN + recibo `deny`: 0x04, sem assinatura.
+        let (st, resp, consumed) = dispatch_case(
+            &mut binding,
+            &mut wallet,
+            true,
             true,
             true,
             sign_body(3, &psbt, b"deny"),
@@ -2788,10 +2832,11 @@ mod tests {
         assert_eq!(st, 0x04);
         assert!(resp.is_empty());
         assert!(consumed);
-        // UP + `approve`: 0x00 + `[slot, sig]`; verifica off-device.
+        // UP + PIN + `approve`: 0x00 + `[slot, sig]`; verifica off-device.
         let (st, resp, consumed) = dispatch_case(
             &mut binding,
             &mut wallet,
+            true,
             true,
             true,
             sign_body(3, &psbt, b"approve"),
@@ -2869,6 +2914,7 @@ mod ota_freertos_parity_tests {
             binding,
             storage,
             wallet,
+            pending: crate::wallet_approval::WalletPendingApproval::new(),
             key_mgr,
             oath,
             fwlog,
@@ -3182,6 +3228,7 @@ mod ota_freertos_parity_tests {
                 binding: &mut binding,
                 storage: &mut storage,
                 wallet: &mut wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr: &mut key_mgr,
                 oath: &mut oath,
                 fwlog: &mut fwlog,
@@ -3229,6 +3276,7 @@ mod ota_freertos_parity_tests {
                 binding: &mut binding,
                 storage: &mut storage,
                 wallet: &mut wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr: &mut key_mgr,
                 oath: &mut oath,
                 fwlog: &mut fwlog,
@@ -3264,6 +3312,7 @@ mod ota_freertos_parity_tests {
                 binding: &mut binding,
                 storage: &mut storage,
                 wallet: &mut wallet,
+                pending: crate::wallet_approval::WalletPendingApproval::new(),
                 key_mgr: &mut key_mgr,
                 oath: &mut oath,
                 fwlog: &mut fwlog,
