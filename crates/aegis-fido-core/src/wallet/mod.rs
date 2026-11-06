@@ -32,6 +32,9 @@
 
 pub mod address;
 pub mod clear_signing;
+pub mod hd;
+pub mod hd_codec;
+pub mod hd_paths;
 pub mod shamir_slip39;
 pub mod store;
 pub mod types;
@@ -43,6 +46,18 @@ pub use clear_signing::{
     parse_bitcoin_tx, parse_ethereum_tx, parse_solana_tx, ClearSignError,
     ClearSignTransactionSummary, OledFrame128x64, OLED_BUFFER_SIZE, OLED_HEIGHT, OLED_PAGES,
     OLED_WIDTH,
+};
+pub use hd::{
+    ExtendedPrivateKey, ExtendedPublicKey, HdError, HARDENED_OFFSET, MAX_PATH_DEPTH, MAX_SEED_LEN,
+    MIN_SEED_LEN,
+};
+pub use hd_codec::{
+    base58check_encode, decode_extended_key, DecodedExtendedKey, EXTENDED_KEY_LEN,
+    EXTENDED_KEY_STRLEN, XPRV_VERSION, XPUB_VERSION,
+};
+pub use hd_paths::{
+    wallet_account_path, wallet_address_path, ChildNumber, DerivationPath, COIN_TYPE_BITCOIN,
+    COIN_TYPE_EVM, PURPOSE_BIP44, PURPOSE_BIP84,
 };
 pub use shamir_slip39::{
     gf256_div, gf256_inv, gf256_mul, recover_secret_from_2_shares, split_secret_2_of_3,

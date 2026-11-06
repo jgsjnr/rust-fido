@@ -33,7 +33,11 @@ pub use oath::tlv::{
 pub use policy::{PolicyError, UpAndPin, UpOnly, UpPolicy};
 pub use vault::AegisVault;
 pub use wallet::{
-    parse_bitcoin_tx, parse_ethereum_tx, parse_solana_tx, recover_secret_from_2_shares,
-    split_secret_2_of_3, ClearSignError, ClearSignTransactionSummary, DsHmacSeedEnvelope,
-    OledFrame128x64, ShamirError, ShamirShare, WalletStore,
+    base58check_encode, decode_extended_key, parse_bitcoin_tx, parse_ethereum_tx, parse_solana_tx,
+    recover_secret_from_2_shares, split_secret_2_of_3, wallet_account_path, wallet_address_path,
+    ChildNumber, ClearSignError, ClearSignTransactionSummary, DecodedExtendedKey, DerivationPath,
+    DsHmacSeedEnvelope, ExtendedPrivateKey, ExtendedPublicKey, HdError, OledFrame128x64,
+    ShamirError, ShamirShare, WalletStore, COIN_TYPE_BITCOIN, COIN_TYPE_EVM, EXTENDED_KEY_LEN,
+    EXTENDED_KEY_STRLEN, HARDENED_OFFSET, MAX_PATH_DEPTH, MAX_SEED_LEN, MIN_SEED_LEN,
+    PURPOSE_BIP44, PURPOSE_BIP84, XPRV_VERSION, XPUB_VERSION,
 };
