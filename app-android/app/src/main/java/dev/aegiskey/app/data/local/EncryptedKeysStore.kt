@@ -168,7 +168,7 @@ class EncryptedKeysStore(private val context: Context?) {
                         type = accessType,
                         publicSummary = obj.optString("publicSummary", ""),
                         createdAtEpochMs = obj.optLong("createdAtEpochMs", System.currentTimeMillis()),
-                        algorithmOrCurve = obj.optString("algorithmOrCurve", "ES256 (P-256)"),
+                        algorithmOrCurve = obj.optString("algorithmOrCurve", "desconhecido"),
                         usageDescription = obj.optString("usageDescription", "Autenticação e Assinatura"),
                         derivationPathOrSlotCode = obj.optString("derivationPathOrSlotCode", ""),
                         envelopeHex = obj.optString("envelopeHex", ""),

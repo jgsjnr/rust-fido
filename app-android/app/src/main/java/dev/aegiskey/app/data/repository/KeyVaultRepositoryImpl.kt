@@ -223,15 +223,19 @@ class KeyVaultRepositoryImpl(
                 val tlv = rawKeyList.copyOfRange(2, rawKeyList.size)
                 val deviceKeys = VendorOps.parseKeyList(tlv)
                 for (dk in deviceKeys) {
+                    // Autoridade: o `alg` real do LIST 0x22 (tag 0x05); ausente =
+                    // "desconhecido", nunca ES256 inventado.
+                    val algLabel = VendorOps.coseAlgLabel(dk.coseAlg)
                     val cached = currentCached[dk.slot]
                     if (cached != null) {
-                        mergedEntries.add(cached.copy(label = dk.label))
+                        mergedEntries.add(cached.copy(label = dk.label, algorithmOrCurve = algLabel))
                     } else {
                         mergedEntries.add(
                             VaultKeyEntry(
                                 slotId = dk.slot,
                                 label = dk.label,
                                 type = AccessKeyType.PASSKEY_FIDO,
+                                algorithmOrCurve = algLabel,
                                 publicSummary = "Secured on AegisKey slot #${dk.slot}",
                                 createdAtEpochMs = System.currentTimeMillis()
                             )

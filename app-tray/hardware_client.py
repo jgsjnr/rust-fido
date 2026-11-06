@@ -19,6 +19,118 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("AegisHardwareClient")
 
+#: Vendor opcode 0x3B: OP_SECURE_GUARD_UNLOCK (provision, unlock, change_pin, recover).
+OP_SECURE_GUARD_UNLOCK: int = 0x3B
+
+
+def _cbor_encode_unlock_request(pin_bytes: bytes) -> bytes:
+    """Encodes CBOR map(2){"action": text("unlock"), "pin": bytes(pin)} (0x3B unlock).
+
+    Byte-identical to the Android app path (UsbCtaphid reqPayload) and to
+    tools/app_path_replay.py: A2 66"action" 66"unlock" 63"pin" 4x"1111".
+    Stdlib only; no core-crate imports.
+    """
+    pin_bytes = bytes(pin_bytes or b"")
+    out = bytearray()
+    out.append(0xA2)
+    out.append(0x66)
+    out.extend(b"action")
+    out.append(0x66)
+    out.extend(b"unlock")
+    out.append(0x63)
+    out.extend(b"pin")
+    n = len(pin_bytes)
+    if n < 24:
+        out.append(0x40 + n)
+    elif n < 256:
+        out.append(0x58)
+        out.append(n)
+    else:  # PINs never reach here; fail-closed length prefix (16-bit)
+        out.append(0x59)
+        out.append((n >> 8) & 0xFF)
+        out.append(n & 0xFF)
+    out.extend(pin_bytes)
+    return bytes(out)
+
+
+def _cbor_decode_unlock_response(payload: bytes) -> Optional[Dict[str, Any]]:
+    """Decodes the silicon 0x3B unlock CBOR map to plain Python values.
+
+    Translates structured silicon output only: returns verbatim
+    success/state/state_name/failed_attempts/remaining_attempts/error
+    (plus session/rate-limit counters when present). Returns None when the
+    payload is not a decodable CBOR map. Stdlib only.
+    """
+    try:
+        data = bytes(payload or b"")
+        if not data:
+            return None
+        pos = 0
+
+        def read_arg(ai: int) -> int:
+            nonlocal pos
+            if ai < 24:
+                return ai
+            if ai == 24:
+                v = data[pos]
+                pos += 1
+                return v
+            if ai == 25:
+                v = (data[pos] << 8) | data[pos + 1]
+                pos += 2
+                return v
+            if ai == 26:
+                v = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3]
+                pos += 4
+                return v
+            raise ValueError("long-form CBOR int")
+
+        def read_value() -> Any:
+            nonlocal pos
+            if pos >= len(data):
+                raise ValueError("truncated CBOR")
+            ib = data[pos]
+            pos += 1
+            major = ib >> 5
+            ai = ib & 0x1F
+            if major in (0, 1):
+                v = read_arg(ai)
+                return v if major == 0 else -1 - v
+            if major == 2:
+                ln = read_arg(ai)
+                b = data[pos:pos + ln]
+                pos += ln
+                return bytes(b)
+            if major == 3:
+                ln = read_arg(ai)
+                s = data[pos:pos + ln].decode("utf-8", errors="replace")
+                pos += ln
+                return s
+            if major == 5:
+                count = read_arg(ai)
+                m: Dict[str, Any] = {}
+                for _ in range(count):
+                    k = read_value()
+                    v = read_value()
+                    m[str(k)] = v
+                return m
+            if major == 7:
+                if ai == 20:
+                    return False
+                if ai == 21:
+                    return True
+                if ai == 22:
+                    return None
+                raise ValueError("unsupported CBOR simple value")
+            raise ValueError("unsupported CBOR major type")
+
+        decoded = read_value()
+        if not isinstance(decoded, dict):
+            return None
+        return decoded
+    except Exception:
+        return None
+
 
 @dataclass
 class DeviceInfo:
@@ -217,9 +329,110 @@ class AegisHardwareClient:
         )
 
     def unlock_secure_guard(self, pin: str) -> Dict[str, Any]:
-        """Submits user PIN to unlock the hardware Secure Guard authority."""
-        res = self._http_post("/api/secure-guard/unlock", {"pin": pin})
-        return res or {"ok": False, "error": "No response"}
+        """Unlocks via silicon authority: vendor 0x3B through the bridge.
+
+        The POST goes to the device as ``POST /bridge/vendor``
+        ``{"opcode": 0x3B, "payload_hex": <CBOR unlock>}`` and the displayed
+        verdict is the silicon's ``(status, CBOR)`` frame. The host mirror
+        (``GET /api/secure-guard/status``) is attached for fail-closed
+        display only and never decides authentication: a mirror
+        ``Unprovisioned`` cannot deny a silicon ``0x00/success``, and a
+        silicon denial surfaces its real ``error`` + attempt counters.
+        Without a reachable silicon frame this returns ``ok: False``
+        fail-closed and never claims UNLOCKED.
+        """
+        pin_bytes = (pin or "").encode("utf-8")
+        cbor_hex = _cbor_encode_unlock_request(pin_bytes).hex()
+        silicon: Optional[Dict[str, Any]] = self._http_post(
+            "/bridge/vendor",
+            {"opcode": OP_SECURE_GUARD_UNLOCK, "payload_hex": cbor_hex},
+        )
+        if silicon and isinstance(silicon, dict):
+            status = silicon.get("status", silicon.get("st", -1))
+            try:
+                status = int(status)
+            except Exception:
+                status = -1
+            payload_hex = (
+                silicon.get("payload_hex")
+                or silicon.get("data_hex")
+                or ""
+            )
+            response_hex = silicon.get("response_hex") or ""
+            cbor_bytes: Optional[bytes] = None
+            if payload_hex:
+                try:
+                    cbor_bytes = bytes.fromhex(str(payload_hex))
+                except Exception:
+                    cbor_bytes = None
+            elif response_hex:
+                try:
+                    raw = bytes.fromhex(str(response_hex))
+                    # [opcode, status, ...CBOR] vendor frame.
+                    if len(raw) >= 2 and raw[0] == OP_SECURE_GUARD_UNLOCK:
+                        cbor_bytes = raw[2:]
+                except Exception:
+                    cbor_bytes = None
+            if cbor_bytes is not None:
+                decoded = _cbor_decode_unlock_response(cbor_bytes)
+                if decoded is not None:
+                    silicon_success = bool(decoded.get("success", status == 0x00)) and status == 0x00
+                    if silicon_success:
+                        return {
+                            "ok": True,
+                            "success": True,
+                            "silicon_authority": True,
+                            "transport": "bridge-vendor-0x3B",
+                            "opcode": OP_SECURE_GUARD_UNLOCK,
+                            "status": status,
+                            "state": decoded.get("state", 4),
+                            "state_name": decoded.get("state_name", "Unlocked"),
+                            "unlocked": True,
+                            "provisioned": True,
+                            "failed_attempts": decoded.get("failed_attempts", 0),
+                            "remaining_attempts": decoded.get("remaining_attempts", 5),
+                            "max_attempts": decoded.get("max_attempts", 5),
+                            "rate_limit_remaining_ms": decoded.get("rate_limit_remaining_ms", 0),
+                            "session_remaining_ms": decoded.get("session_remaining_ms", 0),
+                        }
+                    err = decoded.get("error") or "PIN incorreto ou falha na hardwallet."
+                    try:
+                        remaining = int(decoded.get("remaining_attempts", 5))
+                    except Exception:
+                        remaining = 5
+                    try:
+                        failed = int(decoded.get("failed_attempts", 0))
+                    except Exception:
+                        failed = 0
+                    return {
+                        "ok": False,
+                        "success": False,
+                        "silicon_authority": True,
+                        "transport": "bridge-vendor-0x3B",
+                        "opcode": OP_SECURE_GUARD_UNLOCK,
+                        "status": status,
+                        "state": decoded.get("state"),
+                        "state_name": decoded.get("state_name", "Locked"),
+                        "unlocked": False,
+                        "failed_attempts": failed,
+                        "remaining_attempts": remaining,
+                        "max_attempts": decoded.get("max_attempts", 5),
+                        "rate_limit_remaining_ms": decoded.get("rate_limit_remaining_ms", 0),
+                        "error": err,
+                    }
+        # Fail-closed: silicon did not attest. Mirror (if any) is display-only.
+        mirror = self.get_secure_guard_status()
+        return {
+            "ok": False,
+            "success": False,
+            "silicon_authority": False,
+            "transport": "bridge-vendor-0x3B",
+            "opcode": OP_SECURE_GUARD_UNLOCK,
+            "error": "Dispositivo inacessível: sem veredito do silício (0x3B).",
+            "mirror_state": mirror.state,
+            "mirror_state_name": mirror.state_name,
+            "unlocked": False,
+        }
 
     def lock_secure_guard(self) -> Dict[str, Any]:
         """Immediately locks the Secure Guard session and revokes zero-trust token."""

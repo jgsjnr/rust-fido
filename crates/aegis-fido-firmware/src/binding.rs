@@ -12,7 +12,8 @@
 //!   sai do celular) sobre `challenge || op || payload_hash`.
 //! - `release`: via `release_signed` (assinado pela chave vinculada, op
 //!   `BIND_OP_RELEASE`) OU `factory_reset` fisico (hold 5s + UP); ambos com
-//!   wipe da NVS + zeroize da RAM e volta a `Unclaimed` (reclaim liberado).
+//!   wipe da NVS (binding + vault PM selado via `total_wipe`: wipe total =
+//!   chaves + senhas) + zeroize da RAM e volta a `Unclaimed` (reclaim liberado).
 //! - `NEED_BINDING (0x05)`: extensao §9.5-compativel, so BLE/WiFi —
 //!   USB/CTAP (`aegis-fido-usb`, `CtapEngine`) nunca ve este erro.
 //! - `no_std` compativel: sem alloc no hot path, sem I/O, relogio injetado
@@ -431,10 +432,13 @@ impl BindingManager {
         Ok(())
     }
 
-    /// Wipe total: apaga NVS, zera RAM e volta a `Unclaimed` (reclaim liberado).
+    /// Wipe total: apaga NVS (binding + vault PM selado via `total_wipe`,
+    /// decisao do dono: wipe cobre chaves + senhas), zera RAM e volta a
+    /// `Unclaimed` (reclaim liberado).
     pub fn wipe<B: FlashStorageBackend>(&mut self, storage: &mut SecureStorage<B>) {
         let _ = storage.delete(BIND_PUB_NVS_KEY);
         let _ = storage.delete(BIND_ID_NVS_KEY);
+        crate::total_wipe::wipe_pm_vault(storage);
         self.zeroize_ram();
         self.state = ClaimState::Unclaimed;
     }

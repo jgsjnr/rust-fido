@@ -249,7 +249,8 @@ pub fn verify_recovery_pin<B: FlashStorageBackend>(
 /// Resgate com app novo perdido: UP fisico + PIN certo => wipe do vinculo.
 ///
 /// Libera re-claim (`BindingManager` volta a `Unclaimed`, NVS de binding
-/// limpa, RAM zerada). PIN de recovery preservado (novo dono deve
+/// limpa, RAM zerada; o wipe total cobre tambem o vault PM selado via
+/// `total_wipe`: chaves + senhas). PIN de recovery preservado (novo dono deve
 /// sobrescrever via `RECOVERY_SET`). Retries seguem as regras de `verify`.
 pub fn recovery_unlock<B: FlashStorageBackend>(
     storage: &mut SecureStorage<B>,

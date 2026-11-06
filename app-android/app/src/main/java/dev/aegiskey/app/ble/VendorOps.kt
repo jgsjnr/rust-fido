@@ -91,6 +91,30 @@ object VendorOps {
         else -> "Erro de comunicação com a chave (código 0x%02X)".format(status and 0xFF)
     }
 
+    /** COSE `alg` reais do LIST 0x22 (tag 0x05, i32 big-endian). */
+    const val COSE_ALG_ES256: Int = -7
+    const val COSE_ALG_EDDSA: Int = -8
+    const val COSE_ALG_ES384: Int = -35
+    const val COSE_ALG_ES512: Int = -36
+    const val COSE_ALG_ES256K: Int = -47
+
+    /** Rótulo autoridade: só dado do device; ausente/desconhecido nunca é inventado. */
+    const val ALG_UNKNOWN_LABEL: String = "desconhecido"
+
+    /**
+     * Rótulo curto do `alg` real do slot (LIST 0x22, tag 0x05):
+     * -7 ES256, -8 EdDSA, -35 ES384, -36 ES512, -47 ES256K.
+     * Nulo ou fora da tabela = "desconhecido" (nunca inventa curva).
+     */
+    fun coseAlgLabel(alg: Int?): String = when (alg) {
+        COSE_ALG_ES256 -> "ES256"
+        COSE_ALG_EDDSA -> "EdDSA"
+        COSE_ALG_ES384 -> "ES384"
+        COSE_ALG_ES512 -> "ES512"
+        COSE_ALG_ES256K -> "ES256K"
+        else -> ALG_UNKNOWN_LABEL
+    }
+
     /** Uma curva por entrada: 5 curvas do Rust (curves.rs) com nome amigavel. */
     data class CurveOption(val coseAlg: Int, val friendly: String, val detail: String)
 
@@ -284,27 +308,61 @@ object VendorOps {
         return null
     }
 
-    data class KeyEntry(val slot: Int, val label: String)
+    /**
+     * Entrada do LIST 0x22: slot + label + `alg` real (tag 0x05, i32 BE).
+     * [coseAlg] nulo = firmware antiga sem 0x05 (ou TLV malformado):
+     * o chamador exibe [ALG_UNKNOWN_LABEL], nunca inventa curva.
+     */
+    data class KeyEntry(val slot: Int, val label: String, val coseAlg: Int? = null)
 
-    /** Parse LIST response TLV: repeticao de (0x01 slot + 0x02 label). */
+    /**
+     * Parse LIST 0x22: repeticao de (0x01 slot + 0x02 label [+ 0x05 alg i32 BE]).
+     * Cada 0x01 inicia um slot; 0x02/0x05 seguintes pertencem a ele.
+     * Tags desconhecidas sao ignoradas (leitor antigo segue parseando 0x01/0x02).
+     */
     fun parseKeyList(tlv: ByteArray): List<KeyEntry> {
         val records = parseTlvRecords(tlv)
         val out = mutableListOf<KeyEntry>()
         var pendingSlot: Int? = null
+        var pendingLabel: String? = null
+        var pendingAlg: Int? = null
+        var pendingHasAlg = false
+        fun flush() {
+            val slot = pendingSlot
+            val label = pendingLabel
+            if (slot != null && label != null) {
+                out.add(KeyEntry(slot, label, if (pendingHasAlg) pendingAlg else null))
+            }
+            pendingSlot = null
+            pendingLabel = null
+            pendingAlg = null
+            pendingHasAlg = false
+        }
         for (r in records) {
             when (r.tag) {
-                TAG_SLOT -> pendingSlot = if (r.value.size == 1) r.value[0].toInt() and 0xFF else null
+                TAG_SLOT -> {
+                    flush()
+                    pendingSlot = if (r.value.size == 1) r.value[0].toInt() and 0xFF else null
+                }
                 TAG_LABEL -> {
-                    val slot = pendingSlot
-                    if (slot != null) {
-                        val label = runCatching { r.value.toString(Charsets.UTF_8).take(32) }.getOrDefault("slot " + slot)
-                        out.add(KeyEntry(slot, label))
+                    if (pendingSlot != null) {
+                        pendingLabel = runCatching { r.value.toString(Charsets.UTF_8).take(32) }
+                            .getOrDefault("slot " + pendingSlot)
                     }
-                    pendingSlot = null
+                }
+                TAG_ALG_HINT -> {
+                    if (pendingSlot != null && r.value.size == 4) {
+                        pendingAlg = ((r.value[0].toInt() and 0xFF) shl 24) or
+                            ((r.value[1].toInt() and 0xFF) shl 16) or
+                            ((r.value[2].toInt() and 0xFF) shl 8) or
+                            (r.value[3].toInt() and 0xFF)
+                        pendingHasAlg = true
+                    }
                 }
                 else -> Unit
             }
         }
+        flush()
         return out.take(64)
     }
 

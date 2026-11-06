@@ -761,6 +761,9 @@ where
             *wallet = WalletStore::new();
             *key_mgr = KeyManager::new();
             let _ = crate::vendor_exec::save_states(storage, key_mgr, oath);
+            // Wipe-em-5 total cobre o vault PM: blob selado NVS + auditoria
+            // (dono: wipe = chaves + senhas).
+            crate::total_wipe::wipe_pm_vault(storage);
         }
 
         // Persiste imediatamente na NVS antes de responder!

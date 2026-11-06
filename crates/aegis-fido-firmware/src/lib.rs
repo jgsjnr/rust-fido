@@ -150,6 +150,7 @@ pub mod test_hooks;
     not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))
 ))]
 pub mod time_sync;
+pub mod total_wipe;
 #[cfg(any(
     feature = "cap-fido-totp",
     not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))

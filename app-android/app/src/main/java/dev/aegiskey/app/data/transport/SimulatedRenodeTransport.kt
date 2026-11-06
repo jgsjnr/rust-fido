@@ -108,8 +108,9 @@ class SimulatedRenodeTransport(
 
     init {
         // Inicializa com chaves de exemplo para testes locais do emulador
-        mockKeys.add(VendorOps.KeyEntry(0, "Passkey Google"))
-        mockKeys.add(VendorOps.KeyEntry(1, "Passkey GitHub"))
+        // (com `alg` real, como o LIST 0x22 da firmware: tag 0x05 i32 BE).
+        mockKeys.add(VendorOps.KeyEntry(0, "Passkey Google", VendorOps.COSE_ALG_ES256))
+        mockKeys.add(VendorOps.KeyEntry(1, "Passkey GitHub", VendorOps.COSE_ALG_ES256))
         mockOathAccounts.add("GitHub:developer")
         mockOathAccounts.add("Google:test@aegiskey.dev")
     }
@@ -238,22 +239,43 @@ class SimulatedRenodeTransport(
             0x2B -> {
                 byteArrayOf(0x2B.toByte(), 0x00.toByte())
             }
-            // Key Gen (0x20): gera e adiciona ao mock
+            // Key Gen (0x20): gera e adiciona ao mock (guarda o hint 0x05, como a firmware).
             VendorOps.OP_KEY_GEN_ONDEVICE -> {
                 val records = VendorOps.parseTlvRecords(payload)
                 val slot = VendorOps.findTlv(records, VendorOps.TAG_SLOT)?.firstOrNull()?.toInt()?.and(0xFF) ?: mockKeys.size
                 val labelBytes = VendorOps.findTlv(records, VendorOps.TAG_LABEL)
                 val label = labelBytes?.toString(Charsets.UTF_8) ?: "Chave $slot"
+                val algBytes = VendorOps.findTlv(records, VendorOps.TAG_ALG_HINT)
+                val alg = if (algBytes != null && algBytes.size == 4) {
+                    ((algBytes[0].toInt() and 0xFF) shl 24) or
+                        ((algBytes[1].toInt() and 0xFF) shl 16) or
+                        ((algBytes[2].toInt() and 0xFF) shl 8) or
+                        (algBytes[3].toInt() and 0xFF)
+                } else {
+                    null
+                }
                 mockKeys.removeAll { it.slot == slot }
-                mockKeys.add(VendorOps.KeyEntry(slot, label))
+                mockKeys.add(VendorOps.KeyEntry(slot, label, alg))
                 byteArrayOf(0x20.toByte(), 0x00.toByte())
             }
-            // Key List (0x22): lista todas
+            // Key List (0x22): lista todas (com o `alg` real 0x05 por slot, como a firmware).
             VendorOps.OP_KEY_LIST -> {
                 var tlv = ByteArray(0)
                 for (k in mockKeys) {
                     tlv += VendorOps.writeTlv(VendorOps.TAG_SLOT, byteArrayOf(k.slot.toByte()))
                     tlv += VendorOps.writeTlv(VendorOps.TAG_LABEL, k.label.toByteArray(Charsets.UTF_8))
+                    if (k.coseAlg != null) {
+                        val a = k.coseAlg
+                        tlv += VendorOps.writeTlv(
+                            VendorOps.TAG_ALG_HINT,
+                            byteArrayOf(
+                                ((a shr 24) and 0xFF).toByte(),
+                                ((a shr 16) and 0xFF).toByte(),
+                                ((a shr 8) and 0xFF).toByte(),
+                                (a and 0xFF).toByte(),
+                            ),
+                        )
+                    }
                 }
                 byteArrayOf(0x22.toByte(), 0x00.toByte()) + tlv
             }

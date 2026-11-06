@@ -44,6 +44,25 @@ COLOR_TEXT_MUTED = "#9CA3AF"
 COLOR_INPUT_BG = "#1A2234"
 
 
+def _format_unlock_error(res: Dict[str, Any], lang: str) -> str:
+    """Formats the silicon unlock verdict for display (no invented telemetry).
+
+    Uses the silicon ``error`` verbatim and appends the authoritative
+    ``remaining_attempts`` counter when the verdict carries silicon
+    authority. Mirror data is never consulted here: the caller passes the
+    ``unlock_secure_guard`` result whose verdict is already silicon's.
+    """
+    err = res.get("error") or res.get("message") or t("sg_unlock_failed", lang)
+    if res.get("silicon_authority"):
+        try:
+            remaining: Optional[int] = int(res.get("remaining_attempts", 5))
+        except Exception:
+            remaining = None
+        if remaining is not None:
+            return f"Error: {err} (Restam {remaining} tentativa(s))"
+    return f"Error: {err}"
+
+
 class AegisDesktopApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -650,8 +669,7 @@ class AegisDesktopApp:
             self.lbl_sg_feedback.config(text=t("sg_unlock_success", self.lang), fg=COLOR_EMERALD)
             self._sync_immediate()
         else:
-            err = res.get("error") or res.get("message") or t("sg_unlock_failed", self.lang)
-            self.lbl_sg_feedback.config(text=f"Error: {err}", fg=COLOR_CORAL)
+            self.lbl_sg_feedback.config(text=_format_unlock_error(res, self.lang), fg=COLOR_CORAL)
             self._sync_immediate()
 
     def _action_lock_now(self):
@@ -752,8 +770,11 @@ class AegisDesktopApp:
                 self.lbl_sg_feedback.config(text=f"Operação {title} autenticada com sucesso!", fg=COLOR_EMERALD)
                 self._sync_immediate()
             else:
-                err = res.get("error") or res.get("message") or "PIN incorreto ou falha na hardwallet."
-                lbl_modal_err.config(text=f"Erro: {err}", fg=COLOR_CORAL)
+                if action_name == "unlock" or res.get("silicon_authority"):
+                    lbl_modal_err.config(text=_format_unlock_error(res, self.lang).replace("Error:", "Erro:"), fg=COLOR_CORAL)
+                else:
+                    err = res.get("error") or res.get("message") or "PIN incorreto ou falha na hardwallet."
+                    lbl_modal_err.config(text=f"Erro: {err}", fg=COLOR_CORAL)
                 self._sync_immediate()
 
         ent_modal_pin.bind("<Return>", lambda e: submit())

@@ -101,6 +101,10 @@ pub(crate) fn handle_wipe_selective<B: FlashStorageBackend>(
         *key_mgr = KeyManager::new();
         *oath = OathApplet::new();
         let _ = crate::vendor_exec::save_states(storage, key_mgr, oath);
+        // Wipe total cobre o vault PM: blob selado NVS + auditoria (dono:
+        // wipe = chaves + senhas). No wipe simulado (modo de teste) o blob
+        // PM e preservado como as chaves fisicas.
+        crate::total_wipe::wipe_pm_vault(storage);
     } else {
         log::info!("[SECURE_GUARD] Wipe simulado em modo de teste (chaves físicas mantidas)");
     }

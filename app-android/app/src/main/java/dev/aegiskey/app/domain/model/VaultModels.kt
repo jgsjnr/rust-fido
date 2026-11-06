@@ -17,7 +17,7 @@ data class VaultKeyEntry(
     val type: AccessKeyType,
     val publicSummary: String,
     val createdAtEpochMs: Long,
-    val algorithmOrCurve: String = "ES256 (P-256)",
+    val algorithmOrCurve: String = "desconhecido",
     val usageDescription: String = "Autenticação e Assinatura",
     val derivationPathOrSlotCode: String = "",
     val envelopeHex: String = "",
