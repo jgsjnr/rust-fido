@@ -6,12 +6,16 @@ import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
 import android.os.CancellationSignal
 import dev.aegiskey.app.R
+import java.security.KeyStore
+import java.security.Signature
 
 /**
- * Wave7 biometric gate (stub): full BiometricPrompt + CryptoObject wiring,
- * but the CryptoObject is a stub (null) until a release AndroidKeyStore key
- * is bound (TODO below). Callers fall back to the password lock while null.
- * Framework APIs only (minSdk 31) — no new dependency, no new crypto.
+ * Wave7 biometric gate: BiometricPrompt + CryptoObject bound to the
+ * AndroidKeyStore [BindingKey] P-256 key (user-auth-bound, StrongBox/TEE).
+ *
+ * Fail-closed: [cryptoObject] returns null when the KeyStore, the key, the
+ * Signature instance, or the biometric sensor is unavailable. Callers fall
+ * back to the password lock while null.
  */
 object BiometricGate {
     sealed interface Result {
@@ -21,15 +25,23 @@ object BiometricGate {
     }
 
     /**
-     * Stub CryptoObject: null until release binds an AndroidKeyStore key.
-     * TODO(release): create a user-auth-bound KeyStore key, init a Cipher
-     * with it, and return CryptoObject(cipher) here.
+     * Real CryptoObject bound to the AndroidKeyStore binding key.
+     * Returns null (fail-closed) when the KeyStore/key/sensor is unavailable.
      */
-    fun stubCryptoObject(): BiometricPrompt.CryptoObject? = null
+    fun cryptoObject(): BiometricPrompt.CryptoObject? = runCatching {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val privateKey = ks.getKey(BindingKey.ALIAS, null) as? java.security.PrivateKey
+            ?: return null
+        Signature.getInstance("SHA256withECDSA").apply { initSign(privateKey) }
+    }.getOrNull()?.let { BiometricPrompt.CryptoObject(it) }
 
-    /** True only with a usable sensor AND a real CryptoObject (false in stub). */
+    /** Back-compat alias for the former stub; delegates to [cryptoObject]. */
+    @Deprecated("Use cryptoObject() (KeyStore-bound, fail-closed).")
+    fun stubCryptoObject(): BiometricPrompt.CryptoObject? = cryptoObject()
+
+    /** True only with a usable sensor AND a real KeyStore-bound CryptoObject. */
     fun available(context: Context): Boolean {
-        if (stubCryptoObject() == null) return false
+        if (cryptoObject() == null) return false
         val mgr = context.getSystemService(BiometricManager::class.java) ?: return false
         return mgr.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
             BiometricManager.BIOMETRIC_SUCCESS
