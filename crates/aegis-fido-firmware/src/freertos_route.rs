@@ -17,12 +17,12 @@ use crate::ble_gatt::{is_bind_mgmt_op, is_piv_enroll_op, is_vendor_keys_oath_op,
 use crate::freertos_sched::{
     packet_bytes, packet_origin, FirmwareEvent, PacketOrigin, CTAPHID_PACKET_SIZE,
 };
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+use crate::pm_store::PmRateLimiter;
 use crate::serial_ctaphid::{
     authorize_serial, deny_response, dispatch_serial_bind_mgmt, dispatch_serial_rescue,
     is_rescue_msg, serial_bind_mgmt_consumes_up, SerialGate,
 };
-#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
-use crate::pm_store::PmRateLimiter;
 use aegis_fido_core::ctap::{
     CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL, CTAP_CMD_RESET,
 };
@@ -1976,8 +1976,10 @@ mod tests {
     ///   "espidf")`; aqui exercemos o predicado e o executor com os args
     ///   do ramo).
     /// - BLE: `is_ble_fragment_opcode(0x41)` abre transacao, o reassembler
-    ///   completa o fragmento unico, e `ble_dispatch_complete` nega `0x05`
-    ///   sem vinculo, `0x01` sem UP, e executa `0x00` vinculado+UP.
+    ///   completa o fragmento unico, e `ble_dispatch_complete` aplica a
+    ///   barreira SecureGuard PRIMEIRO (paridade serial): Locked nega `0x02`
+    ///   fail-closed antes de qualquer gate; com sessao viva, o vinculo/UP
+    ///   efetivos dispensam latch (`0x00` mesmo sem UP fisico).
     #[test]
     fn vendor_sign_atravessa_funis_com_gates_gen() {
         use crate::binding::{BindingManager, BIND_ID_LEN, BIND_PUB_LEN};
@@ -2255,6 +2257,7 @@ mod tests {
             payload: Vec<u8>,
             bonded: bool,
             up: bool,
+            unlock_sg: bool,
         ) -> String {
             let mut rescue = RescueEngine::new();
             let mut wallet = WalletStore::new();
@@ -2288,6 +2291,12 @@ mod tests {
                 ..Default::default()
             };
             let mut sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(policy);
+            if unlock_sg {
+                sg.provision_pin(b"4829", [0x10; 16], b"", [0x20; 16], 10)
+                    .expect("provision BLE");
+                sg.unlock_with_pin(b"4829", 10).expect("unlock BLE");
+                assert!(sg.is_unlocked(), "sessao viva p/ o caso BLE");
+            }
             #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
             let mut pm_lim = crate::pm_store::PmRateLimiter::new();
             #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
@@ -2322,8 +2331,8 @@ mod tests {
         let backend = PlatformFlashBackend::new();
         let mut storage = SecureStorage::new(backend, &[0x11; 32], &[0x22; 32]);
         let mut engine = CtapEngine::new([0x11; 32], 0);
-        // Sem vinculo: 0x05 (NEED_BINDING) em todos os modos (SIGN exige
-        // vinculo; sem bypass test-mode -- ordem canonica binding -> UP).
+        // Barreira primeiro (paridade serial): Locked nega 0x02 fail-closed
+        // mesmo sem vinculo (nao 0x05) e mesmo com vinculo+UP.
         let mut unclaimed = BindingManager::new();
         let text = ble_case(
             &mut unclaimed,
@@ -2332,9 +2341,10 @@ mod tests {
             sign_body(SLOT, MSG),
             false,
             true,
+            false,
         );
-        assert!(text.contains(" EV=10 ARG=5 "), "BLE sem vinculo: {}", text);
-        // Vinculado sem UP: 0x01 (presenca nunca pulada).
+        assert!(text.contains(" EV=10 ARG=2 "), "BLE Locked: {}", text);
+        // Vinculado + UP + Locked: 0x02 (barreira antes dos gates).
         let mut claimed = claimed_binding();
         let text = ble_case(
             &mut claimed,
@@ -2342,10 +2352,11 @@ mod tests {
             &mut engine,
             sign_body(SLOT, MSG),
             true,
+            true,
             false,
         );
-        assert!(text.contains(" EV=10 ARG=1 "), "BLE sem UP: {}", text);
-        // Vinculado + UP: 0x00 (executor assinou).
+        assert!(text.contains(" EV=10 ARG=2 "), "BLE Locked: {}", text);
+        // Vinculado + UP + desbloqueado: 0x00 (executor assinou).
         let text = ble_case(
             &mut claimed,
             &mut storage,
@@ -2353,8 +2364,25 @@ mod tests {
             sign_body(SLOT, MSG),
             true,
             true,
+            true,
         );
         assert!(text.contains(" EV=10 ARG=0 "), "BLE sucesso: {}", text);
+        // Vinculado + desbloqueado sem UP fisico: 0x00 (sessao viva supre
+        // a presenca no BLE, mesma regra do serial `up_effective`).
+        let text = ble_case(
+            &mut claimed,
+            &mut storage,
+            &mut engine,
+            sign_body(SLOT, MSG),
+            true,
+            false,
+            true,
+        );
+        assert!(
+            text.contains(" EV=10 ARG=0 "),
+            "BLE sessao supre UP: {}",
+            text
+        );
     }
     #[test]
     fn gaps_t8_espelhados_como_externally_blocked() {

@@ -85,7 +85,9 @@ pub fn dispatch_serial_pm<R: rand_core::CryptoRng>(
         bound_within_ms,
         up_within_ms: 0,
     };
-    crate::pm_dispatch::dispatch_pm_op(op, body, &gate, vault, policy, now_secs, rng, limiter, now_ms)
+    crate::pm_dispatch::dispatch_pm_op(
+        op, body, &gate, vault, policy, now_secs, rng, limiter, now_ms,
+    )
 }
 
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]

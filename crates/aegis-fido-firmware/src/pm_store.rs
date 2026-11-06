@@ -252,7 +252,11 @@ pub struct PmAuditEvent {
 
 impl core::fmt::Display for PmAuditEvent {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "[PM-AUDIT] op=0x{:02X} st=0x{:02X}", self.op, self.status)
+        write!(
+            f,
+            "[PM-AUDIT] op=0x{:02X} st=0x{:02X}",
+            self.op, self.status
+        )
     }
 }
 
