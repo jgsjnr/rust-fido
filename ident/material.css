@@ -1,0 +1,68 @@
+/* Web styling aligned with the existing AegisKey Material 3 theme.
+   Native HTML controls remain; this does not install a Material component library. */
+body {font-family:Roboto,'Segoe UI',Arial,sans-serif;letter-spacing:.15px}
+.sidebar,.topbar {background:var(--md-sys-color-surface-container-low)}
+.sidebar {border-right:0}
+.topbar {border-bottom:0}
+.brand small,.tiny,.nav-label,.demo-label,.heading-detail,.stage-label,
+.local-note,.brand small,.nav-count,footer {color:var(--muted)}
+.workspace {background:var(--md-sys-color-surface-container);border:0;border-radius:16px}
+.workspace-mark,.avatar {background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);border:0}
+nav a {border:0;border-radius:28px;min-height:48px;color:var(--md-sys-color-on-surface-variant)}
+nav a.active {background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border:0}
+nav a:hover {background:var(--md-sys-color-surface-container-high);color:var(--text)}
+nav a.active:hover {background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container))}
+h1 {font-weight:400;letter-spacing:0;line-height:1.2}
+h2,h3 {font-weight:500;letter-spacing:0}
+.hero {border:0;border-radius:28px;background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container)}
+.hero h2 {font-weight:400;letter-spacing:0}
+.hero p {color:var(--md-sys-color-on-primary-container)}
+.hero .stage-label {color:var(--md-sys-color-on-primary-container)}
+.device-stage {background-image:linear-gradient(#9ecaff0c 1px,transparent 1px),linear-gradient(90deg,#9ecaff0c 1px,transparent 1px)}
+.device-stage:before {border-color:#9ecaff33;box-shadow:0 0 0 35px #9ecaff0d,0 0 0 70px #9ecaff08}
+.panel,.metric {background:var(--md-sys-color-surface-container-low);border:1px solid var(--md-sys-color-outline-variant);border-radius:12px}
+.service-icon {background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border:0;border-radius:12px}
+.button {border-radius:24px;min-height:40px;padding:10px 24px;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border:1px solid transparent;font-size:14px;font-weight:500;letter-spacing:.1px}
+.button:hover {background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container));border-color:transparent}
+.button.primary {background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary);border-color:transparent}
+.button.primary:hover {background:color-mix(in srgb,var(--md-sys-color-on-primary) 8%,var(--md-sys-color-primary))}
+.button.ghost {background:transparent;color:var(--md-sys-color-primary);border-color:var(--md-sys-color-outline)}
+.hero .button.ghost {color:var(--md-sys-color-on-primary-container);border-color:var(--md-sys-color-primary)}
+.button.danger {background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container);border-color:transparent}
+.button.small {border-radius:20px;min-height:40px;padding:8px 16px}
+.pill {border-radius:8px;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border-color:transparent}
+.pill.amber,.hero-locked .pill {background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container);border-color:transparent}
+.pill .dot {background:currentColor}
+.pill.neutral {background:var(--md-sys-color-surface-variant);color:var(--md-sys-color-on-surface-variant);border-color:transparent}
+.state-card {border-left:0;border-radius:16px;background:var(--md-sys-color-secondary-container)}
+.state-card strong,.state-card p {color:var(--md-sys-color-on-secondary-container)}
+.metric .accent {color:var(--md-sys-color-secondary)}
+.hero-locked + .metrics .metric .accent {color:var(--md-sys-color-tertiary)}
+.search,.filter {background:var(--md-sys-color-surface-container-high);color:var(--text);border-color:var(--md-sys-color-outline);border-radius:4px 4px 0 0;min-height:48px}
+.notice {border:0;border-radius:16px;background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container)}
+.switch {height:32px;width:52px;border-radius:16px;background:var(--md-sys-color-primary);border-color:var(--md-sys-color-primary)}
+.switch:after {width:24px;height:24px;top:3px;right:3px;background:var(--md-sys-color-on-primary)}
+.switch[aria-checked=false] {background:var(--md-sys-color-surface-variant);border-color:var(--md-sys-color-outline)}
+.switch[aria-checked=false]:after {width:16px;height:16px;right:25px;top:7px;background:var(--md-sys-color-outline)}
+.brand-board {border-radius:28px;background:#d1e4ff;color:#001d36}
+.brand-board .eyebrow,.brand-board small {color:#00497d}
+.brand-orbit {border-color:#0061a4;outline-color:#0061a444}
+.swatch,.icon-cell,.logo-specimen {border-radius:12px}
+.logo-specimen.light {background:#d1e4ff;color:#001d36}
+.logo-specimen.light small {color:#00497d}
+dialog {border:0;border-radius:28px;background:var(--md-sys-color-surface-container-high);box-shadow:0 24px 64px #0006}
+dialog h2 {font-size:24px;font-weight:400}
+.modal-icon {color:var(--md-sys-color-secondary)}
+.close {border-radius:50%;color:var(--muted)}
+.close:hover {background:var(--md-sys-color-surface-variant)}
+#toast {background:var(--md-sys-color-on-surface);color:var(--md-sys-color-surface);border-radius:4px}
+.progress {background:var(--md-sys-color-primary-container)}
+.progress span {background:var(--md-sys-color-primary)}
+.skip {background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
+@media(max-width:800px){nav a{padding:12px 10px}.button{padding:10px 18px}}
+@media(max-width:540px){nav a{padding:12px}.hero{border-radius:24px}.page-heading .button{font-size:12px;padding:10px 14px}}
+@media(max-width:540px){
+  .list-row:has(.button){display:grid;grid-template-columns:37px minmax(0,1fr)}
+  .list-row:has(.button) .row-right{grid-column:2;max-width:none;text-align:left}
+  .list-row:has(.button) .button{padding:10px 16px}
+}

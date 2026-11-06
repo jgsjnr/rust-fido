@@ -1,0 +1,44 @@
+/* AegisColors dark scheme, mirrored from Android ui/theme/ColorTokens.kt. */
+:root {
+  color-scheme: dark;
+  --md-sys-color-primary: #9ecaff;
+  --md-sys-color-on-primary: #003258;
+  --md-sys-color-primary-container: #00497d;
+  --md-sys-color-on-primary-container: #d1e4ff;
+  --md-sys-color-secondary: #53dbc9;
+  --md-sys-color-on-secondary: #003731;
+  --md-sys-color-secondary-container: #005048;
+  --md-sys-color-on-secondary-container: #73f8e5;
+  --md-sys-color-tertiary: #f0be3b;
+  --md-sys-color-on-tertiary: #3f2e00;
+  --md-sys-color-tertiary-container: #5a4300;
+  --md-sys-color-on-tertiary-container: #ffdf9e;
+  --md-sys-color-error: #ffb4ab;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000a;
+  --md-sys-color-on-error-container: #ffdad6;
+  --md-sys-color-background: #101418;
+  --md-sys-color-on-background: #e2e2e6;
+  --md-sys-color-surface: #101418;
+  --md-sys-color-on-surface: #e2e2e6;
+  --md-sys-color-surface-variant: #43474e;
+  --md-sys-color-on-surface-variant: #c3c7d0;
+  --md-sys-color-outline: #8d9199;
+  --md-sys-color-outline-variant: #43474e;
+  /* Tonal elevations derived for this web concept; not new Android tokens. */
+  --md-sys-color-surface-container-low: color-mix(in srgb, var(--md-sys-color-primary) 5%, var(--md-sys-color-surface));
+  --md-sys-color-surface-container: color-mix(in srgb, var(--md-sys-color-primary) 8%, var(--md-sys-color-surface));
+  --md-sys-color-surface-container-high: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface));
+  --bg: var(--md-sys-color-background);
+  --surface: var(--md-sys-color-surface-container-low);
+  --surface-raised: var(--md-sys-color-surface-container);
+  --text: var(--md-sys-color-on-surface);
+  --muted: var(--md-sys-color-on-surface-variant);
+  --accent: var(--md-sys-color-primary);
+  --warning: var(--md-sys-color-tertiary);
+  --danger: var(--md-sys-color-error);
+  --line: var(--md-sys-color-outline-variant);
+  --line-strong: var(--md-sys-color-outline);
+  --radius: 12px;
+  --space: 8px;
+}

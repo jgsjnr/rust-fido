@@ -1,0 +1,1361 @@
+{
+  "method": "Structural inventory of tracked Markdown, with topic scan; focused reading is described in ANALISE.md.",
+  "commit": "cc504730380aaefed70aa8fd8ca9bcd65fb45168",
+  "documents": [
+    {
+      "path": "AGENTS.md",
+      "lines": 36,
+      "headings": [
+        "AGENTS.md",
+        "Commands",
+        "Code Map",
+        "Conventions",
+        "OpenCode: regras de economia de contexto"
+      ],
+      "topics": []
+    },
+    {
+      "path": "AGENT_MAP.md",
+      "lines": 79,
+      "headings": [
+        "AGENT_MAP - Master map for agents (where to find, where to put new work)",
+        "1. Where to find what",
+        "2. Canonical documentation structure",
+        "3. Tree (ASCII)",
+        "4. Where to put new work",
+        "5. Critical Safety Invariant (eFuse Zero-Brick Policy)"
+      ],
+      "topics": [
+        "OpenSSH",
+        "Shamir",
+        "eFuse"
+      ]
+    },
+    {
+      "path": "MASTER_EXECUTION_PLAN.md",
+      "lines": 87,
+      "headings": [
+        "MASTER EXECUTION PLAN — AegisKey FIDO2 & Secure Guard Ecosystem",
+        "1. Visão Geral e Escopo Estrutural",
+        "2. Mapeamento dos 7 Gaps de Segurança (`GAP-01` a `GAP-07`)",
+        "3. Mapeamento das 6 Oportunidades de Produto (`OPP-01` a `OPP-06`)",
+        "4. REGRA INVIOLÁVEL DE SEGURANÇA FÍSICA (`DO NOT EXECUTE / OTP EFUSE LOCK WARNING`)",
+        "5. Arquitetura de Execução por Agente (Fases 1 a 5)",
+        "Agente 1A — Core Criptográfico (`aegis-fido-core`)",
+        "Agente 1B — Firmware ESP32-S3 (`aegis-fido-firmware`)",
+        "Agente 1C — Bridge, Tray App, OpenSSH & Windows Hello / PAM",
+        "Agente 1D — Android App Clean + Atomic + SOLID",
+        "6. Sincronização Canônica e Verificação"
+      ],
+      "topics": [
+        "Secure Guard",
+        "OpenSSH",
+        "Shamir",
+        "eFuse"
+      ]
+    },
+    {
+      "path": "README.md",
+      "lines": 281,
+      "headings": [
+        "AegisKey Authenticator — FIDO2 / WebAuthn Hardware Security Key",
+        "1. Project Overview",
+        "2. Consolidated Project Documentation",
+        "3. Four-Layer System Architecture",
+        "4. Hardware Pinout and Resources",
+        "4.1 Official WS2812 RGB LED Status Palette (`GPIO 48`)",
+        "5. Repository Directory Layout",
+        "6. Zero-Trust Security Model & Hardened Subsystems",
+        "7. End-to-End User Journeys (Zero-to-Hero)",
+        "8. Build and Verification Commands",
+        "Execute Full Workspace Rust Test Suite",
+        "Run Static Analysis and Linter",
+        "Run Desktop Companion System Tray and OpenSSH Agent Tests",
+        "Build C# .NET 9 Desktop System Tray App",
+        "Start Desktop System Tray Companion",
+        "Start the Host Hardware Bridge and Web Dashboard",
+        "Build the Android Companion App",
+        "9. License"
+      ],
+      "topics": [
+        "Secure Guard",
+        "WebAuthn",
+        "TOTP",
+        "OpenSSH",
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "lines": 504,
+      "headings": [],
+      "topics": []
+    },
+    {
+      "path": "app-android/OTA_HOOK.md",
+      "lines": 28,
+      "headings": [
+        "OTA Hook (ota2 engine — unwired)"
+      ],
+      "topics": [
+        "OTA"
+      ]
+    },
+    {
+      "path": "app-tray/README.md",
+      "lines": 134,
+      "headings": [
+        "AegisKey System Tray App & SSH Key Guard Integration",
+        "1. Security Architecture & Zero-Inspection Guarantee",
+        "Strict User Privacy Rule",
+        "2. Directory Structure",
+        "3. Visual Design (Material 3 Cyber-Security Dark)",
+        "Single Header & 4 Sections",
+        "4. How to Run the Applications",
+        "Running the Python System Tray App (Multiplatform)",
+        "Running the C# / .NET 9 System Tray App",
+        "5. Configuring SSH Guard for Zero-Password SSH",
+        "Option A: Automatic RAM Lifespan Watchdog (Standard `ssh-agent`)",
+        "Option B: Hardware-Gated `SSH_ASKPASS`",
+        "6. Running Automated Tests",
+        "Verified Test Cases:"
+      ],
+      "topics": [
+        "Secure Guard",
+        "TOTP",
+        "OpenSSH",
+        "Password"
+      ]
+    },
+    {
+      "path": "docs/bench-destructive.md",
+      "lines": 251,
+      "headings": [
+        "Plano de testes DESTRUTIVOS — ESP32-S3 (COM13), variante freertos+proximity",
+        "Etapa 1 — `erase_flash` completo + reflash limpo (COM13)",
+        "1a. Apaga TUDO (DESTRUTIVO — sem volta)",
+        "1b. Reflash limpo no offset de fábrica (DESTRUTIVO — regrava app)",
+        "fallback manual se TEST_DOWNLOAD não responder: segurar BOOT, apertar+soltar EN,",
+        "continuar segurando BOOT e teclar ENTER; se a placa não bootar sozinha, apertar EN.",
+        "Etapa 2 — Fluxo de fábrica via `tools/factory_provision.py`",
+        "2a. Plano (não toca hardware) — obrigatório primeiro",
+        "2b. Burn real (eFuse é irreversível; exige --confirm + --port)",
+        "Etapa 3 — Geração de chaves nos 5 algoritmos COSE via cerimônia WebAuthn (`tools/server.py` em `localhost:8888`)",
+        "Etapa 4 — OATH PUT/CALCULATE/DELETE, wallet gen/addr, vault export/import",
+        "4a. OATH no modo seguro (gates UP+PIN; sem PIN espera-se 0x02)",
+        "4b. OATH destrutivo (muda estado; PUT HOTP/TOTP real -> 0x00, CODE TOTP bate conta local, HOTP avança contador)",
+        "4c. Wallet (WALLET_GEN BTC com UP -> 0x00 + addr bc1...; LIST responde; ADDR bate GEN; rede inválida -> 0x04)",
+        "4d. Vault export/import NÃO tem comando serial neste worktree: cobertura é host-side",
+        "(WalletStore::export_routing/import_routing round-trip + AegisVault seal/open; ver crates/aegis-fido-core/src/wallet/store.rs e src/vault/mod.rs)",
+        "Etapa 5 — Wipe via `authenticatorReset` (janela 10 s + UP GPIO0) e verificação de limpeza",
+        "5a. Reset CTAP dentro da janela: energizar a S3, em < 10 s tocar+segurar BOOT (GPIO0) e emitir CTAP RESET",
+        "alternativa raw pela sessão serial (vide tools/app_simulator.py Session/CTAP_CMD_*):",
+        "5b. Verificação de limpeza (credMgmt sub 0x01 = SUBCMD_GET_CREDS_METADATA, crates/aegis-fido-core/src/ctap/cred_mgmt.rs; PIN retries sub 0x01 de ClientPIN)",
+        "Etapa 6 — Re-provisionamento e estado final esperado",
+        "6a. Fábrica de novo (mesmo serial? NÃO reutilizar AAGUID — gerar novo TRNG)",
+        "6b. Re-bond proximity (hold BOOT 5 s -> LED azul + janela 60 s; parear no SO; agente lock-only)",
+        "6c. Sanidade final não-destrutiva",
+        "Reajustes candidatos"
+      ],
+      "topics": [
+        "WebAuthn",
+        "TOTP",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/bench-freertos-s3.md",
+      "lines": 291,
+      "headings": [
+        "Bancada FreeRTOS + proximity no ESP32-S3 (roteiro de validacao em hardware)",
+        "0. Pre-requisitos (ambiente + hardware)",
+        "1. Flash da S3 (COM7)",
+        "2. Boot + monitor serial (o que esperar no log)",
+        "3. USB nativo (enumeracao + cerimonia WebAuthn)",
+        "4. UP fisico + LED (dedo no hardware)",
+        "5. BLE bond + walk-away (proximity lock-only)",
+        "6. Coleta de logs (o que salvar ao final)",
+        "7. Criterios de aceite por etapa (PASS/FAIL objetivos)"
+      ],
+      "topics": [
+        "WebAuthn",
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/evaluation/EVALUATION.md",
+      "lines": 448,
+      "headings": [
+        "EVALUATION — Quarantine index, Security Gaps & Product Opportunities",
+        "1. Rule",
+        "2. Quarantine table (old path → quarantine name → fate)",
+        "3. Consolidation decisions",
+        "4. Pending external blockers",
+        "5. Auditoria de Segurança Ofensiva/Defensiva, Análise de Gaps e Oportunidades de Evolução",
+        "5.1. Sumário Executivo da Auditoria Técnica",
+        "5.2. Análise Detalhada dos Gaps de Segurança e Status de Remediação",
+        "5.3. Análise Detalhada das 6 Oportunidades de Produto e Implementação",
+        "5.4. Conclusão da Avaliação e Invariante de Segurança de Fábrica",
+        "6. Auditoria de Verificação e Matriz Técnica: Cores do LED WS2812 (GPIO 48) e Jornadas Ponta-a-Ponta (J1 a J8)",
+        "6.1. Laudo Técnico e Matriz de Teste do LED RGB WS2812 (`GPIO 48`)",
+        "6.2. Auditoria e Validação das 8 Jornadas do Usuário Ponta-a-Ponta (Zero-to-Hero)",
+        "6.3. Tabela Consolidada de Evidências de Teste e Rastreabilidade"
+      ],
+      "topics": [
+        "Secure Guard",
+        "WebAuthn",
+        "TOTP",
+        "OpenSSH",
+        "Shamir",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/finalizacao-freertos-rust.md",
+      "lines": 107,
+      "headings": [
+        "Finalização — variante FreeRTOS em Rust + proximity (lane `feat/freertos-rust`)",
+        "1. Objetivo",
+        "2. Finalizado (com evidência)",
+        "3. Em voo / pendente",
+        "4. Reajustes aplicados no caminho",
+        "6. Status e2e (atualizado em loop)",
+        "7. Reproduzir",
+        "8. USB + LED (COM14, 21/10/2026)"
+      ],
+      "topics": [
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/freertos-rust.md",
+      "lines": 329,
+      "headings": [
+        "Variante FreeRTOS em Rust",
+        "Tarefas",
+        "Fila + EventGroup",
+        "Device vs host",
+        "Habilitar",
+        "Fluxo",
+        "Pinos",
+        "Segurança",
+        "Prioridades e núcleos efetivos (implementado)",
+        "TWDT (estado real)",
+        "High-water (estado real)",
+        "Dispatcher (estado real, mínimo)",
+        "Como habilitar `--features freertos`",
+        "Gates",
+        "Limitações conhecidas (dispatcher mínimo)",
+        "Loop 1 (2026-10-20, verificado)",
+        "Proximity BLE no scheduler (loop 2)",
+        "Estado implementado nesta lane (verificado no código desta worktree)",
+        "Contrato herdado da origem (não reimplementado nesta lane, referência)",
+        "Scheduler: task dedicada prio 1 vs hook no housekeeping (plano, sem código novo)",
+        "Gates de teste (plano, sem alegação de verde nesta lane)",
+        "Limitações conhecidas",
+        "Hardware S3 — flash + boot + suite (2026-10-21, evidencias colhidas)"
+      ],
+      "topics": [
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/manual/MANUAL_USUARIO.md",
+      "lines": 321,
+      "headings": [
+        "Manual do Usuário — AegisKey App + Chave de Segurança",
+        "Pré-requisitos",
+        "1. Primeira abertura (cofre bloqueado)",
+        "2. Desbloqueio com PIN",
+        "3. Tela principal do cofre",
+        "4. Criar credencial FIDO (passkey)",
+        "5. TOTP (códigos de verificação)",
+        "6. Dispositivos (placa vinculada)",
+        "7. Capacidades da placa",
+        "8. OTA (atualização de firmware, sem instalar)",
+        "9. Configurações (idioma EN → PT → EN)",
+        "10. Bloqueio",
+        "11. Recuperação de emergência (mostrar sem concluir)",
+        "Solução de problemas",
+        "Nota de revisão — full ao vivo em telefone físico (2026-11-03)",
+        "Nota de revisão — full click-through (2026-11-04)",
+        "Nota de revisão — tour em telefone físico (2026-11-03)"
+      ],
+      "topics": [
+        "WebAuthn",
+        "TOTP",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/plans/PASSWORD_MANAGER_PLAN.md",
+      "lines": 127,
+      "headings": [
+        "Password Manager Device-Only — Plano (sem codigo)",
+        "0. Fontes relidas na worktree (integracoes existentes)",
+        "1. Principios (contrato do produto)",
+        "2. Mudancas atomicas (F-PM0 a F-PM4)",
+        "F-PM0 — Spec de ameacas + contrato do protocolo cego",
+        "F-PM1 — Vault cifrado device-only (reuso, sem novo motor cripto)",
+        "F-PM2 — Protocolo cego do celular (viewer zero-knowledge)",
+        "F-PM3 — Backup/restore via Shamir/BIP39 ja previstos (sem export em claro)",
+        "F-PM4 — HIL L0-L4 + gates (qualidade sem suite completa nesta lane)",
+        "3. Matriz de riscos",
+        "4. O que NAO fazer (lista de vetos)",
+        "5. Validacao desta lane (focada, sem suite completa)",
+        "6. Uso da crate `aegis-pm-vault` (F-PM1, lane isolada)"
+      ],
+      "topics": [
+        "Shamir",
+        "Password",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/plans/PLANS.md",
+      "lines": 162,
+      "headings": [
+        "PLANS — Roadmap, TODO matrix, follow-ups, features, session history",
+        "1. Integrated Master Execution Plan (Fases 0 a 5)",
+        "1.1 Summary of 7 Security Gaps (`GAP-01` to `GAP-07`)",
+        "1.2 Summary of 6 Product Opportunities (`OPP-01` to `OPP-06`)",
+        "2. Roadmap",
+        "3. TODO matrix (condensed from MATRIZ-TODO)",
+        "4. Follow-ups F1-F4 plus yellows plus next steps (single list)",
+        "5. Features (one row per plan family)",
+        "6. Release path and risk",
+        "7. History (dated sessions, summarized)"
+      ],
+      "topics": [
+        "OpenSSH",
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/project/MANUAL-CONEXAO-E-USO.md",
+      "lines": 68,
+      "headings": [
+        "Manual Completo de Conexão, Botão Físico e Operação da Chave AegisKey (ESP32-S3)",
+        "1. Entendendo as Duas Portas USB da Placa ESP32-S3 N16R8",
+        "2. Os 4 Modos de Conexão da Chave",
+        "Modo A — Cabo USB OTG Direto no Celular (Recomendado no Android)",
+        "Modo B — Bluetooth Low Energy (BLE GATT `0xFFFD`) no Celular",
+        "Modo C — PC Windows / Linux via Bridge (`COM7` + App C# Flutuante)",
+        "Modo D — Wi-Fi Local / Rede (Bridge HTTP/TCP)",
+        "3. O que o Botão Físico (`BOOT / GPIO 0`) Realmente Faz no Código?",
+        "4. Ciclo de Senha (PIN), Desbloqueio e Garantia Contra Bloqueio Permanente"
+      ],
+      "topics": [
+        "Secure Guard",
+        "WebAuthn",
+        "TOTP",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/project/PROJECT.md",
+      "lines": 801,
+      "headings": [
+        "PROJECT — AegisKey Authenticator (vision, architecture, modules, security)",
+        "1. Vision",
+        "2. History (summary)",
+        "3. Hardware map",
+        "4. Architecture",
+        "4.1 Four-Layer Hierarchy",
+        "4.2 Workspace Crates and Applications",
+        "5. Modules and capabilities",
+        "6. Transports (COMMS single source)",
+        "7. Desktop Companion and Android Apps",
+        "7.1 Desktop Companion App (`app-tray/`)",
+        "7.2 Android App (`app-android/`)",
+        "8. Consolidated Repository Directory Architecture",
+        "9. Security & Hardening Policies",
+        "10. Definitive Guide to WS2812 RGB LED States and Visual Feedback (GPIO 48)",
+        "10.1 Physical Specification and Driver Architecture",
+        "10.2 Official WS2812 Color Palette, RGB Values, and Operational Semantics",
+        "11. End-to-End User Journeys (Zero-to-Hero, Journeys 1 to 8)",
+        "11.1 Journey 1 — First Use and Clean Factory Reset (0 Keys Baseline)",
+        "11.2 Journey 2 — Secure Guard Provisioning, PIN Creation & Recovery Code Safekeeping",
+        "11.3 Journey 3 — Silicon Key Creation & Usage (FIDO2 Passkeys, Web3 Wallets with Clear Signing OLED Preview & Shamir 2-of-3 Backup)",
+        "11.4 Journey 4 — Locking and Unlocking Secure Guard (The Vault Gatekeeper)",
+        "11.5 Journey 5 — Desktop Usage: Desktop Companion System Tray + Native Passwordless OpenSSH Agent (`SshGuard`)",
+        "11.6 Journey 6 — BLE Proximity Lock & Workstation Security (Walk-Away Auto-Lock & Touch Unlock)",
+        "11.7 Journey 7 — Emergency Recovery & Brute-Force Rate Limiting (5-Attempt Lockout & Recovery Code)",
+        "11.8 Journey 8 — Silicon Security & Inviolable Zero-Brick Policy (`efuse_safety_lock.rs`)",
+        "12. Verification Summary & Cross-Subsystem Traceability"
+      ],
+      "topics": [
+        "Secure Guard",
+        "WebAuthn",
+        "TOTP",
+        "OpenSSH",
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/proximity-worktree-handoff.md",
+      "lines": 56,
+      "headings": [
+        "Handoff Worktree — Trava de Presença RSSI (BLE Proximity Key)",
+        "1. O que está pronto",
+        "2. Arquivos tocados",
+        "3. Verificação (tudo verde na origem)",
+        "4. O que falta (escopo da nova worktree)",
+        "5. Como começar na nova worktree"
+      ],
+      "topics": [
+        "proximity"
+      ]
+    },
+    {
+      "path": "docs/tasks/TASKS.md",
+      "lines": 229,
+      "headings": [
+        "TASKS — Executable tasks, HIL, batteries, checklists, handoffs, rites",
+        "1. Task list T0-T20 (executable)",
+        "2. HIL matrix L0-L4",
+        "3. Batteries and benches",
+        "3.1 Serial battery (standard playbook)",
+        "3.2 Bench FreeRTOS S3 (hardware)",
+        "3.3 Bench destructive (COM13, freertos plus proximity)",
+        "3.4 Pre-flash emulators (memory protocol)",
+        "3.5 QEMU S3 virtual bench (recipe)",
+        "3.6 Linux bring-up",
+        "4. Checklists",
+        "4.1 User checklist (physical H1-H7 plus lock plus WUDF)",
+        "4.2 Bonding plus walk-away runbook (turnkey)",
+        "4.3 Desktop Companion & OpenSSH Agent Runbook",
+        "5. Test hooks and rites",
+        "6. Handoffs (consolidated, no separate files)",
+        "7. Validation results (summary)",
+        "8. Verification Checklists: WS2812 LED States and User Journeys (J1 to J8)",
+        "8.1 WS2812 RGB LED States Verification (`GPIO 48`)",
+        "8.2 End-to-End User Journeys Verification (J1 to J8)"
+      ],
+      "topics": [
+        "Secure Guard",
+        "WebAuthn",
+        "OpenSSH",
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "docs/test-hooks.md",
+      "lines": 102,
+      "headings": [
+        "Gatilhos de teste (TEST-hooks) — manifesto e garantias",
+        "Hooks de texto (D1/UART, test-mode only)",
+        "Bypasses (sem handler; `cfg!` em tempo de compilação)",
+        "Auditoria (como conferir)",
+        "Complemento - inventario 24/10 (delta; a base acima nao muda)"
+      ],
+      "topics": [
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/IDEAS_BACKLOG.md",
+      "lines": 182,
+      "headings": [
+        "IDEAS_BACKLOG — backlog implementavel (ESP32-S3)",
+        "Envelope de hardware (nao negociar)",
+        "1. FIDO / autenticacao (prioridade maxima)",
+        "2. PIV / OpenPGP (smartcard via CCID)",
+        "3. TOTP / OATH e OTP challenge-response",
+        "4. Wallet (apenas full)",
+        "5. Backup / restore + guardioes",
+        "6. Auditoria e logs no device",
+        "7. OTA de ponta a ponta",
+        "8. BLE / proximidade (apenas full)",
+        "9. Energia (placas com bateria)",
+        "10. Display (boards com LCD)",
+        "11. Fabrica / provisionamento",
+        "12. Companheiros desktop e mobile",
+        "13. Experiencia do desenvolvedor",
+        "Contagem"
+      ],
+      "topics": [
+        "TOTP",
+        "Shamir",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/SESSION_HANDOFF.md",
+      "lines": 77,
+      "headings": [
+        "SESSION HANDOFF — fd/finalizacao-linux (estado verdadeiro 2026-11-06)",
+        "1. Issues FECHADAS (provadas no device)",
+        "2. Gates (estado verdadeiro)",
+        "3. Matriz HW (o que PASSou + STOPs)",
+        "4. Recovery code ATUAL",
+        "5. Pendentes (NÃO fechados)",
+        "6. Auditoria (segurança, estado de hoje)",
+        "7. Como retomar"
+      ],
+      "topics": [
+        "TOTP",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/compliance/SECURITY_AUDIT.md",
+      "lines": 232,
+      "headings": [
+        "Adversarial Security Audit (read-only, host-verifiable only)",
+        "Host test evidence (commands run in worktree, all passed)",
+        "Findings detail",
+        "A-01 MEDIUM - Cleartext HTTP transport, global opt-out (host proximity, no physical)",
+        "F-01 MEDIUM - BLE pairing is JustWorks, MITM flag off (proximity + pairing window)",
+        "F-02 MEDIUM - SecureChannel counter resets per handshake, cross-session replay (protocol, no physical)",
+        "F-03 MEDIUM - No eFuse read-protect path (needs physical)",
+        "A-02 LOW - Exception-message logging on transport paths (host, no physical)",
+        "A-03 LOW - Clipboard export of AEGN envelope hex (host, no physical)",
+        "F-04 LOW - Static shared USB serial + Espressif VID (host, no physical)",
+        "F-05 LOW - change_pin failure path has no backoff (protocol, no physical)",
+        "A-04 INFO - Simulator transport ships in main source set (gated, defense in depth)",
+        "A-05 INFO - Pure-Kotlin crypto fallbacks when native lib is absent",
+        "J-01 INFO - JNI two-call protocol verified robust (checked, no finding)",
+        "F-06 INFO - Default failure policy is recovery, not wipe (documented behavior)",
+        "Verified robust (checked, no finding)",
+        "NOT VERIFIED (cannot be checked from host; needs hardware/lab)",
+        "Counts, top risks, audit SHA"
+      ],
+      "topics": [
+        "TOTP",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/compliance/SECURITY_AUDIT_2026-11-04.md",
+      "lines": 292,
+      "headings": [
+        "Security Audit — 2026-11-04 (READ-ONLY, host-verifiable only)",
+        "Verdict summary",
+        "Top 3 risks",
+        "1. Mock / Fake / Stub production registration (AUDIT requirement)",
+        "2. Secrets hygiene (values NOT echoed)",
+        "3. Generated-token drift",
+        "4. Zero-emoji scan (policy: none in code, logs, docs, CLI text)",
+        "5. Findings detail",
+        "C-01 CRITICAL — Shamir fallback fabricates success with deterministic shares",
+        "C-02 CRITICAL — Key-gen fabricates success frame + default-PIN guess",
+        "H-01 HIGH — USB transport auto-provisions after FAILED unlock",
+        "H-02 HIGH — Session PIN lives in app memory with device-independent lifetime",
+        "H-03 HIGH — No eFuse read-protect path (F-03 carryover, still open)",
+        "M-01 MEDIUM — Bench 24 h session + WiFi-edge suppression (test-mode-gated, documented)",
+        "M-02 MEDIUM — SoftAP HTTP residual (platform layer FIXED since baseline)",
+        "M-03 MEDIUM — BLE MITM-required mirror not verifiable in this checkout",
+        "M-04 MEDIUM — Secure-channel zero-counter acceptance on fresh channel (F-02 fixed, edge remains)",
+        "M-05 MEDIUM — Exception-message logging on transport/bridge paths (A-02 carryover, wider surface)",
+        "M-06 MEDIUM — Dual change-PIN backoff source (F-05 fixed, desync risk)",
+        "L-01 LOW — Deterministic simulator ships in main source set (A-04 residual)",
+        "L-02 LOW — Static USB descriptors (F-04 carryover)",
+        "L-03 LOW — Clipboard exports of sensitive-equivalent material",
+        "L-04 LOW — Emoji-policy violations (§4 table; smallest fix = strip to text glyphs)",
+        "L-05 LOW — Compliance snapshots stale vs current worktree",
+        "6. Verified robust (checked, no finding)",
+        "7. NOT VERIFIED (needs hardware/lab)",
+        "8. Supply chain",
+        "9. Live-read annex (read-only, no unlock)",
+        "Counts"
+      ],
+      "topics": [
+        "Secure Guard",
+        "Shamir",
+        "Password",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/compliance/documentation-audit.md",
+      "lines": 40,
+      "headings": [],
+      "topics": [
+        "WebAuthn"
+      ]
+    },
+    {
+      "path": "reports/compliance/license-compatibility.md",
+      "lines": 50,
+      "headings": [],
+      "topics": []
+    },
+    {
+      "path": "reports/compliance/third-party-notices.md",
+      "lines": 502,
+      "headings": [],
+      "topics": []
+    },
+    {
+      "path": "reports/compliance/trademark-audit.md",
+      "lines": 33,
+      "headings": [],
+      "topics": [
+        "WebAuthn",
+        "OpenSSH",
+        "Shamir"
+      ]
+    },
+    {
+      "path": "reports/refactoring/ANDROID_AUDIT.md",
+      "lines": 369,
+      "headings": [
+        "ANDROID_AUDIT.md — app-android audit (2026-11-02)",
+        "1. Screen / feature map",
+        "Navigation shell — WORKS",
+        "Vault tab — WORKS (hardware-backed; debug mock injection available)",
+        "TOTP tab — WORKS (hardware-backed; debug mock injection available)",
+        "Devices tab — WORKS",
+        "Onboarding / pairing wizard — WORKS (+ debug mock branches)",
+        "Secure Guard — WORKS (fail-closed) + one MISSING crypto binding",
+        "Settings tab — WORKS (ota2 entry wired by this change)",
+        "Biometrics — PARTIAL (stub)",
+        "App lock — PARTIAL (implemented, flag OFF, unwired UI)",
+        "Transports / protocols — WORKS",
+        "OTA (ota2 engine) — WORKS (engine: other lane; hook: this change)",
+        "Backup / crypto helpers — WORKS",
+        "Debug-only mocks — MOCK (release source set is a no-op)",
+        "Unit tests (6 files, `app/src/test/...`) — WORKS",
+        "2. Tally",
+        "3. AegisBridge JNA symbols vs `crates/uniffi-bridge/src/ffi.rs` (read-only)",
+        "4. Emoji hits (user-visible, removed by this change)",
+        "5. Hardcoded user-visible literals → `strings.xml` (EN) + `strings-pt` (PT-BR)",
+        "6. God files (lines, same-package move-only splits by this change)",
+        "7. Change log (this workstream)",
+        "8. A-01 scoped cleartext (this change; fixes SECURITY_AUDIT A-01 MEDIUM)",
+        "9. OTA hook wiring (this change; implements OTA_HOOK.md)"
+      ],
+      "topics": [
+        "Secure Guard",
+        "TOTP",
+        "Shamir",
+        "Password",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/refactoring/CAPABILITY_DIET.md",
+      "lines": 394,
+      "headings": [
+        "CAPABILITY_DIET — presets fido-only / fido-totp (dieta 2 MB)",
+        "1. Presets (raizes alternativas)",
+        "2. O que entra / o que sai por preset",
+        "3. Como selecionar (picker)",
+        "4. Catalogo de capabilities (gerado de capability-catalog.json)",
+        "5. Pools de chaves/storage (gerado de capability-catalog.json)",
+        "6. Evidencia (medido, elf2image --flash_size 4MB)",
+        "USB serial (freertos_route::dispatch_serial_vendor_msg + loop legado):",
+        "incluir o predicado e desviar ANTES do gate pairing/UP (como o 0x38):",
+        "BLE (ble_dispatch_complete): novo braco sem gates (como fw-log com bonded):",
+        "+ BLE reassembler (is_ble_fragment_opcode em gatt_core.rs): aceitar 0x3F",
+        "  como opcode de fragmento (hoje so PING/MSG/bind 0x28-0x2D/OTA 0x30-0x34).",
+        "8. Per-credential UP policy (default require-touch, owner-explicit)",
+        "8.1 Onde mora o flag",
+        "8.2 Gate (firmware `ctap_cmd.rs`)",
+        "8.3 Management op SET (executor `ctap_cmd::set_credential_up_policy`)",
+        "8.4 Wire contract (para a app lane)",
+        "9. SIGN dedicado (VENDOR_SIGN `0x41`)",
+        "9.1 Prova da escolha do opcode",
+        "9.2 Contrato wire (legivel por maquina em `scripts/capability-catalog.json#wire_contract.vendor_sign`)",
+        "USB serial (freertos_route::dispatch_serial_vendor_msg + loop legado):",
+        "incluir o predicado e exigir binding + UP (classe GEN, sem PIN):",
+        "BLE (ble_dispatch_complete): novo braco com gates (como GEN, nao como fw-log):",
+        "+ BLE reassembler (is_ble_fragment_opcode em gatt_core.rs): aceitar 0x41",
+        "  como opcode de fragmento.",
+        "10. OOB-assisted BLE pairing (BLE_OOB_ARM `0x42`)",
+        "10.1 Disponibilidade OOB no IDF v5.3.1 pinado (verificada, nao assumida)",
+        "10.2 Prova da escolha do opcode",
+        "10.3 Contrato wire (legivel em `crates/.../src/ble/oob.rs`)",
+        "USB serial Freertos + legado (secao D): janela + binding -> UP -> sessao;",
+        "sucesso arma via esp_ble_arm_oob e consome o latch UP:",
+        "Executor compartilhado (vendor_dispatch.rs): braco ANTES do authorize_vendor_op",
+        "(0x42 fora da faixa 0x20-0x27), sem efeito colateral — o funil serial arma."
+      ],
+      "topics": [
+        "TOTP",
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/refactoring/CLOSED_MODEL_PLAN.md",
+      "lines": 161,
+      "headings": [
+        "CLOSED_MODEL_PLAN — DRAFT (NOT EFFECTIVE)",
+        "0. Preconditions (before any edit)",
+        "1. Exact switch checklist (atomic commit, simultaneous)",
+        "2. Per-binary attribution bundle (each distributable ships its notices)",
+        "3. Zero-MPL note (already eliminated, verify at switch time)",
+        "4. r-efi note (transitive only, not directly used)",
+        "5. License-field simultaneity rule",
+        "6. After the switch (post-commit verification, before any distribution)"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/ESP_IDF_MIGRATION_REPORT.md",
+      "lines": 74,
+      "headings": [
+        "ESP-IDF Migration Report -- reverted: pinned v5.3.1 kept (v6.0.3 blocked upstream)",
+        "Revert method per file (exact pre-migration bytes restored)",
+        "Proof results: v5.3.1 GREEN (shell-local .embuild env, no global changes)",
+        "v6.0.3 status: BLOCKED upstream (attempt preserved in history)",
+        "Removal: CANCELLED per owner order",
+        "Next steps"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/ESP_IDF_WINDOWS_CLEANUP.md",
+      "lines": 49,
+      "headings": [
+        "ESP-IDF Windows Cleanup -- v5.3.1 kept, removal CANCELLED (both installs stay)",
+        "Host state (observed, not modified)",
+        "Removal: CANCELLED per owner order (keep as-is on v5.3.1)",
+        "Compat note (re-verified this lane)",
+        "What was NOT done (explicit)",
+        "Next steps"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/FINAL_REFACTOR_REPORT.md",
+      "lines": 93,
+      "headings": [
+        "Final Refactor Report -- standalone-architecture cleanup (P0-P7)",
+        "Phase summary (P0-P7)",
+        "Acceptance criteria per file",
+        "Explicit non-goals (not done, by design)",
+        "Remaining BLOCKED items (atualizada pos-JNI `915ebf3` — so fmt + ESP-IDF fisico; MPL-2.0 ELIMINADO 273->239)"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/SCRIPT_TEST_MIGRATION_REPORT.md",
+      "lines": 20,
+      "headings": [
+        "SCRIPT_TEST_MIGRATION_REPORT",
+        "Baseline",
+        "Git",
+        "Migration",
+        "Verdict"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/UNIFFI_REMOVAL_PLAN.md",
+      "lines": 134,
+      "headings": [
+        "UNIFFI_REMOVAL_PLAN — `crates/uniffi-bridge` (zero MPL-2.0)",
+        "1. `uniffi::` usage map (lib.rs 1378 lines + build.rs + UDL)",
+        "2. Kotlin/JNA call-site analysis (read-only; NOT edited)",
+        "3. Decision: manual `extern \"C\"` C-ABI, NO `jni` crate",
+        "4. C-ABI name map (new symbols; old `uniffi_*` gone)",
+        "5. Validation",
+        "6. Compliance updates (this lane owns these paths) — EXECUTED 2026-11-02",
+        "7. Commit"
+      ],
+      "topics": [
+        "TOTP",
+        "Password"
+      ]
+    },
+    {
+      "path": "reports/refactoring/baseline.md",
+      "lines": 25,
+      "headings": [
+        "Baseline — Standalone Architecture Cleanup",
+        "Git state",
+        "Quality gates (baseline)",
+        "Scope of this report batch"
+      ],
+      "topics": [
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/refactoring/esp-idf-version-inventory.md",
+      "lines": 7,
+      "headings": [
+        "ESP-IDF Version Inventory"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/god-files.md",
+      "lines": 12,
+      "headings": [
+        "God Files"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/moved-files.md",
+      "lines": 6,
+      "headings": [
+        "Moved Files"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/regression-report.md",
+      "lines": 85,
+      "headings": [
+        "Regression Report -- preservation-first baseline (zero moves)",
+        "Baseline (from reports/testing/BASELINE.md, HEAD 30680ff)",
+        "Why zero new regressions",
+        "Verdict"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/refactoring/standalone-crates.md",
+      "lines": 10,
+      "headings": [
+        "Standalone Crates"
+      ],
+      "topics": []
+    },
+    {
+      "path": "reports/release/GO_NOGO.md",
+      "lines": 180,
+      "headings": [
+        "GO / NO-GO -- 1.0.0-wave (verdict of record: run 2026-11-04T11:14:53Z)",
+        "Per-gate verdicts -- final run (2026-11-04T11:14:53Z, release=on, selector=all)",
+        "App suite -- 189/189 (handoff-provided, not re-run here)",
+        "Hardware proofs (provenance, not re-validated here -- no device in this lane)",
+        "Known gaps (accepted, assigned -- not ship-blockers for wave)",
+        "Residual risks",
+        "Acceptance criteria (wave ship)",
+        "Evidence quality",
+        "Working-tree state at write time (HEAD `0e957fc`, uncommitted, other lanes)"
+      ],
+      "topics": [
+        "TOTP",
+        "Shamir",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/release/RELEASE_2026-11-04.md",
+      "lines": 37,
+      "headings": [
+        "RELEASE 2026-11-04 — Finalização Linux",
+        "Gates e testes",
+        "Artefatos",
+        "Provas funcionais",
+        "Gaps conhecidos (com ressalva)",
+        "Segurança / fuses",
+        "Veredito"
+      ],
+      "topics": [
+        "TOTP",
+        "eFuse"
+      ]
+    },
+    {
+      "path": "reports/release/RELEASE_2026-11-05.md",
+      "lines": 45,
+      "headings": [
+        "RELEASE 2026-11-05 — Finalização Linux",
+        "Gates e testes",
+        "Artefatos",
+        "Provas funcionais (device)",
+        "Correções confirmadas (commitadas)",
+        "Gaps conhecidos (com ressalva)",
+        "Segurança / fuses",
+        "Veredito"
+      ],
+      "topics": [
+        "WebAuthn",
+        "TOTP",
+        "eFuse"
+      ]
+    },
+    {
+      "path": "reports/release/RELEASE_NOTES.md",
+      "lines": 87,
+      "headings": [
+        "Release 1.0.0-wave — closeout pack (RED: NO-GO)",
+        "What is in this release",
+        "Gate history (both runs reported honestly)",
+        "Known limitations"
+      ],
+      "topics": [
+        "TOTP",
+        "Shamir",
+        "eFuse"
+      ]
+    },
+    {
+      "path": "reports/testing/BASELINE.md",
+      "lines": 43,
+      "headings": [
+        "Baseline validation - standalone-architecture worktree",
+        "Toolchain",
+        "rustfmt",
+        "cargo check --workspace",
+        "cargo test --workspace",
+        "cargo clippy --workspace --all-targets -- -D warnings",
+        "Host-only note",
+        "Verdict"
+      ],
+      "topics": [
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/CLICKTHROUGH.md",
+      "lines": 123,
+      "headings": [
+        "CLICKTHROUGH — Full UI Walk (Emulator Only)",
+        "Safety box — LIVE host bridge to another lane's physical board",
+        "Flow matrix",
+        "Failure / BLOCKED list with root-cause hypotheses (no fixes)",
+        "Evidence states / extension boundaries (read-only notes)",
+        "Logcat excerpt (redacted — no PINs/secrets; indices only, wordlist null)",
+        "install + first run (pid 18420→18744 after pm clear)",
+        "TOTP save w/o hardware: dialog closed, snackbar shown, no exception in app log (only system MDD/SurfaceSync noise)",
+        "Verdict"
+      ],
+      "topics": [
+        "Secure Guard",
+        "TOTP",
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/CONSOLIDATED_RUN.md",
+      "lines": 3186,
+      "headings": [
+        "Consolidated Run",
+        "Suite list (execution order)",
+        "Gates",
+        "Exit-code contract",
+        "CLI",
+        "Results",
+        "Run 2026-11-02T15:57:30Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-02T16:09:32Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-03T00:48:10Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-03T01:06:10Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-03T17:21:54Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-03T18:14:09Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-03T23:04:03Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-04T00:36:54Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-04T00:42:26Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-04T03:00:54Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-04T03:05:48Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-04T10:27:22Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-04T11:14:53Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-05T01:22:59Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-05T01:31:27Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-05T01:34:58Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-05T02:40:25Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)",
+        "Run 2026-11-06T00:23:07Z (release=on, selector=all)",
+        "Tails (last 15 lines per leg)"
+      ],
+      "topics": [
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/ESP32_BUILD_REPORT.md",
+      "lines": 162,
+      "headings": [
+        "ESP32-S3 Firmware Build Report — board-devkitc",
+        "1. Inventory (all in-worktree shell, no changes)",
+        "2. Environment bootstrap (shell-local only, per `scripts/common.ps1`)",
+        "3. Commands + exits (honest record)",
+        "3a. Literal task check (stable toolchain, no `+esp`, no `-Zbuild-std`) — RED (expected)",
+        "3b. Repo-canonical check (`+esp`, `-Zbuild-std`) — GREEN",
+        "3c. Repo-canonical release build (run only because §3b was green) — GREEN",
+        "4. Artifacts",
+        "5. Forbidden commands — none run",
+        "6. What remains for flash/hardware",
+        "7. Target-only defect fixes (this change) - GREEN"
+      ],
+      "topics": [
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/FINAL_TEST_REPORT.md",
+      "lines": 217,
+      "headings": [
+        "Final Test Report -- BASELINE ONLY (full gate pending later phases)",
+        "Section verdicts (evidence-backed only)",
+        "Post-fix full validation (2026-11-02 UTC, HEAD `e683979`)",
+        "`cargo test --workspace` — PASS (exit 0, VERIFIED)",
+        "`cargo clippy --workspace --all-targets -- -D warnings` — PASS (exit 0, VERIFIED)",
+        "Standalone consumer reuse — VERIFIED desktop-only (`$env:TEMP` consumer, 4/4)",
+        "License / `cargo deny` evidence — PASS (exit 0, pos-migracao `33df2ea`)",
+        "Updated verdict (pos-migracao `33df2ea`)",
+        "Pos-migracao RUSTSEC-2026-0387 (HEAD `33df2ea`, 2026-11-02 UTC)",
+        "Pos-JNI (HEAD `915ebf3`, 2026-11-02 UTC) — UniFFI removido, zero MPL",
+        "`cargo test --workspace` — PASS (exit 0, VERIFIED)",
+        "Focado single-thread (`--test-threads=1`) — PASS exato",
+        "`cargo clippy --workspace --all-targets -- -D warnings` — PASS (exit 0, VERIFIED)",
+        "`cargo deny check licenses advisories bans sources` — PASS (exit 0, VERIFIED)",
+        "Veredito pos-JNI (`915ebf3`)",
+        "Heavy battery (HEAD `b1a10b3`, 2026-11-02 UTC) — detalhe em `HEAVY_TEST_REPORT.md`",
+        "Consolidated full run (2026-11-02 UTC, HEAD `354d46c`, `python tools/run_all.py --release`, exit 1) — BLOCKED on dep-track + docs (no code fixed in this lane)",
+        "Consolidated re-run (2026-11-02 UTC, HEAD `52826bb`, `python tools/run_all.py --release`, exit 0) — ALL GREEN",
+        "Final validation on fd/finalizacao-linux (2026-11-03 UTC, HEAD `c393b3c`, `python tools/run_all.py --release`, exit 1) — post-merge + diet, CLOSING VERDICT",
+        "Sealing full run on fd/finalizacao-linux (2026-11-03 UTC, HEAD `62c1f9b`, `python tools/run_all.py --release`, exit 0) — ALL GREEN, CLOSING VERDICT"
+      ],
+      "topics": [
+        "TOTP",
+        "Shamir",
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/HARDWARE_JOURNEY.md",
+      "lines": 151,
+      "headings": [
+        "Hardware Journey — ESP32-S3 physical board (COM7) + full wipe",
+        "1. Detect (PASS)",
+        "2. Provenance (PASS) + build (PASS)",
+        "3. Flash + boot (PASS)",
+        "4. Journey via UART/USB with repo host tools (final run: 51 PASS / 0 BLOCKED / 2 FAIL-quirk, 53 steps)",
+        "5. LAST: full wipe with PIN 1111 (PASS) + final device state",
+        "Observations for follow-up (not blockers for the wipe)",
+        "Evidence artifacts (host TEMP, not committed)",
+        "Verdict"
+      ],
+      "topics": [
+        "TOTP"
+      ]
+    },
+    {
+      "path": "reports/testing/HEAVY_TEST_REPORT.md",
+      "lines": 123,
+      "headings": [
+        "Heavy Test Battery — standalone-architecture worktree",
+        "1. Baseline — VERIFIED",
+        "2. Feature matrix",
+        "3. Stress (flake hunt) — VERIFIED, no flakes",
+        "4. Release — VERIFIED",
+        "5. Target probes (no flash, no device) — all read-only",
+        "6. Doubles-boundary review (read-only grep, no edits)",
+        "7. New tests — none added",
+        "Verdicts per leg"
+      ],
+      "topics": [
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/HOST_SWEEP.md",
+      "lines": 52,
+      "headings": [
+        "HOST-ONLY SWEEP (no hardware)",
+        "Result table",
+        "Total",
+        "Follow-up (sweep findings closed)"
+      ],
+      "topics": [
+        "WebAuthn",
+        "TOTP",
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/HW_MATRIX.md",
+      "lines": 777,
+      "headings": [
+        "HW_MATRIX — Matriz Hardware TOTAL (moto g(60) + placa bancada)",
+        "0. GATE OBRIGATÓRIO — `GET /api/secure-guard/status` read-only (sem PIN) → BENCH CAIU → STOP",
+        "1. Keypads FIDO (prioridade do dono) — dumps por keypad",
+        "K1 — Keypad de PIN unlock (`Hardware Session Authentication`, variante LOCKED)",
+        "K2 — Secure PIN / provision / initial-setup: NÃO ALCANÇADO (STOP do gate)",
+        "K3 — Prompts de presença/toque (UP): NÃO ALCANÇADO (STOP do gate)",
+        "K4 — Keypads de cada tela (TOTP add, PIV PIN, Emergency Recovery `New PIN`, Wi-Fi, DKEK, etc.): NÃO ALCANÇADO (STOP do gate)",
+        "2. Telas observadas somente-leitura (pré-gate, sem PIN, sem toque destrutivo)",
+        "3. Criações `hw-*` por tipo/config: NÃO EXECUTADAS (STOP do gate)",
+        "4. Telas view-only (OTA, recovery, diagnostics 0x2E, audit 0x38, caps, detalhe, TOTP, PIV, devices, settings/idioma): NÃO ABERTAS (STOP do gate)",
+        "5. Badge bancada",
+        "6. Contador de tentativas — prova de zero PIN",
+        "7. Limites de extensão / estados de evidência",
+        "Veredito",
+        "SESSÃO 2 — Retomada pós-restabelecimento (2026-11-04 03:12 UTC)",
+        "S2-0. GATE — `GET /api/secure-guard/status` (read-only, sem PIN) → SURPRESA → STOP",
+        "S2-1. Unlock → SKIP explícito (ordem do pai, independente do gate)",
+        "S2-2. Keypads FIDO — NÃO EXECUTADOS (STOP do gate)",
+        "S2-3. Telas — somente hub LOCKED observado (read-only, sem toque destrutivo)",
+        "S2-4. Criações `hw-*` por tipo/config — NÃO EXECUTADAS (STOP do gate)",
+        "S2-5. Contador — prova de zero PIN",
+        "S2-6. Limites / evidência",
+        "Veredito S2",
+        "SESSÃO S3 — Retomada pós-\"restabelecida e provada\" (2026-11-04 03:23 UTC)",
+        "S3-0. GATE — `0x3A` DIRETO no silício (ground-truth, via `POST /bridge/vendor {opcode 0x3A}`) → SURPRESA → STOP",
+        "S3-1. Unlock → SKIP explícito (ordem do pai, reforçado pelo gate)",
+        "S3-2. Keypads FIDO — NÃO EXECUTADOS (STOP do gate)",
+        "S3-3. Telas — somente hub LOCKED observado (read-only, sem toque destrutivo)",
+        "S3-4. Criações `hw-*` por tipo/config — NÃO EXECUTADAS (STOP do gate)",
+        "S3-5. Contador — prova de zero PIN",
+        "S3-6. Limites / evidência",
+        "Veredito S3",
+        "SESSÃO S4 — Rig estável sem bench + unlock 5 min via keypad gate (2026-11-04 03:25–03:37 UTC)",
+        "S4-0. Estabilização do rig — PASS (3 min, zero reboot)",
+        "S4-1. Gate + unlock (1 tentativa, zero retry) — PASS",
+        "S4-2. Keypads FIDO",
+        "S4-3. Telas (somente as tocadas; resto NÃO aberto)",
+        "S4-4. Criações `hw-*` por tipo+config — STOP na surpresa (3 PASS + 1 gatilho)",
+        "S4-5. Contador — prova de 1 PIN / zero retry",
+        "S4-6. Limites / evidência",
+        "Veredito S4",
+        "SESSÃO S5 — Retomada pós-perícia (LIST direto = 4, sem wipe) → SURPRESA split-brain → STOP",
+        "S5-0. GATE direto `0x3A` (silício, ground-truth, 2 leituras) → bench LOCKED sem sessão",
+        "S5-1. Unlock → NÃO EXECUTADO (desnecessário + proibido pelo STOP)",
+        "S5-2. SURPRESA — app UNLOCKED com silício Locked (split-brain) → STOP TOTAL",
+        "S5-3. Keypads FIDO — NÃO TOCADOS (STOP)",
+        "S5-4. Telas — somente hub observado (screenshot read-only, zero navegação)",
+        "S5-5. Criações `hw-*` — NÃO EXECUTADAS (STOP)",
+        "S5-6. Contador — prova de zero PIN",
+        "S5-7. Limites / evidência",
+        "Veredito S5",
+        "SESSÃO S6 — Pre-flight + gate 0x3A direto → split-brain persistente → STOP (2026-11-04 ~04:0x UTC)",
+        "S6-0. Pre-flight AUTORIZADO — PASS (read-only, sem mutação)",
+        "S6-1. GATE direto `0x3A` (silício, ground-truth, 2 leituras) → LOCKED sem sessão",
+        "S6-2. Unlock → NÃO EXECUTADO (gate FALHOU + STOP do split-brain)",
+        "S6-3. SURPRESA — app UNLOCKED × silício Locked (split-brain persiste) → STOP TOTAL",
+        "S6-4. Matriz HW — NÃO EXECUTADA (STOP)",
+        "S6-5. Contador — prova de zero PIN",
+        "S6-6. Limites / evidência / testes",
+        "Veredito S6",
+        "SESSÃO S7 - Split-brain tratado (Lock Now) + 1 unlock + STOP mid-matrix (2026-11-04 ~01:00 UTC)",
+        "S7-0. Pre-flight - PASS (read-only)",
+        "S7-1. Gate `0x3A` direto #1 (silício, ground-truth) - LOCKED sem sessão",
+        "S7-2. Split-brain na abertura - app UNLOCKED stale x silício Locked",
+        "S7-3. Unlock 1x via keypad gate - PASS (1 submit, zero retry)",
+        "S7-4. Matriz - `hw-es256k` INICIADO, interrompido por 2º split-brain (STOP)",
+        "S7-5. Contador - prova de 1 PIN / zero retry",
+        "S7-6. Telas observadas (read-only + screenshots, sem navegação destrutiva)",
+        "S7-7. Limites / evidência / testes",
+        "Veredito S7",
+        "SESSÃO S8 — Bench UNLOCKED 24h confirmado + `hw-es256k` criado + view-onlys + split-brain final → STOP (2026-11-04 ~04:40–04:50 UTC)",
+        "S8-0. Gate `0x3A` direto (silício, ground-truth, 3 leituras) → UNLOCKED 24h PASS",
+        "S8-1. Keypads FIDO",
+        "S8-2. Criações — `hw-es256k` PASS (5ª curva); 1 fantasma de render + 1 split-brain (STOPs abaixo)",
+        "S8-3. Telas view-only — todas PASS sem surpresa (exceto o flip final B)",
+        "S8-4. Contador — prova de zero PIN",
+        "S8-5. Limites / evidência / testes",
+        "Veredito S8",
+        "SESSÃO S9 — Matriz HW fechada no moto g(60): 5/5 detalhado + K3/K4/PIV/TOTP/badge + flip final → STOP (2026-11-04 ~04:55–05:15 UTC)",
+        "S9-0. Gate `0x3A` direto (silício, ground-truth) → UNLOCKED 24h PASS (com 2 transientes não-reproduzíveis, registrados)",
+        "S9-1. Inventário 5/5 em tela (pré-flip) — PASS",
+        "S9-2. Configs por tipo nas 5 chaves `hw-*` — OBSERVADO (contrato fixo, sem toggles na UI)",
+        "S9-3. K3 presença/toque (UP) — PASS (implícito + `0x2E`, sem `TEST_UP` manual)",
+        "S9-4. K4 por tela — observado-sem-submit (1 dialog destrutivo-adjacente dispensado via Cancel)",
+        "S9-5. PIV — PASS navegação + PIN/PUK só-vista",
+        "S9-6. TOTP-add — SKIP explícito (enroll real, por ordem)",
+        "S9-7. Badge bancada — AUSENTE (documentado por falta de autoridade no status)",
+        "S9-8. Flip final app→lista-zerada→`UNPROVISIONED` × silício Unlocked → Refresh + reopen (ordem do pai) → STOP",
+        "S9-9. Contador — prova de zero PIN",
+        "S9-10. Limites / evidência / testes",
+        "Veredito S9 (matriz HW fechada no observável)",
+        "SESSÃO S10 — Passwords viewer E2E no moto g(60) físico (2026-11-05 01:23 UTC)",
+        "S10-1. Passos executados (todos read-only + taps não-destrutivos)",
+        "S10-2. Por que parou (gate do viewer, fail-closed correto)",
+        "S10-3. Teste focado designado (resultado exato)",
+        "S10-4. Limites / evidência",
+        "Veredito S10"
+      ],
+      "topics": [
+        "Secure Guard",
+        "WebAuthn",
+        "TOTP",
+        "Shamir",
+        "Password",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/PHYSICAL_DRIVE.md",
+      "lines": 109,
+      "headings": [
+        "PHYSICAL DRIVE — Full UI Matrix (Physical Device Acceptance)",
+        "Safety box — what was NOT done",
+        "1. Pre-flight (all three present, else STOP)",
+        "2. Flow matrix",
+        "3. Logcat app errors/warnings (redacted; PINs/codes never appear in logs)",
+        "4. Bridge incident (resolved, no board mutation)",
+        "5. UART capture + board log (redacted excerpts)",
+        "6. Board final state (0x3A read-only, 21:29:44)",
+        "7. Failure / observation list with root-cause hypotheses",
+        "8. Evidence states / extension boundaries (read-only notes)"
+      ],
+      "topics": [
+        "WebAuthn",
+        "TOTP",
+        "Shamir",
+        "proximity",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/PM_E2E_REPORT_2026-11-05.md",
+      "lines": 125,
+      "headings": [
+        "PM E2E Report — 2026-11-05 (subagente device+E2E)",
+        "1. Ambiente",
+        "2. Exercício no device (somente leitura + taps, sem credencial real)",
+        "3. Zero-persistência (PM não persiste nada)",
+        "4. Host L1 (`--test-threads=1`, resultado exato)",
+        "5. Cobertura Senhas (matriz)",
+        "6. BLOQUEADOR_PARCIAL — 2 falhas firmware testmode (pré-existentes, conhecidas)",
+        "7. Próximos passos (HIL L3, só com `--confirm` explícito do usuário)"
+      ],
+      "topics": [
+        "Secure Guard",
+        "TOTP",
+        "Password",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/PM_SIM_REPORT.md",
+      "lines": 106,
+      "headings": [
+        "PM SIM Report — 2026-11-05 (fluxo completo NO SIMULADOR, sem hardware)",
+        "1. Gap do simulador (achado) + cobertura adicionada no host",
+        "2. Fluxo simulado — tabela PASS/FAIL por etapa",
+        "3. Resultados exatos (`--test-threads=1`)",
+        "4. Contratos observáveis / presets / erros / Boundaries / evidências",
+        "5. Bloqueadores / pendências (não re-executados aqui)",
+        "6. Próximos passos (HIL L3, só com `--confirm` explícito)"
+      ],
+      "topics": [
+        "Secure Guard",
+        "Password",
+        "eFuse",
+        "OTA"
+      ]
+    },
+    {
+      "path": "reports/testing/ROBOT_RUN.md",
+      "lines": 118,
+      "headings": [
+        "ROBOT_RUN — WebAuthn host robot (fd/finalizacao-linux)",
+        "Results table",
+        "UNLOCK FAILURE — root cause (bridge path reproduced, NO FIX)",
+        "FLICKERING — read-only inspection (NO FIX, UI untouched)",
+        "KEYPASS / WebAuthn — break point",
+        "What would need hardware (not claimed)",
+        "SHAs"
+      ],
+      "topics": [
+        "WebAuthn",
+        "TOTP",
+        "proximity",
+        "OTA"
+      ]
+    },
+    {
+      "path": "tools/architecture-analyzer/README.md",
+      "lines": 85,
+      "headings": [
+        "architecture-analyzer",
+        "Parsing",
+        "Commands",
+        "File graph JSON (FILE, DEFINITIONS, USED BY, DEPENDS ON,",
+        "CURRENT LAYER, RECOMMENDED LAYER, ACTION, REASON)",
+        "Forbidden deps: Core->SDK, Firmware->SDK, Core->Firmware.",
+        "Exit 0 = clean, exit 2 = violations found.",
+        "God-files (lines + fan-in/out heuristic)",
+        "Before/after compare + impact manifest",
+        "(affected_components, risk, requires_compatibility_adapter)",
+        "... make changes ...",
+        "CI usage",
+        "Output schema",
+        "Checks"
+      ],
+      "topics": []
+    },
+    {
+      "path": "tools/docs-lint/README.md",
+      "lines": 28,
+      "headings": [
+        "docs-lint",
+        "Status",
+        "Run",
+        "Exit codes"
+      ],
+      "topics": [
+        "WebAuthn"
+      ]
+    }
+  ]
+}
