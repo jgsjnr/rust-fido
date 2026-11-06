@@ -4346,3 +4346,326 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 exit=0 duration_s=44.9
 ```
 
+## Run 2026-11-06T17:14:59Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 16.5 |  |
+| test-firmware-features | no | PASS | 0 | 12.0 |  |
+| clippy | no | PASS | 0 | 2.1 |  |
+| fmt | yes | PASS | 0 | 1.5 |  |
+| deny | no | PASS | 0 | 20.4 |  |
+| dep-track | no | PASS | 0 | 0.3 |  |
+| docs | no | PASS | 0 | 0.2 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 9.0 |  |
+| test-release | no | FAIL | 101 | 7.2 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 16.5s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=16.5
+```
+
+#### `test-firmware-features` - PASS (exit 0, 12.0s)
+
+```
+
+running 3 tests
+test wipe_0x3e_total_empties_key_list_and_pm_list_with_audit ... ok
+test wipe_em5_clears_pm_blob_after_five_bad_pins ... ok
+test wipe_0x2b_release_clears_pm_blob_and_unclaims ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=12.0
+```
+
+#### `clippy` - PASS (exit 0, 2.1s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.89s
+exit=0 duration_s=2.1
+```
+
+#### `fmt` - PASS (exit 0, 1.5s)
+
+```
+$ cargo fmt --all -- --check
+(no output)
+exit=0 duration_s=1.5
+```
+
+#### `deny` - PASS (exit 0, 20.4s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=20.4
+```
+
+#### `dep-track` - PASS (exit 0, 0.3s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (300 files, 24 gods)
+check ok: no new god-files beyond 26 allowlisted
+exit=0 duration_s=0.3
+```
+
+#### `docs` - PASS (exit 0, 0.2s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PASSWORD_MANAGER_PLAN.md:33 (28 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 9.0s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+```
+
+#### `test-release` - FAIL (exit 101, 7.2s)
+
+```
+
+thread 'freertos_queue::tests::queue_receive_com_timeout' (21964) panicked at crates\aegis-fido-firmware\src\freertos_queue.rs:176:9:
+assertion `left == right` failed
+  left: None
+ right: Some(42)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    freertos_queue::tests::queue_receive_com_timeout
+
+test result: FAILED. 658 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+error: test failed, to rerun pass `-p aegis-fido-firmware --lib`
+exit=101 duration_s=7.2
+```
+
+## Run 2026-11-06T17:20:43Z (release=on, selector=all)
+
+| leg | advisory | status | exit | duration_s | notes |
+| --- | --- | --- | --- | --- | --- |
+| test-debug | no | PASS | 0 | 17.7 |  |
+| test-firmware-features | no | PASS | 0 | 17.7 |  |
+| clippy | no | PASS | 0 | 3.5 |  |
+| fmt | yes | PASS | 0 | 1.4 |  |
+| deny | no | PASS | 0 | 1.9 |  |
+| dep-track | no | PASS | 0 | 0.4 |  |
+| docs | no | PASS | 0 | 0.4 | reports-scan checked=1 broken=0 |
+| scripts | no | PASS | 0 | 9.0 |  |
+| test-release | no | PASS | 0 | 4.2 |  |
+
+### Tails (last 15 lines per leg)
+
+#### `test-debug` - PASS (exit 0, 17.7s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=17.7
+```
+
+#### `test-firmware-features` - PASS (exit 0, 17.7s)
+
+```
+
+running 3 tests
+test wipe_0x3e_total_empties_key_list_and_pm_list_with_audit ... ok
+test wipe_em5_clears_pm_blob_after_five_bad_pins ... ok
+test wipe_0x2b_release_clears_pm_blob_and_unclaims ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests aegis_fido_firmware
+
+running 1 test
+test crates\aegis-fido-firmware\src\freertos.rs - freertos (line 57) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=17.7
+```
+
+#### `clippy` - PASS (exit 0, 3.5s)
+
+```
+$ cargo clippy --workspace --all-targets -- -D warnings
+   Compiling aegis-fido-firmware v1.0.0 (E:\projetos\fido\crates\aegis-fido-firmware)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.21s
+exit=0 duration_s=3.5
+```
+
+#### `fmt` - PASS (exit 0, 1.4s)
+
+```
+$ cargo fmt --all -- --check
+(no output)
+exit=0 duration_s=1.4
+```
+
+#### `deny` - PASS (exit 0, 1.9s)
+
+```
+      ├── rustix v1.1.5 (*)
+      ├── tempfile v3.27.0 (*)
+      └── winapi-util v0.1.11
+          ├── ignore v0.4.33
+          │   └── globwalk v0.8.1
+          │       └── embuild v0.33.5 (*)
+          ├── same-file v1.0.6
+          │   ├── ignore v0.4.33 (*)
+          │   └── walkdir v2.5.0
+          │       ├── globwalk v0.8.1 (*)
+          │       └── ignore v0.4.33 (*)
+          └── walkdir v2.5.0 (*)
+
+advisories ok, bans ok, licenses ok, sources ok
+exit=0 duration_s=1.9
+```
+
+#### `dep-track` - PASS (exit 0, 0.4s)
+
+```
+$ C:\Users\junior\AppData\Local\Programs\Python\Python312\python.exe tools/dep_track.py --check
+wrote reports/refactoring/dep-track.json (300 files, 24 gods)
+check ok: no new god-files beyond 26 allowlisted
+exit=0 duration_s=0.4
+```
+
+#### `docs` - PASS (exit 0, 0.4s)
+
+```
+STYLE-HINT: docs\evaluation\EVALUATION.md:178 (38 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:213 (44 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:250 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:295 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:301 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:368 (27 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:376 (42 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (26 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:413 (31 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:421 (28 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:430 (34 words)
+STYLE-HINT: docs\evaluation\EVALUATION.md:431 (30 words)
+STYLE-HINT: docs\plans\PASSWORD_MANAGER_PLAN.md:33 (28 words)
+exit=0 duration_s=0.1
+REPORTS-SCAN: links checked=1 broken=0
+```
+
+#### `scripts` - PASS (exit 0, 9.0s)
+
+```
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\pipeline.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\qemu-s3.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\select-capability.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\sync-master.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.4
+$ C:\Program Files\PowerShell\7\pwsh.EXE -NoProfile -Command $tokens=$null; $errs=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile('E:\projetos\fido\scripts\test-all.ps1',[ref]$tokens,[ref]$errs); if ($errs.Count -gt 0) { $errs | ForEach-Object { Write-Output $_.Message }; exit 1 } else { Write-Output 'SYNTAX-OK'; exit 0 }
+SYNTAX-OK
+exit=0 duration_s=0.3
+```
+
+#### `test-release` - PASS (exit 0, 4.2s)
+
+```
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aegis_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests universal_device_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0 duration_s=4.2
+```
+
