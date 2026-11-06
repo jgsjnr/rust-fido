@@ -83,6 +83,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import dev.aegiskey.app.R
 import dev.aegiskey.app.ble.AegisBleClient
 import dev.aegiskey.app.ble.BindingOps
@@ -110,6 +121,7 @@ import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.log.TerminalLogStyle
 import dev.aegiskey.app.ui.RescueOps
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1011,159 +1023,187 @@ internal fun AuditLogsModalDialog(
     client: AegisBleClient? = null,
     onCopyLogs: (String) -> Unit
 ) {
-    val entries by DeviceLog.entries.collectAsState()
+    // Stream lifecycle-aware: pausa a coleta quando o app vai para background
+    // (collectAsStateWithLifecycle) e retoma do estado atual ao voltar.
+    // Sem polling: a UI so reage ao StateFlow do DeviceLog em STARTED.
+    val entries by DeviceLog.entries.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var isFetchingFwLog by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isForeground by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> isForeground = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isForeground = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val terminalBg = Color(TerminalLogStyle.BACKGROUND_ARGB.toULong())
+    val terminalText = Color(TerminalLogStyle.TEXT_ARGB.toULong())
+    val terminalDim = Color(TerminalLogStyle.DIM_ARGB.toULong())
+    val terminalPrompt = Color(TerminalLogStyle.PROMPT_ARGB.toULong())
+
+    // Auto-scroll acompanha o fim somente com o terminal visivel (foreground);
+    // ao voltar do background, salta para o estado atual.
+    LaunchedEffect(entries.size, isForeground) {
+        if (isForeground && entries.isNotEmpty()) listState.scrollToItem(entries.size - 1)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(18.dp),
-        icon = {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Article,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp)
-            )
-        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = terminalBg,
+        titleContentColor = terminalText,
+        textContentColor = terminalText,
         title = {
-            Text(
-                text = stringResource(R.string.set_logs_title),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Window dots (decorative, read-only terminal header)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(Color(0xFFFF5F57)))
+                    Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(Color(0xFFFEBC2E)))
+                    Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(Color(0xFF28C840)))
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.set_logs_title) + " -- device-log",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = terminalText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { onCopyLogs(DeviceLog.snapshotText()) }) {
+                    Text(
+                        stringResource(R.string.action_copy_all),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = terminalPrompt
+                    )
+                }
+                TextButton(onClick = { DeviceLog.clear() }) {
+                    Text(
+                        stringResource(R.string.action_clear_logs),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = terminalPrompt
+                    )
+                }
+            }
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(380.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .height(400.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.set_logs_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "$ " + stringResource(R.string.set_logs_desc),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = terminalDim,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                if (!isForeground) {
+                    Text(
+                        text = "$ [pausado em background -- retomando ao voltar]",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = terminalPrompt,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (client != null) {
                     OutlinedButton(
-                        onClick = { onCopyLogs(DeviceLog.snapshotText()) },
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.action_copy_all), style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    OutlinedButton(
-                        onClick = { DeviceLog.clear() },
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(stringResource(R.string.action_clear_logs), style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    if (client != null) {
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    isFetchingFwLog = true
-                                    try {
-                                        val fwRes = client.fetchFwLog()
-                                        fwRes.onSuccess { txt ->
-                                            if (txt.isNotBlank()) {
-                                                txt.lines().forEach { l ->
-                                                    DeviceLog.append(DeviceLog.Category.SYSTEM, "FW: $l")
-                                                }
-                                            } else {
-                                                DeviceLog.append(DeviceLog.Category.SYSTEM, "FW: log vazio (0x38)")
+                        onClick = {
+                            scope.launch {
+                                isFetchingFwLog = true
+                                try {
+                                    val fwRes = client.fetchFwLog()
+                                    fwRes.onSuccess { txt ->
+                                        if (txt.isNotBlank()) {
+                                            txt.lines().forEach { l ->
+                                                DeviceLog.append(DeviceLog.Category.SYSTEM, "FW: $l")
                                             }
-                                        }.onFailure { err ->
-                                            DeviceLog.append(DeviceLog.Category.SYSTEM, "FW log erro: ${err.message}")
+                                        } else {
+                                            DeviceLog.append(DeviceLog.Category.SYSTEM, "FW: log vazio (0x38)")
                                         }
-                                    } finally {
-                                        isFetchingFwLog = false
+                                    }.onFailure { err ->
+                                        DeviceLog.append(DeviceLog.Category.SYSTEM, "FW log erro: ${err.message}")
                                     }
+                                } finally {
+                                    isFetchingFwLog = false
                                 }
-                            },
-                            enabled = !isFetchingFwLog,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(if (isFetchingFwLog) "..." else stringResource(R.string.set_logs_fw), style = MaterialTheme.typography.labelSmall)
-                        }
+                            }
+                        },
+                        enabled = !isFetchingFwLog,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            if (isFetchingFwLog) "$ ..." else "$ " + stringResource(R.string.set_logs_fw),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace
+                        )
                     }
                 }
 
-                if (entries.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.set_logs_empty),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
-                            .padding(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(entries, key = { it.id }) { item ->
-                            val catColor = when (item.category) {
-                                DeviceLog.Category.BLE -> MaterialTheme.colorScheme.primary
-                                DeviceLog.Category.SYSTEM -> MaterialTheme.colorScheme.secondary
-                                DeviceLog.Category.PAIRING -> MaterialTheme.colorScheme.tertiary
-                                DeviceLog.Category.LOCK -> MaterialTheme.colorScheme.error
-                                DeviceLog.Category.WIFI -> MaterialTheme.colorScheme.primaryContainer
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                verticalAlignment = Alignment.Top
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(TerminalLogStyle.SURFACE_ARGB.toULong()))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    if (entries.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "$ " + stringResource(R.string.set_logs_empty),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = terminalDim
+                            )
+                        }
+                    } else {
+                        SelectionContainer {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                Text(
-                                    text = DeviceLog.formatTime(item.ts),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.width(76.dp)
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = catColor.copy(alpha = 0.2f),
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                ) {
+                                items(entries, key = { it.id }) { item ->
+                                    val tagColor = Color(TerminalLogStyle.colorArgbFor(item.category).toULong())
                                     Text(
-                                        text = item.category.name,
+                                        text = buildAnnotatedString {
+                                            withStyle(SpanStyle(color = terminalDim)) {
+                                                append(DeviceLog.formatTime(item.ts) + " ")
+                                            }
+                                            withStyle(SpanStyle(color = tagColor, fontWeight = FontWeight.Bold)) {
+                                                append("[" + TerminalLogStyle.tagFor(item.category) + "] ")
+                                            }
+                                            withStyle(SpanStyle(color = terminalText)) {
+                                                append(item.line)
+                                            }
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = catColor,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        fontFamily = FontFamily.Monospace
                                     )
                                 }
-                                Text(
-                                    text = item.line,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.weight(1f)
-                                )
                             }
                         }
                     }
@@ -1171,8 +1211,12 @@ internal fun AuditLogsModalDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) {
-                Text(stringResource(R.string.guard_btn_close))
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.guard_btn_close),
+                    fontFamily = FontFamily.Monospace,
+                    color = terminalPrompt
+                )
             }
         }
     )
