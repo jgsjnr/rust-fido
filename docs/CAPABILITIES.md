@@ -199,3 +199,252 @@ challenge-response, relatorio de 8 B). RSA para PIV/smartcard
 | OTA staging (`ota_staging`, `ota_stage_len`, `ota_c*`, `ota_manifest`, `ota_committed`) | chunks 8 KiB, orcamento 917504 B (transiente, nao soma no residente) | 2 MB: fluxo; 16 MB: cabe |
 | Orcamento NVS layout 2 MB | 458752 B (`storage @0x190000 len 0x070000`) | devkitc |
 | Orcamento NVS layout 16 MB | 917504 B (`storage @0x310000 len 0x0e0000`) | demais placas |
+
+## 8. Como usar (3 caminhos por capacidade)
+
+Convencoes abaixo. Status de fio: `0x00` ok, `0x01` NEED_UP, `0x02`
+NEED_PIN, `0x03` NO_SLOT, `0x04` forma/envelope, `0x05` NEED_BINDING (BLE),
+`0x06` UNSUPPORTED_FEATURE (dieta), `0x36` PIN_REQUIRED da barreira no
+funil serial USB. Sessao SecureGuard (caminho 2/3): `0x3B`
+`{action:"provision", pin}` (uma vez) -> `0x3B` `{action:"unlock", pin}` ->
+sessao viva (padrao 300 s duracao / 300 s inatividade) -> veredito em `0x3A`
+(`is_unlocked == true`); travar com `0x3C` ao final. Com sessao viva, os
+funis tratam vinculo/UP/PIN como efetivos e a barreira libera as classes
+`ProtectedResourceClass` (`ProtectedKeyOperation` p/ chaves e PM, conf.
+`protect_keys_and_aegn`; `OathTotpOperation` conf. `protect_oath`, padrao
+desligado; `CryptoWalletOperation` sempre); Locked nega fail-closed antes
+dos gates (`0x02` BLE / `0x36` serial). Caminho 3 usa os tipos de
+`universal-device-sdk` (`SdkRequest::*`, `encode_secure_guard_*`) mais o
+framing da ponte (`uniffi-bridge::ble_split_fragments`, que aceita todo o
+conjunto do §5) e le o veredito em `0x3A`
+(`decode_secure_guard_status_response` -> `SecureGuardStatusDto.is_unlocked`).
+
+### 8.1 ctap-makecred
+
+Pre-requisitos: todos os presets; UP por credencial.
+
+1. Direto: USB CTAPHID `CMD_CBOR [0x01, ...]` (ou BLE `OP_MSG 0x83` com o
+   mesmo CBOR) com toque/UP; resposta CBOR do `CtapEngine`.
+2. Sessao: fluxo da sessao acima; sessao viva supre o UP nos funis
+   (`FidoStandardFlow` nunca e bloqueado, funciona travado tambem).
+3. API: `SdkRequest::Fido(FidoRequest { opcode: 0x01, payload })` +
+   veredito `0x3A` (informativo; passkeys nunca bloqueiam).
+
+### 8.2 ctap-getassert
+
+Pre-requisitos: todos os presets; UP por assertion.
+
+1. Direto: `CMD_CBOR [0x02, ...]` / `OP_MSG`, como em 8.1.
+2. Sessao: idem 8.1 (sessao viva supre UP; nunca bloqueado).
+3. API: `SdkRequest::Fido(FidoRequest { opcode: 0x02, payload })` + `0x3A`.
+
+### 8.3 ctap-clientpin
+
+Pre-requisitos: todos os presets; estabelece a sessao `pinUvAuth`.
+
+1. Direto: `CMD_CBOR [0x06, ...]` (getRetries/keyAgreement/setPIN/
+   getPINToken); o firmware persiste hash+retries em NVS.
+2. Sessao: `0x3B` unlock sincroniza o PIN com o ClientPIN
+   (`verified_pin` -> `pin_state`); sessao viva conta como PIN efetivo nos
+   funis para as ops privilegiadas.
+3. API: `secure_channel::{encode_secure_channel_key_exchange,
+   encode_encrypted_pin_payload}` + `SdkRequest::Fido(opcode 0x06)` +
+   veredito `0x3A`.
+
+### 8.4 ccid (transporte smartcard USB)
+
+Pre-requisitos: todos os presets; namespace APDU (`CLA/INS/P1/P2`)
+separado do vendor.
+
+1. Direto: USB CCID com APDUs para PIV/OpenPGP; sem binding/UP no
+   transporte (posse do cabo = livre no serial).
+2. Sessao: o transporte nao e barrado pelo SG; com sessao viva as ops
+   vendor associadas (ex. `0x39` enroll) passam na mesma janela.
+3. API: `SdkRequest::Piv(PivRequest { opcode, payload })` (carrier opaco,
+   feature `piv`) + veredito `0x3A`.
+
+### 8.5 piv (slots 9A/9C/9D/9E)
+
+Pre-requisitos: todos os presets (via CCID); enroll `0x39` exige
+binding -> UP + sessao viva (classe `ProtectedKeyOperation`).
+
+1. Direto: APDUs PIV pelo CCID; enroll inicial via vendor `0x39`
+   `pin_len(1) || pin(6-8) || puk(8)` com UP.
+2. Sessao: unlock `0x3B` -> claim `0x28` (janela + UP) -> `0x39`; Locked
+   nega `0x36`/`0x02` antes dos gates.
+3. API: `SdkRequest::Piv` + `encode_secure_guard_unlock_request`/`0x3A` +
+   `ble_split_fragments(0x39, corpo)` no BLE.
+
+### 8.6 openpgp (applet)
+
+Pre-requisitos: todos os presets (via CCID); curvas extras em
+`crypto_extra.rs`.
+
+1. Direto: APDUs OpenPGP pelo CCID com o PIN do applet.
+2. Sessao: sem enroll vendor; a sessao viva coexiste (conta como presenca
+   efetiva onde o funil exige) e nunca bloqueia o applet.
+3. API: carrier opaco via `SdkRequest::Piv`/vendor + veredito `0x3A`
+   (sem builder dedicado; mesma regra dos carriers genericos).
+
+### 8.7 oath-totp
+
+Pre-requisitos: full e fido-totp (fido-only: `0x06`); ancora de tempo
+NVS + hora do host cobrem a falta de SNTP.
+
+1. Direto: serial `CMD_MSG [op, ...]` / BLE FFF1: `0x24` PUT
+   (binding -> UP -> PIN), `0x25` LIST (UP), `0x26` CODE (UP), `0x27`
+   DELETE (binding -> UP -> PIN); TLV canonico.
+2. Sessao: unlock -> claim -> UP -> op; com `protect_oath = false` (padrao)
+   CODE/LIST passam travados; com `protect_oath = true` exigem viva
+   (barreira nos dois funis).
+3. API: `SdkRequest::Oath(OathRequest { opcode: 0x24..0x27, payload })` +
+   `ble_split_fragments(op, tlv)` + `0x3A` (com `protect_oath = true`,
+   so emite com `is_unlocked`).
+
+### 8.8 oath-hotp
+
+Pre-requisitos: mesmos de 8.7; contadores `oath6ctr/` (8 B big-endian).
+
+1. Direto: mesmos opcodes de 8.7 pelo dispatcher HOTP.
+2. Sessao: idem 8.7 (barreira por `protect_oath`).
+3. API: idem 8.7 via `OathRequest`.
+
+### 8.9 otp-challenge-response (via path HOTP)
+
+Pre-requisitos: mesmos de 8.7; resync forward-only, relatorio de 8 B
+(HMAC-SHA1 compat).
+
+1. Direto: desafio via `oath_cmd` HOTP (sem modulo CR proprietario).
+2. Sessao: idem 8.7.
+3. API: `SdkRequest::Otp(OtpRequest { .. })` (carrier, feature `otp`) +
+   veredito `0x3A`.
+
+### 8.10 wallet (addr/sign, sessao RAM)
+
+Pre-requisitos: so full (dietas: `0x06`); GEN/LIST/ADDR com binding ->
+UP (+sessao viva); PSBT `0x4A` exige ainda recibo de aprovacao mediada
+pelo app + PIN (sem dependencia de display na placa).
+
+1. Direto: `0x35` GEN / `0x36` LIST / `0x37` ADDR; `0x4B` PENDING expoe o
+   preview `[slot, tx_hash, counts]` (binding -> UP, sem PIN); `0x4A`
+   PSBT so assina com recibo `approve` + gates.
+2. Sessao: unlock -> claim -> UP -> op (`CryptoWalletOperation` sempre
+   exige viva; Locked nega `0x36`/`0x02` nos dois funis, dieta nega
+   `0x06` mesmo viva).
+3. API: `SdkRequest::Wallet(WalletRequest)` /
+   `WalletSignRequest` + `wallet_companion::{build_pending_query,
+   build_sign_request, preview_of, receipt_bytes}` +
+   `wallet_approval::{receipt_for, decode_pending_summary}` + `0x3A` com
+   `is_unlocked` antes de emitir; `ble_split_fragments(0x35..0x37 |
+   0x48..0x4B, corpo)` no BLE.
+
+### 8.11 vault (itens `vault/` + quota)
+
+Pre-requisitos: so full (dietas: `0x06`); superficie de fio = gerenciador
+local `0x43-0x47` (PUT/GET/LIST/DELETE/STATUS) sobre o cofre
+`vault-pm/blob`; gates binding -> UP -> PIN -> janela 60 s + sessao viva
+(classe `ProtectedKeyOperation`).
+
+1. Direto: serial `CMD_MSG` / BLE FFF1 com CBOR do `pm_dispatch`
+   (`PmGateState` explicito; `put_body`/`encode_id_body`).
+2. Sessao: unlock -> claim -> UP -> PIN viva -> op dentro da janela;
+   Locked nega na barreira (`0x36`/`0x02`).
+3. API: `SdkRequest` via `pm::{encode_pm_put_request,
+   encode_pm_get_request, decode_pm_list_response, ...}` (`PmRequest`,
+   feature `pm`) + `0x3A`; wipe total via `0x3E` confirmado, `0x2B`
+   release assinado ou wipe-em-5 (ver `tests/wipe_total_pm.rs`).
+
+### 8.12 ble (GATT proxy CTAP + funis vendor)
+
+Pre-requisitos: so full (dieta: stub fail-closed, sem advertising).
+
+1. Direto: servico `0xFFFD`, chars `FFF1` (write fragmentado
+   `[op, len_hi, len_lo, ...]` + continuacoes `[seq, ...]`), `FFF2`
+   notify, `FFF3` len, `FFF4` revisao `0x01`; CTAP via `0x83`, vendor
+   pelo mesmo framing.
+2. Sessao: vinculo BLE (`bonded`, 1 max, 30 dias) + UP + barreira SG nas
+   ops protegidas; OOB `0x42` e serial/USB-only (janela + binding +
+   sessao; arma o latch de radio, dieta nega).
+3. API: `uniffi-bridge::ble_split_fragments(op, payload)` para todo o
+   conjunto (`0x20-0x27`, `0x28-0x2D`, `0x30-0x34`, `0x35-0x37`,
+   `0x38`, `0x39`, `0x3A-0x3E`, `0x3F`, `0x40`, `0x41`, `0x43-0x47`,
+   `0x48-0x4B`; `0x2E`/`0x2F`/`0x42`/`0xBE` seguem rejeitados) +
+   veredito `0x3A`.
+
+### 8.13 wifi-sntp (AP/station + SNTP + mDNS)
+
+Pre-requisitos: so full (dieta: stubs fail-closed); creds NVS
+(`wifi_sta_ssid/pass`, `wifi_ap_pass`); SNTP opcional (ancora NVS + hora
+do host cobrem o OATH).
+
+1. Direto: subida AP/station pelo firmware com as chaves NVS; SNTP +
+   mDNS quando ha radio.
+2. Sessao: sem opcode vendor proprio; a sessao viva coexiste com o radio
+   e o coex USB-ativo => BLE-proximidade parado segue valendo.
+3. API: sem builder dedicado no SDK tipado (fora da superficie
+   `SdkRequest`); caminho via carriers vendor genericos + veredito `0x3A`.
+
+### 8.14 display (controladores + jornada UI)
+
+Pre-requisitos: full em tdisplay/ttgo-classic; devkitc usa stub
+headless em todos os presets.
+
+1. Direto: jornada UI fisica na placa (`ui_journey`); sem opcode vendor
+   proprio (sinalizacao via `DisplayManager`/stub por placa).
+2. Sessao: telas de presenca/aprovacao acompanham a sessao; o preview
+   `0x4B` precede a decisao approve/deny (display antes de autenticar).
+3. API: `clear_signing::{encode_clear_sign_summary,
+   decode_oled_preview}` + `wallet_companion::preview_of` (o app exibe;
+   firmware so assina apos aprovacao + gates).
+
+### 8.15 proximity (beacon `0xFFFE` rolling-code)
+
+Pre-requisitos: so full; servico `0xFFFE` separado do FIDO `0xFFFD`;
+revogacao de `K_prox` no release.
+
+1. Direto: beacon/verify BLE com gate binding -> UP -> coex (USB ativo
+   nega `CoexBlocked`/`0x04`).
+2. Sessao: vinculo + UP; sessao viva conta como vinculo efetivo nos
+   funis; walkaway fecha a janela.
+3. API: `SdkRequest::Proximity(ProximityRequest { .. })` (carrier,
+   feature `proximity`) + veredito `0x3A`.
+
+### 8.16 vendor-mgmt (keys/OATH ops, console serial)
+
+Pre-requisitos: todos os presets (dieta responde `0x06` nos bracos
+fora da capability); `0x38`/`0x3F` read-only sem auth.
+
+1. Direto: serial `CMD_MSG` / BLE FFF1: `0x20` GEN, `0x21` IMPORT
+   envelope, `0x22` LIST (com `alg` real), `0x23` DELETE, `0x41`
+   VENDOR_SIGN dedicado (TLV `TAG_SLOT 0x01` + `TAG_CHALLENGE 0x74`),
+   `0x40` SET_UP_POLICY (binding + PIN viva, sem latch UP), `0x38`
+   fw-log, `0x3F` GET_CAPS (vazio; payload nega `0x04`).
+2. Sessao: unlock -> claim -> UP -> (+PIN nas `0x21/0x23/0x24/0x27` e PM) ->
+   op; classes e barreira como no preambulo; `0x40` aceita PIN viva OU
+   viva-SG; `0x42` OOB exige janela + sessao em todos os modos.
+3. API: `SdkRequest::Vendor(VendorRequest)` / `Policy(PolicyRequest)` /
+   `Audit(AuditRequest)` + `encode_secure_guard_*` + `0x3A` +
+   `ble_split_fragments` (conjunto de 8.12).
+
+### 8.17 debug-terminal (linhas lifetime)
+
+Pre-requisitos: so full com `debug-terminal`; release = `ltrace!`
+no-op; dieta rejeita por `compile_error`.
+
+1. Direto: linhas lifetime no serial em build de bancada/test-mode.
+2. Sessao: sem superficie barrada (diagnostico sem segredos); a sessao
+   nao adiciona nem remove acesso.
+3. API: sem carrier no SDK (proposital: diagnostico fora da API
+   tipada); veredito `0x3A` apenas informativo.
+
+### 8.18 test-hooks (serial `TEST_*`)
+
+Pre-requisitos: so full com `test-mode`; nunca em release/dieta
+(`compile_error` com `cap-*`).
+
+1. Direto: comandos `TEST_*` no serial (bench/HIL), sem segredos reais.
+2. Sessao: fora da barreira por desenho (ganchos de bancada, nunca
+   producao); `test-mode` usa bypass com `ltrace`.
+3. API: `SdkRequest` nao expoe (SDK tem so `TestHookId` espelho sob
+   feature `test-mode`, nunca em `default`); sem caminho de producao
+   por desenho.

@@ -56,6 +56,31 @@ pub(crate) fn ble_dispatch_complete(
     if up {
         fwlog.record(fl::EV_UP_OK, op, now_ms);
     }
+    // Barreira de Autorização Obrigatoria (Enforcement) SecureGuard --
+    // paridade com o funil serial (`dispatch_serial_vendor_msg`): as ops
+    // protegidas abaixo exigem sessao Unlocked; Locked nega fail-closed
+    // ANTES de qualquer gate binding -> UP -> PIN (ordem canonica tambem no
+    // BLE). Status `0x02` NEED_PIN no vocabulario vendor BLE (o serial
+    // enquadra `0x36` CTAP2 no CTAPHID; mesma classe, framing do transporte).
+    // Fora da barreira: CTAP-MSG, bind-mgmt (gates proprios), SG `0x3A-0x3E`
+    // (STATUS/UNLOCK livres por desenho), SET_UP_POLICY `0x40` (PIN viva OU
+    // SG no proprio ramo), GET_CAPS `0x3F`/fw-log `0x38` (read-only) e dieta
+    // `0x06` (o braco dieta abaixo segue valendo apos a barreira, como no
+    // serial).
+    if (g::is_vendor_keys_oath_op(op)
+        || g::is_piv_enroll_op(op)
+        || crate::vendor_exec::is_vendor_sign_op(op)
+        || g::is_wallet_op(op)
+        || g::is_pm_fragment_opcode(op))
+        && secure_guard.authorize_vendor_opcode(op, now_ms).is_err()
+    {
+        let denied = ble::notify_frame(op, g::BleGattError::PinRequired.to_vendor_status(), &[]);
+        if denied.len() >= 2 {
+            fwlog.record(fl::EV_OP_RESP, denied[1], now_ms);
+        }
+        let _ = ble::esp_ble_notify(&denied);
+        return;
+    }
     let frame: Vec<u8> = match op {
         g::OP_PING => ble::notify_frame(op, 0x00, &g::BleGattServer::dispatch_ping(p)),
         g::OP_CANCEL => ble::notify_frame(op, 0x00, &[]),

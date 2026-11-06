@@ -63,7 +63,9 @@ where
     // que o GEN). PIN nunca exigido aqui (GEN também não exige).
     // Vínculo OBRIGATÓRIO em todos os modos (sem bypass test-mode: SIGN
     // libera assinatura, fail-open proibido); UP segue exigido nas duas
-    // modalidades (sem oráculo sem toque).
+    // modalidades (sem oráculo sem toque). A barreira SecureGuard dos
+    // funis (`authorize_vendor_opcode`, classe `ProtectedKeyOperation`)
+    // exige ainda sessao Unlocked antes destes gates (fail-closed).
     if super::vendor_keys::is_vendor_sign_op(op) {
         if !binding_ok {
             return (BleGattError::NeedBinding.to_vendor_status(), Vec::new());

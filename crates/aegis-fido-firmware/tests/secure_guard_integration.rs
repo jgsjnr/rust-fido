@@ -16,7 +16,7 @@ use aegis_fido_core::oath::OathApplet;
 use aegis_fido_core::otp::rescue::RescueEngine;
 use aegis_fido_core::secure_guard::{
     SecureGuardEngine, SecureGuardPolicy, SecureGuardState, OP_SECURE_GUARD_LOCK,
-    OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK, OP_WALLET_LIST,
+    OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK, OP_VENDOR_SIGN, OP_WALLET_LIST,
 };
 use aegis_fido_core::wallet::types::CryptoNetwork;
 use aegis_fido_core::wallet::WalletStore;
@@ -302,6 +302,151 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
     );
     assert_eq!(out.responses.len(), 1);
     assert_eq!(out.responses[0][7], 0x36);
+}
+
+#[test]
+fn test_vendor_sign_serial_barrier_requires_unlocked_session() {
+    // VENDOR_SIGN (0x41) e classe GEN: a barreira serial exige sessao
+    // Unlocked como no GEN 0x20 (Locked nega 0x36 antes dos gates; viva
+    // passa e o executor decide a forma: TLV vazio nega 0x04).
+    let mut pairing = PairingManager::new();
+    let mut binding = BindingManager::new();
+    let mut storage = test_storage();
+    let mut wallet = WalletStore::new();
+    let mut key_mgr = KeyManager::new();
+    let mut oath = OathApplet::new();
+    let mut fwlog = FwLog::new();
+    let mut rescue = RescueEngine::new();
+    let mut mgr_usb = CtapHidManager::new();
+    let mut mgr_serial = CtapHidManager::new();
+    let mut ctap_engine = CtapEngine::new([0x11; 32], 0);
+
+    let policy = SecureGuardPolicy {
+        pbkdf2_iterations: 10, // Rapido para testes
+        ..Default::default()
+    };
+    let mut sg = SecureGuardEngine::new(policy);
+    let pin = b"4829";
+
+    let mut vendor = SerialVendorCtx {
+        pairing_open: true,
+        up_latched: true,
+        now_ms: 1000,
+        now_secs: 1,
+        arm_up: false,
+        pin_verified: true,
+        binding: &mut binding,
+        storage: &mut storage,
+        wallet: &mut wallet,
+        pending: aegis_fido_firmware::wallet_approval::WalletPendingApproval::new(),
+        key_mgr: &mut key_mgr,
+        oath: &mut oath,
+        fwlog: &mut fwlog,
+        rescue: &mut rescue,
+        pairing: &mut pairing,
+        pin_uv_session: true,
+        secure_guard: Some(&mut sg),
+        verified_pin: None,
+        ota_state: None,
+        ota_provisioned: false,
+        ota_pubkey: [0u8; 32],
+        ota_current_version: 0,
+        up_hook: false,
+        #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+        pm_limiter: aegis_fido_firmware::pm_store::PmRateLimiter::new(),
+    };
+
+    // 1. SG virgem (Unprovisioned): 0x41 nega 0x36 na barreira.
+    let raw_sign = init_raw(0x1000, CMD_MSG, &[OP_VENDOR_SIGN]);
+    let out = route_ctaphid_event(
+        &mut mgr_usb,
+        &mut mgr_serial,
+        &mut ctap_engine,
+        &FirmwareEvent::SerialPacket(raw_sign),
+        true,
+        1000,
+        1,
+        Some(&mut vendor),
+    );
+    let (st, _) = reassemble_ctaphid_payload(&out.responses);
+    assert_eq!(st, 0x36, "barreira bloqueia SIGN sem sessao");
+
+    // 2. Provisiona via 0x3B e trava: 0x41 segue negando 0x36.
+    let prov_map = vec![
+        (
+            Value::Text("action".into()),
+            Value::Text("provision".into()),
+        ),
+        (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
+    ];
+    let mut prov_payload = vec![OP_SECURE_GUARD_UNLOCK];
+    prov_payload.extend_from_slice(&to_cbor(&Value::Map(prov_map)));
+    let raw_prov = init_raw(0x1000, CMD_MSG, &prov_payload);
+    let out = route_ctaphid_event(
+        &mut mgr_usb,
+        &mut mgr_serial,
+        &mut ctap_engine,
+        &FirmwareEvent::SerialPacket(raw_prov),
+        true,
+        1050,
+        1,
+        Some(&mut vendor),
+    );
+    assert_eq!(out.responses[0][7], 0x00);
+    vendor
+        .secure_guard
+        .as_mut()
+        .unwrap()
+        .lock_now(1051)
+        .unwrap();
+    let raw_sign = init_raw(0x1000, CMD_MSG, &[OP_VENDOR_SIGN]);
+    let out = route_ctaphid_event(
+        &mut mgr_usb,
+        &mut mgr_serial,
+        &mut ctap_engine,
+        &FirmwareEvent::SerialPacket(raw_sign),
+        true,
+        1100,
+        1,
+        Some(&mut vendor),
+    );
+    let (st, _) = reassemble_ctaphid_payload(&out.responses);
+    assert_eq!(st, 0x36, "barreira bloqueia SIGN Locked");
+
+    // 3. Unlock via 0x3B: a barreira passa e o executor nega a forma
+    // (payload vazio, sem TLV) com 0x04 -- nunca 0x36.
+    let unlock_map = vec![
+        (Value::Text("action".into()), Value::Text("unlock".into())),
+        (Value::Text("pin".into()), Value::Bytes(pin.to_vec())),
+    ];
+    let mut unlock_payload = vec![OP_SECURE_GUARD_UNLOCK];
+    unlock_payload.extend_from_slice(&to_cbor(&Value::Map(unlock_map)));
+    let raw_unlock = init_raw(0x1000, CMD_MSG, &unlock_payload);
+    let out = route_ctaphid_event(
+        &mut mgr_usb,
+        &mut mgr_serial,
+        &mut ctap_engine,
+        &FirmwareEvent::SerialPacket(raw_unlock),
+        true,
+        1200,
+        1,
+        Some(&mut vendor),
+    );
+    assert_eq!(out.responses[0][7], 0x00);
+    assert!(vendor.secure_guard.as_ref().unwrap().is_unlocked());
+    let raw_sign = init_raw(0x1000, CMD_MSG, &[OP_VENDOR_SIGN]);
+    let out = route_ctaphid_event(
+        &mut mgr_usb,
+        &mut mgr_serial,
+        &mut ctap_engine,
+        &FirmwareEvent::SerialPacket(raw_sign),
+        true,
+        1300,
+        1,
+        Some(&mut vendor),
+    );
+    let (st, _) = reassemble_ctaphid_payload(&out.responses);
+    assert_eq!(st, 0x04, "viva: barreira passa, forma nega");
 }
 
 #[test]

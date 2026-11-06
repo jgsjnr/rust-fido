@@ -194,7 +194,10 @@ pub(crate) fn parse_slot(payload: &[u8]) -> Option<u8> {
 ///
 /// Gates idênticos ao GEN `0x20` (classe CONFIG sem PIN): binding + UP,
 /// verificados pelo dispatcher ANTES desta chamada; `KeyManager::sign`
-/// re-checa UP internamente (defense in depth). Erros do `KeyManager`
+/// re-checa UP internamente (defense in depth). A barreira SecureGuard dos
+/// funis (`authorize_vendor_opcode`, classe `ProtectedKeyOperation`) exige
+/// ainda sessao Unlocked: Locked nega fail-closed (`0x36` serial / `0x02`
+/// BLE) antes dos gates, exatamente como no GEN. Erros do `KeyManager`
 /// mapeiam via `km_status` (`NeedUp` → `0x01`, `NoSlot` → `0x03`).
 /// O bump de `sign_count` (clone detection) persiste em NVS com rollback
 /// via snapshot se o save falhar (mesmo padrão do DELETE).

@@ -51,17 +51,70 @@ pub const BIND_MGMT_OP_MAX: u8 = 0x2D;
 pub const OTA_OP_MIN: u8 = 0x30;
 /// Upper bound of the OTA fragment range (see `OTA_OP_MIN`).
 pub const OTA_OP_MAX: u8 = 0x34;
+/// Wallet range over BLE (mirrors firmware
+/// `ble::gatt_core::{WALLET_OP_MIN, WALLET_OP_MAX}`): GEN/LIST/ADDR.
+/// Diet devices answer `0x06` fail-closed; the phone frames regardless.
+pub const WALLET_OP_MIN: u8 = 0x35;
+/// Upper bound of the wallet range (see `WALLET_OP_MIN`).
+pub const WALLET_OP_MAX: u8 = 0x37;
+/// Firmware log read (`0x38`, mirrors firmware `fw_log::OP_FW_LOG`).
+pub const OP_FW_LOG: u8 = 0x38;
+/// PIV enrollment (`0x39`, mirrors firmware `ble_gatt::OP_PIV_ENROLL`).
+pub const OP_PIV_ENROLL: u8 = 0x39;
+/// Secure Guard range over BLE (mirrors firmware
+/// `ble_gatt::{SECURE_GUARD_OP_MIN, SECURE_GUARD_OP_MAX}`): STATUS keeps
+/// the session verdict readable without auth; the rest is gated device-side.
+pub const SECURE_GUARD_OP_MIN: u8 = 0x3A;
+/// Upper bound of the Secure Guard range (see `SECURE_GUARD_OP_MIN`).
+pub const SECURE_GUARD_OP_MAX: u8 = 0x3E;
+/// Capability advertisement (`0x3F`, read-only, no auth; mirrors firmware
+/// `vendor_caps::OP_GET_CAPS`).
+pub const OP_GET_CAPS: u8 = 0x3F;
+/// UP-policy management (`0x40`, mirrors firmware
+/// `ctap_cmd::OP_SET_UP_POLICY`; gated device-side, binding + live PIN).
+pub const OP_SET_UP_POLICY: u8 = 0x40;
+/// Dedicated SIGN (`0x41`, mirrors firmware
+/// `vendor_keys::OP_VENDOR_SIGN`; GEN-class gate + Unlocked session).
+pub const OP_VENDOR_SIGN: u8 = 0x41;
+/// Password-manager range over BLE (mirrors firmware
+/// `pm_store::{PM_OP_MIN, PM_OP_MAX}`): PUT/GET/LIST/DELETE/STATUS.
+/// Diet devices reject at the reassembler; full devices gate
+/// binding -> UP -> PIN -> 60 s window plus the Unlocked session.
+pub const PM_OP_MIN: u8 = 0x43;
+/// Upper bound of the password-manager range (see `PM_OP_MIN`).
+pub const PM_OP_MAX: u8 = 0x47;
+/// Wallet-compat reservation over BLE (mirrors firmware
+/// `ble_gatt::{WALLET_COMPAT_OP_MIN, WALLET_COMPAT_OP_MAX}`):
+/// DERIVE/XPUB/PSBT + PENDING preview. Diet answers `0x06`; full gates
+/// like the wallet range (PSBT also needs the app-mediated receipt + PIN).
+pub const WALLET_COMPAT_OP_MIN: u8 = 0x48;
+/// Upper bound of the wallet-compat reservation (see `WALLET_COMPAT_OP_MIN`).
+pub const WALLET_COMPAT_OP_MAX: u8 = 0x4B;
 
 /// `true` for opcodes that open a BLE control-point transaction: CTAP-BLE
-/// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D` and OTA `0x30-0x34`.
+/// (`0x81` PING / `0x83` MSG), bind-mgmt `0x28-0x2D`, OTA `0x30-0x34`,
+/// wallet `0x35-0x37` + compat `0x48-0x4B`, fw-log `0x38`, PIV enroll
+/// `0x39`, Secure Guard `0x3A-0x3E`, GET_CAPS `0x3F`, SET_UP_POLICY `0x40`,
+/// VENDOR_SIGN `0x41` and PM `0x43-0x47`.
 ///
-/// `0xBE` CANCEL aborts and is rejected here (single-byte, never split);
-/// `0x2E` rescue travels ONLY as `OP_MSG` payload, `0x2F` stays reserved.
+/// Mirrors firmware `ble::gatt_core::is_ble_fragment_opcode` (framing only:
+/// every gate stays device-side, so framing an op the preset rejects still
+/// denies fail-closed there). `0xBE` CANCEL aborts and is rejected here
+/// (single-byte, never split); `0x2E` rescue travels ONLY as `OP_MSG`
+/// payload, `0x2F` stays reserved, `0x42` OOB is serial/USB-only.
 fn is_ble_fragment_opcode(opcode: u8) -> bool {
     opcode == OP_PING
         || opcode == OP_MSG
         || (BIND_MGMT_OP_MIN..=BIND_MGMT_OP_MAX).contains(&opcode)
         || (OTA_OP_MIN..=OTA_OP_MAX).contains(&opcode)
+        || (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&opcode)
+        || (WALLET_COMPAT_OP_MIN..=WALLET_COMPAT_OP_MAX).contains(&opcode)
+        || (SECURE_GUARD_OP_MIN..=SECURE_GUARD_OP_MAX).contains(&opcode)
+        || (PM_OP_MIN..=PM_OP_MAX).contains(&opcode)
+        || matches!(
+            opcode,
+            OP_FW_LOG | OP_PIV_ENROLL | OP_GET_CAPS | OP_SET_UP_POLICY | OP_VENDOR_SIGN
+        )
 }
 
 /// `AEGN` envelope magic.
@@ -190,9 +243,14 @@ pub fn ble_constants() -> BleInfo {
 /// continuations: `[seq, data..]` with `seq = 0, 1, ...` (up to 243B each),
 /// matching `BleReassembler::feed`. `CANCEL` is single-byte and rejected here.
 /// Accepted opcodes mirror the firmware transport: CTAP-BLE `0x81`/`0x83`,
-/// bind-mgmt `0x28-0x2D` and OTA `0x30-0x34` (`0x33` COMMIT executes
+/// bind-mgmt `0x28-0x2D`, OTA `0x30-0x34` (`0x33` COMMIT executes
 /// USB-only device-side; `0x2E` rescue travels only as `OP_MSG` payload
-/// and `0x2F` stays reserved, both rejected fail-closed).
+/// and `0x2F` stays reserved, both rejected fail-closed), wallet
+/// `0x35-0x37` + compat `0x48-0x4B`, fw-log `0x38`, PIV enroll `0x39`,
+/// Secure Guard `0x3A-0x3E`, GET_CAPS `0x3F`, SET_UP_POLICY `0x40`,
+/// VENDOR_SIGN `0x41` and PM `0x43-0x47` (`0x42` OOB is serial/USB-only
+/// and stays rejected here). Gates stay device-side: framing an op the
+/// preset rejects still denies fail-closed there.
 pub fn ble_split_fragments(opcode: u8, payload: Vec<u8>) -> Result<Vec<Vec<u8>>, BridgeError> {
     if !is_ble_fragment_opcode(opcode) {
         return Err(BridgeError::InvalidOpcode);
@@ -858,6 +916,51 @@ mod tests {
     }
 
     #[test]
+    fn ble_split_accepts_capability_vendor_wallet_pm_fragments() {
+        // Full firmware fragment set (parity with
+        // `ble::gatt_core::is_ble_fragment_opcode`, framing only: gates
+        // stay device-side). Single-byte header shape per opcode.
+        for op in [
+            WALLET_OP_MIN,
+            0x36,
+            WALLET_OP_MAX,
+            OP_FW_LOG,
+            OP_PIV_ENROLL,
+            SECURE_GUARD_OP_MIN,
+            0x3B,
+            SECURE_GUARD_OP_MAX,
+            OP_GET_CAPS,
+            OP_SET_UP_POLICY,
+            OP_VENDOR_SIGN,
+            PM_OP_MIN,
+            0x45,
+            PM_OP_MAX,
+            WALLET_COMPAT_OP_MIN,
+            0x4A,
+            WALLET_COMPAT_OP_MAX,
+        ] {
+            let frags = ble_split_fragments(op, vec![0xABu8; 16]).unwrap();
+            assert_eq!(frags.len(), 1, "op 0x{op:02X}");
+            assert_eq!(&frags[0][..3], &[op, 0x00, 0x10], "op 0x{op:02X}");
+        }
+        // Range edges frozen: wallet 0x35-0x37, compat 0x48-0x4B.
+        assert_eq!((WALLET_OP_MIN, WALLET_OP_MAX), (0x35, 0x37));
+        assert_eq!((WALLET_COMPAT_OP_MIN, WALLET_COMPAT_OP_MAX), (0x48, 0x4B));
+        assert_eq!((SECURE_GUARD_OP_MIN, SECURE_GUARD_OP_MAX), (0x3A, 0x3E));
+        assert_eq!((PM_OP_MIN, PM_OP_MAX), (0x43, 0x47));
+        assert_eq!(
+            (
+                OP_FW_LOG,
+                OP_PIV_ENROLL,
+                OP_GET_CAPS,
+                OP_SET_UP_POLICY,
+                OP_VENDOR_SIGN
+            ),
+            (0x38, 0x39, 0x3F, 0x40, 0x41)
+        );
+    }
+
+    #[test]
     fn ble_split_still_rejects_rescue_reserved_and_cancel() {
         // 0x2E rescue travels ONLY as OP_MSG payload, never as fragment.
         assert_eq!(
@@ -867,6 +970,17 @@ mod tests {
         // 0x2F reserved stays rejected fail-closed.
         assert_eq!(
             ble_split_fragments(0x2F, vec![1]),
+            Err(BridgeError::InvalidOpcode)
+        );
+        // 0x42 OOB arms the radio and is serial/USB-only: the BLE
+        // reassembler rejects it, so the bridge never frames it.
+        assert_eq!(
+            ble_split_fragments(0x42, vec![0xAAu8; 16]),
+            Err(BridgeError::InvalidOpcode)
+        );
+        // 0xBE CANCEL is single-byte, never split.
+        assert_eq!(
+            ble_split_fragments(0xBE, vec![1]),
             Err(BridgeError::InvalidOpcode)
         );
     }

@@ -5,7 +5,7 @@
 
 use super::policy::SecureGuardPolicy;
 
-// Vendor Opcode Constants (0x20..0x3E)
+// Vendor Opcode Constants (0x20..0x4B, groups as allocated on the wire)
 pub const OP_KEY_GEN_ONDEVICE: u8 = 0x20;
 pub const OP_KEY_IMPORT_ENVELOPE: u8 = 0x21;
 pub const OP_KEY_LIST: u8 = 0x22;
@@ -20,6 +20,26 @@ pub const OP_WALLET_GEN: u8 = 0x35;
 pub const OP_WALLET_LIST: u8 = 0x36;
 pub const OP_WALLET_ADDR: u8 = 0x37;
 pub const OP_PIV_ENROLL: u8 = 0x39;
+
+/// Dedicated SIGN opcode (0x41, GEN-class: binding -> UP, no PIN).
+/// Same protection class as GEN 0x20: gated by `protect_keys_and_aegn`.
+pub const OP_VENDOR_SIGN: u8 = 0x41;
+
+/// Password-manager / local vault opcodes (0x43..0x47, device-only:
+/// binding -> UP -> PIN -> 60 s window). Hold secrets, so they share the
+/// `protect_keys_and_aegn` gate with on-device keys.
+pub const OP_PM_PUT: u8 = 0x43;
+pub const OP_PM_GET: u8 = 0x44;
+pub const OP_PM_LIST: u8 = 0x45;
+pub const OP_PM_DELETE: u8 = 0x46;
+pub const OP_PM_STATUS: u8 = 0x47;
+
+/// Wallet-compat reservation (F1/F6: DERIVE/XPUB/PSBT + PENDING preview).
+/// Custody ops: always require an Unlocked session, like 0x35..0x37.
+pub const OP_WALLET_DERIVE: u8 = 0x48;
+pub const OP_WALLET_XPUB: u8 = 0x49;
+pub const OP_WALLET_PSBT: u8 = 0x4A;
+pub const OP_WALLET_PENDING: u8 = 0x4B;
 
 pub const OP_SECURE_GUARD_STATUS: u8 = 0x3A;
 pub const OP_SECURE_GUARD_UNLOCK: u8 = 0x3B;
@@ -80,14 +100,30 @@ pub enum ProtectedResourceClass {
 
 impl ProtectedResourceClass {
     /// Maps a wire vendor opcode byte to its `ProtectedResourceClass`.
+    ///
+    /// Canonical gate parity with the transport funnels (serial
+    /// `dispatch_serial_vendor_msg`, BLE `ble_dispatch_complete`): every op
+    /// the funnels barrier-check shares the class below, so Locked denies
+    /// fail-closed on both transports. `Unknown` opcodes never require
+    /// unlock: read-only advertisement (`0x38` fw-log, `0x3F` GET_CAPS),
+    /// management with a dedicated funnel gate (PIN-session-OR-SG:
+    /// `0x40` SET_UP_POLICY, `0x42` BLE OOB), OTA `0x30..0x34`, and
+    /// reserved/rescue bytes (`0x2E`/`0x2F`) keep their own rules.
     pub fn from_vendor_opcode(opcode: u8) -> Self {
         match opcode {
-            OP_WALLET_GEN | OP_WALLET_LIST | OP_WALLET_ADDR => Self::CryptoWalletOperation,
+            OP_WALLET_GEN | OP_WALLET_LIST | OP_WALLET_ADDR | OP_WALLET_DERIVE | OP_WALLET_XPUB
+            | OP_WALLET_PSBT | OP_WALLET_PENDING => Self::CryptoWalletOperation,
             OP_KEY_GEN_ONDEVICE
             | OP_KEY_IMPORT_ENVELOPE
             | OP_KEY_LIST
             | OP_KEY_DELETE
-            | OP_PIV_ENROLL => Self::ProtectedKeyOperation,
+            | OP_PIV_ENROLL
+            | OP_VENDOR_SIGN
+            | OP_PM_PUT
+            | OP_PM_GET
+            | OP_PM_LIST
+            | OP_PM_DELETE
+            | OP_PM_STATUS => Self::ProtectedKeyOperation,
             OP_OATH_PUT | OP_OATH_LIST | OP_OATH_CODE | OP_OATH_DELETE => Self::OathTotpOperation,
             OP_SECURE_GUARD_STATUS => Self::SecureGuardAdmin(SecureGuardAdminOp::Status),
             OP_SECURE_GUARD_UNLOCK => Self::SecureGuardAdmin(SecureGuardAdminOp::Unlock),
@@ -133,7 +169,15 @@ mod tests {
         let policy = SecureGuardPolicy::default();
         assert!(ProtectedResourceClass::CryptoWalletOperation.requires_unlock(&policy));
 
-        for op in [OP_WALLET_GEN, OP_WALLET_LIST, OP_WALLET_ADDR] {
+        for op in [
+            OP_WALLET_GEN,
+            OP_WALLET_LIST,
+            OP_WALLET_ADDR,
+            OP_WALLET_DERIVE,
+            OP_WALLET_XPUB,
+            OP_WALLET_PSBT,
+            OP_WALLET_PENDING,
+        ] {
             let res = ProtectedResourceClass::from_vendor_opcode(op);
             assert_eq!(res, ProtectedResourceClass::CryptoWalletOperation);
             assert!(res.requires_unlock(&policy));
@@ -149,9 +193,24 @@ mod tests {
         let res = ProtectedResourceClass::from_vendor_opcode(OP_KEY_GEN_ONDEVICE);
         assert!(ProtectedResourceClass::from_vendor_opcode(OP_PIV_ENROLL).requires_unlock(&policy));
         assert!(res.requires_unlock(&policy));
+        // VENDOR_SIGN (0x41) is GEN-class: same gate as 0x20, never weaker.
+        assert_eq!(
+            ProtectedResourceClass::from_vendor_opcode(OP_VENDOR_SIGN),
+            ProtectedResourceClass::ProtectedKeyOperation
+        );
+        assert!(ProtectedResourceClass::from_vendor_opcode(OP_VENDOR_SIGN).requires_unlock(&policy));
+        // PM vault ops (0x43..0x47) hold secrets: same key-protection gate.
+        for op in [OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS] {
+            let res = ProtectedResourceClass::from_vendor_opcode(op);
+            assert_eq!(res, ProtectedResourceClass::ProtectedKeyOperation);
+            assert!(res.requires_unlock(&policy));
+        }
 
         policy.protect_keys_and_aegn = false;
         assert!(!res.requires_unlock(&policy));
+        assert!(
+            !ProtectedResourceClass::from_vendor_opcode(OP_VENDOR_SIGN).requires_unlock(&policy)
+        );
     }
 
     #[test]
@@ -178,5 +237,27 @@ mod tests {
 
         let config = ProtectedResourceClass::from_vendor_opcode(OP_SECURE_GUARD_CONFIG);
         assert!(config.requires_unlock(&policy));
+    }
+
+    #[test]
+    fn test_readonly_and_dedicated_gates_never_require_unlock() {
+        let policy = SecureGuardPolicy::default();
+        // Read-only, no secrets: fw-log + capability advertisement.
+        assert!(!ProtectedResourceClass::from_vendor_opcode(0x38).requires_unlock(&policy));
+        assert!(!ProtectedResourceClass::from_vendor_opcode(0x3F).requires_unlock(&policy));
+        // Dedicated funnel gates (PIN-session-OR-SG, enforced in the funnel,
+        // not the barrier): SET_UP_POLICY + BLE OOB stay Unknown.
+        assert_eq!(
+            ProtectedResourceClass::from_vendor_opcode(0x40),
+            ProtectedResourceClass::Unknown(0x40)
+        );
+        assert_eq!(
+            ProtectedResourceClass::from_vendor_opcode(0x42),
+            ProtectedResourceClass::Unknown(0x42)
+        );
+        // Reserved / transient bytes keep their own rules, never the barrier.
+        for op in [0x2Eu8, 0x2F, 0x30, 0x34] {
+            assert!(!ProtectedResourceClass::from_vendor_opcode(op).requires_unlock(&policy));
+        }
     }
 }
