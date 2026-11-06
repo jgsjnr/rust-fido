@@ -1,6 +1,7 @@
 package dev.aegiskey.app
 
 import android.app.Application
+import dev.aegiskey.app.approval.ApprovalNotifications
 import dev.aegiskey.app.ota2.Ota2Keys
 
 /**
@@ -16,6 +17,7 @@ import dev.aegiskey.app.ota2.Ota2Keys
 class AegisApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        runCatching { ApprovalNotifications.ensureChannel(this) }
         runCatching { Ota2Keys.configureReleaseKey(BuildConfig.OTA_RELEASE_PUBKEY_HEX) }
         if (BuildConfig.DEBUG) {
             runCatching { Ota2Keys.configureLabKey(BuildConfig.OTA_LAB_PUBKEY_HEX) }

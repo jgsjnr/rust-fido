@@ -110,6 +110,7 @@ import dev.aegiskey.app.data.local.EncryptedKeysStore
 import dev.aegiskey.app.data.local.LocalePreferencesStore
 import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.autofill.AutofillSettingsCard
+import dev.aegiskey.app.approval.ApprovalSettingsCard
 import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.log.DeviceLog
 import dev.aegiskey.app.testterminal.TestTerminal
@@ -526,6 +527,11 @@ fun FriendlySettingsAndThemeScreen(
         // --- 2.1 Vault autofill in other apps (session-gated, default off) ---
         item {
             AutofillSettingsCard()
+        }
+
+        // --- 2.2 Approval-signal notifications (signal-only, default off) ---
+        item {
+            ApprovalSettingsCard()
         }
 
         // --- KeePassXC & Advanced Cryptography Compatibility ---

@@ -891,4 +891,16 @@
     <string name="autofill_open_system">Escolher AegisKey como serviço de preenchimento</string>
     <string name="autofill_locked_hint">Desbloqueie o Secure Guard para oferecer senhas do cofre.</string>
     <string name="autofill_off_hint">Ative para oferecer senhas do cofre em outros apps.</string>
+
+    <!-- Sinais de aprovação mediados pelo app (local, só-sinal, sem push) -->
+    <string name="approval_channel_name">Sinais de aprovação</string>
+    <string name="approval_channel_desc">Avisa quando há aprovação no app. Abra o app para revisar. Nenhum detalhe sai do app.</string>
+    <string name="approval_title">Aprovação necessária</string>
+    <string name="approval_body">Abra o app para revisar e confirmar.</string>
+    <string name="approval_approve">Aprovar</string>
+    <string name="approval_deny">Negar</string>
+    <string name="approval_toggle_title">Notificações de aprovação</string>
+    <string name="approval_toggle_desc">Avisa quando há aprovação no app. O aviso não traz detalhes.</string>
+    <string name="approval_on_hint">Avisos ligados. Abra o app para aprovar com a digital.</string>
+    <string name="approval_off_hint">Avisos desligados. Aprovações continuam no app.</string>
 </resources>

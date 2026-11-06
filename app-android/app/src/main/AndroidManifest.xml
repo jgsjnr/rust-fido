@@ -12,8 +12,7 @@
            LOCATION implicaria um uso que o app nao faz.
          - BLUETOOTH_ADVERTISE: AUSENTE de proposito. Central only (scan +
            GATT cliente); o app nunca anuncia como periferico.
-         - POST_NOTIFICATIONS: AUSENTE de proposito. Sem foreground service
-           e sem notificacoes; nada ha para autorizar.
+         - POST_NOTIFICATIONS: pedida para sinais de aprovacao. Negada = sem sinal; aprovacoes seguem no app.
          Ramificacoes de versao vivem no codigo (BlePermissions +
          AegisBleClient): minSdk 31 => so existem ramos S+ (33+ p/ flags de
          receiver e overloads GATT); nenhum ramo legado pre-31. Nao adicionar
@@ -22,6 +21,8 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Approval signals only (local, signal-only, no push): runtime prompt on API 33+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Biometric auth (BindingKey + BiometricGate): normal permission,
          granted at install, no runtime prompt. Required by lint
          (MissingPermission) for canAuthenticate/authenticate. -->
@@ -81,5 +82,18 @@
                 android:name="android.service.autofill"
                 android:resource="@xml/autofillservice" />
         </service>
+
+        <!-- Approval-signal actions (local only, no push). Non-exported:
+             only this app's own notifications can trigger it. Both actions
+             route through the same fail-closed gate; a bare tap can never
+             approve (receiver sees no foreground, no biometry). -->
+        <receiver
+            android:name=".approval.ApprovalActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.aegiskey.app.approval.APPROVE" />
+                <action android:name="dev.aegiskey.app.approval.DENY" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

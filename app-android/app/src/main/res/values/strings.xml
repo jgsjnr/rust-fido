@@ -891,4 +891,16 @@
     <string name="autofill_open_system">Choose AegisKey as autofill service</string>
     <string name="autofill_locked_hint">Unlock Secure Guard to offer vault passwords.</string>
     <string name="autofill_off_hint">Turn on to offer vault passwords in other apps.</string>
+
+    <!-- App-mediated approval signals (local only, signal-only, no push) -->
+    <string name="approval_channel_name">Approval signals</string>
+    <string name="approval_channel_desc">Signals that an approval waits in the app. Open the app to review. No details leave the app.</string>
+    <string name="approval_title">Approval needed</string>
+    <string name="approval_body">Open the app to review and confirm.</string>
+    <string name="approval_approve">Approve</string>
+    <string name="approval_deny">Deny</string>
+    <string name="approval_toggle_title">Approval notifications</string>
+    <string name="approval_toggle_desc">Signal when an approval waits in the app. The signal carries no details.</string>
+    <string name="approval_on_hint">Signals on. Open the app to approve with fingerprint.</string>
+    <string name="approval_off_hint">Signals off. Approvals still wait in the app.</string>
 </resources>
