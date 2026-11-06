@@ -57,12 +57,23 @@ impl<T> FreeRtosQueue<T> {
             return Some(item);
         }
         let ms = timeout_ms?;
-        let (guard, _res) = self
-            .not_empty
-            .wait_timeout(q, Duration::from_millis(ms))
-            .expect("queue condvar");
-        let mut guard = guard;
-        guard.pop_front()
+        let deadline = Duration::from_millis(ms);
+        let start = std::time::Instant::now();
+        loop {
+            if let Some(item) = q.pop_front() {
+                return Some(item);
+            }
+            let elapsed = start.elapsed();
+            if elapsed >= deadline {
+                return None;
+            }
+            let remain = deadline - elapsed;
+            let (guard, _res) = self
+                .not_empty
+                .wait_timeout(q, remain)
+                .expect("queue condvar");
+            q = guard;
+        }
     }
 
     /// Tamanho atual.
