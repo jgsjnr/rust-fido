@@ -3,7 +3,7 @@
 //! Test bodies moved verbatim from `legacy_sg_dispatch::tests`; shared
 //! setup lives in `super::sg_test_ctx`.
 
-use super::sg_exec::dispatch_legacy_secure_guard_op;
+use super::sg_exec::{dispatch_legacy_secure_guard_op, dispatch_legacy_secure_guard_op_with_ota};
 use super::sg_test_ctx::{cbor_action_pin, frame_msg, freertos_ctx, legacy_setup};
 use crate::ble_gatt::{OP_SECURE_GUARD_LOCK, OP_SECURE_GUARD_STATUS, OP_SECURE_GUARD_UNLOCK};
 use aegis_fido_core::secure_guard::SecureGuardState;
@@ -143,4 +143,107 @@ fn legacy_lock_matches_freertos_bytes() {
     resp.extend_from_slice(&body);
     let expected = CtapHidFramer::frame_message(0x1122_3344, CMD_MSG, &resp);
     assert_eq!(out.0, expected, "lock bytes must match freertos");
+}
+
+/// #9 (via legacy): 0x3A com `ota_progress` real via with_ota e ausente com
+/// `None` (compat). O valor vem do chamador (`OtaState::progress` com sessao
+/// aberta, como no ramo serial do `run_loop_legacy`); aqui exercitado com
+/// valores literais + paridade contra o funil freertos sem sessao.
+#[test]
+fn legacy_status_with_ota_progress_e_paridade_sem_sessao() {
+    let pin = b"4829";
+    let (mut sg, mut storage, mut wallet, mut key_mgr, mut oath, _pairing) =
+        legacy_setup(pin, false);
+    let now_ms = 2000u64;
+    let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+    fn progress_of(body: &[u8]) -> Option<ciborium::value::Value> {
+        let val: ciborium::value::Value = ciborium::from_reader(body).expect("0x3A deve ser CBOR");
+        match val {
+            ciborium::value::Value::Map(entries) => entries.iter().find_map(|(k, v)| {
+                if matches!(k, ciborium::value::Value::Text(s) if s == "ota_progress") {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            }),
+            _ => panic!("0x3A deve ser mapa CBOR"),
+        }
+    }
+    // Com progresso (ex.: 50% fiado da sessao): campo presente e clampado.
+    let (st, body, _) = dispatch_legacy_secure_guard_op_with_ota(
+        &mut sg,
+        &mut storage,
+        &mut wallet,
+        &mut key_mgr,
+        &mut oath,
+        OP_SECURE_GUARD_STATUS,
+        &[],
+        now_ms,
+        &mut rng,
+        Some(50),
+    );
+    assert_eq!(st, 0x00);
+    assert_eq!(
+        progress_of(&body),
+        Some(ciborium::value::Value::from(50u8)),
+        "with_ota Some(50) expoe ota_progress=50"
+    );
+    // Clamp defensivo: >100 vira 100 (mesmo que handle_status_with_ota).
+    let (st, body, _) = dispatch_legacy_secure_guard_op_with_ota(
+        &mut sg,
+        &mut storage,
+        &mut wallet,
+        &mut key_mgr,
+        &mut oath,
+        OP_SECURE_GUARD_STATUS,
+        &[],
+        now_ms + 1,
+        &mut rng,
+        Some(255),
+    );
+    assert_eq!(st, 0x00);
+    assert_eq!(
+        progress_of(&body),
+        Some(ciborium::value::Value::from(100u8))
+    );
+    // Sem sessao (None): ausente e byte-identico ao legado + ao freertos.
+    let (st, body, _) = dispatch_legacy_secure_guard_op_with_ota(
+        &mut sg,
+        &mut storage,
+        &mut wallet,
+        &mut key_mgr,
+        &mut oath,
+        OP_SECURE_GUARD_STATUS,
+        &[],
+        now_ms + 2,
+        &mut rng,
+        None,
+    );
+    assert_eq!(st, 0x00);
+    assert_eq!(progress_of(&body), None);
+    let (st_old, body_old, _) = dispatch_legacy_secure_guard_op(
+        &mut sg,
+        &mut storage,
+        &mut wallet,
+        &mut key_mgr,
+        &mut oath,
+        OP_SECURE_GUARD_STATUS,
+        &[],
+        now_ms + 2,
+        &mut rng,
+    );
+    assert_eq!((st_old, body_old), (st, body.clone()));
+    // Paridade freertos sem sessao: mesmo corpo (freertos_ctx tem ota None).
+    let mut ctx = freertos_ctx(pin, false);
+    let msg = frame_msg(0x0102_0304, CMD_MSG, OP_SECURE_GUARD_STATUS, &[]);
+    let out = crate::freertos_route::dispatch_serial_vendor_msg(&mut ctx, &msg)
+        .expect("freertos handles 0x3A");
+    let mut resp = Vec::with_capacity(1 + body.len());
+    resp.push(st);
+    resp.extend_from_slice(&body);
+    assert_eq!(
+        out.0,
+        CtapHidFramer::frame_message(0x0102_0304, CMD_MSG, &resp),
+        "0x3A sem sessao: legacy with_ota(None) == freertos"
+    );
 }

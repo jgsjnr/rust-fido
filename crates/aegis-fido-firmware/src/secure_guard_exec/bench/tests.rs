@@ -393,3 +393,118 @@ fn status_mapa_bench_active_espelha_bancada() {
     }
     bench_test_reset(&mut engine);
 }
+
+/// #8: bancada vale no engine da rota CTAPHID serial (segunda instancia).
+///
+/// Falha antiga: `bench_enable` so estendia o primeiro engine (guardado por
+/// `if !slot.active`); um engine criado ou recarregado da NVS depois (policy
+/// padrao 300 s) carimbava a sessao curta no unlock via serial. Agora
+/// `bench_enable` sempre reaplica no engine passado e
+/// `apply_bench_policy_if_active` (chamado pelo executor antes de cada op SG)
+/// estende qualquer engine enquanto a bancada esta ativa. Auditoria segue
+/// idempotente (um unico `EV_BENCH` ON).
+#[test]
+#[cfg(feature = "test-mode")]
+fn bancada_segundo_engine_serial_carimba_24h() {
+    let _guard = BENCH_TEST_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut engine_a = fast_engine();
+    let mut fw_log = crate::fw_log::FwLog::new();
+    bench_test_reset(&mut engine_a);
+    assert_eq!(engine_a.policy().session_duration_ms, 300_000);
+    assert!(super::policy::bench_enable(
+        &mut engine_a,
+        &mut fw_log,
+        1_000
+    ));
+    assert_eq!(fw_log.len(), 1);
+    // Segundo engine (rota serial): nasce com a policy padrao de 300 s...
+    let mut engine_b = fast_engine();
+    assert_eq!(engine_b.policy().session_duration_ms, 300_000);
+    assert_eq!(engine_b.policy().inactivity_timeout_ms, 300_000);
+    // ...mas `bench_enable` com a bancada ja ativa reaplica sem reaudit:
+    assert!(super::policy::bench_enable(
+        &mut engine_b,
+        &mut fw_log,
+        2_000
+    ));
+    assert_eq!(fw_log.len(), 1, "repetir nao duplica auditoria");
+    assert_eq!(
+        engine_b.policy().session_duration_ms,
+        super::policy::BENCH_SESSION_DURATION_MS
+    );
+    assert_eq!(
+        engine_b.policy().inactivity_timeout_ms,
+        super::policy::BENCH_INACTIVITY_TIMEOUT_MS
+    );
+    // Unlock no engine B carimba 24 h: passa do idle padrao sem relock...
+    engine_b
+        .provision_pin(b"7391", [0x11; 16], &[0x22; 16], [0x33; 16], 3_000)
+        .expect("provision ok");
+    engine_b.unlock_with_pin(b"7391", 4_000).expect("unlock ok");
+    let _ = engine_b.check_and_touch_session(4_000 + 300_001);
+    assert!(
+        engine_b.is_unlocked(),
+        "engine serial nao pode relockar com 300 s de bancada ativa"
+    );
+    // ...e expira no prazo estendido (sessao finita, 24 h).
+    let _ = engine_b.check_and_touch_session(4_000 + super::policy::BENCH_SESSION_DURATION_MS);
+    assert!(!engine_b.is_unlocked());
+    // Restaura A (desliga global) e higieniza B (local, descartado).
+    bench_test_reset(&mut engine_a);
+    engine_b.policy_mut().session_duration_ms = 300_000;
+    engine_b.policy_mut().inactivity_timeout_ms = 300_000;
+}
+
+/// #8 (mecanismo do executor): engine fresco e estendido via `apply` sem
+/// novo audit, cobrindo reload NVS pos-`TEST_BENCH_ON` na rota serial.
+#[test]
+#[cfg(feature = "test-mode")]
+fn bancada_apply_estende_engine_fresco_sem_audit() {
+    let _guard = BENCH_TEST_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut engine_a = fast_engine();
+    let mut fw_log = crate::fw_log::FwLog::new();
+    bench_test_reset(&mut engine_a);
+    assert!(super::policy::bench_enable(
+        &mut engine_a,
+        &mut fw_log,
+        1_000
+    ));
+    assert_eq!(fw_log.len(), 1);
+    // Engine recem-recarregado (ex.: NVS apos o ON): 300 s...
+    let mut engine_novo = fast_engine();
+    assert_eq!(engine_novo.policy().session_duration_ms, 300_000);
+    // ...o executor reaplica antes do dispatch, sem tocar no fw_log.
+    super::policy::apply_bench_policy_if_active(&mut engine_novo);
+    assert_eq!(
+        engine_novo.policy().session_duration_ms,
+        super::policy::BENCH_SESSION_DURATION_MS
+    );
+    assert_eq!(
+        engine_novo.policy().inactivity_timeout_ms,
+        super::policy::BENCH_INACTIVITY_TIMEOUT_MS
+    );
+    assert_eq!(fw_log.len(), 1, "apply nao audita");
+    bench_test_reset(&mut engine_a);
+    engine_novo.policy_mut().session_duration_ms = 300_000;
+    engine_novo.policy_mut().inactivity_timeout_ms = 300_000;
+}
+
+/// Release: `apply_bench_policy_if_active` e no-op (producao intacta).
+#[test]
+#[cfg(not(feature = "test-mode"))]
+fn release_apply_bench_policy_e_noop() {
+    let _guard = BENCH_TEST_GUARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut engine = aegis_fido_core::secure_guard::SecureGuardEngine::new(
+        aegis_fido_core::secure_guard::SecureGuardPolicy::default(),
+    );
+    super::policy::apply_bench_policy_if_active(&mut engine);
+    assert_eq!(engine.policy().session_duration_ms, 300_000);
+    assert_eq!(engine.policy().inactivity_timeout_ms, 300_000);
+    assert!(!super::policy::is_bench_active());
+}
