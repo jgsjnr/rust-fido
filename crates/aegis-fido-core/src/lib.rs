@@ -37,7 +37,8 @@ pub use wallet::{
     recover_secret_from_2_shares, split_secret_2_of_3, wallet_account_path, wallet_address_path,
     xpub_at_account, xpub_at_path, ChildNumber, ClearSignError, ClearSignTransactionSummary,
     DecodedExtendedKey, DerivationPath, DsHmacSeedEnvelope, ExtendedPrivateKey, ExtendedPublicKey,
-    HdError, OledFrame128x64, ShamirError, ShamirShare, WalletStore, COIN_TYPE_BITCOIN,
-    COIN_TYPE_EVM, EXTENDED_KEY_LEN, EXTENDED_KEY_STRLEN, HARDENED_OFFSET, MAX_PATH_DEPTH,
-    MAX_SEED_LEN, MIN_SEED_LEN, PURPOSE_BIP44, PURPOSE_BIP84, XPRV_VERSION, XPUB_VERSION,
+    HdError, OledFrame128x64, SeedCeremony, SeedCeremonyError, SeedMetadata, SeedSession,
+    ShamirError, ShamirShare, WalletStore, COIN_TYPE_BITCOIN, COIN_TYPE_EVM, EXTENDED_KEY_LEN,
+    EXTENDED_KEY_STRLEN, HARDENED_OFFSET, MAX_PATH_DEPTH, MAX_SEED_LEN, MIN_SEED_LEN,
+    PURPOSE_BIP44, PURPOSE_BIP84, SEED_WORD_COUNT, XPRV_VERSION, XPUB_VERSION,
 };

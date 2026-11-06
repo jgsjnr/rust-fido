@@ -172,6 +172,8 @@ pub mod vendor_exec;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod wallet_exec;
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+pub mod wallet_seed_store;
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 pub mod wallet_sign;
 pub mod watchdog;
 pub mod wifi_ap;
