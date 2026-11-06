@@ -438,6 +438,8 @@
     <string name="totp_add_short">Adicionar código</string>
     <string name="totp_empty_alt_title">Nenhum código registrado</string>
     <string name="totp_empty_alt_desc">Adicione Google, GitHub ou outras contas para gerar códigos offline.</string>
+    <string name="totp_no_session_title">Conecte a chave para ver os códigos</string>
+    <string name="totp_no_session_desc">Os códigos aparecem aqui quando a chave estiver conectada.</string>
     <string name="totp_del_title">Excluir código?</string>
     <string name="totp_del_desc">Excluir \"%1$s\"? Você precisa do segredo original para configurar de novo.</string>
     <string name="totp_del_btn">Excluir código</string>

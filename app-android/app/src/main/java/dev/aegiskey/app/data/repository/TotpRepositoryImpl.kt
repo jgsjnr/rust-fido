@@ -13,6 +13,7 @@ import dev.aegiskey.app.data.transport.SimulatedRenodeTransport
 import dev.aegiskey.app.data.transport.UsbKeyTransport
 import dev.aegiskey.app.domain.model.ConnectionTransportType
 import dev.aegiskey.app.domain.model.DeviceError
+import dev.aegiskey.app.domain.model.TOTP_NO_LIVE_CODE
 import dev.aegiskey.app.domain.model.TotpAccountItem
 import dev.aegiskey.app.domain.repository.ConnectedKeysRepository
 import dev.aegiskey.app.domain.repository.TotpRepository
@@ -80,7 +81,7 @@ class TotpRepositoryImpl(
      * there is no code, only this marker plus [TotpAccountItem.requiresTouchToRefresh].
      */
     companion object {
-        const val NO_LIVE_CODE = "------"
+        const val NO_LIVE_CODE = TOTP_NO_LIVE_CODE
     }
 
     init {

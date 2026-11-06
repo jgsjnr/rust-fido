@@ -12,6 +12,8 @@ import dev.aegiskey.app.R
 import dev.aegiskey.app.domain.model.ConnectedKeyDevice
 import dev.aegiskey.app.domain.model.DeviceError
 import dev.aegiskey.app.domain.model.TotpAccountItem
+import dev.aegiskey.app.domain.model.hasLiveCode
+import dev.aegiskey.app.domain.model.withLiveCodesOnly
 import dev.aegiskey.app.domain.repository.TotpRepository
 import dev.aegiskey.app.domain.usecase.AddTotpAccountUseCase
 import dev.aegiskey.app.domain.usecase.DeleteTotpAccountUseCase
@@ -33,7 +35,19 @@ import kotlinx.coroutines.launch
 
 data class TotpAuthenticatorUiState(
     val activeKey: ConnectedKeyDevice? = null,
+    /**
+     * Visible rows only: placeholder items without a live silicon session
+     * ("------") are hidden here. The repository still holds them
+     * fail-closed; the list renders empty with a neutral "connect the key"
+     * hint (see [hasNoLiveSession]) instead of a counting placeholder row.
+     * Applies to list and detail consumers of this state.
+     */
     val accounts: List<TotpAccountItem> = emptyList(),
+    /**
+     * True when the backing list is non-empty but every row is a
+     * no-live-session placeholder. Drives the neutral empty state.
+     */
+    val hasNoLiveSession: Boolean = false,
     val remainingSeconds: Int = 30,
     val isLoading: Boolean = false,
     val isAddingAccount: Boolean = false,
@@ -109,7 +123,8 @@ class TotpAuthenticatorViewModel(
     ) { key, accs, secs, internal, needUp ->
         TotpAuthenticatorUiState(
             activeKey = key,
-            accounts = accs,
+            accounts = accs.withLiveCodesOnly(),
+            hasNoLiveSession = accs.isNotEmpty() && accs.none { it.hasLiveCode },
             remainingSeconds = secs,
             isLoading = internal.isLoading,
             isAddingAccount = internal.isAddingAccount,

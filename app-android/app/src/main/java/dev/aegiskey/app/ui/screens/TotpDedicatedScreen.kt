@@ -280,8 +280,13 @@ fun TotpDedicatedScreen(
                 }
             }
 
-            // Empty State
+            // Empty State: without a live session the backing rows are all
+            // placeholders ("------") and already hidden by the ViewModel —
+            // render an empty list with a neutral "connect the key" hint
+            // instead of a counting placeholder row.
             if (uiState.accounts.isEmpty() && !uiState.isLoading) {
+                val emptyTitleRes = if (uiState.hasNoLiveSession) R.string.totp_no_session_title else R.string.totp_empty_alt_title
+                val emptyDescRes = if (uiState.hasNoLiveSession) R.string.totp_no_session_desc else R.string.totp_empty_alt_desc
                 item {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -300,14 +305,14 @@ fun TotpDedicatedScreen(
                                 modifier = Modifier.size(32.dp),
                             )
                             Text(
-                                text = stringResource(R.string.totp_empty_alt_title),
+                                text = stringResource(emptyTitleRes),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = stringResource(R.string.totp_empty_alt_desc),
+                                text = stringResource(emptyDescRes),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,

@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.aegiskey.app.R
+import dev.aegiskey.app.domain.model.isLiveTotpCode
 import dev.aegiskey.app.ui.atomic.atoms.QuickActionPillButton
 import dev.aegiskey.app.ui.atomic.atoms.TotpCountdownRingAtom
 import dev.aegiskey.app.ui.theme.AegisCodeMonospaceStyle
@@ -65,6 +66,10 @@ fun TotpCodeCardMolecule(
     isOnDeviceBacked: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    // Detail guard: without a live session there is no code — hide the
+    // row entirely instead of rendering the "------" placeholder line.
+    // The list stays empty with a neutral "connect the key" hint.
+    if (!isLiveTotpCode(code)) return
     val formattedCode = formatGroupedDigits(code)
     val issuerFallback = stringResource(R.string.totp_card_fallback_issuer)
     val accountFallback = stringResource(R.string.totp_card_fallback_account)

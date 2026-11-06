@@ -438,6 +438,8 @@
     <string name="totp_add_short">Add Code</string>
     <string name="totp_empty_alt_title">No codes registered</string>
     <string name="totp_empty_alt_desc">Add Google, GitHub, or other accounts to generate offline verification codes.</string>
+    <string name="totp_no_session_title">Connect the key to view codes</string>
+    <string name="totp_no_session_desc">Verification codes appear here when the key is connected.</string>
     <string name="totp_del_title">Delete Code?</string>
     <string name="totp_del_desc">Do you want to delete \"%1$s\"? You will need the original secret to reconfigure.</string>
     <string name="totp_del_btn">Delete Code</string>
