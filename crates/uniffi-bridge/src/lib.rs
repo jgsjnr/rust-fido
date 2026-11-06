@@ -656,6 +656,36 @@ pub fn wallet_address(network: String, pubkey_hex: String) -> Result<String, Bri
     }
 }
 
+/// Account-level extended public key, derived off-device from a caller seed.
+///
+/// `seed_hex`: even-length hex of `16..=64` seed bytes; `network`:
+/// `bitcoin`/`btc` or `ethereum`/`evm`/`eth` (case-insensitive);
+/// `account`: `< 2^31` (hardened by derivation). Returns the 111-character
+/// Base58check account `xpub` string. Networks without an extended-key
+/// protocol (ed25519 family) are rejected fail-closed: no silent fallback,
+/// no zero key. No private material crosses this interface in either
+/// direction: the input seed is borrowed and zeroized before return, and the
+/// output carries only the public point, chain code, and lineage.
+pub fn xpub_from_seed(
+    seed_hex: String,
+    network: String,
+    account: u32,
+) -> Result<String, BridgeError> {
+    use aegis_fido_core::wallet::{xpub_at_account, CryptoNetwork};
+    use zeroize::Zeroize;
+    let net = match network.trim().to_ascii_lowercase().as_str() {
+        "bitcoin" | "btc" => CryptoNetwork::Bitcoin,
+        "ethereum" | "evm" | "eth" => CryptoNetwork::EthereumEvm,
+        _ => return Err(BridgeError::InvalidAddress),
+    };
+    let mut seed = decode_even_hex(seed_hex.trim()).ok_or(BridgeError::InvalidAddress)?;
+    let out = xpub_at_account(&seed, net, account)
+        .map(|node| node.to_extended_string())
+        .map_err(|_| BridgeError::InvalidAddress);
+    seed.zeroize();
+    out
+}
+
 /// Strict even-length ASCII hex decoder (no new dependency for one call).
 fn decode_even_hex(s: &str) -> Option<Vec<u8>> {
     if s.is_empty() || !s.len().is_multiple_of(2) {
@@ -1176,6 +1206,94 @@ mod tests {
         bad_prefix.push_str(&G_COMPRESSED_HEX[2..]);
         assert_eq!(
             wallet_address("bitcoin".to_string(), bad_prefix),
+            Err(BridgeError::InvalidAddress)
+        );
+    }
+
+    #[test]
+    fn xpub_from_seed_account_exports_are_deterministic() {
+        use aegis_fido_core::wallet::{decode_extended_key, DecodedExtendedKey};
+        let seed = "000102030405060708090a0b0c0d0e0f";
+        let btc0 = xpub_from_seed(seed.to_string(), "bitcoin".to_string(), 0).unwrap();
+        // Case/whitespace-tolerant aliases render the same 111-char string.
+        assert_eq!(
+            xpub_from_seed(seed.to_string(), " BTC ".to_string(), 0).unwrap(),
+            btc0
+        );
+        assert_eq!(btc0.len(), 111);
+        assert!(btc0.starts_with("xpub"));
+        // Decodes as a public-only depth-3 account node (independent codec path).
+        match decode_extended_key(&btc0).unwrap() {
+            DecodedExtendedKey::Public(node) => {
+                assert_eq!(node.depth(), 3);
+                assert_eq!(node.to_extended_string(), btc0);
+            }
+            DecodedExtendedKey::Private(_) => panic!("xpub must decode as public"),
+        }
+        // Distinct accounts and networks never collide.
+        assert_ne!(
+            xpub_from_seed(seed.to_string(), "bitcoin".to_string(), 1).unwrap(),
+            btc0
+        );
+        assert_ne!(
+            xpub_from_seed(seed.to_string(), "ethereum".to_string(), 0).unwrap(),
+            btc0
+        );
+    }
+
+    #[test]
+    fn xpub_from_seed_matches_core_export_wiring() {
+        // Wiring parity: the FFI string mapping must agree with the
+        // session-gated core export for the same inputs.
+        use aegis_fido_core::wallet::{xpub_at_account, CryptoNetwork, WalletStore};
+        let seed_hex = "000102030405060708090a0b0c0d0e0f";
+        let seed = super::decode_even_hex(seed_hex).unwrap();
+        let expected = xpub_at_account(&seed, CryptoNetwork::Bitcoin, 0)
+            .unwrap()
+            .to_extended_string();
+        assert_eq!(
+            xpub_from_seed(seed_hex.to_string(), "bitcoin".to_string(), 0).unwrap(),
+            expected
+        );
+        let store = WalletStore::new();
+        assert_eq!(
+            store
+                .export_xpub(&seed, CryptoNetwork::Bitcoin, 0, true)
+                .unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn xpub_from_seed_rejects_bad_inputs() {
+        let seed = "000102030405060708090a0b0c0d0e0f";
+        // Unknown network and the ed25519 family (no extended-key protocol).
+        for net in ["dogecoin", "solana", "sol", ""] {
+            assert_eq!(
+                xpub_from_seed(seed.to_string(), net.to_string(), 0),
+                Err(BridgeError::InvalidAddress),
+                "network {net:?}"
+            );
+        }
+        // Odd-length, empty, and non-hex seeds.
+        for bad in ["abc", "", "zz"] {
+            assert_eq!(
+                xpub_from_seed(bad.to_string(), "bitcoin".to_string(), 0),
+                Err(BridgeError::InvalidAddress),
+                "seed {bad:?}"
+            );
+        }
+        // 8 B (too short), 65 B (too long), and hardened-range account.
+        assert_eq!(
+            xpub_from_seed("00".repeat(8), "bitcoin".to_string(), 0),
+            Err(BridgeError::InvalidAddress)
+        );
+        assert_eq!(
+            xpub_from_seed("00".repeat(65), "bitcoin".to_string(), 0),
+            Err(BridgeError::InvalidAddress)
+        );
+        assert_eq!(
+            xpub_from_seed(seed.to_string(), "bitcoin".to_string(), 0x8000_0000),
             Err(BridgeError::InvalidAddress)
         );
     }
@@ -1753,6 +1871,86 @@ mod tests {
         let out = core::str::from_utf8(&raw).unwrap();
         assert!(out.contains("\"issuer\":\"GitHub\""));
         assert!(out.contains("\"secret_base32\":\"JBSWY3DPEHPK3PXP\""));
+    }
+
+    #[test]
+    fn ffi_xpub_from_seed_two_call_and_rejections() {
+        let seed = b"000102030405060708090a0b0c0d0e0f".to_vec();
+        let network = b"bitcoin".to_vec();
+        let call = |o: *mut u8, c: usize, l: *mut usize| {
+            aegis_xpub_from_seed(
+                seed.as_ptr(),
+                seed.len(),
+                network.as_ptr(),
+                network.len(),
+                0,
+                o,
+                c,
+                l,
+            )
+        };
+        // Query phase reports the 111-char length; fill phase matches it.
+        let mut need: usize = 0;
+        assert_eq!(call(core::ptr::null_mut(), 0, &mut need) as usize, need);
+        assert_eq!(need, 111);
+        let mut buf = vec![0u8; need];
+        let mut got: usize = 0;
+        assert_eq!(call(buf.as_mut_ptr(), buf.len(), &mut got), AEGIS_STATUS_OK);
+        assert_eq!(got, need);
+        assert!(buf.starts_with(b"xpub"));
+        // Same output as the typed call (C edge is pure passthrough).
+        assert_eq!(
+            core::str::from_utf8(&buf).unwrap(),
+            &xpub_from_seed(
+                "000102030405060708090a0b0c0d0e0f".to_string(),
+                "bitcoin".to_string(),
+                0
+            )
+            .unwrap()
+        );
+        // Too-small buffer reports the required size without writing.
+        let mut tiny = vec![0u8; need - 1];
+        let mut got: usize = usize::MAX;
+        assert_eq!(
+            call(tiny.as_mut_ptr(), tiny.len(), &mut got),
+            AEGIS_ERR_BUFFER_TOO_SMALL
+        );
+        assert_eq!(got, need);
+        // NULL out_len is a contract violation even on success.
+        assert_eq!(
+            call(tiny.as_mut_ptr(), tiny.len(), core::ptr::null_mut()),
+            AEGIS_ERR_NULL_POINTER
+        );
+        // Unknown network maps onto the frozen wallet-input code.
+        let bad_net = b"solana".to_vec();
+        let mut got: usize = 0;
+        assert_eq!(
+            aegis_xpub_from_seed(
+                seed.as_ptr(),
+                seed.len(),
+                bad_net.as_ptr(),
+                bad_net.len(),
+                0,
+                tiny.as_mut_ptr(),
+                tiny.len(),
+                &mut got,
+            ),
+            AEGIS_ERR_INVALID_ADDRESS
+        );
+        // NULL seed with nonzero length is rejected before parsing.
+        assert_eq!(
+            aegis_xpub_from_seed(
+                core::ptr::null(),
+                4,
+                network.as_ptr(),
+                network.len(),
+                0,
+                tiny.as_mut_ptr(),
+                tiny.len(),
+                &mut got,
+            ),
+            AEGIS_ERR_NULL_POINTER
+        );
     }
 
     #[test]

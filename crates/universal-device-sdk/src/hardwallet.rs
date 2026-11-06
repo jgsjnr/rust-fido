@@ -44,9 +44,31 @@ impl AddressRequest {
     }
 }
 
+/// Typed account-level extended public key request.
+///
+/// Derivation itself runs in firmware (RAM-only) behind the `hardwallet`
+/// gate; off-device preview travels through the bridge FFI. Only secp256k1
+/// families are representable: no extended-key protocol exists for the
+/// ed25519 family, so it is unrepresentable by construction (fail-closed
+/// without a runtime check).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XpubRequest {
+    /// Coin family.
+    pub coin: CoinKind,
+    /// BIP-32 account level (`< 2^31`; hardened by derivation).
+    pub account: u32,
+}
+
+impl XpubRequest {
+    /// Build a typed xpub request (no crypto here).
+    pub const fn new(coin: CoinKind, account: u32) -> Self {
+        Self { coin, account }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::hardwallet::{AddressRequest, CoinKind};
+    use crate::hardwallet::{AddressRequest, CoinKind, XpubRequest};
 
     #[test]
     fn const_constructible() {
@@ -61,5 +83,19 @@ mod tests {
     #[test]
     fn coin_kinds_distinct() {
         assert_ne!(CoinKind::Bitcoin, CoinKind::Ethereum);
+    }
+
+    #[test]
+    fn xpub_request_const_constructible_and_copied() {
+        const REQ: XpubRequest = XpubRequest::new(CoinKind::Bitcoin, 0);
+        let req = REQ;
+        let dup = req;
+        assert_eq!(req.coin, CoinKind::Bitcoin);
+        assert_eq!(req.account, 0);
+        assert_eq!(dup, req);
+        assert_ne!(
+            XpubRequest::new(CoinKind::Ethereum, 1),
+            XpubRequest::new(CoinKind::Ethereum, 0)
+        );
     }
 }

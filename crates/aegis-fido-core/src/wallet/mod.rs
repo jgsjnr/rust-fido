@@ -38,6 +38,7 @@ pub mod hd_paths;
 pub mod shamir_slip39;
 pub mod store;
 pub mod types;
+pub mod xpub;
 
 pub use address::{
     address_for_public_key, bitcoin_p2wpkh_address, ethereum_address, solana_address,
@@ -65,6 +66,7 @@ pub use shamir_slip39::{
 };
 pub use store::{WalletStore, WALLET_LABEL_PREFIX};
 pub use types::{CryptoNetwork, WalletRecord};
+pub use xpub::{xpub_at_account, xpub_at_path};
 
 use crate::credential::{
     KeyManagerError, STATUS_BAD_ENVELOPE, STATUS_NEED_PIN, STATUS_NEED_UP, STATUS_NO_SLOT,

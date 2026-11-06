@@ -6,7 +6,8 @@ use crate::{
     secure_guard_encode_config, secure_guard_encode_lock, secure_guard_encode_provision,
     secure_guard_encode_recover, secure_guard_encode_unlock, secure_guard_encode_wipe,
     secure_guard_parse_status, totp_format_display, wallet_address, wifi_password_valid,
-    BridgeError, OathCode, OtpAuthParsed, SecureGuardPolicyDto, SecureGuardStatusDto,
+    xpub_from_seed, BridgeError, OathCode, OtpAuthParsed, SecureGuardPolicyDto,
+    SecureGuardStatusDto,
 };
 
 // =========================================================================
@@ -651,6 +652,39 @@ pub extern "C" fn aegis_wallet_address(
     };
     match wallet_address(network.to_string(), pubkey_hex.to_string()) {
         Ok(address) => emit_bytes(out, out_cap, out_len, address.as_bytes()),
+        Err(err) => status_of(err),
+    }
+}
+
+/// Account-level extended public key (off-device, public output only).
+///
+/// Same narrow contract as [`aegis_wallet_address`]: two-call
+/// `(out, out_cap, out_len)` bytes out, NULL with `len > 0` rejected, UTF-8
+/// required. `account` is the `< 2^31` account level (hardened by
+/// derivation); out-of-range accounts, unknown networks, and bad seed hex
+/// fail closed with `AEGIS_ERR_INVALID_ADDRESS` (never a new code: the frozen
+/// `-1..-13` set is untouched). Errors carry no payload; the input seed is
+/// zeroized inside the typed call and the output is public-only.
+#[no_mangle]
+pub extern "C" fn aegis_xpub_from_seed(
+    seed_hex: *const u8,
+    seed_hex_len: usize,
+    network: *const u8,
+    network_len: usize,
+    account: u32,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let (seed_hex, network) = match (
+        input_str(seed_hex, seed_hex_len),
+        input_str(network, network_len),
+    ) {
+        (Ok(s), Ok(n)) => (s, n),
+        _ => return AEGIS_ERR_NULL_POINTER,
+    };
+    match xpub_from_seed(seed_hex.to_string(), network.to_string(), account) {
+        Ok(xpub) => emit_bytes(out, out_cap, out_len, xpub.as_bytes()),
         Err(err) => status_of(err),
     }
 }

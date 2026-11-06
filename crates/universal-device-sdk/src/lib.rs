@@ -69,7 +69,7 @@ pub use error::{
     require_fido, require_hardwallet, require_pm, require_secmon, require_test_mode, SdkError,
 };
 #[cfg(feature = "hardwallet")]
-pub use hardwallet::{AddressRequest, CoinKind};
+pub use hardwallet::{AddressRequest, CoinKind, XpubRequest};
 #[cfg(feature = "pm")]
 pub use pm::{
     decode_pm_delete_request, decode_pm_get_request, decode_pm_list_request,
