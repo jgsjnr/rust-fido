@@ -380,6 +380,68 @@ class HostUsbUartBridgeClient(
         }
     }
 
+    /**
+     * Resultado do envio de uma linha de texto TEST_* à ponte de bancada.
+     */
+    sealed interface TextLineResult {
+        /** A ponte respondeu 2xx; [body] é o ack cru (pode ser vazio). */
+        data class Ok(val body: String) : TextLineResult
+
+        /** A ponte não tem o endpoint (404): fail-closed, sem envio. */
+        data object BridgeUnsupported : TextLineResult
+
+        /** Ponte inacessível ou erro de transporte/resposta. */
+        data object TransportError : TextLineResult
+    }
+
+    /**
+     * Envia uma linha de texto TEST_* à ponte de bancada via
+     * `POST /bridge/text_line {"line": ...}` (contrato com a lane da
+     * ponte). A linha segue verbatim, sem validação de conteúdo aqui: o
+     * catálogo permitido vive em `testterminal.TestTerminal`.
+     *
+     * Fail-closed: 404 vira [TextLineResult.BridgeUnsupported] ("ponte
+     * sem suporte"); qualquer outra falha vira
+     * [TextLineResult.TransportError]. Nunca inventa ack.
+     */
+    suspend fun postTextLine(line: String): TextLineResult = withContext(Dispatchers.IO) {
+        val host = resolveActiveHost() ?: return@withContext TextLineResult.TransportError
+        try {
+            val url = URL("$host/bridge/text_line")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                applyAuthHeaders()
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = 1500
+                readTimeout = 5000
+                doOutput = true
+            }
+            conn.outputStream.use { os ->
+                os.write(JSONObject().put("line", line).toString().toByteArray(Charsets.UTF_8))
+            }
+            val code = conn.responseCode
+            if (code == 404) {
+                conn.disconnect()
+                DeviceLog.append(DeviceLog.Category.SYSTEM, "Bridge /bridge/text_line ausente (ponte sem suporte)")
+                return@withContext TextLineResult.BridgeUnsupported
+            }
+            if (code !in 200..299) {
+                conn.disconnect()
+                return@withContext TextLineResult.TransportError
+            }
+            val body = try {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } catch (_: Throwable) {
+                ""
+            }
+            conn.disconnect()
+            DeviceLog.append(DeviceLog.Category.SYSTEM, "Bridge text_line '$line' -> ${body.length} chars")
+            TextLineResult.Ok(body)
+        } catch (_: Throwable) {
+            TextLineResult.TransportError
+        }
+    }
+
     data class ProximityLockStatus(
         val enabled: Boolean = true,
         val state: String = "NEAR", // "NEAR", "AWAY", "LOCKED"

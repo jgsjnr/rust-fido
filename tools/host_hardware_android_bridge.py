@@ -97,6 +97,45 @@ DEFAULT_PORT = 5678
 DEFAULT_BAUD = 115200
 
 # -----------------------------------------------------------------------------
+# POST /bridge/text_line: raw TEST-hook text line to UART serial (COM7).
+# Allowlist mirrors docs/test-hooks.md text hooks (test-mode firmware only;
+# release ignores unknown lines). Anything else is rejected with 400 and
+# never reaches the wire.
+# -----------------------------------------------------------------------------
+TEXT_LINE_ALLOWLIST = frozenset({
+    "TEST_UP",
+    "TEST_DOWNLOAD",
+    "TEST_USB_RECONNECT",
+    "TEST_PAIRING_OPEN",
+    "TEST_PAIRING_OPEN_300",
+    "TEST_PAIRING_CLOSE",
+    "TEST_LIFETIME_DUMP",
+    "TEST_LED_STATE",
+    "TEST_LED_RED",
+    "TEST_LED_GREEN",
+    "TEST_LED_BLUE",
+    "TEST_LED_OFF",
+    "TEST_LED_RELEASE",
+    "TEST_BENCH_ON",
+    "TEST_BENCH_OFF",
+    "TEST_OTA_COMMIT_HOOK",
+    "TEST_BLE_PREINIT",
+})
+TEXT_LINE_TIMEOUT_S = 5.0
+
+
+def validate_text_line(line: object) -> tuple[bool, str]:
+    """Fail-closed validation for /bridge/text_line. Returns (ok, cleaned_or_error)."""
+    if not isinstance(line, str):
+        return False, "line must be a string"
+    cleaned = line.strip()
+    if not cleaned.startswith("TEST_"):
+        return False, "line must start with TEST_ prefix"
+    if cleaned not in TEXT_LINE_ALLOWLIST:
+        return False, f"line not in test-hooks allowlist: {cleaned}"
+    return True, cleaned
+
+# -----------------------------------------------------------------------------
 # GAP-05: Local Session Authentication & DNS Rebinding Protection
 # -----------------------------------------------------------------------------
 SESSION_BEARER_TOKEN = secrets.token_hex(32)
@@ -1021,6 +1060,43 @@ class HardwareBridgeManager:
             if self.session and hasattr(self.session, "lifetime_dump"):
                 return self.session.lifetime_dump(timeout_s=3.0)
             return "lt_dump v=1\nlt_end\n"
+
+    def send_text_line(self, line: str, timeout_s: float = TEXT_LINE_TIMEOUT_S) -> str:
+        """Writes one raw TEST-hook line to the UART serial (COM7) and returns the ack.
+
+        Caller must validate via validate_text_line() first. Only UART
+        transport is supported; USB-HID has no text-line channel.
+        """
+        with self.lock:
+            self.ensure_connected()
+            sess = self.session
+            if self.transport != "UART" or sess is None or getattr(sess, "link", None) is None:
+                raise ConnectionError("text_line requires UART serial (COM7) hardware")
+            link = sess.link
+            try:
+                if hasattr(link, "flush_input"):
+                    link.flush_input()
+                link.write((line + "\n").encode("ascii"))
+            except Exception as e:
+                raise ConnectionError(f"serial write failed: {e}")
+            buf = bytearray()
+            end = time.monotonic() + max(0.1, timeout_s)
+            while time.monotonic() < end:
+                remaining = end - time.monotonic()
+                try:
+                    chunk = link.read_exact(1, deadline_s=min(1.0, remaining))
+                except TimeoutError:
+                    break
+                except Exception:
+                    break
+                buf.extend(chunk)
+                if buf.endswith(b"\n"):
+                    break
+                if len(buf) > 4096:
+                    break
+            if not buf:
+                raise TimeoutError(f"no ack for '{line}' within {timeout_s:.1f}s")
+            return buf.decode("ascii", "replace")
 
     def wink(self):
         with self.lock:
@@ -3077,6 +3153,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                     "POST /bridge/ctap",
                     "POST /bridge/pairing_open",
                     "POST /bridge/touch_up",
+                    "POST /bridge/text_line",
                     "GET /api/security/bridge-auth-status",
                     "GET /api/security/efuse-guard-status",
                     "GET /api/secure-guard/ecdh-handshake",
@@ -3475,6 +3552,33 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "result": res})
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)
+            return
+
+        if path == "/bridge/text_line":
+            try:
+                data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"JSON inválido: {e}"}, status_code=400)
+                return
+            ok, cleaned = validate_text_line(data.get("line"))
+            if not ok:
+                self.send_json({"ok": False, "error": cleaned}, status_code=400)
+                return
+            try:
+                timeout_s = float(data.get("timeout_s", TEXT_LINE_TIMEOUT_S))
+            except (TypeError, ValueError):
+                self.send_json({"ok": False, "error": "timeout_s must be a number"}, status_code=400)
+                return
+            timeout_s = min(max(timeout_s, 0.5), 15.0)
+            try:
+                ack = HW_MANAGER.send_text_line(cleaned, timeout_s=timeout_s)
+                self.send_json({"ok": True, "line": cleaned, "ack": ack})
+            except TimeoutError as e:
+                self.send_json({"ok": False, "line": cleaned, "error": str(e)}, status_code=504)
+            except ConnectionError as e:
+                self.send_json({"ok": False, "line": cleaned, "error": str(e)}, status_code=503)
+            except Exception as e:
+                self.send_json({"ok": False, "line": cleaned, "error": str(e)}, status_code=500)
             return
 
         if path in ("/bridge/pin_auth", "/bridge/authenticate_pin", "/bridge/test_pin_ok"):

@@ -112,6 +112,8 @@ import dev.aegiskey.app.di.AppContainer
 import dev.aegiskey.app.autofill.AutofillSettingsCard
 import dev.aegiskey.app.domain.model.FirmwareVersion
 import dev.aegiskey.app.log.DeviceLog
+import dev.aegiskey.app.testterminal.TestTerminal
+import dev.aegiskey.app.testterminal.TestTerminalDialog
 import dev.aegiskey.app.ui.RescueOps
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -197,6 +199,12 @@ fun FriendlySettingsAndThemeScreen(
     // Dialog states for Rescue (0x2E) and Audit Logs (0x38) (6)
     var showRescueDialog by remember { mutableStateOf(false) }
     var showLogsDialog by remember { mutableStateOf(false) }
+
+    // Test Terminal dialog state (lab, test-mode only; gate below).
+    var showTestTerminal by remember { mutableStateOf(false) }
+    // Authority data: live Secure Guard status (translated Core 0x3A via
+    // the retained viewmodel). Null = unknown = hidden (fail-closed).
+    val guardStatus = container?.secureGuardViewModel?.uiState?.collectAsState()?.value?.status
 
     // Rescue Diagnostics Subsystem States
     // Click-through F7: version fallback is the documented single source of
@@ -1272,6 +1280,52 @@ fun FriendlySettingsAndThemeScreen(
             }
         }
 
+        // --- 6b. Test Terminal (lab, test-mode only).
+        // Gate: rendered only when the device reports test-mode
+        // (bench_active or test-mode flag); hidden in release.
+        if (guardStatus != null && TestTerminal.isVisible(guardStatus)) {
+            item {
+                OutlinedCard(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.test_terminal_section),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = stringResource(R.string.test_terminal_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(
+                            onClick = { showTestTerminal = true },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.test_terminal_open),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // --- 7. Security Key Ownership & Factory Reset ---
         item {
             SettingsSectionHeader(
@@ -1536,6 +1590,14 @@ fun FriendlySettingsAndThemeScreen(
             onCopyLogs = { text ->
                 clipboardManager.setText(AnnotatedString(text))
             }
+        )
+    }
+
+    // Dialog 3.4: Test Terminal (lab, test-mode only; gate at the card).
+    if (showTestTerminal) {
+        TestTerminalDialog(
+            onDismiss = { showTestTerminal = false },
+            bridgeClient = bridgeClient,
         )
     }
 

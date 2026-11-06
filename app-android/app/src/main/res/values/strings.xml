@@ -715,6 +715,15 @@
     <string name="set_logs_empty">No audit log entries recorded yet.</string>
     <string name="set_logs_fw">Fw 0x38</string>
 
+    <!-- Settings: test terminal (test-mode only, hidden in release) -->
+    <string name="test_terminal_section">Test Terminal (test-mode)</string>
+    <string name="test_terminal_title">Test Terminal</string>
+    <string name="test_terminal_desc">Lab TEST_* lines via bridge text_line. Device must report test-mode.</string>
+    <string name="test_terminal_open">Open Test Terminal</string>
+    <string name="test_terminal_send">Send</string>
+    <string name="test_terminal_empty">No output yet — send a TEST_* line.</string>
+    <string name="test_terminal_unsupported">ponte sem suporte</string>
+
     <!-- Settings: ownership -->
     <string name="set_own_section">Security Key Ownership and Factory Reset</string>
     <string name="set_own_title">Ownership and Factory Reset (0x2B)</string>

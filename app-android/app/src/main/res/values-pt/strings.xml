@@ -715,6 +715,15 @@
     <string name="set_logs_empty">Nenhum registro ainda.</string>
     <string name="set_logs_fw">Fw 0x38</string>
 
+    <!-- Configurações: terminal de testes (somente test-mode, oculto em release) -->
+    <string name="test_terminal_section">Terminal de Testes (test-mode)</string>
+    <string name="test_terminal_title">Terminal de Testes</string>
+    <string name="test_terminal_desc">Linhas TEST_* de bancada via text_line da ponte. O device precisa reportar test-mode.</string>
+    <string name="test_terminal_open">Abrir Terminal de Testes</string>
+    <string name="test_terminal_send">Enviar</string>
+    <string name="test_terminal_empty">Sem saída ainda — envie uma linha TEST_*.</string>
+    <string name="test_terminal_unsupported">ponte sem suporte</string>
+
     <!-- Configurações: posse -->
     <string name="set_own_section">Posse da Chave e Reset de Fábrica</string>
     <string name="set_own_title">Posse e Reset de Fábrica (0x2B)</string>
