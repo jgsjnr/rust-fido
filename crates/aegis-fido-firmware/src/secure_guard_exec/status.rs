@@ -149,10 +149,7 @@ pub fn handle_status_with_ota(
         Value::Bool(crate::secure_guard_exec::bench::policy::is_bench_active()),
     ));
     if let Some(p) = ota_progress {
-        map.push((
-            Value::Text("ota_progress".into()),
-            Value::from(p.min(100)),
-        ));
+        map.push((Value::Text("ota_progress".into()), Value::from(p.min(100))));
     }
 
     let device_ble_mac = {

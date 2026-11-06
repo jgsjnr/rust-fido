@@ -1941,8 +1941,17 @@ pub fn run_authenticator() {
                                     // same gates). Move-only reuse, no protocol.
                                     let op = msg.payload[0];
                                     let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+                                    // 0x3A serial com progresso OTA real: Some(p) so com sessao aberta; None sem sessao omite o campo (compat).
+                                    #[cfg(all(
+                                        target_os = "espidf",
+                                        not(feature = "board-ttgo-classic")
+                                    ))]
+                                    let sg_ota_progress =
+                                        ota_state.total_size().map(|_| ota_state.progress());
+                                    #[cfg(not(all(target_os = "espidf", not(feature = "board-ttgo-classic"))))]
+                                    let sg_ota_progress: Option<u8> = None;
                                     let (st, body, effects) =
-                                        legacy_sg_dispatch::dispatch_legacy_secure_guard_op(
+                                        legacy_sg_dispatch::dispatch_legacy_secure_guard_op_with_ota(
                                             &mut secure_guard,
                                             &mut storage,
                                             &mut wallet_store,
@@ -1952,6 +1961,7 @@ pub fn run_authenticator() {
                                             &msg.payload[1..],
                                             now_ms,
                                             &mut rng,
+                                            sg_ota_progress,
                                         );
                                     if effects.did_unlock {
                                         pairing_mgr.open_host_window(now_ms);

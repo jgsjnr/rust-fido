@@ -64,12 +64,38 @@ pub fn is_bench_active() -> bool {
     }
 }
 
+/// Reaplica a policy de bancada no engine passado quando a bancada esta
+/// ativa (test-mode only; release = no-op).
+///
+/// Cobre o caso de dois engines (ex.: linha de texto vs. rota CTAPHID
+/// serial): `bench_enable` estende o engine que recebeu o `TEST_BENCH_ON`,
+/// mas um engine criado/recarregado depois (policy padrao 300 s, ou NVS
+/// recarregada) carimbaria a sessao com 300 s no unlock. Chamar isto antes
+/// do unlock/check garante que qualquer engine serial veja os 24 h em RAM.
+/// Sem auditoria e sem NVS (so RAM); idempotente. Producao intacta: sem
+/// `test-mode` sempre no-op.
+pub fn apply_bench_policy_if_active(engine: &mut aegis_fido_core::secure_guard::SecureGuardEngine) {
+    #[cfg(feature = "test-mode")]
+    {
+        if is_bench_active() {
+            engine.policy_mut().session_duration_ms = BENCH_SESSION_DURATION_MS;
+            engine.policy_mut().inactivity_timeout_ms = BENCH_INACTIVITY_TIMEOUT_MS;
+        }
+    }
+    #[cfg(not(feature = "test-mode"))]
+    {
+        let _ = engine;
+    }
+}
+
 /// Liga a bancada: salva a policy e estende idle + absoluta p/ 24 h em RAM.
 ///
 /// Deve ser chamado ANTES do unlock: o `session_expires_at` e carimbado no
 /// unlock com a policy vigente. NVS intacta (nenhum `save` aqui). Idempotente
-/// (repetir nao duplica auditoria). Retorna `true` com a bancada ativa;
-/// release sempre `false`.
+/// na auditoria (repetir nao duplica `EV_BENCH`), mas sempre reaplica a
+/// policy no engine passado - inclusive quando a bancada ja estava ativa
+/// (cobre o segundo engine da rota CTAPHID serial, que carimbaria 300 s
+/// sem isto). Retorna `true` com a bancada ativa; release sempre `false`.
 pub fn bench_enable(
     engine: &mut aegis_fido_core::secure_guard::SecureGuardEngine,
     fw_log: &mut crate::fw_log::FwLog,
@@ -84,12 +110,15 @@ pub fn bench_enable(
             slot.saved_session_ms = engine.policy().session_duration_ms;
             slot.saved_inactivity_ms = engine.policy().inactivity_timeout_ms;
             slot.have_saved = true;
-            engine.policy_mut().session_duration_ms = BENCH_SESSION_DURATION_MS;
-            engine.policy_mut().inactivity_timeout_ms = BENCH_INACTIVITY_TIMEOUT_MS;
             slot.active = true;
             fw_log.record(crate::fw_log::EV_BENCH, BENCH_FWLOG_ARG_ON, now_ms);
             log::info!("[BENCH] bancada ON: sessao estendida 24h em RAM (NVS intacta)");
         }
+        // Sempre estende o engine passado (primeiro ou seguintes): o segundo
+        // engine (rota serial) via `TEST_BENCH_ON` tardio ou pos-reload NVS
+        // senao manteria 300 s e carimbaria a sessao curta.
+        engine.policy_mut().session_duration_ms = BENCH_SESSION_DURATION_MS;
+        engine.policy_mut().inactivity_timeout_ms = BENCH_INACTIVITY_TIMEOUT_MS;
         true
     }
     #[cfg(not(feature = "test-mode"))]

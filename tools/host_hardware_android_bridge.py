@@ -2134,6 +2134,107 @@ def map_list_device_result(status: int, resp: Optional[bytes]) -> dict:
     return {"ok": True, "status": 0x00, "empty": not bool(resp)}
 
 
+def _decode_bench_active_from_0x3a_payload(payload: bytes) -> Optional[bool]:
+    """Extracts ``bench_active`` from a raw 0x3A CBOR map payload.
+
+    Returns True/False when the device explicitly carries the key,
+    None when absent/undecodable (caller must NOT invent a value).
+    """
+    try:
+        decoded, _ = cbor_decode(bytes(payload or b""))
+    except Exception:
+        return None
+    if isinstance(decoded, dict):
+        val = decoded.get("bench_active", None)
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, int) and not isinstance(val, bool):
+            return bool(val)
+    return None
+
+
+# Short-lived mirror cache: device 0x3A read is authoritative for bench_active.
+_MIRROR_CACHE_TTL_S = 2.0
+_mirror_cache = {"bench_active": False, "ts": 0.0, "source": "host-fallback", "lock": threading.Lock()}
+
+
+def _mirror_cache_get() -> Optional[dict]:
+    with _mirror_cache["lock"]:
+        if time.monotonic() - float(_mirror_cache.get("ts", 0.0)) <= _MIRROR_CACHE_TTL_S:
+            return {"bench_active": bool(_mirror_cache.get("bench_active", False)),
+                    "source": str(_mirror_cache.get("source", "host-fallback"))}
+    return None
+
+
+def _mirror_cache_set(bench_active: bool, source: str):
+    with _mirror_cache["lock"]:
+        _mirror_cache["bench_active"] = bool(bench_active)
+        _mirror_cache["source"] = str(source)
+        _mirror_cache["ts"] = time.monotonic()
+
+
+def clear_mirror_bench_cache():
+    """Resets the short-lived bench mirror cache (tests / reconnect)."""
+    with _mirror_cache["lock"]:
+        _mirror_cache["bench_active"] = False
+        _mirror_cache["source"] = "host-fallback"
+        _mirror_cache["ts"] = 0.0
+
+
+def query_device_bench_active() -> Tuple[Optional[bool], str]:
+    """Queries the real device 0x3A for ``bench_active`` (read-only).
+
+    - No transport/session -> (None, "no-transport") so the caller reports
+      bench_active=false WITHOUT inventing a device value.
+    - Device denial/error/undecodable -> (None, reason); never synthesize.
+    - Success -> (True/False, "device").
+    Uses the short-lived mirror cache to avoid hammering the serial link.
+    """
+    cached = _mirror_cache_get()
+    if cached is not None:
+        return (cached["bench_active"], cached["source"])
+    sess = getattr(HW_MANAGER, "session", None)
+    transport = getattr(HW_MANAGER, "transport", None)
+    if not sess or not transport or not getattr(HW_MANAGER, "is_connected", False):
+        return (None, "no-transport")
+    try:
+        with HW_MANAGER.lock:
+            sess_locked = HW_MANAGER.session
+            if sess_locked is None:
+                return (None, "no-transport")
+            status, resp = sess_locked._exchange(CMD_MSG, bytes([0x3A]), op="mirror_0x3a_bench", timeout_s=3.0)
+    except Exception as e:
+        return (None, f"device-error: {e}")
+    if status != 0x00 or not resp:
+        return (None, f"device-status-0x{status:02x}")
+    val = _decode_bench_active_from_0x3a_payload(resp)
+    if val is None:
+        return (None, "device-no-bench-key")
+    _mirror_cache_set(val, "device")
+    return (val, "device")
+
+
+def get_mirror_secure_guard_status() -> dict:
+    """Host mirror of Secure Guard status with REAL device ``bench_active``.
+
+    Base telemetry comes from the local engine (host fallback), but
+    ``bench_active`` is ONLY true when the device 0x3A explicitly says so.
+    Without transport/session or on any device error the mirror reports
+    bench_active=false with an honest ``bench_source`` (never invented).
+    """
+    base = SECURE_GUARD_ENGINE.get_status_dict()
+    base["bench_active"] = False
+    base["bench_source"] = "host-fallback"
+    bench, source = query_device_bench_active()
+    if bench is None:
+        base["bench_active"] = False
+        base["bench_source"] = source
+    else:
+        base["bench_active"] = bool(bench)
+        base["bench_source"] = source
+    return base
+
+
 def run_offline_self_test() -> int:
     """Offline unit-test of map_list_device_result with canned device responses.
 
@@ -2186,10 +2287,44 @@ def run_offline_self_test() -> int:
     check("extract_signature picks 64B value", extract_signature_from_tlv(body) == sig)
     check("extract_signature fallback is raw body", extract_signature_from_tlv(b"\x99\x02AB") == b"\x99\x02AB")
 
+    # 6. bench_active mirror: real 0x3A decode, no-transport => false, never invented.
+    check("0x3A bench true decodes", _decode_bench_active_from_0x3a_payload(cbor_encode({"bench_active": True})) is True)
+    check("0x3A bench false decodes", _decode_bench_active_from_0x3a_payload(cbor_encode({"bench_active": False})) is False)
+    check("0x3A without key -> None", _decode_bench_active_from_0x3a_payload(cbor_encode({"state": 2})) is None)
+    check("0x3A garbage -> None", _decode_bench_active_from_0x3a_payload(b"\xff\x00\x01") is None)
+    # 6b. No transport/session => mirror reports false with honest source.
+    prev_sess, prev_transport, prev_conn = HW_MANAGER.session, HW_MANAGER.transport, HW_MANAGER.is_connected
+    clear_mirror_bench_cache()
+    HW_MANAGER.session, HW_MANAGER.transport, HW_MANAGER.is_connected = None, None, False
+    try:
+        m = get_mirror_secure_guard_status()
+        check("mirror no-transport bench false", m.get("bench_active") is False, repr(m.get("bench_active")))
+        check("mirror no-transport honest source", m.get("bench_source") == "no-transport", repr(m.get("bench_source")))
+    finally:
+        HW_MANAGER.session, HW_MANAGER.transport, HW_MANAGER.is_connected = prev_sess, prev_transport, prev_conn
+        clear_mirror_bench_cache()
+    # 6c. Mirror reflects device bench on/off via stubbed session (read-only, no flash).
+    class _FakeSess:
+        def __init__(self, payload):
+            self._payload = payload
+        def _exchange(self, cmd, msg, op="", timeout_s=3.0):
+            assert cmd == CMD_MSG and msg[:1] == b"\x3a", (cmd, msg.hex())
+            return (0x00, self._payload)
+    for want in (True, False):
+        clear_mirror_bench_cache()
+        HW_MANAGER.session, HW_MANAGER.transport, HW_MANAGER.is_connected = _FakeSess(cbor_encode({"bench_active": want, "state": 4})), "UART", True
+        try:
+            m = get_mirror_secure_guard_status()
+            check(f"mirror reflects bench {'on' if want else 'off'}",
+                  m.get("bench_active") is want and m.get("bench_source") == "device", repr(m))
+        finally:
+            HW_MANAGER.session, HW_MANAGER.transport, HW_MANAGER.is_connected = prev_sess, prev_transport, prev_conn
+            clear_mirror_bench_cache()
+
     if failures:
         print(f"OFFLINE SELF-TEST FAILED: {failures}")
         return 1
-    print(f"OFFLINE SELF-TEST PASSED (14 checks).")
+    print(f"OFFLINE SELF-TEST PASSED ({14 + 8} checks).")
     return 0
 
 
@@ -2773,7 +2908,7 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/secure-guard/status":
-            self.send_json({"ok": True, "status": 0x00, **SECURE_GUARD_ENGINE.get_status_dict()})
+            self.send_json({"ok": True, "status": 0x00, **get_mirror_secure_guard_status()})
             return
 
         # GET /api/wallet/list -> list of wallets

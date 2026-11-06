@@ -20,8 +20,9 @@ pub(crate) use dispatch::{
     cbor_err, extract_bytes, get_field, hex_decode, hex_encode, to_cbor_bytes,
 };
 pub use dispatch::{
-    exec_secure_guard_op, shamir_2_of_3_recover, shamir_2_of_3_split, CTAP2_ERR_PIN_AUTH_INVALID,
-    CTAP2_ERR_PIN_REQUIRED, CTAP2_ERR_VENDOR_INTERNAL,
+    exec_secure_guard_op, exec_secure_guard_op_with_ota, shamir_2_of_3_recover,
+    shamir_2_of_3_split, CTAP2_ERR_PIN_AUTH_INVALID, CTAP2_ERR_PIN_REQUIRED,
+    CTAP2_ERR_VENDOR_INTERNAL,
 };
 pub(crate) use lock::handle_lock;
 pub use status::{handle_status, handle_status_with_ota};

@@ -388,7 +388,16 @@ pub fn dispatch_serial_vendor_msg(
     if crate::ble_gatt::is_secure_guard_op(op) {
         if let Some(ref mut sg) = ctx.secure_guard {
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
-            let (st, body) = crate::secure_guard_exec::exec_secure_guard_op(
+            // 0x3A serial (e demais funis FreeRTOS) com progresso OTA real:
+            // `Some(p)` somente com sessao aberta (`total_size` presente);
+            // `None` sem sessao omite o campo (compat, byte-identico).
+            // Valor vem de `OtaState::progress` (recebido/total), nunca
+            // fabricado; o clamp vive em `handle_status_with_ota`.
+            let ota_progress = ctx
+                .ota_state
+                .as_ref()
+                .and_then(|s| s.total_size().map(|_| s.progress()));
+            let (st, body) = crate::secure_guard_exec::exec_secure_guard_op_with_ota(
                 sg,
                 ctx.storage,
                 ctx.wallet,
@@ -398,6 +407,7 @@ pub fn dispatch_serial_vendor_msg(
                 &payload[1..],
                 ctx.now_ms,
                 &mut rng,
+                ota_progress,
             );
             if st == 0x00 && sg.is_unlocked() {
                 ctx.pin_verified = true;
@@ -2938,5 +2948,167 @@ mod ota_freertos_parity_tests {
         assert_eq!(st, OTA_STATUS_OK);
         let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_FINISH, &[]).expect("FINISH zeros");
         assert_eq!(st, crate::stores::ota_store::OTA_STATUS_FAIL);
+    }
+
+    /// #9: o CBOR do 0x3A na via serial carrega `ota_progress` real com
+    /// sessao OTA aberta e o omite sem sessao (compat com leitores antigos).
+    ///
+    /// Valor nunca fabricado: `OtaState::progress` (recebido/total) fiado do
+    /// `ota_state` do funil; `total_size().is_none()` (sem sessao) vira
+    /// `None` e o corpo fica byte-identico ao `handle_status` legado. O ack
+    /// CHUNK (5o byte) e o 0x3A concordam no mesmo valor.
+    #[test]
+    fn status_0x3a_serial_expoe_ota_progress_real_e_omite_sem_sessao() {
+        use crate::ble_gatt::OP_SECURE_GUARD_STATUS;
+        let sk = ed25519_dalek::SigningKey::generate(&mut rand_core::UnwrapErr(getrandom::SysRng));
+        let pubkey = sk.verifying_key().to_bytes();
+        let image = vec![0xA5u8; 1024];
+        let manifest = signed_manifest(OTA_NEXT, &image, &sk);
+        let mut pairing = PairingManager::new();
+        let mut binding = BindingManager::new();
+        let mut storage = test_storage();
+        let mut wallet = WalletStore::new();
+        let mut key_mgr = KeyManager::new();
+        let mut oath = OathApplet::new();
+        let mut fwlog = FwLog::new();
+        let mut rescue = RescueEngine::new();
+        let mut ota = OtaState::new(OTA_CURRENT);
+        let mut sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(
+            aegis_fido_core::secure_guard::SecureGuardPolicy {
+                pbkdf2_iterations: 10,
+                ..Default::default()
+            },
+        );
+        fn ota_progress_of(body: &[u8]) -> Option<ciborium::value::Value> {
+            let val: ciborium::value::Value =
+                ciborium::from_reader(body).expect("0x3A deve ser CBOR");
+            match val {
+                ciborium::value::Value::Map(entries) => entries.iter().find_map(|(k, v)| {
+                    if matches!(k, ciborium::value::Value::Text(s) if s == "ota_progress") {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                }),
+                _ => panic!("0x3A deve ser mapa CBOR"),
+            }
+        }
+        // Com sessao OTA a 50% (512/1024): CHUNK e 0x3A concordam.
+        {
+            let mut ctx = SerialVendorCtx {
+                pairing_open: false,
+                up_latched: true,
+                now_ms: 7,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding: &mut binding,
+                storage: &mut storage,
+                wallet: &mut wallet,
+                key_mgr: &mut key_mgr,
+                oath: &mut oath,
+                fwlog: &mut fwlog,
+                rescue: &mut rescue,
+                pairing: &mut pairing,
+                pin_uv_session: false,
+                secure_guard: Some(&mut sg),
+                verified_pin: None,
+                ota_state: Some(&mut ota),
+                ota_provisioned: true,
+                ota_pubkey: pubkey,
+                ota_current_version: OTA_CURRENT,
+                up_hook: false,
+            };
+            let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_BEGIN, &manifest).expect("BEGIN");
+            assert_eq!(st, OTA_STATUS_OK);
+            for (i, chunk) in image.chunks(256).take(2).enumerate() {
+                let payload = chunk_payload((i as u32) * 256, chunk);
+                let (st, body, _) = dispatch_op(&mut ctx, OP_OTA_CHUNK, &payload).expect("CHUNK");
+                assert_eq!(st, OTA_STATUS_OK);
+                assert_eq!(body.len(), 5, "CHUNK responde recebido BE u32 + progresso");
+                let want = crate::ota::ota_progress((i + 1) * 256, 1024);
+                assert_eq!(&body[..4], &(((i + 1) as u32) * 256).to_be_bytes());
+                assert_eq!(body[4], want, "CHUNK 5o byte acompanha recebido/total");
+            }
+            let (st, body, _) =
+                dispatch_op(&mut ctx, OP_SECURE_GUARD_STATUS, &[]).expect("0x3A serial");
+            assert_eq!(st, 0x00);
+            assert_eq!(
+                ota_progress_of(&body),
+                Some(ciborium::value::Value::from(50u8)),
+                "0x3A serial deve expor ota_progress=50 com sessao aberta"
+            );
+        }
+        // Sem sessao (rollback): campo ausente (compat, mesmo corpo legado).
+        ota.rollback();
+        {
+            let mut ctx = SerialVendorCtx {
+                pairing_open: false,
+                up_latched: true,
+                now_ms: 8,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding: &mut binding,
+                storage: &mut storage,
+                wallet: &mut wallet,
+                key_mgr: &mut key_mgr,
+                oath: &mut oath,
+                fwlog: &mut fwlog,
+                rescue: &mut rescue,
+                pairing: &mut pairing,
+                pin_uv_session: false,
+                secure_guard: Some(&mut sg),
+                verified_pin: None,
+                ota_state: Some(&mut ota),
+                ota_provisioned: true,
+                ota_pubkey: pubkey,
+                ota_current_version: OTA_CURRENT,
+                up_hook: false,
+            };
+            let (st, body, _) =
+                dispatch_op(&mut ctx, OP_SECURE_GUARD_STATUS, &[]).expect("0x3A sem sessao");
+            assert_eq!(st, 0x00);
+            assert_eq!(
+                ota_progress_of(&body),
+                None,
+                "0x3A serial omite ota_progress sem sessao OTA"
+            );
+        }
+        // Sem `ota_state` fiado (ctx host-only): tambem ausente.
+        {
+            let mut ctx = SerialVendorCtx {
+                pairing_open: false,
+                up_latched: true,
+                now_ms: 9,
+                now_secs: 0,
+                arm_up: false,
+                pin_verified: false,
+                binding: &mut binding,
+                storage: &mut storage,
+                wallet: &mut wallet,
+                key_mgr: &mut key_mgr,
+                oath: &mut oath,
+                fwlog: &mut fwlog,
+                rescue: &mut rescue,
+                pairing: &mut pairing,
+                pin_uv_session: false,
+                secure_guard: Some(&mut sg),
+                verified_pin: None,
+                ota_state: None,
+                ota_provisioned: false,
+                ota_pubkey: [0u8; 32],
+                ota_current_version: OTA_CURRENT,
+                up_hook: false,
+            };
+            let (st, body, _) =
+                dispatch_op(&mut ctx, OP_SECURE_GUARD_STATUS, &[]).expect("0x3A sem ota_state");
+            assert_eq!(st, 0x00);
+            assert_eq!(
+                ota_progress_of(&body),
+                None,
+                "0x3A serial omite ota_progress sem ota_state"
+            );
+        }
     }
 }

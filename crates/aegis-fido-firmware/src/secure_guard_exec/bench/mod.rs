@@ -31,8 +31,9 @@ mod tests;
 
 pub use dispatch::dispatch_serial_bench_line;
 pub use policy::{
-    bench_disable, bench_enable, is_bench_active, BENCH_FWLOG_ARG_OFF, BENCH_FWLOG_ARG_ON,
-    BENCH_INACTIVITY_TIMEOUT_MS, BENCH_SESSION_DURATION_MS,
+    apply_bench_policy_if_active, bench_disable, bench_enable, is_bench_active,
+    BENCH_FWLOG_ARG_OFF, BENCH_FWLOG_ARG_ON, BENCH_INACTIVITY_TIMEOUT_MS,
+    BENCH_SESSION_DURATION_MS,
 };
 #[cfg(feature = "test-mode")]
 pub use policy::{TEST_BENCH_OFF_CMD, TEST_BENCH_ON_CMD};

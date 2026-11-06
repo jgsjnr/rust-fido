@@ -11,7 +11,7 @@ use crate::ble_gatt::{authorize_vendor_op, BleGattError};
 use crate::persistence::{FlashStorageBackend, SecureStorage};
 use aegis_fido_core::credential::key_manager::KeyManager;
 use aegis_fido_core::oath::applet::OathApplet;
-use aegis_fido_core::oath::tlv::{write_tlv, TAG_LABEL, TAG_SLOT};
+use aegis_fido_core::oath::tlv::{write_tlv, TAG_ALG_HINT, TAG_LABEL, TAG_SLOT};
 use alloc::vec::Vec;
 
 /// Executa uma op vendor `0x20-0x27` (gates + persistência), `VENDOR_SIGN`
@@ -96,6 +96,14 @@ where
         crate::ble_gatt::OP_KEY_IMPORT_ENVELOPE => {
             super::vendor_keys::exec_key_import_or_gen(keys, storage, payload, now_secs, rng)
         }
+        // OP_KEY_LIST (0x22) response wire format (compat, extensao com `alg` real):
+        // por slot: `[TAG_SLOT 0x01, 1 B id][TAG_LABEL 0x02, 1..32 B utf8][TAG_ALG_HINT 0x05, 4 B i32 BE]`.
+        // `alg` e o CoseAlgorithm real do slot (ex.: -7 ES256, -8 ES384,
+        // -35 ES512, -36 ES256K, -47 EdDSA), lido do `KeySlot` - nunca
+        // defaultado nem fabricado. Leitores antigos DEVEM ignorar tags
+        // desconhecidas (pular o 0x05) e seguir parseando os pares 0x01/0x02;
+        // leitores novos associam cada 0x05 ao par 0x01/0x02 mais recente.
+        // Ordem: a do `KeyManager::list` (criacao); vault vazio = corpo vazio com 0x00.
         crate::ble_gatt::OP_KEY_LIST => {
             let mut out = Vec::new();
             match keys.list(true) {
@@ -103,6 +111,7 @@ where
                     for s in &slots {
                         write_tlv(&mut out, TAG_SLOT, &[s.id]);
                         write_tlv(&mut out, TAG_LABEL, s.label.as_bytes());
+                        write_tlv(&mut out, TAG_ALG_HINT, &s.alg.to_be_bytes());
                     }
                     (0x00, out)
                 }

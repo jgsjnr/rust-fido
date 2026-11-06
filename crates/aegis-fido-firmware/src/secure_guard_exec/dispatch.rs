@@ -9,7 +9,8 @@
 //! - 0x3E: OP_SECURE_GUARD_WIPE_SELECTIVE
 
 use super::{
-    handle_config, handle_lock, handle_status, handle_unlock_or_mgmt, handle_wipe_selective,
+    handle_config, handle_lock, handle_status_with_ota, handle_unlock_or_mgmt,
+    handle_wipe_selective,
 };
 use crate::persistence::{FlashStorageBackend, SecureStorage};
 use aegis_fido_core::credential::key_manager::KeyManager;
@@ -171,6 +172,12 @@ pub fn shamir_2_of_3_recover(share_a: &[u8], share_b: &[u8]) -> Result<Vec<u8>, 
 }
 
 /// Executa qualquer opcode do Secure Guard (0x3A..0x3E).
+///
+/// Sem `ota_progress` (via serial sem sessao OTA ou chamada legada): 0x3A
+/// omite o campo, byte-identico ao anterior. Para expor progresso real na
+/// via serial, use [`exec_secure_guard_op_with_ota`] com
+/// `Some(OtaState::progress)` somente quando houver sessao (ver
+/// `handle_status_with_ota`).
 #[allow(clippy::too_many_arguments)]
 pub fn exec_secure_guard_op<B, R>(
     engine: &mut SecureGuardEngine,
@@ -187,8 +194,43 @@ where
     B: FlashStorageBackend,
     R: CryptoRng,
 {
+    exec_secure_guard_op_with_ota(
+        engine, storage, wallet, key_mgr, oath, op, payload, now_ms, rng, None,
+    )
+}
+
+/// Executa qualquer opcode do Secure Guard (0x3A..0x3E) com progresso OTA
+/// opcional no 0x3A.
+///
+/// `ota_progress = Some(p)` (0..=100, vindo de `OtaState::progress` quando
+/// houver sessao) anexa `ota_progress` ao CBOR do 0x3A via
+/// `handle_status_with_ota` (clamp 100; nunca fabricado alem do teto);
+/// `None` (sem sessao OTA) omite o campo, preservando o corpo legado.
+/// Demais opcodes ignoram o argumento (semantica intacta).
+/// Antes do dispatch, reaplica a policy de bancada quando ativa
+/// (`apply_bench_policy_if_active`): o engine da rota CTAPHID serial criado
+/// ou recarregado apos `TEST_BENCH_ON` senao carimbaria 300 s. No-op em
+/// release (producao intacta).
+#[allow(clippy::too_many_arguments)]
+pub fn exec_secure_guard_op_with_ota<B, R>(
+    engine: &mut SecureGuardEngine,
+    storage: &mut SecureStorage<B>,
+    wallet: &mut WalletStore,
+    key_mgr: &mut KeyManager,
+    oath: &mut OathApplet,
+    op: u8,
+    payload: &[u8],
+    now_ms: u64,
+    rng: &mut R,
+    ota_progress: Option<u8>,
+) -> (u8, Vec<u8>)
+where
+    B: FlashStorageBackend,
+    R: CryptoRng,
+{
+    crate::secure_guard_exec::bench::policy::apply_bench_policy_if_active(engine);
     match op {
-        OP_SECURE_GUARD_STATUS => handle_status(engine, now_ms),
+        OP_SECURE_GUARD_STATUS => handle_status_with_ota(engine, now_ms, ota_progress),
         OP_SECURE_GUARD_UNLOCK => {
             handle_unlock_or_mgmt(engine, storage, wallet, key_mgr, oath, payload, now_ms, rng)
         }

@@ -6,6 +6,7 @@
 use crate::persistence::{MockFlashBackend, SecureStorage};
 
 mod caps;
+mod list_alg;
 mod pin;
 mod piv;
 mod sign;

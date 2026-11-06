@@ -59,13 +59,57 @@ pub(crate) fn extract_pin_from_payload(payload: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// Execute one Secure Guard op with freertos-identical semantics.
+/// Execute one Secure Guard op with freertos-identical semantics plus progresso OTA opcional no 0x3A serial.
 ///
-/// Calls [`crate::secure_guard_exec::exec_secure_guard_op`] then derives the
+/// Calls [`crate::secure_guard_exec::exec_secure_guard_op_with_ota`] then derives the
 /// same side effects the freertos path applies (unlock opens window / arms
 /// UP / captures PIN; lock closes window). Returns `(status, body, effects)`.
 /// Framing (`[status] + body` via `CtapHidFramer::frame_message`) stays with
-/// the caller so both loops frame identically.
+/// the caller so both loops frame identically. `ota_progress = Some(p)` (0..=100, de OtaState::progress com sessao aberta) anexa ota_progress ao CBOR do 0x3A; None (sem sessao) omite o campo (compat). Demais opcodes ignoram o argumento.
+#[cfg_attr(not(target_os = "espidf"), allow(dead_code))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn dispatch_legacy_secure_guard_op_with_ota<B, R>(
+    sg: &mut SecureGuardEngine,
+    storage: &mut SecureStorage<B>,
+    wallet: &mut WalletStore,
+    key_mgr: &mut KeyManager,
+    oath: &mut OathApplet,
+    op: u8,
+    payload_cbor: &[u8],
+    now_ms: u64,
+    rng: &mut R,
+    ota_progress: Option<u8>,
+) -> (u8, Vec<u8>, LegacySgEffects)
+where
+    B: FlashStorageBackend,
+    R: rand_core::CryptoRng,
+{
+    let (st, body) = crate::secure_guard_exec::exec_secure_guard_op_with_ota(
+        sg,
+        storage,
+        wallet,
+        key_mgr,
+        oath,
+        op,
+        payload_cbor,
+        now_ms,
+        rng,
+        ota_progress,
+    );
+    let mut effects = LegacySgEffects::default();
+    if st == 0x00 && sg.is_unlocked() {
+        effects.did_unlock = true;
+        effects.verified_pin = extract_pin_from_payload(payload_cbor);
+    } else if st == 0x00 && op == crate::ble_gatt::OP_SECURE_GUARD_LOCK {
+        effects.did_lock = true;
+    }
+    (st, body, effects)
+}
+
+/// Execute one Secure Guard op with freertos-identical semantics (corpo legado).
+///
+/// Wrapper compat: delega para dispatch_legacy_secure_guard_op_with_ota com
+/// `ota_progress = None` (0x3A sem campo, byte-identico ao anterior).
 #[cfg_attr(not(target_os = "espidf"), allow(dead_code))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dispatch_legacy_secure_guard_op<B, R>(
@@ -83,7 +127,7 @@ where
     B: FlashStorageBackend,
     R: rand_core::CryptoRng,
 {
-    let (st, body) = crate::secure_guard_exec::exec_secure_guard_op(
+    dispatch_legacy_secure_guard_op_with_ota(
         sg,
         storage,
         wallet,
@@ -93,13 +137,6 @@ where
         payload_cbor,
         now_ms,
         rng,
-    );
-    let mut effects = LegacySgEffects::default();
-    if st == 0x00 && sg.is_unlocked() {
-        effects.did_unlock = true;
-        effects.verified_pin = extract_pin_from_payload(payload_cbor);
-    } else if st == 0x00 && op == crate::ble_gatt::OP_SECURE_GUARD_LOCK {
-        effects.did_lock = true;
-    }
-    (st, body, effects)
+        None,
+    )
 }
