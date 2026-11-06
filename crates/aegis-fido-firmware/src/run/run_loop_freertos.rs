@@ -1271,7 +1271,7 @@ pub fn run_authenticator_freertos() {
                         crate::wifi_ap::ApPollAction::None => {}
                     }
                     let has_creds = crate::wifi_station::has_station_credentials(&storage);
-                    common::poll_wifi_station_radio(
+                    station_poll::poll_wifi_station_radio(
                         &storage,
                         &mut sta_mgr,
                         &mut mdns_mgr,

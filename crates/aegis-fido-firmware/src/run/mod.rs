@@ -111,6 +111,7 @@ macro_rules! kprintln {
 
 pub(crate) mod ble_dispatch;
 pub(crate) mod common;
+pub(crate) mod station_poll;
 pub(crate) mod legacy_sg_dispatch;
 #[cfg(target_os = "espidf")]
 pub(crate) mod serial_io;

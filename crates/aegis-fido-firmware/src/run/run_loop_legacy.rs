@@ -549,7 +549,7 @@ pub fn run_authenticator() {
         }
         // Station: so fora de pareamento, com credenciais e backoff 60s.
         let has_creds = crate::wifi_station::has_station_credentials(&storage);
-        common::poll_wifi_station_radio(
+        station_poll::poll_wifi_station_radio(
             &storage,
             &mut sta_mgr,
             &mut mdns_mgr,
