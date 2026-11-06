@@ -1585,8 +1585,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/ble/gatt_core.rs",
-      "bytes": 26513,
-      "lines": 671,
+      "bytes": 27490,
+      "lines": 694,
       "mods": [
         "tests"
       ],
@@ -1602,7 +1602,7 @@
       ],
       "fan_out": 6,
       "fan_in": 4,
-      "god_score": 17.71,
+      "god_score": 17.94,
       "flag": false,
       "flag_reason": null
     },
@@ -1676,8 +1676,8 @@
       ],
       "uses": [],
       "fan_out": 0,
-      "fan_in": 11,
-      "god_score": 5.6,
+      "fan_in": 12,
+      "god_score": 6.1,
       "flag": false,
       "flag_reason": null
     },
@@ -2253,8 +2253,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/freertos_route.rs",
-      "bytes": 137346,
-      "lines": 3340,
+      "bytes": 142155,
+      "lines": 3427,
       "mods": [
         "tests",
         "ota_freertos_parity_tests"
@@ -2264,6 +2264,7 @@
         "crate::ble_gatt::is_piv_enroll_op",
         "crate::ble_gatt::is_vendor_keys_oath_op",
         "crate::ble_gatt::is_wallet_op",
+        "crate::pm_store::PmRateLimiter",
         "ciborium::value::Value",
         "crate::ota::OP_OTA_COMMIT",
         "crate::fw_log as fl",
@@ -2425,9 +2426,9 @@
         "signature::Signer as _",
         "crate::ble_gatt::OP_SECURE_GUARD_STATUS"
       ],
-      "fan_out": 155,
+      "fan_out": 156,
       "fan_in": 0,
-      "god_score": 265.9,
+      "god_score": 268.27,
       "flag": true,
       "flag_reason": "god-score>25+lines>800"
     },
@@ -2578,8 +2579,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/lib.rs",
-      "bytes": 9409,
-      "lines": 242,
+      "bytes": 9673,
+      "lines": 248,
       "mods": [
         "anti_rollback",
         "apdu",
@@ -2636,7 +2637,10 @@
         "pin_uv",
         "piv_cmd",
         "piv_store",
+        "pm_cbor",
         "pm_dispatch",
+        "pm_exec",
+        "pm_gate",
         "pm_store",
         "prod_strict_guard",
         "provision",
@@ -2680,7 +2684,7 @@
       "uses": [],
       "fan_out": 0,
       "fan_in": 1,
-      "god_score": 2.92,
+      "god_score": 2.98,
       "flag": false,
       "flag_reason": null
     },
@@ -3273,8 +3277,8 @@
         "super::*"
       ],
       "fan_out": 1,
-      "fan_in": 60,
-      "god_score": 39.84,
+      "fan_in": 62,
+      "god_score": 40.84,
       "flag": true,
       "flag_reason": "god-score>25+lines>800"
     },
@@ -3358,38 +3362,78 @@
       "flag_reason": null
     },
     {
+      "path": "crates/aegis-fido-firmware/src/pm_cbor.rs",
+      "bytes": 2479,
+      "lines": 83,
+      "mods": [],
+      "uses": [
+        "alloc::string::String",
+        "alloc::vec::Vec",
+        "ciborium::value::Value"
+      ],
+      "fan_out": 0,
+      "fan_in": 0,
+      "god_score": 0.83,
+      "flag": false,
+      "flag_reason": null
+    },
+    {
       "path": "crates/aegis-fido-firmware/src/pm_dispatch.rs",
-      "bytes": 26874,
-      "lines": 785,
+      "bytes": 1149,
+      "lines": 21,
+      "mods": [],
+      "uses": [],
+      "fan_out": 0,
+      "fan_in": 0,
+      "god_score": 0.21,
+      "flag": false,
+      "flag_reason": null
+    },
+    {
+      "path": "crates/aegis-fido-firmware/src/pm_exec.rs",
+      "bytes": 11082,
+      "lines": 304,
       "mods": [
-        "tests"
+        "pm_tests"
       ],
       "uses": [
         "aegis_pm_vault::PasswordEntry",
-        "aegis_pm_vault::PmError",
         "aegis_pm_vault::PmPolicy",
         "aegis_pm_vault::PmVault",
-        "alloc::string::String",
         "alloc::vec::Vec",
         "ciborium::value::Value",
+        "crate::ble_gatt::PmBackoffGate",
         "crate::persistence::FlashStorageBackend",
         "crate::persistence::SecureStorage",
-        "super::*",
-        "crate::ble_gatt::BleGattError",
-        "crate::pm_store::PM_BINDING_WINDOW_MS",
-        "crate::persistence::MockFlashBackend",
-        "crate::persistence::SecureStorage"
+        "crate::pm_gate::pm_error_to_wire",
+        "crate::pm_gate::to_vault_gate",
+        "crate::pm_gate::PM_SEAL_PIN_TOKEN",
+        "crate::pm_gate::PM_VAULT_MASTER_KEY"
       ],
-      "fan_out": 11,
+      "fan_out": 10,
       "fan_in": 0,
-      "god_score": 24.35,
+      "god_score": 18.04,
+      "flag": false,
+      "flag_reason": null
+    },
+    {
+      "path": "crates/aegis-fido-firmware/src/pm_gate.rs",
+      "bytes": 1818,
+      "lines": 40,
+      "mods": [],
+      "uses": [
+        "aegis_pm_vault::PmError"
+      ],
+      "fan_out": 1,
+      "fan_in": 1,
+      "god_score": 2.4,
       "flag": false,
       "flag_reason": null
     },
     {
       "path": "crates/aegis-fido-firmware/src/pm_store.rs",
-      "bytes": 22689,
-      "lines": 577,
+      "bytes": 30270,
+      "lines": 781,
       "mods": [
         "tests"
       ],
@@ -3407,7 +3451,25 @@
       ],
       "fan_out": 8,
       "fan_in": 4,
-      "god_score": 19.77,
+      "god_score": 21.81,
+      "flag": false,
+      "flag_reason": null
+    },
+    {
+      "path": "crates/aegis-fido-firmware/src/pm_tests.rs",
+      "bytes": 17743,
+      "lines": 616,
+      "mods": [],
+      "uses": [
+        "super::*",
+        "crate::ble_gatt::BleGattError",
+        "alloc::string::String",
+        "crate::persistence::MockFlashBackend",
+        "crate::persistence::SecureStorage"
+      ],
+      "fan_out": 4,
+      "fan_in": 0,
+      "god_score": 12.16,
       "flag": false,
       "flag_reason": null
     },
@@ -3582,8 +3644,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/run/ble_dispatch.rs",
-      "bytes": 18781,
-      "lines": 407,
+      "bytes": 20421,
+      "lines": 437,
       "mods": [],
       "uses": [
         "crate::persistence::PlatformFlashBackend",
@@ -3606,7 +3668,7 @@
       ],
       "fan_out": 17,
       "fan_in": 0,
-      "god_score": 29.57,
+      "god_score": 29.87,
       "flag": true,
       "flag_reason": "god-score>25"
     },
@@ -3697,8 +3759,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/run/legacy_sg_dispatch/sg_test_ctx.rs",
-      "bytes": 3914,
-      "lines": 121,
+      "bytes": 4052,
+      "lines": 123,
       "mods": [],
       "uses": [
         "crate::binding::BindingManager",
@@ -3716,7 +3778,7 @@
       ],
       "fan_out": 12,
       "fan_in": 1,
-      "god_score": 19.71,
+      "god_score": 19.73,
       "flag": false,
       "flag_reason": null
     },
@@ -3727,9 +3789,9 @@
       "mods": [
         "ble_dispatch",
         "common",
-        "station_poll",
         "legacy_sg_dispatch",
         "serial_io",
+        "station_poll",
         "run_loop_freertos",
         "run_loop_legacy",
         "freertos_test_mode",
@@ -3764,8 +3826,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/run/run_loop_freertos.rs",
-      "bytes": 80962,
-      "lines": 1541,
+      "bytes": 81525,
+      "lines": 1550,
       "mods": [],
       "uses": [
         "super::*",
@@ -3786,14 +3848,14 @@
       ],
       "fan_out": 14,
       "fan_in": 0,
-      "god_score": 36.41,
+      "god_score": 36.5,
       "flag": true,
       "flag_reason": "god-score>25+lines>800"
     },
     {
       "path": "crates/aegis-fido-firmware/src/run/run_loop_legacy.rs",
-      "bytes": 146524,
-      "lines": 2512,
+      "bytes": 147079,
+      "lines": 2521,
       "mods": [],
       "uses": [
         "super::*",
@@ -3808,7 +3870,7 @@
       ],
       "fan_out": 7,
       "fan_in": 0,
-      "god_score": 35.62,
+      "god_score": 35.71,
       "flag": true,
       "flag_reason": "god-score>25+lines>800"
     },
@@ -4309,9 +4371,11 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/serial_vendor.rs",
-      "bytes": 11031,
-      "lines": 288,
-      "mods": [],
+      "bytes": 13825,
+      "lines": 366,
+      "mods": [
+        "tests"
+      ],
       "uses": [
         "alloc::vec::Vec",
         "crate::ble_gatt::authorize_vendor_op",
@@ -4319,15 +4383,18 @@
         "crate::ble_gatt::BleGattError",
         "crate::pm_store::PmGateState",
         "crate::pm_store::PmGateState",
+        "super::*",
+        "crate::persistence::MockFlashBackend",
+        "crate::persistence::SecureStorage",
         "crate::binding::BIND_CHALLENGE_LEN",
         "crate::binding::BIND_ID_LEN",
         "crate::binding::BIND_PAYLOAD_HASH_LEN",
         "crate::binding::BIND_PUB_LEN",
         "crate::ble_gatt as g"
       ],
-      "fan_out": 10,
+      "fan_out": 13,
       "fan_in": 0,
-      "god_score": 17.88,
+      "god_score": 23.16,
       "flag": false,
       "flag_reason": null
     },
@@ -4711,8 +4778,8 @@
     },
     {
       "path": "crates/aegis-fido-firmware/src/vendor_exec/vendor_dispatch.rs",
-      "bytes": 7983,
-      "lines": 180,
+      "bytes": 8152,
+      "lines": 182,
       "mods": [],
       "uses": [
         "crate::ble_gatt::authorize_vendor_op",
@@ -4729,14 +4796,14 @@
       ],
       "fan_out": 10,
       "fan_in": 0,
-      "god_score": 16.8,
+      "god_score": 16.82,
       "flag": false,
       "flag_reason": null
     },
     {
       "path": "crates/aegis-fido-firmware/src/vendor_exec/vendor_keys.rs",
-      "bytes": 8633,
-      "lines": 234,
+      "bytes": 8861,
+      "lines": 237,
       "mods": [],
       "uses": [
         "crate::persistence::FlashStorageBackend",
@@ -4751,7 +4818,7 @@
       ],
       "fan_out": 8,
       "fan_in": 1,
-      "god_score": 14.84,
+      "god_score": 14.87,
       "flag": false,
       "flag_reason": null
     },
@@ -5482,8 +5549,8 @@
       ],
       "uses": [],
       "fan_out": 0,
-      "fan_in": 1,
-      "god_score": 1.01,
+      "fan_in": 2,
+      "god_score": 1.51,
       "flag": false,
       "flag_reason": null
     },
@@ -5670,8 +5737,8 @@
     },
     {
       "path": "crates/aegis-secure-guard/src/lib.rs",
-      "bytes": 26990,
-      "lines": 709,
+      "bytes": 27141,
+      "lines": 710,
       "mods": [
         "audit",
         "crypto",
@@ -5692,7 +5759,7 @@
       ],
       "fan_out": 1,
       "fan_in": 1,
-      "god_score": 9.09,
+      "god_score": 9.1,
       "flag": false,
       "flag_reason": null
     },
@@ -5711,8 +5778,8 @@
         "super::*"
       ],
       "fan_out": 5,
-      "fan_in": 60,
-      "god_score": 40.41,
+      "fan_in": 62,
+      "god_score": 41.41,
       "flag": true,
       "flag_reason": "god-score>25"
     },
@@ -5758,8 +5825,8 @@
     },
     {
       "path": "crates/aegis-secure-guard/src/resource.rs",
-      "bytes": 7167,
-      "lines": 182,
+      "bytes": 10909,
+      "lines": 263,
       "mods": [
         "tests"
       ],
@@ -5769,7 +5836,7 @@
       ],
       "fan_out": 2,
       "fan_in": 2,
-      "god_score": 5.82,
+      "god_score": 6.63,
       "flag": false,
       "flag_reason": null
     },
@@ -5971,8 +6038,8 @@
     },
     {
       "path": "crates/uniffi-bridge/src/lib.rs",
-      "bytes": 74473,
-      "lines": 2031,
+      "bytes": 79788,
+      "lines": 2145,
       "mods": [
         "ffi",
         "pm_jni",
@@ -5999,7 +6066,7 @@
       ],
       "fan_out": 14,
       "fan_in": 0,
-      "god_score": 41.31,
+      "god_score": 42.45,
       "flag": true,
       "flag_reason": "god-score>25+lines>800"
     },
@@ -7292,19 +7359,19 @@
   },
   "summary": {
     "totals": {
-      "files": 296,
-      "bytes": 3673447,
-      "lines": 98527,
+      "files": 300,
+      "bytes": 3709770,
+      "lines": 99455,
       "flagged": 37,
       "gods": 24
     },
     "top10_god": [
       {
         "path": "crates/aegis-fido-firmware/src/freertos_route.rs",
-        "god_score": 265.9,
-        "lines": 3340,
+        "god_score": 268.27,
+        "lines": 3427,
         "fan_in": 0,
-        "fan_out": 155
+        "fan_out": 156
       },
       {
         "path": "crates/aegis-fido-firmware/src/serial_ctaphid.rs",
@@ -7336,23 +7403,23 @@
       },
       {
         "path": "crates/uniffi-bridge/src/lib.rs",
-        "god_score": 41.31,
-        "lines": 2031,
+        "god_score": 42.45,
+        "lines": 2145,
         "fan_in": 0,
         "fan_out": 14
       },
       {
         "path": "crates/aegis-secure-guard/src/persistence.rs",
-        "god_score": 40.41,
+        "god_score": 41.41,
         "lines": 291,
-        "fan_in": 60,
+        "fan_in": 62,
         "fan_out": 5
       },
       {
         "path": "crates/aegis-fido-firmware/src/persistence.rs",
-        "god_score": 39.84,
+        "god_score": 40.84,
         "lines": 834,
-        "fan_in": 60,
+        "fan_in": 62,
         "fan_out": 1
       },
       {
