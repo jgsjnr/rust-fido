@@ -9,7 +9,9 @@
 //!   USB/serial only -- NEVER reuse for vendor ops; reassembler/tests
 //!   assert fail-closed rejection on the BLE path).
 //! - `0x30-0x34` OTA (`OP_OTA_BEGIN..OP_OTA_ABORT`, canonical in `ota`).
-//! - `0x35-0x37` wallet (`OP_WALLET_GEN/LIST/ADDR`).
+//! - `0x35-0x37` wallet (`OP_WALLET_GEN/LIST/ADDR`, congelados).
+//! - `0x48-0x4A` wallet-compat F1 (`OP_WALLET_DERIVE/XPUB/PSBT`, reserva sem
+//!   execucao ate F2-F4; funis respondem fail-closed).
 //! - `0x38` fw-log (`OP_FW_LOG`).
 //! - `0x39` PIV enroll (`OP_PIV_ENROLL`).
 //! - `0x3A-0x3E` Secure Guard (STATUS/UNLOCK/LOCK/CONFIG/WIPE_SELECTIVE).
@@ -138,18 +140,19 @@ pub fn capability_ids() -> &'static [&'static str] {
 /// Vendor opcodes that answer `UNSUPPORTED_FEATURE` (`0x06`) in this build.
 ///
 /// - full: none (`[]`).
-/// - fido-only: OATH `0x24-0x27` + wallet `0x35-0x37` (7).
-/// - fido-totp: wallet `0x35-0x37` (3).
+/// - fido-only: OATH `0x24-0x27` + wallet `0x35-0x37` + wallet-compat F1
+///   `0x48-0x4A` (10).
+/// - fido-totp: wallet `0x35-0x37` + wallet-compat F1 `0x48-0x4A` (6).
 ///
 /// `unsupported_count()` is exactly this slice's length.
 pub fn diet_gated_ops() -> &'static [u8] {
     #[cfg(all(feature = "cap-fido-only", not(feature = "cap-fido-totp")))]
     {
-        &[0x24, 0x25, 0x26, 0x27, 0x35, 0x36, 0x37]
+        &[0x24, 0x25, 0x26, 0x27, 0x35, 0x36, 0x37, 0x48, 0x49, 0x4A]
     }
     #[cfg(all(feature = "cap-fido-totp", not(feature = "cap-fido-only")))]
     {
-        &[0x35, 0x36, 0x37]
+        &[0x35, 0x36, 0x37, 0x48, 0x49, 0x4A]
     }
     #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
     {
@@ -233,6 +236,17 @@ mod tests {
         assert_eq!(crate::ble_gatt::SECURE_GUARD_OP_MAX, 0x3E);
         assert_eq!(crate::ble_gatt::OP_PIV_ENROLL, 0x39);
         assert_eq!(crate::ble_gatt::WALLET_OP_MAX, 0x37);
+        // F1 wallet-compat reservation: first free bytes after PM 0x43-0x47.
+        assert_eq!(
+            (
+                crate::ble_gatt::OP_WALLET_DERIVE,
+                crate::ble_gatt::OP_WALLET_XPUB,
+                crate::ble_gatt::OP_WALLET_PSBT
+            ),
+            (0x48, 0x49, 0x4A)
+        );
+        assert_eq!(crate::ble_gatt::WALLET_COMPAT_OP_MIN, 0x48);
+        assert_eq!(crate::ble_gatt::WALLET_COMPAT_OP_MAX, 0x4A);
         assert_eq!(crate::fw_log::OP_FW_LOG, 0x38);
         assert_eq!(crate::ble_gatt::VENDOR_OP_MAX, 0x27);
         // 0x3F is outside every existing funnel range (routing must OR in
@@ -295,10 +309,10 @@ mod tests {
             }
             "fido-only" => {
                 assert_eq!(capability_ids().len(), 7);
-                assert_eq!(unsupported_count(), 7);
+                assert_eq!(unsupported_count(), 10);
                 assert_eq!(
                     diet_gated_ops(),
-                    &[0x24, 0x25, 0x26, 0x27, 0x35, 0x36, 0x37]
+                    &[0x24, 0x25, 0x26, 0x27, 0x35, 0x36, 0x37, 0x48, 0x49, 0x4A]
                 );
                 assert!(!capability_ids().contains(&"wallet"));
                 assert!(!capability_ids().contains(&"oath-totp"));
@@ -306,8 +320,8 @@ mod tests {
             }
             "fido-totp" => {
                 assert_eq!(capability_ids().len(), 10);
-                assert_eq!(unsupported_count(), 3);
-                assert_eq!(diet_gated_ops(), &[0x35, 0x36, 0x37]);
+                assert_eq!(unsupported_count(), 6);
+                assert_eq!(diet_gated_ops(), &[0x35, 0x36, 0x37, 0x48, 0x49, 0x4A]);
                 assert!(!capability_ids().contains(&"wallet"));
                 assert!(capability_ids().contains(&"oath-totp"));
             }
@@ -322,13 +336,13 @@ mod tests {
         {
             assert_eq!(preset_name(), "fido-only");
             assert_eq!(capability_ids().len(), 7);
-            assert_eq!(unsupported_count(), 7);
+            assert_eq!(unsupported_count(), 10);
         }
         #[cfg(all(feature = "cap-fido-totp", not(feature = "cap-fido-only")))]
         {
             assert_eq!(preset_name(), "fido-totp");
             assert_eq!(capability_ids().len(), 10);
-            assert_eq!(unsupported_count(), 3);
+            assert_eq!(unsupported_count(), 6);
         }
     }
 

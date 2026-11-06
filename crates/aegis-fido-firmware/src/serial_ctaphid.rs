@@ -648,6 +648,7 @@ mod tests {
             panic!("deny do 0x41 deve enquadrar NEED_BINDING (0x05)");
         }
     }
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
     #[test]
     fn pm_serial_predicates_mirror_gates_and_deny() {
         use crate::pm_store::{OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS};

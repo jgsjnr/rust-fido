@@ -473,7 +473,7 @@
       "op_hex": "0x3F",
       "name": "GET_CAPS capability advertisement (read-only, no auth)",
       "firmware_source": "crates/aegis-fido-firmware/src/vendor_exec/vendor_caps.rs",
-      "opcode_audit": "First free byte after the Secure Guard range 0x3A-0x3E. Occupied neighbors: 0x20-0x27 vendor keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue (OP_MSG payload only, never a fragment opcode), 0x2F reserved (fail-closed), 0x30-0x34 OTA, 0x35-0x37 wallet, 0x38 fw-log, 0x39 PIV enroll, 0x3A-0x3E Secure Guard. No collision with the SG range, wallet, OATH, or CCID dispatch (CCID is APDU-framed CLA/INS/P1/P2, a different namespace).",
+      "opcode_audit": "First free byte after the Secure Guard range 0x3A-0x3E. Occupied neighbors: 0x20-0x27 vendor keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue (OP_MSG payload only, never a fragment opcode), 0x2F reserved (fail-closed), 0x30-0x34 OTA, 0x35-0x37 wallet (frozen), 0x38 fw-log, 0x39 PIV enroll, 0x3A-0x3E Secure Guard, 0x48-0x4A wallet-compat F1 reservation (DERIVE/XPUB/PSBT, no execution until F2-F4). No collision with the SG range, wallet, OATH, or CCID dispatch (CCID is APDU-framed CLA/INS/P1/P2, a different namespace).",
       "request": "empty (any non-empty payload fails closed with wire status 0x04)",
       "response": "wire status 0x00 + CBOR map body",
       "response_schema": {
@@ -487,12 +487,12 @@
       "unsupported_count_rule": {
         "note": "Count of vendor opcodes answering 0x06 UNSUPPORTED_FEATURE in this preset (diet-gated commands).",
         "full": 0,
-        "fido-only": 7,
-        "fido-totp": 3,
+        "fido-only": 10,
+        "fido-totp": 6,
         "counted_ops": {
           "full": [],
-          "fido-only": ["0x24", "0x25", "0x26", "0x27", "0x35", "0x36", "0x37"],
-          "fido-totp": ["0x35", "0x36", "0x37"]
+          "fido-only": ["0x24", "0x25", "0x26", "0x27", "0x35", "0x36", "0x37", "0x48", "0x49", "0x4A"],
+          "fido-totp": ["0x35", "0x36", "0x37", "0x48", "0x49", "0x4A"]
         }
       },
       "preset_caps_source": "presets.<preset>.includes (this file); the firmware table in vendor_caps.rs::capability_ids() is its compiled-in projection"
@@ -502,7 +502,7 @@
       "op_hex": "0x41",
       "name": "VENDOR_SIGN dedicated SIGN opcode (gated, calls KeyManager::sign)",
       "firmware_source": "crates/aegis-fido-firmware/src/vendor_exec/vendor_keys.rs (exec_key_sign) + vendor_dispatch.rs (pre-gate arm)",
-      "opcode_audit": "0x2F is TAKEN by pairing::OP_HOST_PAIRING_OPEN (USB/serial pairing trigger, never reusable); 0x40 is TAKEN by ctap_cmd::OP_SET_UP_POLICY. 0x41 is the first free byte after 0x40; no other opcode definition exists anywhere in tree (only magic bytes, test padding and font bitmaps). Occupied neighbors: 0x20-0x27 vendor keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue (OP_MSG payload only), 0x2F pairing trigger, 0x30-0x34 OTA, 0x35-0x37 wallet, 0x38 fw-log, 0x39 PIV enroll, 0x3A-0x3E Secure Guard, 0x3F GET_CAPS, 0x40 SET_UP_POLICY. Handled in exec_vendor_op BEFORE authorize_vendor_op (which only accepts 0x20-0x27) with a GEN-identical gate, so the BLE/serial funnel ranges are untouched.",
+      "opcode_audit": "0x2F is TAKEN by pairing::OP_HOST_PAIRING_OPEN (USB/serial pairing trigger, never reusable); 0x40 is TAKEN by ctap_cmd::OP_SET_UP_POLICY. 0x41 is the first free byte after 0x40; no other opcode definition exists anywhere in tree (only magic bytes, test padding and font bitmaps). Occupied neighbors: 0x20-0x27 vendor keys/OATH, 0x28-0x2D bind-mgmt, 0x2E rescue (OP_MSG payload only), 0x2F pairing trigger, 0x30-0x34 OTA, 0x35-0x37 wallet (frozen), 0x48-0x4A wallet-compat F1 reservation, 0x38 fw-log, 0x39 PIV enroll, 0x3A-0x3E Secure Guard, 0x3F GET_CAPS, 0x40 SET_UP_POLICY. Handled in exec_vendor_op BEFORE authorize_vendor_op (which only accepts 0x20-0x27) with a GEN-identical gate, so the BLE/serial funnel ranges are untouched.",
       "request": "TLV: TAG_SLOT 0x01 (1 byte, required) + TAG_CHALLENGE 0x74 (message/challenge, non-empty, required). Any other shape fails closed with wire status 0x04. The legacy app shape {slot, challenge} without TAG_LABEL 0x02 keeps denying 0x04 on GEN 0x20 (GEN semantics untouched).",
       "response": "wire status 0x00 + raw signature bytes body",
       "response_schema": {

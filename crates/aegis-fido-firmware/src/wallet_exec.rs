@@ -26,6 +26,25 @@ pub const TAG_WALLET_LABEL: u8 = 0x02;
 pub const TAG_WALLET_ADDRESS: u8 = 0x07;
 /// TLV: rede (`CryptoNetwork` discriminant, 1B) no pedido GEN.
 pub const TAG_WALLET_NETWORK: u8 = 0x08;
+/// TLV: reservada para o caminho de derivacao hierarquica (F2).
+///
+/// Acima das tags congeladas; decoders antigos ignoram por §9.6.
+pub const TAG_WALLET_DERIVATION: u8 = 0x09;
+/// TLV: reservada para o payload de exportacao de xpub (F3).
+///
+/// Acima das tags congeladas; decoders antigos ignoram por §9.6.
+pub const TAG_WALLET_XPUB: u8 = 0x0A;
+/// TLV: reservada para o envelope de assinatura PSBT (F4).
+///
+/// Acima das tags congeladas; decoders antigos ignoram por §9.6.
+pub const TAG_WALLET_PSBT: u8 = 0x0B;
+/// TLV: reservada para o recibo de aprovacao mediada pelo app (F4/F6/F7).
+///
+/// O app companheiro exibe os detalhes e retorna approve/deny explicitos;
+/// o firmware so assina apos a aprovacao mais os gates canonicos. Sem
+/// dependencia de display na placa (decisao do dono). Acima das tags
+/// congeladas; decoders antigos ignoram por §9.6.
+pub const TAG_WALLET_APPROVAL: u8 = 0x0C;
 
 fn fail(e: WalletError) -> (u8, Vec<u8>) {
     (e.status(), Vec::new())
@@ -201,5 +220,33 @@ mod tests {
         // LIST sem UP.
         let (st, _) = wallet_list(&store, false);
         assert_eq!(st, 0x01);
+    }
+
+    #[test]
+    fn reserved_compat_tags_parse_and_old_decoders_ignore() {
+        // F1: `0x09`-`0x0C` acima das congeladas; payload com tags novas
+        // continua parseavel e os lookups antigos seguem funcionando (§9.6).
+        assert_eq!(
+            (
+                TAG_WALLET_DERIVATION,
+                TAG_WALLET_XPUB,
+                TAG_WALLET_PSBT,
+                TAG_WALLET_APPROVAL
+            ),
+            (0x09, 0x0A, 0x0B, 0x0C)
+        );
+        let mut payload = gen_payload(3, b"btc", 0x01);
+        write_tlv(
+            &mut payload,
+            TAG_WALLET_DERIVATION,
+            &[0x80, 0x00, 0x00, 0x00],
+        );
+        write_tlv(&mut payload, TAG_WALLET_APPROVAL, b"approve");
+        let records = parse_tlv_records(&payload).unwrap();
+        assert_eq!(slot_of(&records).unwrap(), 3);
+        assert_eq!(
+            find_tlv(&records, TAG_WALLET_APPROVAL),
+            Some(&b"approve"[..])
+        );
     }
 }

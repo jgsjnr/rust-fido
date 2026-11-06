@@ -158,12 +158,32 @@ pub fn is_pm_fragment_opcode(op: u8) -> bool {
 /// FW-LOG (log da firmware em ASCII, sem PII -- ver `fw_log`).
 /// GATT/revisao/framing intactos; executor on-device = follow-up
 /// (como vendor Sec.9.4: gate ok responde `0x04`).
+///
+/// Compatibilidade F1 (reserva, sem execucao ate F2-F4): `0x48` DERIVE
+/// (derivacao hierarquica), `0x49` XPUB (exportacao de chave publica
+/// estendida), `0x4A` PSBT (envelope de assinatura; com aprovacao mediada
+/// pelo app em F4/F6/F7 -- sem dependencia de display na placa, por decisao
+/// do dono: o app exibe os detalhes e retorna approve/deny, e o firmware so
+/// assina apos a aprovacao mais binding -> UP). Faixa `0x35`-`0x37`
+/// congelada; `0x48`-`0x4A` sao os primeiros bytes livres apos o PM
+/// `0x43`-`0x47` (nunca `0x20`-`0x27`, `0x30`-`0x34`, `0x2E`/`0x2F`/`0x38`/`0x39`).
 pub const OP_WALLET_GEN: u8 = 0x35;
 pub const OP_WALLET_LIST: u8 = 0x36;
 pub const OP_WALLET_ADDR: u8 = 0x37;
-/// Limites da faixa wallet Fase7.
+/// Limites da faixa wallet Fase7 (congelados).
 pub const WALLET_OP_MIN: u8 = OP_WALLET_GEN;
 pub const WALLET_OP_MAX: u8 = OP_WALLET_ADDR;
+/// Reserva F1: derivacao hierarquica (execucao em F2; ate la `0x04`
+/// fail-closed apos gate ok, `0x06` nas dietas).
+pub const OP_WALLET_DERIVE: u8 = 0x48;
+/// Reserva F1: exportacao de chave publica estendida (execucao em F3).
+pub const OP_WALLET_XPUB: u8 = 0x49;
+/// Reserva F1: envelope de assinatura PSBT (execucao em F4 com aprovacao
+/// mediada pelo app; ate la `0x04` fail-closed apos gate ok).
+pub const OP_WALLET_PSBT: u8 = 0x4A;
+/// Limites da faixa de compatibilidade wallet F1 (reservada).
+pub const WALLET_COMPAT_OP_MIN: u8 = OP_WALLET_DERIVE;
+pub const WALLET_COMPAT_OP_MAX: u8 = OP_WALLET_PSBT;
 
 /// Opcodes Secure Guard (0x3A..0x3E).
 pub const OP_SECURE_GUARD_STATUS: u8 = 0x3A;

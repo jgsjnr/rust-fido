@@ -4,8 +4,8 @@
 use super::gatt_core::{
     BleGattError, BIND_MGMT_OP_MAX, BIND_MGMT_OP_MIN, OP_KEY_DELETE, OP_KEY_GEN_ONDEVICE,
     OP_KEY_IMPORT_ENVELOPE, OP_KEY_LIST, OP_OATH_CODE, OP_OATH_DELETE, OP_OATH_LIST, OP_OATH_PUT,
-    OP_PIV_ENROLL, SECURE_GUARD_OP_MAX, SECURE_GUARD_OP_MIN, VENDOR_OP_MAX, VENDOR_OP_MIN,
-    WALLET_OP_MAX, WALLET_OP_MIN,
+    OP_PIV_ENROLL, OP_WALLET_PSBT, SECURE_GUARD_OP_MAX, SECURE_GUARD_OP_MIN, VENDOR_OP_MAX,
+    VENDOR_OP_MIN, WALLET_COMPAT_OP_MAX, WALLET_COMPAT_OP_MIN, WALLET_OP_MAX, WALLET_OP_MIN,
 };
 #[cfg(feature = "debug-terminal")]
 use crate::lifetime_trace::{LifetimeCategory as LtCat, LifetimeEvent as LtEvt};
@@ -40,9 +40,31 @@ pub fn is_vendor_keys_oath_op(op: u8) -> bool {
     (VENDOR_OP_MIN..=VENDOR_OP_MAX).contains(&op)
 }
 
-/// Retorna true para opcodes wallet Fase7 0x35-0x37 (reservados).
+/// Retorna true para opcodes wallet Fase7 0x35-0x37 (congelados) mais a
+/// reserva de compatibilidade F1 0x48-0x4A (DERIVE/XPUB/PSBT, sem execucao
+/// ate F2-F4; funis respondem fail-closed).
 pub fn is_wallet_op(op: u8) -> bool {
-    (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&op)
+    (WALLET_OP_MIN..=WALLET_OP_MAX).contains(&op) || is_wallet_compat_op(op)
+}
+
+/// Retorna true para a reserva de compatibilidade wallet F1 0x48-0x4A.
+///
+/// Primeiros bytes livres apos o PM `0x43`-`0x47`; nunca colidem com vendor
+/// `0x20`-`0x27`, OTA `0x30`-`0x34`, `0x2E`/`0x2F`/`0x38`/`0x39`, Secure
+/// Guard, GET_CAPS, SET_UP_POLICY, VENDOR_SIGN, OOB nem PM.
+pub fn is_wallet_compat_op(op: u8) -> bool {
+    (WALLET_COMPAT_OP_MIN..=WALLET_COMPAT_OP_MAX).contains(&op)
+}
+
+/// `true` quando o op wallet exige aprovacao explicita mediada pelo app
+/// antes de qualquer assinatura (contrato F4/F6/F7; F1 reserva o bit).
+///
+/// Somente PSBT: o app companheiro exibe os detalhes e retorna
+/// approve/deny; o firmware so assina apos a aprovacao mais os gates
+/// canonicos (binding -> UP). Sem dependencia de display na placa (decisao
+/// do dono). Derivacao e exportacao de xpub nunca exigem.
+pub fn wallet_op_requires_app_approval(op: u8) -> bool {
+    op == OP_WALLET_PSBT
 }
 
 /// Retorna true para opcodes Secure Guard 0x3A-0x3E.
@@ -104,8 +126,11 @@ pub fn authorize_vendor_op(
 /// Gate normativo carteira Fase7 (R-07): binding valido + UP.
 ///
 /// GEN/LIST/ADDR nao expoem import/delete (sem PIN nesta faixa); a ordem
-/// canonica binding -> UP e a mesma de vendor. Executor on-device =
-/// follow-up (Wire: gate ok -> `0x04`, como vendor Sec.9.4).
+/// canonica binding -> UP e a mesma de vendor. A reserva F1 (`0x48`-`0x4A`)
+/// usa o mesmo gate: DERIVE/XPUB como GEN/LIST/ADDR; PSBT exigira ainda a
+/// aprovacao mediada pelo app em F4 (ver `wallet_op_requires_app_approval`;
+/// ate la o executor responde `0x04` fail-closed apos gate ok). Executor
+/// on-device = follow-up (Wire: gate ok -> `0x04`, como vendor Sec.9.4).
 pub fn authorize_wallet_op(
     op: u8,
     binding_ok: bool,

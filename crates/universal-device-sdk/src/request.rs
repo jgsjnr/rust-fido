@@ -20,6 +20,54 @@ pub const WALLET_OP_LIST: u8 = 0x36;
 /// Wallet opcodes: address.
 pub const WALLET_OP_ADDR: u8 = 0x37;
 
+/// Wallet-compat opcode: hierarchical derivation (F1 reservation).
+///
+/// First free byte after the PM range `0x43`-`0x47`; never `0x20`-`0x27`,
+/// never `0x30`-`0x34`, never `0x2E`/`0x2F`/`0x38`/`0x39`. Execution lands
+/// in F2; until then the wallet funnel answers fail-closed (`0x04` after
+/// gate success, `0x06` on diet builds).
+pub const WALLET_OP_DERIVE: u8 = 0x48;
+/// Wallet-compat opcode: extended public key export (F1 reservation).
+///
+/// Same free-range guarantees as [`WALLET_OP_DERIVE`]; execution lands in
+/// F3 with the `aegis_xpub_*` two-call edge pattern.
+pub const WALLET_OP_XPUB: u8 = 0x49;
+/// Wallet-compat opcode: PSBT/BIP-174 signing envelope (F1 reservation).
+///
+/// Same free-range guarantees as [`WALLET_OP_DERIVE`]; execution lands in
+/// F4 and additionally requires explicit app-mediated approval (details
+/// shown in the companion app, approve/deny, firmware signs only after
+/// approval plus the canonical binding -> UP gates). Owner decision: no
+/// on-device display dependency.
+pub const WALLET_OP_PSBT: u8 = 0x4A;
+
+/// `true` for the frozen wallet range `0x35`-`0x37` (GEN/LIST/ADDR).
+pub const fn is_wallet_opcode(op: u8) -> bool {
+    matches!(op, WALLET_OP_GEN | WALLET_OP_LIST | WALLET_OP_ADDR)
+}
+
+/// `true` for the F1 wallet-compat reservation `0x48`-`0x4A`
+/// (DERIVE/XPUB/PSBT; no execution until F2-F4).
+pub const fn is_wallet_compat_opcode(op: u8) -> bool {
+    matches!(op, WALLET_OP_DERIVE | WALLET_OP_XPUB | WALLET_OP_PSBT)
+}
+
+/// `true` for any wallet-family opcode (frozen `0x35`-`0x37` plus the F1
+/// reservation `0x48`-`0x4A`).
+pub const fn is_wallet_family_opcode(op: u8) -> bool {
+    is_wallet_opcode(op) || is_wallet_compat_opcode(op)
+}
+
+/// `true` when a wallet opcode additionally requires explicit app-mediated
+/// approval before any signing (F4/F6/F7 contract; F1 reserves the bit).
+///
+/// Only PSBT signing needs it: the companion app shows the details and
+/// returns approve/deny, and the firmware signs only after approval plus
+/// the canonical gates. Derivation and xpub export never need it.
+pub const fn wallet_op_requires_app_approval(op: u8) -> bool {
+    op == WALLET_OP_PSBT
+}
+
 /// FIDO request (CTAP payload carried opaquely; engine lives in firmware).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FidoRequest {
@@ -263,7 +311,8 @@ mod tests {
         AuditRequest, BackupRequest, BindingOp, BindingRequest, FidoRequest, OathRequest,
         OtaRequest, OtpRequest, PivRequest, PolicyRequest, ProximityRequest, RescueRequest,
         SdkRequest, SystemOp, SystemRequest, VendorRequest, WalletRequest, WalletSignRequest,
-        WALLET_OP_ADDR, WALLET_OP_GEN, WALLET_OP_LIST,
+        WALLET_OP_ADDR, WALLET_OP_DERIVE, WALLET_OP_GEN, WALLET_OP_LIST, WALLET_OP_PSBT,
+        WALLET_OP_XPUB,
     };
     use alloc::vec::Vec;
 
@@ -287,6 +336,81 @@ mod tests {
             (WALLET_OP_GEN, WALLET_OP_LIST, WALLET_OP_ADDR),
             (0x35, 0x36, 0x37)
         );
+    }
+
+    #[test]
+    fn wallet_compat_opcodes_reserved_first_free_after_pm() {
+        // F1 reservation: first free bytes after the PM range `0x43`-`0x47`;
+        // never `0x20`-`0x27`, never `0x30`-`0x34`, never
+        // `0x2E`/`0x2F`/`0x38`/`0x39`.
+        assert_eq!(
+            (WALLET_OP_DERIVE, WALLET_OP_XPUB, WALLET_OP_PSBT),
+            (0x48, 0x49, 0x4A)
+        );
+        for op in [WALLET_OP_DERIVE, WALLET_OP_XPUB, WALLET_OP_PSBT] {
+            assert!(crate::request::is_wallet_compat_opcode(op));
+            assert!(crate::request::is_wallet_family_opcode(op));
+            assert!(!crate::request::is_wallet_opcode(op));
+        }
+    }
+
+    #[test]
+    fn wallet_family_predicates_reject_neighbors() {
+        use crate::request::{is_wallet_compat_opcode, is_wallet_family_opcode, is_wallet_opcode};
+        // Frozen range members.
+        for op in [WALLET_OP_GEN, WALLET_OP_LIST, WALLET_OP_ADDR] {
+            assert!(is_wallet_opcode(op));
+            assert!(is_wallet_family_opcode(op));
+            assert!(!is_wallet_compat_opcode(op));
+        }
+        // Occupied neighbors are never wallet-family (frozen or reserved).
+        for op in [
+            0x00u8, 0x20, 0x27, 0x28, 0x2D, 0x2E, 0x2F, 0x30, 0x34, 0x38, 0x39, 0x3A, 0x3E, 0x3F,
+            0x40, 0x41, 0x42, 0x43, 0x47, 0x4B, 0x81, 0x83,
+        ] {
+            assert!(!is_wallet_opcode(op), "op 0x{op:02X}");
+            assert!(!is_wallet_compat_opcode(op), "op 0x{op:02X}");
+            assert!(!is_wallet_family_opcode(op), "op 0x{op:02X}");
+        }
+    }
+
+    #[test]
+    fn only_psbt_requires_app_mediated_approval() {
+        use crate::request::wallet_op_requires_app_approval;
+        assert!(wallet_op_requires_app_approval(WALLET_OP_PSBT));
+        for op in [
+            WALLET_OP_GEN,
+            WALLET_OP_LIST,
+            WALLET_OP_ADDR,
+            WALLET_OP_DERIVE,
+            WALLET_OP_XPUB,
+        ] {
+            assert!(!wallet_op_requires_app_approval(op), "op 0x{op:02X}");
+        }
+        assert!(!wallet_op_requires_app_approval(0x00));
+        assert!(!wallet_op_requires_app_approval(0x41));
+    }
+
+    #[test]
+    fn compat_opcodes_follow_hardwallet_gate() {
+        use crate::request::WalletSignRequest;
+        // Same family gate as the frozen ops: `NotCompiled` only when
+        // `hardwallet` is off, never a runtime failure.
+        let wallet = SdkRequest::Wallet(WalletRequest {
+            opcode: WALLET_OP_DERIVE,
+            payload: Vec::new(),
+        });
+        let sign = SdkRequest::WalletSign(WalletSignRequest {
+            opcode: WALLET_OP_PSBT,
+            payload: Vec::new(),
+        });
+        if cfg!(feature = "hardwallet") {
+            assert_eq!(wallet.check_compiled(), Ok(()));
+            assert_eq!(sign.check_compiled(), Ok(()));
+        } else {
+            assert_eq!(wallet.check_compiled(), Err(SdkError::NotCompiled));
+            assert_eq!(sign.check_compiled(), Err(SdkError::NotCompiled));
+        }
     }
 
     #[test]

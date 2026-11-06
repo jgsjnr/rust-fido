@@ -23,6 +23,28 @@ pub const TAG_WALLET_LABEL: u8 = 0x02;
 pub const TAG_WALLET_ADDRESS: u8 = 0x07;
 /// TLV wallet: network discriminant (1 byte) in the GEN request.
 pub const TAG_WALLET_NETWORK: u8 = 0x08;
+/// TLV wallet: reserved for the F2 hierarchical-derivation path payload.
+///
+/// Above the frozen tags; old decoders ignore it per §9.6. No execution
+/// until F2.
+pub const TAG_WALLET_DERIVATION: u8 = 0x09;
+/// TLV wallet: reserved for the F3 extended-public-key export payload.
+///
+/// Above the frozen tags; old decoders ignore it per §9.6. No execution
+/// until F3.
+pub const TAG_WALLET_XPUB: u8 = 0x0A;
+/// TLV wallet: reserved for the F4 PSBT/BIP-174 signing envelope.
+///
+/// Above the frozen tags; old decoders ignore it per §9.6. No execution
+/// until F4.
+pub const TAG_WALLET_PSBT: u8 = 0x0B;
+/// TLV wallet: reserved for the app-mediated approval receipt (F4/F6/F7).
+///
+/// The companion app shows the signing details and returns an explicit
+/// approve/deny; the firmware signs only after approval plus the canonical
+/// gates. No on-device display dependency (owner decision). Above the
+/// frozen tags; old decoders ignore it per §9.6.
+pub const TAG_WALLET_APPROVAL: u8 = 0x0C;
 
 /// TLV vendor keys: slot id (same wire value as wallet slot).
 pub const TAG_SLOT: u8 = 0x01;
@@ -211,6 +233,46 @@ mod tests {
         assert_eq!(RESCUE_TRANSPORT_OP, 0x2E);
         assert_eq!(RESCUE_TRANSPORT_OP, rescue::RESCUE_TRANSPORT_OP);
         assert_eq!(FW_LOG_OP, 0x38);
+    }
+
+    #[test]
+    fn wallet_compat_tags_reserved_above_frozen() {
+        // F1 reservation: first free tags above the frozen wallet set
+        // (`0x01`/`0x02`/`0x07`/`0x08`); old decoders ignore them per §9.6.
+        assert_eq!(TAG_WALLET_DERIVATION, 0x09);
+        assert_eq!(TAG_WALLET_XPUB, 0x0A);
+        assert_eq!(TAG_WALLET_PSBT, 0x0B);
+        assert_eq!(TAG_WALLET_APPROVAL, 0x0C);
+        // Distinct from every frozen wallet/vendor/OATH tag.
+        for tag in [
+            TAG_WALLET_DERIVATION,
+            TAG_WALLET_XPUB,
+            TAG_WALLET_PSBT,
+            TAG_WALLET_APPROVAL,
+        ] {
+            assert!(![
+                TAG_WALLET_SLOT,
+                TAG_WALLET_LABEL,
+                TAG_WALLET_ADDRESS,
+                TAG_WALLET_NETWORK
+            ]
+            .contains(&tag));
+            assert!(![TAG_SLOT, TAG_LABEL, TAG_ALG_HINT, TAG_USAGE_HINT].contains(&tag));
+        }
+        // Round-trips through the shared codec (unknown-to-old-decoders but
+        // well-formed TLV).
+        let mut out = Vec::new();
+        write_tlv(&mut out, TAG_WALLET_DERIVATION, &[0x80, 0x00, 0x00, 0x00]);
+        write_tlv(&mut out, TAG_WALLET_APPROVAL, b"approve");
+        let records = parse_tlv_records(&out).unwrap();
+        assert_eq!(
+            find_tlv(&records, TAG_WALLET_DERIVATION),
+            Some(&[0x80u8, 0x00, 0x00, 0x00][..])
+        );
+        assert_eq!(
+            find_tlv(&records, TAG_WALLET_APPROVAL),
+            Some(&b"approve"[..])
+        );
     }
 
     #[test]

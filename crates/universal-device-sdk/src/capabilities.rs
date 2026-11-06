@@ -42,6 +42,15 @@ impl CapabilitySet {
     pub const AUDIT: Self = Self { bits: 1 << 13 };
     /// Policy-gate family (feature `policy`; `binding -> UP -> PIN` as data).
     pub const POLICY: Self = Self { bits: 1 << 14 };
+    /// Wallet hierarchical-derivation compat (F1 opcode reservation `0x48`;
+    /// feature `hardwallet`; execution lands in F2).
+    pub const WALLET_DERIVE: Self = Self { bits: 1 << 15 };
+    /// Wallet extended-public-key export compat (F1 opcode reservation
+    /// `0x49`; feature `hardwallet`; execution lands in F3).
+    pub const WALLET_XPUB: Self = Self { bits: 1 << 16 };
+    /// Wallet PSBT signing compat (F1 opcode reservation `0x4A`; feature
+    /// `hardwallet`; execution lands in F4 with app-mediated approval).
+    pub const WALLET_PSBT: Self = Self { bits: 1 << 17 };
 
     /// Raw bits (for logging/metadata only).
     pub const fn bits(self) -> u32 {
@@ -76,6 +85,11 @@ pub const fn capabilities() -> CapabilitySet {
     }
     if cfg!(feature = "hardwallet") {
         bits |= CapabilitySet::HARDWALLET.bits();
+        // F1 wallet-compat reservation: same family gate, additive bits that
+        // never renumber the frozen set below.
+        bits |= CapabilitySet::WALLET_DERIVE.bits();
+        bits |= CapabilitySet::WALLET_XPUB.bits();
+        bits |= CapabilitySet::WALLET_PSBT.bits();
     }
     if cfg!(feature = "secmon") {
         bits |= CapabilitySet::SECMON.bits();
@@ -132,6 +146,19 @@ mod tests {
             caps.contains(CapabilitySet::HARDWALLET),
             cfg!(feature = "hardwallet")
         );
+        // F1 compat bits ride the same `hardwallet` family gate.
+        assert_eq!(
+            caps.contains(CapabilitySet::WALLET_DERIVE),
+            cfg!(feature = "hardwallet")
+        );
+        assert_eq!(
+            caps.contains(CapabilitySet::WALLET_XPUB),
+            cfg!(feature = "hardwallet")
+        );
+        assert_eq!(
+            caps.contains(CapabilitySet::WALLET_PSBT),
+            cfg!(feature = "hardwallet")
+        );
         assert_eq!(
             caps.contains(CapabilitySet::SECMON),
             cfg!(feature = "secmon")
@@ -161,6 +188,43 @@ mod tests {
         assert_eq!(CapabilitySet::SYSTEM.bits(), 1 << 4);
         assert_eq!(CapabilitySet::SECMON.bits(), 1 << 5);
         assert_eq!(CapabilitySet::TEST_MODE.bits(), 1 << 6);
+    }
+
+    #[test]
+    fn wallet_compat_bits_frozen_additive_follow_hardwallet() {
+        use crate::capabilities::CapabilitySet as C;
+        // F1 values are frozen once allocated: first free bits after POLICY.
+        assert_eq!(C::WALLET_DERIVE.bits(), 1 << 15);
+        assert_eq!(C::WALLET_XPUB.bits(), 1 << 16);
+        assert_eq!(C::WALLET_PSBT.bits(), 1 << 17);
+        // Additive-only: fresh flags are single distinct bits that never
+        // overlap the frozen set and never clear an old flag.
+        let old_mask = C::FIDO
+            .union(C::HARDWALLET)
+            .union(C::VENDOR)
+            .union(C::BINDING)
+            .union(C::SYSTEM)
+            .union(C::SECMON)
+            .union(C::TEST_MODE)
+            .union(C::OTA)
+            .union(C::PIV)
+            .union(C::OTP)
+            .union(C::PROXIMITY)
+            .union(C::OATH)
+            .union(C::BACKUP)
+            .union(C::AUDIT)
+            .union(C::POLICY);
+        let mut seen = 0u32;
+        for cap in [C::WALLET_DERIVE, C::WALLET_XPUB, C::WALLET_PSBT] {
+            assert_eq!(cap.bits() & (cap.bits() - 1), 0);
+            assert_eq!(cap.bits() & old_mask.bits(), 0);
+            assert_eq!(cap.bits() & seen, 0);
+            seen |= cap.bits();
+        }
+        let with_compat = C::HARDWALLET.union(C::WALLET_PSBT);
+        assert!(with_compat.contains(C::HARDWALLET));
+        assert!(with_compat.contains(C::WALLET_PSBT));
+        assert!(!with_compat.contains(C::WALLET_DERIVE));
     }
 
     #[test]
