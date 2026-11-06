@@ -37,6 +37,10 @@
     <string name="guard_init_btn">Inicializar Secure Guard</string>
     <string name="guard_unlock_pin">PIN de Desbloqueio</string>
     <string name="guard_unlock_btn">Desbloquear</string>
+    <!-- Veredito do silício no unlock (failed/remaining do POST
+         /api/secure-guard/unlock). O formato em tempo de execução no
+         SecureGuardRepositoryImpl segue este texto com o contador real. -->
+    <string name="guard_unlock_incorrect_remaining">PIN incorreto. Restam %1$d tentativa(s).</string>
     <string name="guard_emergency_recovery">Recuperação de Emergência</string>
     <string name="guard_lock_now">Bloquear Agora</string>
     <string name="guard_change_pin">Alterar PIN</string>

@@ -1054,6 +1054,23 @@ class HardwareBridgeManager:
                     self.session = None
                 raise e
 
+    def send_vendor_strict(self, opcode, payload=b"", timeout_s=4.0):
+        """Direct silicon query for one vendor opcode with NO local-mirror fallback.
+
+        Used by fail-closed endpoints (e.g. Secure Guard unlock 0x3B) where the
+        silicon verdict is authoritative. Raises on unreachable hardware so the
+        caller can answer fail-closed instead of echoing the software mirror.
+        """
+        with self.lock:
+            self.ensure_connected()
+            if not self.session:
+                raise ConnectionError("silicon unreachable: no session")
+            status, resp_payload = self.session._exchange(
+                CMD_MSG, bytes([opcode]) + bytes(payload),
+                op=f"silicon_strict_0x{opcode:02x}", timeout_s=timeout_s,
+            )
+            return status, resp_payload
+
     def lifetime_dump(self):
         with self.lock:
             self.ensure_connected()
@@ -2017,6 +2034,38 @@ class SecureGuardEngine:
 
 
 SECURE_GUARD_ENGINE = SecureGuardEngine()
+
+
+def parse_silicon_unlock_verdict(hw_status: int, hw_payload: bytes) -> dict:
+    """Parses the authoritative silicon 0x3B unlock frame.
+
+    Returns {"failed_attempts": int|None, "remaining_attempts": int|None,
+    "silicon": dict, "decode_error": str|None}. Never raises; unparseable
+    payload yields Nones so the caller stays fail-closed.
+    """
+    out: dict = {
+        "failed_attempts": None,
+        "remaining_attempts": None,
+        "silicon": {},
+        "decode_error": None,
+    }
+    try:
+        decoded, _ = cbor_decode(bytes(hw_payload or b""))
+    except Exception as ex:
+        out["decode_error"] = f"silicon CBOR decode failed: {ex}"
+        return out
+    if isinstance(decoded, dict):
+        out["silicon"] = decoded
+        try:
+            fa = decoded.get("failed_attempts", decoded.get("failed"))
+            ra = decoded.get("remaining_attempts", decoded.get("remaining"))
+            out["failed_attempts"] = int(fa) if fa is not None else None
+            out["remaining_attempts"] = int(ra) if ra is not None else None
+        except (TypeError, ValueError):
+            pass
+    else:
+        out["decode_error"] = "silicon payload is not a CBOR map"
+    return out
 
 class SystemAuthManager:
     """Manages OS-level pending key authorization requests (e.g. SSH, Git, CLI, Companion)."""
@@ -4274,12 +4323,67 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                         return
                 try:
                     cbor_req = {"action": "unlock", "pin": pin.encode("utf-8") if isinstance(pin, str) else pin}
-                    HW_MANAGER.send_vendor(0x3B, cbor_encode(cbor_req))
+                    cbor_payload = cbor_encode(cbor_req)
                 except Exception as ex:
-                    print(f"[bridge] Unlock hardware: {ex}")
-                res = SECURE_GUARD_ENGINE.unlock(pin)
-                st_code = 200 if res.get("success") else 401
-                self.send_json({"ok": res.get("success", False), "ecdh_encrypted_channel": ecdh_used, **res}, status_code=st_code)
+                    self.send_json({"ok": False, "error": f"CBOR encode failed: {ex}"}, status_code=500)
+                    return
+                # Authoritative silicon verdict (0x3B strict, no mirror fallback).
+                silicon_reachable = False
+                hw_status = None
+                hw_verdict: dict = {}
+                silicon_error = None
+                try:
+                    hw_status, hw_payload = HW_MANAGER.send_vendor_strict(0x3B, cbor_payload, timeout_s=4.0)
+                    silicon_reachable = True
+                    hw_verdict = parse_silicon_unlock_verdict(hw_status, hw_payload)
+                except Exception as ex:
+                    silicon_error = str(ex)
+                    print(f"[bridge] Unlock silicon unreachable (fail-closed): {ex}")
+                if not silicon_reachable:
+                    # Fail-closed: never echo the software mirror as success.
+                    fallback = SECURE_GUARD_ENGINE.get_status_dict()
+                    self.send_json({
+                        "ok": False,
+                        "success": False,
+                        "silicon_reachable": False,
+                        "silicon_status": None,
+                        "status": None,
+                        "state": fallback.get("state", STATE_LOCKED),
+                        "state_name": fallback.get("state_name", "Locked"),
+                        "failed_attempts": fallback.get("failed_attempts", 0),
+                        "remaining_attempts": fallback.get("remaining_attempts", 0),
+                        "rate_limit_remaining_ms": fallback.get("rate_limit_remaining_ms", 0),
+                        "ecdh_encrypted_channel": ecdh_used,
+                        "error": f"silicon unreachable (fail-closed): {silicon_error}",
+                    }, status_code=503)
+                    return
+                silicon = hw_verdict.get("silicon") or {}
+                # Best-effort mirror sync so local wallet gating follows silicon;
+                # the HTTP verdict below stays authoritative from silicon.
+                try:
+                    SECURE_GUARD_ENGINE.unlock(pin)
+                except Exception:
+                    pass
+                ok = bool(silicon.get("success", hw_status == 0x00 and silicon.get("state_name") == "Unlocked"))
+                # Compat: legacy top-level fields preserved; silicon verdict added.
+                compat = {
+                    "ok": ok,
+                    "success": bool(silicon.get("success", ok)),
+                    "silicon_reachable": True,
+                    "silicon_status": hw_status,
+                    "status": hw_status,
+                    "state": silicon.get("state", STATE_LOCKED if not ok else STATE_UNLOCKED),
+                    "state_name": silicon.get("state_name", "Unlocked" if ok else "Locked"),
+                    "failed_attempts": hw_verdict.get("failed_attempts") if hw_verdict.get("failed_attempts") is not None else silicon.get("failed_attempts", 0),
+                    "remaining_attempts": hw_verdict.get("remaining_attempts") if hw_verdict.get("remaining_attempts") is not None else silicon.get("remaining_attempts", 0),
+                    "rate_limit_remaining_ms": silicon.get("rate_limit_remaining_ms", 0),
+                    "ecdh_encrypted_channel": ecdh_used,
+                    "error": silicon.get("error"),
+                }
+                if hw_verdict.get("decode_error"):
+                    compat["silicon_decode_error"] = hw_verdict["decode_error"]
+                st_code = 200 if ok else 401
+                self.send_json(compat, status_code=st_code)
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, status_code=500)
             return

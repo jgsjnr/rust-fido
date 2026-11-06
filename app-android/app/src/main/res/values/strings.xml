@@ -37,6 +37,10 @@
     <string name="guard_init_btn">Initialize Secure Guard</string>
     <string name="guard_unlock_pin">Unlock PIN</string>
     <string name="guard_unlock_btn">Unlock</string>
+    <!-- Silicon unlock verdict (POST /api/secure-guard/unlock failed/remaining).
+         Runtime format in SecureGuardRepositoryImpl matches this prose with the
+         real silicon counter; unit tests format without a Context. -->
+    <string name="guard_unlock_incorrect_remaining">Incorrect PIN. %1$d attempt(s) remaining.</string>
     <string name="guard_emergency_recovery">Emergency Recovery</string>
     <string name="guard_lock_now">Lock Now</string>
     <string name="guard_change_pin">Change PIN</string>

@@ -242,10 +242,156 @@ class SecureGuardRepositoryImpl(
         return null
     }
 
+    /**
+     * Mensagem de erro do unlock direto ao silício (CBOR 0x3B via USB/BLE/
+     * vendor): erro do silício verbatim + contador autoritativo
+     * `remaining_attempts` (paridade com `app-tray/aegis_tray.py`
+     * `_format_unlock_error`). O ViewModel preserva mensagens com
+     * "Restam"/"tentativas" verbatim, então o usuário sempre vê o veredito
+     * real do silício — nunca um palpite do espelho.
+     */
     private fun unlockFailureMessage(unlockRes: SecureGuardCbor.UnlockResult): String {
-        return unlockRes.errorMessage ?: (
-            if (unlockRes.remainingAttempts == 0) "Limite de tentativas excedido. Cofre bloqueado."
-            else "PIN incorreto. Restam ${unlockRes.remainingAttempts} tentativas."
+        val remaining = unlockRes.remainingAttempts
+        val siliconError = unlockRes.errorMessage?.takeIf { it.isNotBlank() }
+        if (siliconError != null &&
+            !siliconError.contains("Restam", ignoreCase = true) &&
+            !siliconError.contains("tentativa", ignoreCase = true)
+        ) {
+            return "$siliconError (Restam $remaining tentativas.)"
+        }
+        return siliconError ?: (
+            if (remaining == 0) "Limite de tentativas excedido. Cofre bloqueado. (Restam 0 tentativas.)"
+            else "PIN incorreto. Restam $remaining tentativas."
+        )
+    }
+
+    /**
+     * Veredito autoritativo do silício via `POST /api/secure-guard/unlock`
+     * (compat da bridge: ela mesma resolve o 0x3B estrito no silício e
+     * espelha os contadores; `silicon_reachable=false` é fail-closed).
+     * Campos `failed/remaining` aqui são os reais — o espelho
+     * (`GET /api/secure-guard/status`) nunca decide autenticação.
+     */
+    private data class BridgeUnlockVerdict(
+        val success: Boolean,
+        val siliconReachable: Boolean,
+        val state: SecureGuardStateEnum,
+        val failedAttempts: Int,
+        val remainingAttempts: Int?,
+        val maxAttempts: Int,
+        val rateLimitRemainingMs: Long,
+        val sessionRemainingMs: Long?,
+        val error: String?,
+    )
+
+    private fun parseBridgeUnlockVerdict(json: JSONObject): BridgeUnlockVerdict {
+        val success = json.optBoolean("success", json.optBoolean("ok", false))
+        // Compat legada: bridges antigas não enviam `silicon_reachable`;
+        // nesse caso um `ok/success=true` continua valendo (não quebrar o
+        // caminho de sucesso existente). `false` explícito é fail-closed.
+        val reachable = if (json.has("silicon_reachable")) json.optBoolean("silicon_reachable", false) else true
+        val stateName = json.optString("state_name", "")
+        val stateCode = json.optInt("state", -1)
+        val parsed = when {
+            stateName.isNotBlank() -> {
+                val byName = SecureGuardStateEnum.fromString(stateName)
+                if (byName == SecureGuardStateEnum.DEVICE_UNAVAILABLE && stateCode >= 0) {
+                    SecureGuardStateEnum.fromWireCode(stateCode)
+                } else byName
+            }
+            stateCode >= 0 -> SecureGuardStateEnum.fromWireCode(stateCode)
+            else -> SecureGuardStateEnum.DEVICE_UNAVAILABLE
+        }
+        val state = if (parsed == SecureGuardStateEnum.DEVICE_UNAVAILABLE) {
+            if (success) SecureGuardStateEnum.UNLOCKED else SecureGuardStateEnum.LOCKED
+        } else parsed
+        return BridgeUnlockVerdict(
+            success = success,
+            siliconReachable = reachable,
+            state = state,
+            failedAttempts = json.optInt("failed_attempts", 0),
+            remainingAttempts = if (json.has("remaining_attempts")) json.optInt("remaining_attempts", 5) else null,
+            maxAttempts = json.optInt("max_attempts", 5),
+            rateLimitRemainingMs = json.optLong("rate_limit_remaining_ms", 0L),
+            sessionRemainingMs = if (json.has("session_remaining_ms")) json.optLong("session_remaining_ms", 0L) else null,
+            error = json.optString("error", "").takeIf { it.isNotBlank() },
+        )
+    }
+
+    /**
+     * Mensagem de erro do unlock via bridge (`POST /api/secure-guard/unlock`):
+     * erro do silício verbatim + `remaining_attempts` real quando presente.
+     * Sem contadores no JSON (bridge legada), não inventa número: repassa só
+     * o erro. Formato espelha `unlockFailureMessage` (CBOR) e o recurso
+     * `guard_unlock_incorrect_remaining`.
+     */
+    private fun bridgeUnlockFailureMessage(json: JSONObject): String {
+        val remaining = if (json.has("remaining_attempts")) json.optInt("remaining_attempts", 5) else null
+        val siliconError = json.optString("error", "").takeIf { it.isNotBlank() }
+        if (siliconError != null &&
+            !siliconError.contains("Restam", ignoreCase = true) &&
+            !siliconError.contains("tentativa", ignoreCase = true)
+        ) {
+            return if (remaining != null) "$siliconError (Restam $remaining tentativas.)" else siliconError
+        }
+        return siliconError ?: (
+            if (remaining == null) "PIN incorreto"
+            else if (remaining == 0) "Limite de tentativas excedido. Cofre bloqueado. (Restam 0 tentativas.)"
+            else "PIN incorreto. Restam $remaining tentativas."
+        )
+    }
+
+    /**
+     * Publica os contadores de negação do silício no espelho de exibição
+     * ANTES de lançar a falha, para que selo/badge mostrem o
+     * `failed/remaining` autoritativo mesmo que o próximo poll de status
+     * atrase. Exibição apenas: não decide autenticação (a decisão já foi o
+     * veredito 0x3B acima). Prefere o JSON do `POST /unlock` (silício via
+     * bridge); sem contadores nele, usa o último veredito CBOR 0x3B.
+     */
+    private fun publishSiliconDenialCounters(
+        bridgeJson: JSONObject?,
+        cborDenial: SecureGuardCbor.UnlockResult?,
+    ) {
+        val hasBridgeCounters = bridgeJson != null && bridgeJson.has("remaining_attempts")
+        val failed = when {
+            hasBridgeCounters -> bridgeJson!!.optInt("failed_attempts", 0)
+            cborDenial != null -> cborDenial.failedAttempts
+            else -> return
+        }
+        val remaining = when {
+            hasBridgeCounters -> bridgeJson!!.optInt("remaining_attempts", 5)
+            cborDenial != null -> cborDenial.remainingAttempts
+            else -> return
+        }
+        val rateLimitMs = when {
+            hasBridgeCounters -> bridgeJson!!.optLong("rate_limit_remaining_ms", 0L)
+            cborDenial != null -> cborDenial.rateLimitRemainingMs
+            else -> 0L
+        }
+        val maxAttempts = when {
+            hasBridgeCounters -> bridgeJson!!.optInt("max_attempts", 5)
+            else -> 5
+        }
+        val siliconState = when {
+            hasBridgeCounters -> parseBridgeUnlockVerdict(bridgeJson!!).state
+            cborDenial != null -> cborDenial.state
+            else -> SecureGuardStateEnum.LOCKED
+        }
+        val displayState = if (siliconState == SecureGuardStateEnum.UNLOCKED ||
+            siliconState == SecureGuardStateEnum.UNPROVISIONED ||
+            siliconState == SecureGuardStateEnum.DEVICE_UNAVAILABLE
+        ) {
+            SecureGuardStateEnum.LOCKED
+        } else siliconState
+        _statusFlow.value = _statusFlow.value.copy(
+            state = displayState,
+            isUnlocked = false,
+            failedAttempts = failed,
+            remainingAttempts = remaining,
+            maxAttempts = maxAttempts,
+            rateLimitRemainingMs = rateLimitMs,
+            sessionRemainingMs = 0L,
         )
     }
 
@@ -473,12 +619,15 @@ class SecureGuardRepositoryImpl(
     }
 
     /**
-     * Confirma o estado do dispositivo via round-trip real 0x3A (USB/BLE/
-     * bridge-vendor ou JSON da bridge). Retorna null quando NENHUM transporte
-     * responde com autoridade — nesse caso o estado local (incluindo LOCKED
-     * forçado ou UNPROVISIONED inicial) NÃO é confiável para provisionar.
+     * Confirma o estado do dispositivo SOMENTE via round-trip real 0x3A ao
+     * silício (USB/BLE direto ou vendor 0x3A via bridge — que também é o
+     * silício, não o espelho). O espelho (`GET /api/secure-guard/status`)
+     * é exibição fail-closed e NUNCA confirma provisionamento: um espelho
+     * `Unprovisioned` não pode disparar provision, e um espelho `Locked`
+     * não prova nada sobre o silício. Retorna null quando NENHUM transporte
+     * ao silício responde com autoridade.
      */
-    private suspend fun fetchConfirmedDeviceStatus(): SecureGuardStatus? {
+    private suspend fun fetchConfirmedSiliconStatus(): SecureGuardStatus? {
         val usb = usbCtaphid
         if (usb != null && usb.isUsbPhysicallyPresent()) {
             val resp = runCatching { usb.sendVendor(0x3A, SecureGuardCbor.encodeStatusRequest()) }.getOrNull()
@@ -501,12 +650,9 @@ class SecureGuardRepositoryImpl(
             }
         }
 
-        val json = runCatching { hostBridgeClient.fetchSecureGuardStatus() }.getOrNull()
-        if (json != null && (json.optBoolean("ok", true) || json.has("state") || json.has("state_name"))) {
-            val parsed = runCatching { parseStatusFromJson(json) }.getOrNull()
-            if (parsed != null) return parsed
-        }
-
+        // Vendor 0x3A via bridge = silício através da bridge (autoritativo),
+        // diferente do espelho JSON de display. Usado quando não há USB/BLE
+        // direto mas a bridge alcança o silício.
         val resp = runCatching { sendHardwareVendor(0x3A, SecureGuardCbor.encodeStatusRequest()) }.getOrNull()
         if (resp != null && resp.isNotEmpty()) {
             val parsed = runCatching {
@@ -522,17 +668,24 @@ class SecureGuardRepositoryImpl(
             if (pin.length < 4) throw IllegalArgumentException("PIN deve ter no mínimo 4 caracteres")
 
             // Auto-provisionamento transparente SOMENTE com UNPROVISIONED confirmado
-            // por round-trip real 0x3A. Estado local forçado (LOCKED sem transporte,
-            // UNPROVISIONED inicial sem resposta) nunca dispara provision — sem isso,
-            // um device inalcançável cairia em `IllegalStateException("Falha ao
-            // provisionar…")` em vez de ventilar os transportes.
-            val confirmed = runCatching { fetchConfirmedDeviceStatus() }.getOrNull()
+            // pelo SILÍCIO (round-trip real 0x3A). O espelho (GET status da
+            // bridge) é exibição fail-closed e nunca confirma: um espelho
+            // `Unprovisioned` jamais dispara provision (prova do bug: app dizia
+            // "PIN incorreto" para o PIN correto porque o veredito nunca chegava
+            // ao silício e o app confiava no espelho). Estado local forçado
+            // (LOCKED sem transporte, UNPROVISIONED inicial sem resposta) também
+            // nunca dispara provision.
+            val confirmed = runCatching { fetchConfirmedSiliconStatus() }.getOrNull()
             if (confirmed != null && (confirmed.state == SecureGuardStateEnum.UNPROVISIONED || !confirmed.isProvisioned)) {
                 provision(pin = pin, recoveryCode = null, policy = null).getOrThrow()
             }
 
             var hardwareUnlocked = false
             var hardwareError: String? = null
+            // Vereditos do silício capturados por transporte para publicar os
+            // contadores reais (failed/remaining) em vez de forjar 0/5.
+            var cborSuccessVerdict: SecureGuardCbor.UnlockResult? = null
+            var cborDenialVerdict: SecureGuardCbor.UnlockResult? = null
             // Falhas por transporte (USB -> BLE -> bridge -> fallback genérico).
             // Nenhuma falha individual interrompe as tentativas seguintes: o erro
             // agregado só é lançado após TODOS os transportes falharem.
@@ -549,8 +702,10 @@ class SecureGuardRepositoryImpl(
                     val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
                     if (unlockRes.success) {
                         hardwareUnlocked = true
+                        cborSuccessVerdict = unlockRes
                         usb.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
                     } else {
+                        cborDenialVerdict = unlockRes
                         transportErrors += "USB: " + unlockFailureMessage(unlockRes)
                     }
                 } else {
@@ -567,8 +722,10 @@ class SecureGuardRepositoryImpl(
                     val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
                     if (unlockRes.success) {
                         hardwareUnlocked = true
+                        if (cborSuccessVerdict == null) cborSuccessVerdict = unlockRes
                         ble.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
                     } else {
+                        if (cborDenialVerdict == null) cborDenialVerdict = unlockRes
                         transportErrors += "BLE: " + unlockFailureMessage(unlockRes)
                     }
                 } else {
@@ -576,11 +733,17 @@ class SecureGuardRepositoryImpl(
                 }
             }
 
-            // Sincroniza com HTTP hostBridgeClient se disponível
+            // Sincroniza com HTTP hostBridgeClient se disponível.
+            // `POST /api/secure-guard/unlock` carrega o veredito do SILÍCIO
+            // (a bridge resolve o 0x3B estrito no chip): `failed_attempts` /
+            // `remaining_attempts` aqui são os reais. `silicon_reachable=false`
+            // explícito é fail-closed (nunca autentica), e o espelho nunca é
+            // consultado para decidir — só exibição.
             val json = hostBridgeClient.unlockSecureGuard(pin)
-            val bridgeSuccess = json != null && (json.optBoolean("success", false) || json.optBoolean("ok", false))
+            val bridgeVerdict = json?.let { runCatching { parseBridgeUnlockVerdict(it) }.getOrNull() }
+            val bridgeSuccess = bridgeVerdict != null && bridgeVerdict.success && bridgeVerdict.siliconReachable
             if (json != null && !bridgeSuccess && !hardwareUnlocked) {
-                hardwareError = json.optString("error", "PIN incorreto")
+                hardwareError = bridgeUnlockFailureMessage(json)
                 transportErrors += "Bridge: $hardwareError"
             }
 
@@ -592,8 +755,10 @@ class SecureGuardRepositoryImpl(
                     val unlockRes = SecureGuardCbor.parseUnlockResult(frame.status, frame.cborPayload)
                     if (unlockRes.success) {
                         hardwareUnlocked = true
+                        if (cborSuccessVerdict == null) cborSuccessVerdict = unlockRes
                         sendHardwareVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
                     } else {
+                        if (cborDenialVerdict == null) cborDenialVerdict = unlockRes
                         transportErrors += "Hardware: " + unlockFailureMessage(unlockRes)
                     }
                 } else {
@@ -602,8 +767,15 @@ class SecureGuardRepositoryImpl(
             }
 
             if (!hardwareUnlocked && !bridgeSuccess) {
+                // Espelho de exibição recebe os contadores do silício antes de
+                // lançar, para o badge nunca exibir um `remaining` obsoleto.
+                publishSiliconDenialCounters(json, cborDenialVerdict)
                 val detail = transportErrors.filter { it.isNotBlank() }.joinToString(" | ")
                 val base = hardwareError ?: "Chave não respondeu ou PIN incorreto. Verifique a conexão."
+                DeviceLog.append(
+                    DeviceLog.Category.LOCK,
+                    "unlock negado pelo silício: " + (if (detail.isNotBlank()) "$base ($detail)" else base)
+                )
                 throw SecurityException(if (detail.isNotBlank()) "$base ($detail)" else base)
             }
 
@@ -623,14 +795,39 @@ class SecureGuardRepositoryImpl(
                 hostBridgeClient.sendVendor(OP_TRIGGER_PAIRING_OPEN, byteArrayOf())
             }
 
+            // Estado honesto a partir do veredito do SILÍCIO (nunca forjado,
+            // nunca o espelho): `failed/remaining` reais do 0x3B vencedor
+            // (CBOR direto) ou do `POST /api/secure-guard/unlock`.
+            // `session_remaining_ms` ausente no veredito = default de firmware
+            // (300s); o próximo 0x3A atesta o saldo real.
+            val siliconFailed: Int
+            val siliconRemaining: Int
+            val siliconMax: Int
+            val siliconRateLimitMs: Long
+            val siliconSessionMs: Long
+            if (bridgeSuccess && bridgeVerdict != null && cborSuccessVerdict == null) {
+                siliconFailed = bridgeVerdict.failedAttempts
+                siliconRemaining = bridgeVerdict.remainingAttempts ?: 5
+                siliconMax = bridgeVerdict.maxAttempts
+                siliconRateLimitMs = bridgeVerdict.rateLimitRemainingMs
+                siliconSessionMs = bridgeVerdict.sessionRemainingMs ?: 300_000L
+            } else {
+                val v = cborSuccessVerdict
+                siliconFailed = v?.failedAttempts ?: 0
+                siliconRemaining = v?.remainingAttempts ?: 5
+                siliconMax = 5
+                siliconRateLimitMs = v?.rateLimitRemainingMs ?: 0L
+                siliconSessionMs = 300_000L
+            }
             val unlockedStatus = _statusFlow.value.copy(
                 state = SecureGuardStateEnum.UNLOCKED,
                 isProvisioned = true,
                 isUnlocked = true,
-                failedAttempts = 0,
-                remainingAttempts = 5,
-                rateLimitRemainingMs = 0L,
-                sessionRemainingMs = 300_000L
+                failedAttempts = siliconFailed,
+                remainingAttempts = siliconRemaining,
+                maxAttempts = siliconMax,
+                rateLimitRemainingMs = siliconRateLimitMs,
+                sessionRemainingMs = siliconSessionMs
             )
             _statusFlow.value = unlockedStatus
             unlockedStatus

@@ -103,10 +103,26 @@ class SecureGuardViewModel(
             return "Falha na comunicação com o hardware. Verifique a conexão USB ou BLE."
         }
 
-        // Se for erro de PIN ou autenticação
-        if (t is SecurityException || raw.contains("pin", ignoreCase = true) || raw.contains("senha", ignoreCase = true)) {
-            if (raw.contains("restam", ignoreCase = true) || raw.contains("tentativas", ignoreCase = true)) {
+        // Se for erro de PIN ou autenticação.
+        // Veredito do silício verbatim tem prioridade: mensagens com o
+        // contador autoritativo ("Restam N tentativas", "tentativas",
+        // "Limite de tentativas") vêm do 0x3B/`POST /api/secure-guard/unlock`
+        // e nunca podem ser trocadas por texto genérico ou pelo espelho.
+        // O agregado de transporte "(USB/BLE/Bridge/Hardware: …)" é detalhe
+        // de debug: a UI exibe só o veredito curto do silício.
+        if (t is SecurityException || raw.contains("pin", ignoreCase = true) || raw.contains("senha", ignoreCase = true) ||
+            raw.contains("tentativa", ignoreCase = true) || raw.contains("restam", ignoreCase = true)
+        ) {
+            if (raw.contains("restam", ignoreCase = true) || raw.contains("tentativas", ignoreCase = true) ||
+                raw.contains("limite de tentativas", ignoreCase = true)
+            ) {
                 return raw
+                    .substringBefore(" (USB:")
+                    .substringBefore(" (BLE:")
+                    .substringBefore(" (Bridge:")
+                    .substringBefore(" (Hardware:")
+                    .trim()
+                    .ifBlank { raw }
             }
             if (raw.contains("bloqueado", ignoreCase = true) || raw.contains("limit", ignoreCase = true)) {
                 return "Muitas tentativas incorretas. Aguarde o tempo de espera do cofre."
