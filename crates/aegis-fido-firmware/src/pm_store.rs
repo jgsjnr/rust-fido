@@ -51,6 +51,14 @@ pub const PM_BLOB_NVS_KEY: &str = "vault-pm/blob";
 /// das ceremonias de pareamento BLE); espelha `aegis-pm-vault`
 /// `PM_BINDING_WINDOW_MS` sem depender daquele crate aqui.
 pub const PM_BINDING_WINDOW_MS: u64 = crate::config::PAIRING_WINDOW_MS;
+/// UP freshness window in ms: every PM op requires presence confirmed
+/// within this window. All funnels deliver UP as a single-shot latch
+/// consumed by the op itself (serial: `touch_latched`/`up_latched` cleared
+/// on dispatch; BLE: latch cleared when the complete message is taken),
+/// so the age observed here is always `0` on honest funnels; any caller
+/// presenting a stale age fails closed with `PresenceRequired`.
+/// Same 60 s anchor as [`PM_BINDING_WINDOW_MS`].
+pub const PM_UP_WINDOW_MS: u64 = crate::config::PAIRING_WINDOW_MS;
 /// Whole-vault sealed-blob budget: the `SecureStorage` envelope ceiling
 /// (single blob holds N records, unlike 512 B per-item `vault/` slots).
 pub const PM_BLOB_MAX_BYTES: usize = crate::persistence::MAX_PLAINTEXT_BYTES;
@@ -85,7 +93,9 @@ pub fn is_pm_op(op: u8) -> bool {
 ///
 /// The phone is a blind transport: it carries the attestation, the device
 /// decides. `bound_within_ms` is the age of the binding authorization;
-/// releases past [`PM_BINDING_WINDOW_MS`] fail closed.
+/// `up_within_ms` is the age of the presence confirmation (single-shot
+/// latch consumed by the op; funnels pass `0`). Releases past either
+/// window fail closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PmGateState {
     /// A bonded phone owns this session (BLE bonding / CTAPHID session).
@@ -96,6 +106,8 @@ pub struct PmGateState {
     pub pin_authenticated: bool,
     /// Milliseconds since binding authorization (walk-away timer).
     pub bound_within_ms: u64,
+    /// Milliseconds since presence confirmation (fresh-UP timer).
+    pub up_within_ms: u64,
 }
 
 impl PmGateState {
@@ -106,6 +118,7 @@ impl PmGateState {
             presence_confirmed: true,
             pin_authenticated: true,
             bound_within_ms: 0,
+            up_within_ms: 0,
         }
     }
 }
@@ -118,6 +131,8 @@ impl PmGateState {
 /// - `!pin_authenticated` -> `PinRequired` (`0x02`).
 /// - `bound_within_ms > 60_000` -> `PresenceRequired` (walk-away fecha o
 ///   viewer; reusa o vocabulario 9.5 existente, sem codigo novo no fio).
+/// - `up_within_ms > 60_000` -> `PresenceRequired` (UP velho reutilizado
+///   nega; todo funil entrega UP single-shot consumido pela propria op).
 ///
 /// Sem I/O, sem alloc. Reuso de `authorize_vendor_op` por vocabulario:
 /// os mesmos `BleGattError` que o transporte BLE/serial ja traduz no fio.
@@ -137,7 +152,108 @@ pub fn authorize_pm_op(op: u8, gate: &PmGateState) -> Result<(), BleGattError> {
     if gate.bound_within_ms > PM_BINDING_WINDOW_MS {
         return Err(BleGattError::PresenceRequired);
     }
+    if gate.up_within_ms > PM_UP_WINDOW_MS {
+        return Err(BleGattError::PresenceRequired);
+    }
     Ok(())
+}
+
+/// Consecutive authenticated PM failures before the backoff arms.
+pub const PM_MAX_CONSEC_FAIL: u8 = 5;
+/// Backoff window applied after the failure budget is spent (fail-closed
+/// `0x04` on every PM op until it lapses; success resets the budget).
+pub const PM_BACKOFF_MS: u64 = 30_000;
+
+/// Per-transport backoff state for PM ops (RAM only, never persisted,
+/// never logged with payloads).
+///
+/// Only *authenticated* failures spend the budget (`NotFound` `0x03` /
+/// generic `0x04` after the gates passed: oracle de enumeracao e
+/// martelamento de cofre). Gate denials (`0x01`/`0x02`/`0x05`) carry no
+/// oracle and neither spend nor reset the budget; success (`0x00`)
+/// resets it. No I/O, no alloc, `no_std`-compatible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PmRateLimiter {
+    consec_fail: u8,
+    backoff_until_ms: u64,
+}
+
+impl PmRateLimiter {
+    /// Fresh limiter: full budget, no backoff armed.
+    pub fn new() -> Self {
+        Self {
+            consec_fail: 0,
+            backoff_until_ms: 0,
+        }
+    }
+
+    /// Fail-closed during backoff: `Err(0x04)` generic wire status
+    /// (vocabulario 9.5 congelado; o host trata `0x04` repetido como
+    /// "aguarde 30 s e reapresente UP+PIN").
+    pub fn poll(&self, now_ms: u64) -> Result<(), u8> {
+        if now_ms < self.backoff_until_ms {
+            return Err(0x04);
+        }
+        Ok(())
+    }
+
+    /// Records one authenticated outcome (`0x00` resets the budget;
+    /// `0x03`/`0x04` spend one unit and arm the backoff at the budget
+    /// edge; gate denials are ignored).
+    pub fn record(&mut self, status: u8, now_ms: u64) {
+        match status {
+            0x00 => {
+                self.consec_fail = 0;
+            }
+            0x03 | 0x04 => {
+                self.consec_fail = self.consec_fail.saturating_add(1);
+                if self.consec_fail >= PM_MAX_CONSEC_FAIL {
+                    self.consec_fail = 0;
+                    self.backoff_until_ms = now_ms.saturating_add(PM_BACKOFF_MS);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `true` while a backoff window is armed (diagnostics only).
+    pub fn in_backoff(&self, now_ms: u64) -> bool {
+        now_ms < self.backoff_until_ms
+    }
+}
+
+impl Default for PmRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::ble_gatt::PmBackoffGate for PmRateLimiter {
+    fn poll(&self, now_ms: u64) -> Result<(), u8> {
+        PmRateLimiter::poll(self, now_ms)
+    }
+    fn record(&mut self, status: u8, now_ms: u64) {
+        PmRateLimiter::record(self, status, now_ms)
+    }
+}
+
+/// Secret-free PM audit event: opcode + wire status only.
+///
+/// By construction there is no payload field, so user data (labels,
+/// usernames, secrets, URLs, opaque ids) can never reach logs through
+/// this type. Every PM dispatch emits exactly one line via `log`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PmAuditEvent {
+    /// PM opcode (`0x43..=0x47`).
+    pub op: u8,
+    /// Wire status answered (`0x00`/`0x01`/`0x02`/`0x03`/`0x04`/`0x05`).
+    pub status: u8,
+}
+
+impl core::fmt::Display for PmAuditEvent {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "[PM-AUDIT] op=0x{:02X} st=0x{:02X}", self.op, self.status)
+    }
 }
 
 /// Typed PM persistence failure (no panics, no stringly errors, no secret
@@ -440,6 +556,7 @@ mod tests {
             presence_confirmed: false,
             pin_authenticated: false,
             bound_within_ms: PM_BINDING_WINDOW_MS + 1,
+            up_within_ms: PM_UP_WINDOW_MS + 1,
         };
         // Binding denial wins even when everything else is also missing.
         assert_eq!(
@@ -560,6 +677,89 @@ mod tests {
         assert_eq!(buf.as_bytes(), frame.as_bytes());
     }
 
+    #[test]
+    fn stale_up_age_denies_every_op() {
+        let base = PmGateState::authorized();
+        // Fresh UP passes; edge of the window is inclusive.
+        assert!(authorize_pm_op(OP_PM_GET, &base).is_ok());
+        let edge = PmGateState {
+            up_within_ms: PM_UP_WINDOW_MS,
+            ..base
+        };
+        assert!(authorize_pm_op(OP_PM_GET, &edge).is_ok());
+        // Stale UP denies even with the latch bit set (no latch reuse).
+        let stale = PmGateState {
+            up_within_ms: PM_UP_WINDOW_MS + 1,
+            ..base
+        };
+        for op in PM_OP_MIN..=PM_OP_MAX {
+            assert_eq!(
+                authorize_pm_op(op, &stale),
+                Err(BleGattError::PresenceRequired),
+                "stale UP must deny op 0x{op:02X}"
+            );
+        }
+        // Order preserved: missing UP bit still denies before the age check.
+        let no_up = PmGateState {
+            presence_confirmed: false,
+            up_within_ms: PM_UP_WINDOW_MS + 1,
+            ..base
+        };
+        assert_eq!(
+            authorize_pm_op(OP_PM_DELETE, &no_up),
+            Err(BleGattError::PresenceRequired)
+        );
+    }
+
+    #[test]
+    fn rate_limiter_backoff_locks_out_then_lapses() {
+        let mut lim = PmRateLimiter::new();
+        assert!(lim.poll(0).is_ok());
+        assert!(!lim.in_backoff(0));
+        // Gate denials carry no oracle: ignored, budget untouched.
+        for st in [0x01u8, 0x02, 0x05, 0x06] {
+            lim.record(st, 1_000);
+        }
+        assert!(lim.poll(1_000).is_ok());
+        // Four authenticated failures: still open.
+        for _ in 0..PM_MAX_CONSEC_FAIL - 1 {
+            lim.record(0x03, 2_000);
+        }
+        assert!(lim.poll(2_000).is_ok());
+        // Fifth spends the budget: backoff arms for PM_BACKOFF_MS.
+        lim.record(0x04, 2_000);
+        assert!(lim.in_backoff(2_000));
+        assert_eq!(lim.poll(2_000), Err(0x04));
+        assert_eq!(lim.poll(2_000 + PM_BACKOFF_MS - 1), Err(0x04));
+        assert!(lim.poll(2_000 + PM_BACKOFF_MS).is_ok());
+        // After the window lapses the limiter is usable again, and a
+        // success resets the budget (fresh burst allowed).
+        let after = 2_000 + PM_BACKOFF_MS;
+        assert!(lim.poll(after).is_ok());
+        lim.record(0x00, after);
+        for _ in 0..PM_MAX_CONSEC_FAIL - 1 {
+            lim.record(0x04, after);
+        }
+        assert!(lim.poll(after).is_ok());
+    }
+
+    #[test]
+    fn audit_event_carries_no_secret_surface() {
+        // Exact wire-facing shape: opcode + status, nothing else.
+        let ev = PmAuditEvent {
+            op: OP_PM_GET,
+            status: 0x00,
+        };
+        assert_eq!(alloc::format!("{ev}"), "[PM-AUDIT] op=0x44 st=0x00");
+        // The type has no payload field by construction: even adversarial
+        // bodies cannot be formatted through it.
+        let dbg = alloc::format!("{:?}", ev);
+        assert!(dbg.contains("0x44") || dbg.contains("68"));
+        assert!(!dbg.contains("s3cr3t"));
+        assert!(!dbg.contains("alice"));
+        assert_eq!(PM_BACKOFF_MS, 30_000);
+        assert_eq!(PM_UP_WINDOW_MS, 60_000);
+    }
     #[test]
     fn errors_carry_no_secret_payload() {
         // Typed errors are unit variants: Debug/Display never echo blob bytes.

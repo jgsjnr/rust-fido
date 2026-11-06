@@ -31,9 +31,10 @@ use alloc::vec::Vec;
 use ciborium::value::Value;
 
 use crate::persistence::{FlashStorageBackend, SecureStorage};
+use crate::ble_gatt::PmBackoffGate;
 use crate::pm_store::{
-    authorize_pm_op, pm_blob_load_opt, pm_blob_save, PmGateState, OP_PM_DELETE, OP_PM_GET,
-    OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
+    authorize_pm_op, pm_blob_load_opt, pm_blob_save, PmAuditEvent, PmGateState,
+    OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
 };
 
 /// Device PM vault master key (RAM session key material; the sealed NVS blob
@@ -189,10 +190,12 @@ pub fn dispatch_pm_op_persist<B: FlashStorageBackend, R: rand_core::CryptoRng>(
     policy: &PmPolicy,
     now_secs: u64,
     rng: &mut R,
+    limiter: &mut impl PmBackoffGate,
+    now_ms: u64,
 ) -> (u8, Vec<u8>) {
     let mut vault = PmVault::new(PM_VAULT_MASTER_KEY);
     let _ = pm_vault_load(storage, &mut vault, policy, gate);
-    let (st, out) = dispatch_pm_op(op, body, gate, &mut vault, policy, now_secs, rng);
+    let (st, out) = dispatch_pm_op(op, body, gate, &mut vault, policy, now_secs, rng, limiter, now_ms);
     if st == 0x00
         && (op == OP_PM_PUT || op == OP_PM_DELETE)
         && !pm_vault_save(storage, &vault, policy, gate, rng)
@@ -204,10 +207,38 @@ pub fn dispatch_pm_op_persist<B: FlashStorageBackend, R: rand_core::CryptoRng>(
 
 /// Dispatches one PM op over a RAM vault.
 ///
-/// Returns `(wire_status, body)` status-first like BLE. Gate denial maps
-/// via `authorize_pm_op`; vault failures map via [`pm_error_to_wire`].
+/// Single choke point for every transport: backoff is checked first
+/// (fail-closed `0x04` while armed), then the canonical gate, then the
+/// vault. Exactly one secret-free [`PmAuditEvent`] line is emitted per
+/// call; the budget records only authenticated outcomes (`0x00` resets,
+/// `0x03`/`0x04` spend).
 #[allow(clippy::too_many_arguments)]
 pub fn dispatch_pm_op<R: rand_core::CryptoRng>(
+    op: u8,
+    body: &[u8],
+    gate: &PmGateState,
+    vault: &mut PmVault,
+    policy: &PmPolicy,
+    now_secs: u64,
+    rng: &mut R,
+    limiter: &mut impl PmBackoffGate,
+    now_ms: u64,
+) -> (u8, Vec<u8>) {
+    if limiter.poll(now_ms).is_err() {
+        let st = 0x04u8;
+        log::info!("{}", PmAuditEvent { op, status: st });
+        return (st, Vec::new());
+    }
+    let (st, out) = dispatch_pm_op_inner(op, body, gate, vault, policy, now_secs, rng);
+    limiter.record(st, now_ms);
+    log::info!("{}", PmAuditEvent { op, status: st });
+    (st, out)
+}
+
+/// Gate + vault execution without backoff/audit (wrapped by
+/// [`dispatch_pm_op`]; never called directly by transports).
+#[allow(clippy::too_many_arguments)]
+fn dispatch_pm_op_inner<R: rand_core::CryptoRng>(
     op: u8,
     body: &[u8],
     gate: &PmGateState,
@@ -366,7 +397,9 @@ pub fn dispatch_pm_op<R: rand_core::CryptoRng>(
 mod tests {
     use super::*;
     use crate::ble_gatt::BleGattError;
-    use crate::pm_store::PM_BINDING_WINDOW_MS;
+    use crate::pm_store::{
+        PM_BACKOFF_MS, PM_BINDING_WINDOW_MS, PM_MAX_CONSEC_FAIL, PM_UP_WINDOW_MS, PmRateLimiter,
+    };
 
     fn test_vault() -> (PmVault, PmPolicy) {
         (PmVault::new([0x5Au8; 32]), PmPolicy::default())
@@ -394,6 +427,8 @@ mod tests {
         PmGateState::authorized()
     }
 
+    const NOW_MS: u64 = 1_770_000_000_000;
+
     fn put_one(vault: &mut PmVault, policy: &PmPolicy) -> Vec<u8> {
         let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
         let (st, body) = dispatch_pm_op(
@@ -404,6 +439,8 @@ mod tests {
             policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         decode_id_body(&body).expect("put answers opaque id")
@@ -462,7 +499,7 @@ mod tests {
         for (op, body) in &bodies {
             for (g, want) in denied {
                 let (st, _) =
-                    dispatch_pm_op(*op, body, &g, &mut vault, &policy, 1_770_000_000, &mut rng);
+                    dispatch_pm_op(*op, body, &g, &mut vault, &policy, 1_770_000_000, &mut rng, &mut PmRateLimiter::new(), NOW_MS);
                 assert_eq!(st, want, "op 0x{op:02X}");
             }
         }
@@ -475,6 +512,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(
             st,
@@ -497,6 +536,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries = from_cbor(&body).expect("release cbor");
@@ -511,6 +552,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x03);
         // DELETE then GET -> NO_SLOT.
@@ -522,6 +565,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let (st, _) = dispatch_pm_op(
@@ -532,6 +577,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x03);
         // DELETE unknown -> NO_SLOT (0x03), never 0x00.
@@ -543,6 +590,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x03);
     }
@@ -571,6 +620,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries = from_cbor(&body).expect("list cbor");
@@ -595,6 +646,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries2 = from_cbor(&body2).expect("list cbor");
@@ -621,6 +674,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries = from_cbor(&body).expect("status cbor");
@@ -644,6 +699,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x04);
         // Non-CBOR body rejected.
@@ -655,6 +712,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x04);
         // Empty id rejected.
@@ -669,6 +728,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x04);
         // Debug of errors carries no blob bytes.
@@ -702,6 +763,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let id = decode_id_body(&body).expect("opaque id");
@@ -714,6 +777,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries = from_cbor(&body).expect("list cbor");
@@ -731,6 +796,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         // Simulated reboot: new engine over the persisted backend image.
@@ -744,6 +811,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries = from_cbor(&body).expect("reboot list cbor");
@@ -761,6 +830,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let backend_clone = rebooted.backend().clone();
@@ -773,6 +844,8 @@ mod tests {
             &policy,
             1_770_000_000,
             &mut rng,
+            &mut PmRateLimiter::new(),
+            NOW_MS,
         );
         assert_eq!(st, 0x00);
         let entries = from_cbor(&body).expect("empty list cbor");
@@ -781,5 +854,146 @@ mod tests {
             _ => panic!("ids array"),
         };
         assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn backoff_denies_authenticated_ops_until_lapse() {
+        let (mut vault, policy) = test_vault();
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        let mut lim = PmRateLimiter::new();
+        let unknown = encode_id_body(&[0xFF; 16]).expect("id body");
+        // Five authenticated misses (0x03) spend the budget; the sixth op
+        // is denied 0x04 even fully authorized (fail-closed backoff).
+        for _ in 0..PM_MAX_CONSEC_FAIL {
+            let (st, _) = dispatch_pm_op(
+                OP_PM_GET,
+                &unknown,
+                &gate(),
+                &mut vault,
+                &policy,
+                1_770_000_000,
+                &mut rng,
+                &mut lim,
+                NOW_MS,
+            );
+            assert_eq!(st, 0x03);
+        }
+        let (st, _) = dispatch_pm_op(
+            OP_PM_GET,
+            &unknown,
+            &gate(),
+            &mut vault,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+            &mut lim,
+            NOW_MS,
+        );
+        assert_eq!(st, 0x04);
+        // Backoff is per-limiter, not per-op: PUT also denied.
+        let (st, _) = dispatch_pm_op(
+            OP_PM_PUT,
+            &put_body("bank", "alice", b"s3cr3t"),
+            &gate(),
+            &mut vault,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+            &mut lim,
+            NOW_MS,
+        );
+        assert_eq!(st, 0x04);
+        // After the window lapses the same op is evaluated normally again.
+        let (st, _) = dispatch_pm_op(
+            OP_PM_GET,
+            &unknown,
+            &gate(),
+            &mut vault,
+            &policy,
+            1_770_000_000,
+            &mut rng,
+            &mut lim,
+            NOW_MS + PM_BACKOFF_MS,
+        );
+        assert_eq!(st, 0x03);
+    }
+
+    #[test]
+    fn stale_up_and_missing_pin_deny_at_dispatch() {
+        let (mut vault, policy) = test_vault();
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        let unknown = encode_id_body(&[0xFF; 16]).expect("id body");
+        // Stale UP age denies even with the latch bit set.
+        let stale_up = PmGateState {
+            up_within_ms: PM_UP_WINDOW_MS + 1,
+            ..gate()
+        };
+        for op in [OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS] {
+            let body = if op == OP_PM_PUT {
+                put_body("bank", "alice", b"s3cr3t")
+            } else if op == OP_PM_LIST || op == OP_PM_STATUS {
+                list_req(0, 32)
+            } else {
+                unknown.clone()
+            };
+            let (st, _) = dispatch_pm_op(
+                op,
+                &body,
+                &stale_up,
+                &mut vault,
+                &policy,
+                1_770_000_000,
+                &mut rng,
+                &mut PmRateLimiter::new(),
+                NOW_MS,
+            );
+            assert_eq!(st, 0x01, "stale UP must deny op 0x{op:02X}");
+        }
+        // Secret-touching ops require PIN strictly: binding + fresh UP
+        // without PIN denies 0x02 on GET and DELETE.
+        let no_pin = PmGateState {
+            pin_authenticated: false,
+            ..gate()
+        };
+        for op in [OP_PM_GET, OP_PM_DELETE] {
+            let (st, _) = dispatch_pm_op(
+                op,
+                &unknown,
+                &no_pin,
+                &mut vault,
+                &policy,
+                1_770_000_000,
+                &mut rng,
+                &mut PmRateLimiter::new(),
+                NOW_MS,
+            );
+            assert_eq!(st, 0x02, "GET/DELETE without PIN must deny 0x02");
+        }
+        // Unbound transport denies 0x05 on every PM op (fail-closed).
+        let unbound = PmGateState {
+            binding_bound: false,
+            ..gate()
+        };
+        for op in [OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS] {
+            let body = if op == OP_PM_PUT {
+                put_body("bank", "alice", b"s3cr3t")
+            } else if op == OP_PM_LIST || op == OP_PM_STATUS {
+                list_req(0, 32)
+            } else {
+                unknown.clone()
+            };
+            let (st, _) = dispatch_pm_op(
+                op,
+                &body,
+                &unbound,
+                &mut vault,
+                &policy,
+                1_770_000_000,
+                &mut rng,
+                &mut PmRateLimiter::new(),
+                NOW_MS,
+            );
+            assert_eq!(st, 0x05, "unbound must deny op 0x{op:02X}");
+        }
     }
 }

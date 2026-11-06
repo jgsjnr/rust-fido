@@ -27,7 +27,7 @@ use aegis_fido_firmware::exec_secure_guard_op;
 use aegis_fido_firmware::persistence::{PlatformFlashBackend, SecureStorage};
 use aegis_fido_firmware::pm_dispatch::dispatch_pm_op_persist;
 use aegis_fido_firmware::pm_store::{
-    pm_blob_load, PmGateState, PmStoreError, OP_PM_LIST, OP_PM_PUT,
+    pm_blob_load, PmGateState, PmRateLimiter, PmStoreError, OP_PM_LIST, OP_PM_PUT,
 };
 use aegis_fido_firmware::vendor_exec::exec_vendor_op;
 use aegis_pm_vault::PmPolicy;
@@ -99,6 +99,8 @@ fn populate_keys_and_pm(
         &policy,
         1_770_000_000,
         &mut rng,
+        &mut PmRateLimiter::new(),
+        1_770_000_000_000,
     );
     assert_eq!(st, 0x00, "PM PUT ok");
     // Uma chave vendor 0x20 (LIST 0x22 nao-vazio antes do wipe).
@@ -153,6 +155,8 @@ fn pm_list_ids(storage: &mut SecureStorage<PlatformFlashBackend>) -> Vec<Vec<u8>
         &policy,
         1_770_000_000,
         &mut rng,
+        &mut PmRateLimiter::new(),
+        1_770_000_000_000,
     );
     assert_eq!(st, 0x00, "LIST 0x45 deve responder 0x00");
     let entries = from_cbor(&body);

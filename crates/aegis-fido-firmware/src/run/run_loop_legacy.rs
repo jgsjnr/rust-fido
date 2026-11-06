@@ -197,6 +197,12 @@ pub fn run_authenticator() {
     // Wave1: latch uso unico; PIN para RESC so apos verify_token_permission Ok.
     // Carteira Fase7: WalletStore de sessão (RAM; NVS = follow-up).
     let mut wallet_store = WalletStore::new();
+    // PM backoff desta sessao BLE/serial (RAM; reseta no boot; o gate nega
+    // 0x04 fail-closed enquanto armado).
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+    let mut pm_limiter = crate::pm_store::PmRateLimiter::new();
+    #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+    let mut pm_limiter = ();
     // F6: preview pendente mediado pelo app (RAM, mesma sessão da carteira).
     let mut wallet_pending = crate::wallet_approval::WalletPendingApproval::new();
     // DEV-only boot resilience (test-mode ONLY): single-attempt auto-recovery
@@ -879,6 +885,7 @@ pub fn run_authenticator() {
                             &mut key_mgr,
                             &mut oath_applet,
                             &mut secure_guard,
+                            &mut pm_limiter,
                         );
                         // Wave2 proximidade: release/recovery apagou a NVS
                         // no dispatch (so no Ok); espelha no cache RAM.
@@ -2112,25 +2119,27 @@ pub fn run_authenticator() {
                                                             rand_core::UnwrapErr(getrandom::SysRng);
                                                         let policy =
                                                             aegis_pm_vault::PmPolicy::default();
+                                                        // PM exige PIN estrito sempre: sessao
+                                                        // pinUvAuth viva — sem o bypass
+                                                        // test-mode (GET/DELETE liberam
+                                                        // segredo). UP single-shot: o latch
+                                                        // foi consumido por esta op acima.
+                                                        let pm_pin_ok = ctap_engine
+                                                            .pin_state
+                                                            .has_valid_pin_uv_session();
                                                         crate::serial_vendor::dispatch_serial_pm_persist(
                                                             op,
                                                             &msg.payload[1..],
                                                             binding_mgr.is_claimed(),
-                                                            ctap_engine
-                                                                .pin_state
-                                                                .has_valid_pin_uv_session()
-                                                                || (cfg!(feature = "test-mode")
-                                                                    && (pairing_mgr
-                                                                        .is_pairing_window_open(
-                                                                            now_ms,
-                                                                        )
-                                                                        || touch_latched)),
+                                                            pm_pin_ok,
                                                             true,
                                                             0,
                                                             &mut storage,
                                                             &policy,
                                                             now_secs,
                                                             &mut rng,
+                                                            &mut pm_limiter,
+                                                            now_ms,
                                                         )
                                                     }
                                                     // Diet: PM fora da capability (fail-closed, 0x06).

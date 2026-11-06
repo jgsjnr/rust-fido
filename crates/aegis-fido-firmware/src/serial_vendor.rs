@@ -57,8 +57,10 @@ pub fn dispatch_serial_vendor(
 /// blob I/O is a follow-up via `pm_store`). Gate denial maps via
 /// `authorize_pm_op` (binding -> `0x05`, UP -> `0x01`, PIN -> `0x02`,
 /// window-expiry -> `0x01`); vault failures map fail-closed (`NotFound` ->
-/// `0x03`, else `0x04`). Outside the diet the caller must answer
-/// `UNSUPPORTED_FEATURE` (`0x06`) and never call this.
+/// `0x03`, else `0x04`). Backoff (`limiter`, `now_ms`) denies `0x04` while
+/// armed; `up_within_ms` is `0` because the serial funnel consumes the UP
+/// latch for this op (fresh UP by construction). Outside the diet the caller
+/// must answer `UNSUPPORTED_FEATURE` (`0x06`) and never call this.
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
 #[allow(clippy::too_many_arguments)]
 pub fn dispatch_serial_pm<R: rand_core::CryptoRng>(
@@ -72,6 +74,8 @@ pub fn dispatch_serial_pm<R: rand_core::CryptoRng>(
     policy: &aegis_pm_vault::PmPolicy,
     now_secs: u64,
     rng: &mut R,
+    limiter: &mut impl crate::ble_gatt::PmBackoffGate,
+    now_ms: u64,
 ) -> (u8, Vec<u8>) {
     use crate::pm_store::PmGateState;
     let gate = PmGateState {
@@ -79,8 +83,9 @@ pub fn dispatch_serial_pm<R: rand_core::CryptoRng>(
         presence_confirmed: up,
         pin_authenticated,
         bound_within_ms,
+        up_within_ms: 0,
     };
-    crate::pm_dispatch::dispatch_pm_op(op, body, &gate, vault, policy, now_secs, rng)
+    crate::pm_dispatch::dispatch_pm_op(op, body, &gate, vault, policy, now_secs, rng, limiter, now_ms)
 }
 
 #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
@@ -99,6 +104,8 @@ pub fn dispatch_serial_pm_persist<
     policy: &aegis_pm_vault::PmPolicy,
     now_secs: u64,
     rng: &mut R,
+    limiter: &mut impl crate::ble_gatt::PmBackoffGate,
+    now_ms: u64,
 ) -> (u8, Vec<u8>) {
     use crate::pm_store::PmGateState;
     let gate = PmGateState {
@@ -106,8 +113,11 @@ pub fn dispatch_serial_pm_persist<
         presence_confirmed: up,
         pin_authenticated,
         bound_within_ms,
+        up_within_ms: 0,
     };
-    crate::pm_dispatch::dispatch_pm_op_persist(op, body, &gate, storage, policy, now_secs, rng)
+    crate::pm_dispatch::dispatch_pm_op_persist(
+        op, body, &gate, storage, policy, now_secs, rng, limiter, now_ms,
+    )
 }
 
 /// Dispatches one wallet op (`0x35`-`0x37` + compat `0x48`-`0x4B`) with
@@ -142,6 +152,72 @@ pub fn dispatch_serial_rescue(
     engine.handle_packet(frame)
 }
 
+#[cfg(all(test, not(any(feature = "cap-fido-only", feature = "cap-fido-totp"))))]
+mod tests {
+    use super::*;
+    use crate::persistence::{MockFlashBackend, SecureStorage};
+    use crate::pm_store::{
+        PmRateLimiter, OP_PM_DELETE, OP_PM_GET, OP_PM_LIST, OP_PM_PUT, OP_PM_STATUS,
+    };
+
+    fn test_storage() -> SecureStorage<MockFlashBackend> {
+        SecureStorage::new(MockFlashBackend::new(), &[0x11u8; 32], &[0x22u8; 32])
+    }
+
+    /// Funnel-level fail-closed: unbound transport denies 0x05 on every PM
+    /// op before any vault access (binding -> UP -> PIN -> window).
+    #[test]
+    fn unbound_serial_denies_every_pm_op() {
+        let mut storage = test_storage();
+        let policy = aegis_pm_vault::PmPolicy::default();
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        for op in [OP_PM_PUT, OP_PM_GET, OP_PM_LIST, OP_PM_DELETE, OP_PM_STATUS] {
+            let (st, body) = dispatch_serial_pm_persist(
+                op,
+                &[],
+                false, // binding_ok: unbound transport
+                true,
+                true,
+                0,
+                &mut storage,
+                &policy,
+                1_770_000_000,
+                &mut rng,
+                &mut PmRateLimiter::new(),
+                1_770_000_000_000,
+            );
+            assert_eq!(st, 0x05, "unbound must deny op 0x{op:02X}");
+            assert!(body.is_empty());
+        }
+    }
+
+    /// Funnel-level strict PIN: GET/DELETE deny 0x02 with binding + UP but
+    /// no PIN session (no test-mode bypass at this layer).
+    #[test]
+    fn serial_pm_get_delete_require_strict_pin() {
+        let mut storage = test_storage();
+        let policy = aegis_pm_vault::PmPolicy::default();
+        let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
+        for op in [OP_PM_GET, OP_PM_DELETE] {
+            let (st, _) = dispatch_serial_pm_persist(
+                op,
+                &[],
+                true,
+                false, // pin_authenticated: no session
+                true,
+                0,
+                &mut storage,
+                &policy,
+                1_770_000_000,
+                &mut rng,
+                &mut PmRateLimiter::new(),
+                1_770_000_000_000,
+            );
+            assert_eq!(st, 0x02, "GET/DELETE without PIN must deny 0x02");
+        }
+    }
+}
+///
 /// Dispatches one binding-mgmt op (`0x28-0x2D`) over serial with BLE-identical gates.
 ///
 /// Reuses the `ble_gatt::dispatch_*` helpers byte-for-byte (claim / challenge /

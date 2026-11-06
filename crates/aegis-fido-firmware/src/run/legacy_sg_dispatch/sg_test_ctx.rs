@@ -89,6 +89,8 @@ pub(crate) fn freertos_ctx(
         ota_pubkey: [0u8; 32],
         ota_current_version: 0,
         up_hook: false,
+        #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+        pm_limiter: crate::pm_store::PmRateLimiter::new(),
     }
 }
 

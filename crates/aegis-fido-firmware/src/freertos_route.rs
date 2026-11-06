@@ -21,6 +21,8 @@ use crate::serial_ctaphid::{
     authorize_serial, deny_response, dispatch_serial_bind_mgmt, dispatch_serial_rescue,
     is_rescue_msg, serial_bind_mgmt_consumes_up, SerialGate,
 };
+#[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+use crate::pm_store::PmRateLimiter;
 use aegis_fido_core::ctap::{
     CtapEngine, CTAP_CMD_GET_ASSERTION, CTAP_CMD_MAKE_CREDENTIAL, CTAP_CMD_RESET,
 };
@@ -138,6 +140,10 @@ pub struct SerialVendorCtx<'a> {
     ///
     /// Default `false`; release ignora (ver `OtaRequestCtx::commit_up_ok`).
     pub up_hook: bool,
+    /// Backoff PM (`0x43..=0x47`) desta sessao serial (RAM; o dispatcher
+    /// consome via `dispatch_serial_pm_persist`; funis BLE tem o proprio).
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+    pub pm_limiter: PmRateLimiter,
 }
 
 fn extract_pin_from_payload(payload: &[u8]) -> Option<Vec<u8>> {
@@ -505,23 +511,33 @@ pub fn dispatch_serial_vendor_msg(
                 let (st, body) = if crate::serial_ctaphid::serial_is_pm_op(op) {
                     #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
                     {
+                        // PM exige PIN estrito sempre: sessao pinUvAuth viva,
+                        // `pin_verified` ou SecureGuard desbloqueado — sem o
+                        // bypass test-mode (GET/DELETE liberam segredo; STATUS/
+                        // LIST passam pelo mesmo gate por simplicidade
+                        // fail-closed).
+                        let pm_pin_ok = ctx.pin_uv_session || ctx.pin_verified || sg_unlocked;
                         // PM device-only (PUT/GET/LIST/DELETE/STATUS sobre
                         // PmVault com persistencia NVS `vault-pm/blob`).
                         // `bound_within_ms = 0`:
                         // a janela de 60 s e a do pareamento ja aprovada no
                         // gate acima (walk-away fecha via `NeedPairing`).
+                        // UP single-shot: o latch e consumido por esta op
+                        // (`consumed` abaixo), entao `up_within_ms = 0`.
                         let policy = aegis_pm_vault::PmPolicy::default();
                         crate::serial_vendor::dispatch_serial_pm_persist(
                             op,
                             &payload[1..],
                             binding_claimed_effective,
-                            pin_effective,
+                            pm_pin_ok,
                             true,
                             0,
                             ctx.storage,
                             &policy,
                             ctx.now_secs,
                             &mut rng,
+                            &mut ctx.pm_limiter,
+                            ctx.now_ms,
                         )
                     }
                     // Diet: PM fora da capability (fail-closed, 0x06).
@@ -1020,6 +1036,8 @@ mod tests {
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -1095,6 +1113,8 @@ mod tests {
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         };
         let out = route_ctaphid_event(
             &mut mgr_usb,
@@ -1212,6 +1232,8 @@ mod tests {
                 ota_pubkey: [0u8; 32],
                 ota_current_version: 0,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             };
             let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
             let (packets, consumed) =
@@ -1387,6 +1409,8 @@ mod tests {
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         };
         let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, vec![crate::vendor_exec::OP_GET_CAPS]);
         let (packets, consumed) =
@@ -1485,6 +1509,10 @@ mod tests {
             };
             let mut sg = SecureGuardEngine::new(policy);
             let before = fwlog.len();
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            let mut pm_lim = crate::pm_store::PmRateLimiter::new();
+            #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+            let mut pm_lim = ();
             crate::run::ble_dispatch::ble_dispatch_complete(
                 crate::ble::gatt_core::BleCompleteMessage {
                     opcode: crate::vendor_exec::OP_GET_CAPS,
@@ -1505,6 +1533,7 @@ mod tests {
                 &mut key_mgr,
                 &mut oath,
                 &mut sg,
+                &mut pm_lim,
             );
             assert!(fwlog.len() > before);
             let rendered = fwlog.render_ascii(1024);
@@ -1646,6 +1675,8 @@ mod tests {
                 ota_pubkey: [0u8; 32],
                 ota_current_version: 0,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             }
         }
 
@@ -1861,6 +1892,10 @@ mod tests {
                 ..Default::default()
             };
             let mut sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(policy);
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            let mut pm_lim = crate::pm_store::PmRateLimiter::new();
+            #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+            let mut pm_lim = ();
             crate::run::ble_dispatch::ble_dispatch_complete(
                 crate::ble::gatt_core::BleCompleteMessage {
                     opcode: crate::ctap_cmd::OP_SET_UP_POLICY,
@@ -1881,6 +1916,7 @@ mod tests {
                 &mut key_mgr,
                 &mut oath,
                 &mut sg,
+                &mut pm_lim,
             );
             core::str::from_utf8(&fwlog.render_ascii(2048))
                 .expect("fwlog ascii")
@@ -2052,6 +2088,8 @@ mod tests {
                 ota_pubkey: [0u8; 32],
                 ota_current_version: 0,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             }
         }
 
@@ -2250,6 +2288,10 @@ mod tests {
                 ..Default::default()
             };
             let mut sg = aegis_fido_core::secure_guard::SecureGuardEngine::new(policy);
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            let mut pm_lim = crate::pm_store::PmRateLimiter::new();
+            #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+            let mut pm_lim = ();
             crate::run::ble_dispatch::ble_dispatch_complete(
                 crate::ble::gatt_core::BleCompleteMessage {
                     opcode: crate::vendor_exec::OP_VENDOR_SIGN,
@@ -2270,6 +2312,7 @@ mod tests {
                 &mut key_mgr,
                 &mut oath,
                 &mut sg,
+                &mut pm_lim,
             );
             core::str::from_utf8(&fwlog.render_ascii(2048))
                 .expect("fwlog ascii")
@@ -2397,6 +2440,8 @@ mod tests {
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         };
         let out_unprov = route_ctaphid_event(
             &mut mgr_usb,
@@ -2453,6 +2498,8 @@ mod tests {
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         };
 
         let out_prov = route_ctaphid_event(
@@ -2635,6 +2682,8 @@ mod tests {
             ota_pubkey: [0u8; 32],
             ota_current_version: 0,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         };
 
         // FIDO2 standard MakeCredential / GetAssertion via CMD_CBOR
@@ -2770,6 +2819,8 @@ mod tests {
                 ota_pubkey: [0u8; 32],
                 ota_current_version: 0,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             };
             let msg = CtapHidMessage::new(0x0A0B_0C0D, CMD_MSG, body);
             let (packets, consumed) =
@@ -2928,6 +2979,8 @@ mod ota_freertos_parity_tests {
             ota_pubkey,
             ota_current_version: OTA_CURRENT,
             up_hook: false,
+            #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+            pm_limiter: PmRateLimiter::new(),
         }
     }
 
@@ -3242,6 +3295,8 @@ mod ota_freertos_parity_tests {
                 ota_pubkey: pubkey,
                 ota_current_version: OTA_CURRENT,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             };
             let (st, _, _) = dispatch_op(&mut ctx, OP_OTA_BEGIN, &manifest).expect("BEGIN");
             assert_eq!(st, OTA_STATUS_OK);
@@ -3290,6 +3345,8 @@ mod ota_freertos_parity_tests {
                 ota_pubkey: pubkey,
                 ota_current_version: OTA_CURRENT,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             };
             let (st, body, _) =
                 dispatch_op(&mut ctx, OP_SECURE_GUARD_STATUS, &[]).expect("0x3A sem sessao");
@@ -3326,6 +3383,8 @@ mod ota_freertos_parity_tests {
                 ota_pubkey: [0u8; 32],
                 ota_current_version: OTA_CURRENT,
                 up_hook: false,
+                #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                pm_limiter: PmRateLimiter::new(),
             };
             let (st, body, _) =
                 dispatch_op(&mut ctx, OP_SECURE_GUARD_STATUS, &[]).expect("0x3A sem ota_state");

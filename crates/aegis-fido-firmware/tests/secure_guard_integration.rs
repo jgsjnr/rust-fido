@@ -132,6 +132,8 @@ fn test_secure_guard_full_lifecycle_and_enforcement() {
         ota_pubkey: [0u8; 32],
         ota_current_version: 0,
         up_hook: false,
+        #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+        pm_limiter: aegis_fido_firmware::pm_store::PmRateLimiter::new(),
     };
 
     // 1. Status inicial via 0x3A (deve ser Unprovisioned)
@@ -357,6 +359,8 @@ fn test_five_failures_trigger_scoped_wipe_preserving_fido2() {
         ota_pubkey: [0u8; 32],
         ota_current_version: 0,
         up_hook: false,
+        #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+        pm_limiter: aegis_fido_firmware::pm_store::PmRateLimiter::new(),
     };
 
     // Submete 5 tentativas erradas com avanço de tempo para superar os delays de rate limit

@@ -155,6 +155,29 @@ pub fn is_pm_fragment_opcode(op: u8) -> bool {
     }
 }
 
+/// Backoff por op sensivel (PM `0x43..=0x47`): vocabulario compartilhado
+/// entre funis, compilado em todos os presets inclusive diet.
+///
+/// O tipo real ([`crate::pm_store::PmRateLimiter`], RAM por sessao) existe
+/// so fora da diet; a diet passa `()` (no-op sempre aberto: o funil diet
+/// nega `0x06` antes de qualquer gate, entao o limiter nunca e consultado
+/// de verdade). `poll` fail-closed nega `Err(0x04)`; `record` contabiliza
+/// so falhas autenticadas (`0x03`/`0x04`), nunca negacoes de gate.
+pub trait PmBackoffGate {
+    /// Fail-closed durante o backoff (`Err(0x04)`).
+    fn poll(&self, now_ms: u64) -> Result<(), u8>;
+    /// Contabiliza um desfecho autenticado (`0x00` reseta o orcamento).
+    fn record(&mut self, status: u8, now_ms: u64);
+}
+
+/// Diet/no-op: sempre aberto, nada contabilizado.
+impl PmBackoffGate for () {
+    fn poll(&self, _now_ms: u64) -> Result<(), u8> {
+        Ok(())
+    }
+    fn record(&mut self, _status: u8, _now_ms: u64) {}
+}
+
 /// Carteira Fase7 (R-07) sobre BLE: faixa livre 0x35-0x37 + fw-log 0x38.
 ///
 /// Mapa da vizinhanca (primeiro byte de CMD_MSG): 0x20-0x27 vendor

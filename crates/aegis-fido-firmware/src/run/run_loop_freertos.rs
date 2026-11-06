@@ -338,6 +338,12 @@ pub fn run_authenticator_freertos() {
     let mut rescue_engine = RescueEngine::new();
     #[cfg(target_os = "espidf")]
     let mut wallet_store = WalletStore::new();
+    // PM backoff desta sessao BLE/serial (RAM; reseta no boot; o gate nega
+    // 0x04 fail-closed enquanto armado).
+    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+    let mut pm_limiter = crate::pm_store::PmRateLimiter::new();
+    #[cfg(any(feature = "cap-fido-only", feature = "cap-fido-totp"))]
+    let mut pm_limiter = ();
     #[cfg(target_os = "espidf")]
     let mut wallet_pending = crate::wallet_approval::WalletPendingApproval::new();
     #[cfg(target_os = "espidf")]
@@ -885,6 +891,7 @@ pub fn run_authenticator_freertos() {
                             &mut key_mgr,
                             &mut oath_applet,
                             &mut secure_guard,
+                            &mut pm_limiter,
                         );
                         // Wave2: release/recovery apagou a NVS no dispatch;
                         // espelha no cache RAM (fail-closed até o rekey).
@@ -991,6 +998,8 @@ pub fn run_authenticator_freertos() {
                     ota_pubkey: crate::ota::OtaKeyProvider::active_pubkey_for_build(),
                     ota_current_version: 1,
                     up_hook: ota_hook_now,
+                    #[cfg(not(any(feature = "cap-fido-only", feature = "cap-fido-totp")))]
+                    pm_limiter: crate::pm_store::PmRateLimiter::new(),
                 };
                 let out = route_ctaphid_event(
                     &mut ctaphid_usb,

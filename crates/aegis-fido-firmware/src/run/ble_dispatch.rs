@@ -42,6 +42,7 @@ pub(crate) fn ble_dispatch_complete(
     key_mgr: &mut aegis_fido_core::credential::key_manager::KeyManager,
     oath_applet: &mut OathApplet,
     secure_guard: &mut aegis_fido_core::secure_guard::SecureGuardEngine,
+    pm_limiter: &mut impl crate::ble_gatt::PmBackoffGate,
 ) {
     use crate::binding::{BIND_CHALLENGE_LEN, BIND_ID_LEN, BIND_PUB_LEN};
     use crate::ble_gatt as g;
@@ -267,10 +268,14 @@ pub(crate) fn ble_dispatch_complete(
                 presence_confirmed: effective_up,
                 pin_authenticated: pin_ok,
                 bound_within_ms: 0,
+                // UP single-shot: o loop limpa o latch ao tomar a mensagem
+                // completa (`touch_latched = false` no `run`), entao a
+                // presenca entregue aqui e fresca por construcao.
+                up_within_ms: 0,
             };
             let mut rng = rand_core::UnwrapErr(getrandom::SysRng);
             let (st, body) = crate::pm_dispatch::dispatch_pm_op_persist(
-                o, p, &gate, storage, &policy, now_secs, &mut rng,
+                o, p, &gate, storage, &policy, now_secs, &mut rng, pm_limiter, now_ms,
             );
             if st == 0x00 {
                 kprintln!("[BLE] op pm 0x{:02X} executada.", o);
