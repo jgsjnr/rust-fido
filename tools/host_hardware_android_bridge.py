@@ -2446,10 +2446,33 @@ def run_offline_self_test() -> int:
             HW_MANAGER.session, HW_MANAGER.transport, HW_MANAGER.is_connected = prev_sess, prev_transport, prev_conn
             clear_mirror_bench_cache()
 
+    # 7. OATH fail-closed: silicon bytes in, or an explicit error — never a
+    #    constant fallback code ("344017"/"000000").
+    check("oath TLV 0x75 6-digit parses",
+          parse_oath_code_from_silicon(bytes([0x75, 0x06]) + b"123456") == "123456")
+    check("oath TLV 0x76 8-digit parses",
+          parse_oath_code_from_silicon(bytes([0x76, 0x08]) + b"12345678") == "12345678")
+    check("oath bare 6-digit body parses",
+          parse_oath_code_from_silicon(b"654321") == "654321")
+    check("oath empty -> None (fail-closed, no code)",
+          parse_oath_code_from_silicon(b"") is None)
+    check("oath None -> None (silicon unreachable, no code)",
+          parse_oath_code_from_silicon(None) is None)
+    check("oath binary garbage -> None (no invented code)",
+          parse_oath_code_from_silicon(b"\x99\x02AB") is None)
+    check("oath non-digit TLV -> None (no invented code)",
+          parse_oath_code_from_silicon(bytes([0x75, 0x06]) + b"28a082") is None)
+    check("oath 5-digit rejected -> None",
+          parse_oath_code_from_silicon(bytes([0x75, 0x05]) + b"12345") is None)
+    check("oath 9-digit rejected -> None",
+          parse_oath_code_from_silicon(bytes([0x75, 0x09]) + b"123456789") is None)
+    check("oath binary prefix is not misread as digits -> None",
+          parse_oath_code_from_silicon(b"123456\x00\xff\x01\x02") is None)
+
     if failures:
         print(f"OFFLINE SELF-TEST FAILED: {failures}")
         return 1
-    print(f"OFFLINE SELF-TEST PASSED ({14 + 8} checks).")
+    print(f"OFFLINE SELF-TEST PASSED ({14 + 8 + 10} checks).")
     return 0
 
 
@@ -2483,6 +2506,34 @@ def extract_wallets_from_tlv(raw: bytes):
             curr_slot = None
             curr_label = None
     return wallets
+
+
+def parse_oath_code_from_silicon(resp: Optional[bytes]) -> Optional[str]:
+    """Fail-closed parse of an OP_OATH_CODE (0x26) silicon response.
+
+    Returns the 6-8 digit code ONLY when the silicon bytes themselves carry
+    it (TLV tag 0x75/0x76, or a bare 6-8 digit body). Returns None when the
+    silicon is unreachable, denied, or unreadable — the caller must then
+    answer fail-closed (explicit error, never a constant fallback like
+    "344017" or "000000"): no code without a live session.
+    """
+    if not resp:
+        return None
+    idx = 0
+    while idx + 2 <= len(resp):
+        tag = resp[idx]
+        tlen = resp[idx + 1]
+        tval = resp[idx + 2: idx + 2 + tlen]
+        if tag in (0x75, 0x76):
+            code = tval.decode("utf-8", errors="ignore").strip()
+            if code.isdigit() and 6 <= len(code) <= 8:
+                return code
+            return None
+        idx += 2 + tlen
+    bare = bytes(resp).decode("ascii", errors="ignore").strip()
+    if bare.isdigit() and 6 <= len(bare) <= 8:
+        return bare
+    return None
 
 
 def extract_oath_from_tlv(raw: bytes):
@@ -2696,24 +2747,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 if st != 0x00 or not resp:
                     self.send_json({"ok": False, "error": f"account '{account}' not found on silicon (status 0x{st:02x})"}, status_code=404)
                     return
-                code = None
-                idx = 0
-                while idx < len(resp):
-                    if idx + 2 > len(resp):
-                        break
-                    tag = resp[idx]
-                    tlen = resp[idx + 1]
-                    tval = resp[idx + 2 : idx + 2 + tlen]
-                    if tag in (0x75, 0x76):
-                        code = tval.decode("utf-8", errors="ignore").strip()
-                        break
-                    idx += 2 + tlen
-
-                if not code or not code.isdigit():
-                    if all(0x30 <= b <= 0x39 for b in resp[:6]) and len(resp) >= 6:
-                        code = resp[:6].decode("ascii")
-                    else:
-                        code = "344017"
+                code = parse_oath_code_from_silicon(resp)
+                if code is None:
+                    self.send_json({"ok": False, "error": "silicon returned unreadable OATH code (no code without live session)"}, status_code=502)
+                    return
                 rem_sec = int(30 - (time.time() % 30))
                 self.send_json({
                     "ok": True,
@@ -3100,28 +3137,35 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                         chal_b = struct.pack(">Q", int(time.time() // 30))
                         tlv_req = bytes([0x71, len(name_b)]) + name_b + bytes([0x74, len(chal_b)]) + chal_b
                         c_st, c_resp = HW_MANAGER.send_vendor(0x26, tlv_req)
-                        code = "000000"
-                        if c_st == 0x00 and c_resp:
-                            for idx in range(len(c_resp) - 2):
-                                if c_resp[idx] in (0x75, 0x76):
-                                    tlen = c_resp[idx+1]
-                                    tval = c_resp[idx+2:idx+2+tlen].decode("utf-8", errors="ignore").strip()
-                                    if tval.isdigit():
-                                        code = tval
-                                        break
+                        code = parse_oath_code_from_silicon(c_resp) if (c_st == 0x00 and c_resp) else None
                         parts = name.split(":", 1)
                         issuer = parts[0] if len(parts) > 1 else "AegisKey"
                         acc_label = parts[1] if len(parts) > 1 else name
                         rem_sec = int(30 - (time.time() % 30))
-                        accounts_out.append({
-                            "account": name,
-                            "issuer": issuer,
-                            "name": acc_label,
-                            "code": code,
-                            "remaining_seconds": rem_sec,
-                            "remainingSeconds": rem_sec,
-                            "type": "TOTP",
-                        })
+                        if code is None:
+                            # Fail-closed: silicon gave no live code for this
+                            # account — explicit per-account error, never a
+                            # constant fallback ("000000"): no code without a
+                            # live session.
+                            accounts_out.append({
+                                "account": name,
+                                "issuer": issuer,
+                                "name": acc_label,
+                                "code_error": "silicon returned no live OATH code (no code without live session)",
+                                "remaining_seconds": rem_sec,
+                                "remainingSeconds": rem_sec,
+                                "type": "TOTP",
+                            })
+                        else:
+                            accounts_out.append({
+                                "account": name,
+                                "issuer": issuer,
+                                "name": acc_label,
+                                "code": code,
+                                "remaining_seconds": rem_sec,
+                                "remainingSeconds": rem_sec,
+                                "type": "TOTP",
+                            })
             except Exception as e:
                 print(f"[bridge] Erro ao listar OATH: {e}")
 
@@ -3369,24 +3413,10 @@ class BridgeHttpRequestHandler(http.server.BaseHTTPRequestHandler):
                 if st != 0x00 or not resp:
                     self.send_json({"ok": False, "error": f"account '{account}' not found on silicon (0x{st:02x})"}, status_code=404)
                     return
-                code = None
-                idx = 0
-                while idx < len(resp):
-                    if idx + 2 > len(resp):
-                        break
-                    tag = resp[idx]
-                    tlen = resp[idx + 1]
-                    tval = resp[idx + 2 : idx + 2 + tlen]
-                    if tag in (0x75, 0x76):
-                        code = tval.decode("utf-8", errors="ignore").strip()
-                        break
-                    idx += 2 + tlen
-
-                if not code or not code.isdigit():
-                    if all(0x30 <= b <= 0x39 for b in resp[:6]) and len(resp) >= 6:
-                        code = resp[:6].decode("ascii")
-                    else:
-                        code = "344017"
+                code = parse_oath_code_from_silicon(resp)
+                if code is None:
+                    self.send_json({"ok": False, "error": "silicon returned unreadable OATH code (no code without live session)"}, status_code=502)
+                    return
                 rem_sec = int(30 - (time.time() % 30))
                 self.send_json({
                     "ok": True,

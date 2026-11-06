@@ -130,13 +130,11 @@ object WifiApi {
                 if (code == 404) throw NoSuchElementException("unknown account")
                 if (code !in 200..299) throw IOException("oath fetch failed: HTTP $code")
                 val body = conn.inputStream.bufferedReader().use { it.readText() }.take(512)
-                val entry = runCatching { AegisBridge.oathParse(body).getOrThrow() }.getOrElse {
-                    val json = JSONObject(body)
-                    val acc = json.optString("account", account)
-                    val c = json.getString("code")
-                    val rem = json.optInt("remaining_seconds", 30)
-                    AegisBridge.OathEntry(acc, c, rem)
-                }
+                // Fail-closed: only a strictly-validated device code is
+                // accepted. No lenient fallback parsing — without a live
+                // session there is no code, never a guessed one.
+                val entry = AegisBridge.oathParse(body).getOrThrow()
+                require(AegisBridge.codeValid(entry.code)) { "invalid oath code" }
                 SanitizedLog.record(SanitizedLog.Event.OATH_FETCHED)
                 entry
             } finally {

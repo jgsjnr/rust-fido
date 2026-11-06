@@ -25,10 +25,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
-import java.nio.ByteBuffer
 import java.util.UUID
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 class TotpRepositoryImpl(
     private val keysStore: EncryptedKeysStore,
@@ -77,8 +74,14 @@ class TotpRepositoryImpl(
      */
     internal var vendorOverride: (suspend (opcode: Int, payload: ByteArray) -> ByteArray?)? = null
 
-    // Segredos mantidos em memória volátil da sessão para recálculo local dos códigos
-    private val volatileSecrets = mutableMapOf<String, ByteArray>()
+    /**
+     * Fail-closed placeholder shown when there is no live silicon session to
+     * back a code. Never a constant fallback code: without a live session
+     * there is no code, only this marker plus [TotpAccountItem.requiresTouchToRefresh].
+     */
+    companion object {
+        const val NO_LIVE_CODE = "------"
+    }
 
     init {
         val initialKeyId = connectedKeysRepository.activeKey.value?.id
@@ -170,117 +173,102 @@ class TotpRepositoryImpl(
                 markNeedUp("oath-list")
                 throw DevicePresence.NeedUpRequiredException("oath-list")
             }
-            val currentCached = keysStore.loadTotpAccounts(keyId).associateBy { it.id }
 
             val nowSeconds = System.currentTimeMillis() / 1000L
             val remSecs = AegisBridge.remainingSeconds(nowSeconds)
             _remainingSeconds.value = remSecs
 
-            if (raw != null && raw.size >= 2 && raw[1].toInt() == VendorOps.STATUS_OK) {
-                val tlv = raw.copyOfRange(2, raw.size)
-                val deviceEntries = VendorOps.parseOathList(tlv)
-
-                val resultList = deviceEntries.map { entry ->
-                    // The device reports the composite "issuer:account" name;
-                    // cached items store the split parts (as written by
-                    // addAccount), so match either shape. A missed match
-                    // would silently drop the cached code/counter and mint a
-                    // new id on every refresh.
-                    val existing = currentCached.values.firstOrNull { cached ->
-                        cached.accountName == entry.name ||
-                            (cached.issuer.isNotBlank() &&
-                                "${cached.issuer}:${cached.accountName}" == entry.name)
-                    }
-                    val id = existing?.id ?: UUID.randomUUID().toString()
-                    val parts = entry.name.split(":", limit = 2)
-                    val issuer = if (parts.size > 1) parts[0].trim() else existing?.issuer ?: ""
-                    val accountName = if (parts.size > 1) parts[1].trim() else parts[0].trim()
-
-                    val isHotp = existing?.isHotp ?: false
-                    val counter = existing?.counter ?: 0L
-                    val algorithm = existing?.algorithm ?: "SHA1"
-                    val period = existing?.periodSeconds ?: 30
-                    val digits = existing?.digits ?: 6
-
-                    val secret = volatileSecrets[id]
-                    val timeStepOrCounter = if (isHotp) counter else (nowSeconds / period)
-                    // Finding A3: label the code source honestly. Only a code
-                    // just returned by the device is on-device-backed; a
-                    // NEED_UP denial falls back to local computation (or the
-                    // cached value) flagged for touch-to-refresh.
-                    var onDeviceBacked = false
-                    var touchToRefresh = false
-                    val code = when (val hw = requestHardwareOtpCode(entry.name, timeStepOrCounter, digits)) {
-                        is HardwareOtpResult.OnDevice -> {
-                            onDeviceBacked = true
-                            hw.code
-                        }
-                        is HardwareOtpResult.NeedUp -> {
-                            markNeedUp("oath-code")
-                            touchToRefresh = true
-                            if (secret != null) {
-                                if (isHotp) {
-                                    calculateHotpCode(secret, counter, digits)
-                                } else {
-                                    calculateTotpCode(secret, nowSeconds, period, digits)
-                                }
-                            } else {
-                                existing?.currentCode ?: "------"
-                            }
-                        }
-                        is HardwareOtpResult.Unavailable -> if (secret != null) {
-                            if (isHotp) {
-                                calculateHotpCode(secret, counter, digits)
-                            } else {
-                                calculateTotpCode(secret, nowSeconds, period, digits)
-                            }
-                        } else {
-                            existing?.currentCode ?: "------"
-                        }
-                    }
-                    val formatted = formatTotpCode(code)
-
-                    TotpAccountItem(
-                        id = id,
-                        issuer = issuer,
-                        accountName = accountName,
-                        currentCode = code,
-                        formattedCode = formatted,
-                        remainingSeconds = if (isHotp) 0 else remSecs,
-                        periodSeconds = period,
-                        digits = digits,
-                        requiresTouchToRefresh = touchToRefresh,
-                        isHotp = isHotp,
-                        counter = counter,
-                        algorithm = algorithm,
-                        isOnDeviceBacked = onDeviceBacked
+            // Fail-closed: without a live silicon list read there is no
+            // session backing any code. Surface placeholders (never cached or
+            // locally-computed codes) and fail instead of masquerading stale
+            // cache as fresh: no live session = no code.
+            if (raw == null || raw.size < 2 || raw[1].toInt() != VendorOps.STATUS_OK) {
+                val cached = keysStore.loadTotpAccounts(keyId)
+                _accounts.value = cached.map { item ->
+                    item.copy(
+                        currentCode = NO_LIVE_CODE,
+                        formattedCode = formatTotpCode(NO_LIVE_CODE),
+                        remainingSeconds = if (item.isHotp) 0 else remSecs,
+                        requiresTouchToRefresh = true,
+                        isOnDeviceBacked = false
                     )
                 }
+                throw IllegalStateException("silicon unreachable: no live session (connect the key to refresh codes)")
+            }
 
-                keysStore.saveTotpAccounts(keyId, resultList)
-                _accounts.value = resultList
-                resultList
-            } else {
-                val cached = keysStore.loadTotpAccounts(keyId).map { item ->
-                    if (item.isHotp) {
-                        item
-                    } else {
-                        val secret = volatileSecrets[item.id]
-                        val code = if (secret != null) {
-                            calculateTotpCode(secret, nowSeconds, item.periodSeconds, item.digits)
-                        } else {
-                            item.currentCode
-                        }
-                        item.copy(
-                            currentCode = code,
-                            formattedCode = formatTotpCode(code),
-                            remainingSeconds = remSecs
-                        )
+            val currentCached = keysStore.loadTotpAccounts(keyId).associateBy { it.id }
+
+            val tlv = raw.copyOfRange(2, raw.size)
+            val deviceEntries = VendorOps.parseOathList(tlv)
+
+            val resultList = deviceEntries.map { entry ->
+                // The device reports the composite "issuer:account" name;
+                // cached items store the split parts (as written by
+                // addAccount), so match either shape. A missed match
+                // would silently drop the cached code/counter and mint a
+                // new id on every refresh.
+                val existing = currentCached.values.firstOrNull { cached ->
+                    cached.accountName == entry.name ||
+                        (cached.issuer.isNotBlank() &&
+                            "${cached.issuer}:${cached.accountName}" == entry.name)
+                }
+                val id = existing?.id ?: UUID.randomUUID().toString()
+                val parts = entry.name.split(":", limit = 2)
+                val issuer = if (parts.size > 1) parts[0].trim() else existing?.issuer ?: ""
+                val accountName = if (parts.size > 1) parts[1].trim() else parts[0].trim()
+
+                val isHotp = existing?.isHotp ?: false
+                val counter = existing?.counter ?: 0L
+                val algorithm = existing?.algorithm ?: "SHA1"
+                val period = existing?.periodSeconds ?: 30
+                val digits = existing?.digits ?: 6
+
+                val timeStepOrCounter = if (isHotp) counter else (nowSeconds / period)
+                // Fail-closed labeling of the code source. Only a code
+                // just returned by the device is on-device-backed. A
+                // NEED_UP denial keeps the cached value flagged for
+                // touch-to-refresh; an unreachable silicon (no live
+                // session) shows no code at all — never a locally-computed
+                // or fallback code.
+                var onDeviceBacked = false
+                var touchToRefresh = false
+                val code = when (val hw = requestHardwareOtpCode(entry.name, timeStepOrCounter, digits)) {
+                    is HardwareOtpResult.OnDevice -> {
+                        onDeviceBacked = true
+                        hw.code
+                    }
+                    is HardwareOtpResult.NeedUp -> {
+                        markNeedUp("oath-code")
+                        touchToRefresh = true
+                        existing?.currentCode ?: NO_LIVE_CODE
+                    }
+                    is HardwareOtpResult.Unavailable -> {
+                        touchToRefresh = true
+                        NO_LIVE_CODE
                     }
                 }
-                _accounts.value = cached
-                cached
+                val formatted = formatTotpCode(code)
+
+                TotpAccountItem(
+                    id = id,
+                    issuer = issuer,
+                    accountName = accountName,
+                    currentCode = code,
+                    formattedCode = formatted,
+                    remainingSeconds = if (isHotp) 0 else remSecs,
+                    periodSeconds = period,
+                    digits = digits,
+                    requiresTouchToRefresh = touchToRefresh,
+                    isHotp = isHotp,
+                    counter = counter,
+                    algorithm = algorithm,
+                    isOnDeviceBacked = onDeviceBacked
+                )
             }
+
+            keysStore.saveTotpAccounts(keyId, resultList)
+            _accounts.value = resultList
+            resultList
         }
     }
 
@@ -335,7 +323,9 @@ class TotpRepositoryImpl(
             val remSecs = if (isHotp) 0 else AegisBridge.remainingSeconds(nowSeconds)
 
             val timeStepOrCounter = if (isHotp) 0L else (nowSeconds / periodSeconds)
-            // Finding A3: honest source labeling for the first code too.
+            // Fail-closed source labeling for the first code too: only a
+            // code just returned by live silicon is device-backed. Without a
+            // live code read there is no code — never a locally-computed one.
             var onDeviceBacked = false
             var touchToRefresh = false
             val code = when (val hw = requestHardwareOtpCode(compositeName, timeStepOrCounter, digits)) {
@@ -346,21 +336,15 @@ class TotpRepositoryImpl(
                 is HardwareOtpResult.NeedUp -> {
                     markNeedUp("oath-code")
                     touchToRefresh = true
-                    if (isHotp) {
-                        calculateHotpCode(secretBytes, 0L, digits)
-                    } else {
-                        calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
-                    }
+                    NO_LIVE_CODE
                 }
-                is HardwareOtpResult.Unavailable -> if (isHotp) {
-                    calculateHotpCode(secretBytes, 0L, digits)
-                } else {
-                    calculateTotpCode(secretBytes, nowSeconds, periodSeconds, digits)
+                is HardwareOtpResult.Unavailable -> {
+                    touchToRefresh = true
+                    NO_LIVE_CODE
                 }
             }
 
             val accountId = UUID.randomUUID().toString()
-            volatileSecrets[accountId] = secretBytes.copyOf()
             secretBytes.fill(0) // Higienização de segurança do buffer local
 
             val newItem = TotpAccountItem(
@@ -398,10 +382,10 @@ class TotpRepositoryImpl(
 
             val nextCounter = target.counter + 1
             val compositeName = if (target.issuer.isNotBlank()) "${target.issuer}:${target.accountName}" else target.accountName
-            // Finding A3: a NEED_UP denial here must not silently keep the
-            // stale code; with no local secret there is honestly no new code.
+            // Fail-closed: without a live silicon answer there is no new
+            // code — the HOTP counter never advances locally. A NEED_UP
+            // denial surfaces as a presence prompt, never as a code.
             var hotpOnDevice = false
-            var hotpTouch = false
             val code = when (val hw = requestHardwareOtpCode(compositeName, nextCounter, target.digits)) {
                 is HardwareOtpResult.OnDevice -> {
                     hotpOnDevice = true
@@ -409,21 +393,10 @@ class TotpRepositoryImpl(
                 }
                 is HardwareOtpResult.NeedUp -> {
                     markNeedUp("oath-code")
-                    val secret = volatileSecrets[accountId]
-                    if (secret != null) {
-                        hotpTouch = true
-                        calculateHotpCode(secret, nextCounter, target.digits)
-                    } else {
-                        throw DevicePresence.NeedUpRequiredException("oath-code")
-                    }
+                    throw DevicePresence.NeedUpRequiredException("oath-code")
                 }
                 is HardwareOtpResult.Unavailable -> {
-                    val secret = volatileSecrets[accountId]
-                    if (secret != null) {
-                        calculateHotpCode(secret, nextCounter, target.digits)
-                    } else {
-                        target.currentCode
-                    }
+                    throw IllegalStateException("silicon unreachable: no live session (HOTP counter not advanced)")
                 }
             }
 
@@ -431,7 +404,7 @@ class TotpRepositoryImpl(
                 counter = nextCounter,
                 currentCode = code,
                 formattedCode = formatTotpCode(code),
-                requiresTouchToRefresh = hotpTouch,
+                requiresTouchToRefresh = false,
                 isOnDeviceBacked = hotpOnDevice
             )
 
@@ -463,7 +436,6 @@ class TotpRepositoryImpl(
                 }
             }
 
-            volatileSecrets.remove(accountId)
             _accounts.update { list ->
                 val filtered = list.filterNot { it.id == accountId }
                 keysStore.saveTotpAccounts(keyId, filtered)
@@ -476,22 +448,16 @@ class TotpRepositoryImpl(
         val remSecs = AegisBridge.remainingSeconds(nowEpochSeconds)
         _remainingSeconds.value = remSecs
 
+        // Fail-closed: the countdown ticks locally, but codes never advance
+        // without silicon. Only the remaining-seconds display updates; codes
+        // change exclusively on a live hardware refresh (no live session =
+        // no code, never a locally recomputed one).
         _accounts.update { list ->
             list.map { item ->
                 if (item.isHotp) {
                     item
                 } else {
-                    val secret = volatileSecrets[item.id]
-                    val code = if (secret != null && (remSecs == 30 || item.currentCode.contains("-"))) {
-                        calculateTotpCode(secret, nowEpochSeconds, item.periodSeconds, item.digits)
-                    } else {
-                        item.currentCode
-                    }
-                    item.copy(
-                        currentCode = code,
-                        formattedCode = formatTotpCode(code),
-                        remainingSeconds = remSecs
-                    )
+                    item.copy(remainingSeconds = remSecs)
                 }
             }
         }
@@ -533,52 +499,6 @@ class TotpRepositoryImpl(
             }
         }
         return out.toByteArray()
-    }
-
-    private fun calculateTotpCode(
-        secret: ByteArray,
-        epochSeconds: Long,
-        period: Int,
-        digits: Int
-    ): String {
-        return try {
-            val counter = epochSeconds / period
-            val buffer = ByteBuffer.allocate(8).putLong(counter).array()
-            val mac = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(secret, "HmacSHA1")) }
-            val hash = mac.doFinal(buffer)
-            val offset = hash[hash.size - 1].toInt() and 0x0F
-            val binary = ((hash[offset].toInt() and 0x7F) shl 24) or
-                ((hash[offset + 1].toInt() and 0xFF) shl 16) or
-                ((hash[offset + 2].toInt() and 0xFF) shl 8) or
-                (hash[offset + 3].toInt() and 0xFF)
-            val modulo = Math.pow(10.0, digits.toDouble()).toInt()
-            val otp = binary % modulo
-            otp.toString().padStart(digits, '0')
-        } catch (_: Throwable) {
-            "000000"
-        }
-    }
-
-    private fun calculateHotpCode(
-        secret: ByteArray,
-        counter: Long,
-        digits: Int
-    ): String {
-        return try {
-            val buffer = ByteBuffer.allocate(8).putLong(counter).array()
-            val mac = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(secret, "HmacSHA1")) }
-            val hash = mac.doFinal(buffer)
-            val offset = hash[hash.size - 1].toInt() and 0x0F
-            val binary = ((hash[offset].toInt() and 0x7F) shl 24) or
-                ((hash[offset + 1].toInt() and 0xFF) shl 16) or
-                ((hash[offset + 2].toInt() and 0xFF) shl 8) or
-                (hash[offset + 3].toInt() and 0xFF)
-            val modulo = Math.pow(10.0, digits.toDouble()).toInt()
-            val otp = binary % modulo
-            otp.toString().padStart(digits, '0')
-        } catch (_: Throwable) {
-            "0".repeat(digits)
-        }
     }
 
     private fun formatTotpCode(code: String): String {
