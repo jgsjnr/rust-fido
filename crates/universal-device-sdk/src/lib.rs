@@ -49,6 +49,8 @@ mod status;
 pub mod test_hooks;
 #[cfg(feature = "hardwallet")]
 pub mod wallet_approval;
+#[cfg(feature = "hardwallet")]
+pub mod wallet_companion;
 
 pub use auth::AuthContext;
 pub use capabilities::{capabilities, CapabilitySet};
@@ -140,4 +142,9 @@ pub use test_hooks::TestHookId;
 pub use wallet_approval::{
     decode_pending_summary, encode_pending_query, encode_sign_payload, receipt_for,
     ApprovalDecision, PendingWalletTx, APPROVAL_RECEIPT_APPROVE, APPROVAL_RECEIPT_DENY,
+};
+#[cfg(feature = "hardwallet")]
+pub use wallet_companion::{
+    build_pending_query, build_sign_request, is_companion_opcode, preview_of, receipt_bytes,
+    COMPANION_MAX_SLOTS, COMPANION_OPS, COMPANION_PSBT_MAX_BYTES,
 };

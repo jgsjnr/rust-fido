@@ -2,12 +2,13 @@ use crate::pm_jni::{pm_frame_unwrap, pm_frame_wrap, pm_status_name};
 use crate::{
     app_lock_derive, ble_constants, ble_split_fragments, cose_key_info, envelope_open,
     envelope_seal, envelope_validate, oath_account_from_path, oath_code_valid, oath_parse_response,
-    oath_remaining_seconds, otpauth_extract_label_and_secret, secure_guard_encode_change_pin,
-    secure_guard_encode_config, secure_guard_encode_lock, secure_guard_encode_provision,
-    secure_guard_encode_recover, secure_guard_encode_unlock, secure_guard_encode_wipe,
-    secure_guard_parse_status, totp_format_display, wallet_address, wifi_password_valid,
-    xpub_from_seed, BridgeError, OathCode, OtpAuthParsed, SecureGuardPolicyDto,
-    SecureGuardStatusDto,
+    oath_remaining_seconds, otpauth_extract_label_and_secret, pending_summary_json,
+    secure_guard_encode_change_pin, secure_guard_encode_config, secure_guard_encode_lock,
+    secure_guard_encode_provision, secure_guard_encode_recover, secure_guard_encode_unlock,
+    secure_guard_encode_wipe, secure_guard_parse_status, totp_format_display, wallet_address,
+    wallet_approval_receipt, wallet_pending_query_encode, wallet_pending_summary_decode,
+    wallet_sign_envelope_encode, wifi_password_valid, xpub_from_seed, BridgeError, OathCode,
+    OtpAuthParsed, SecureGuardPolicyDto, SecureGuardStatusDto,
 };
 
 // =========================================================================
@@ -869,6 +870,129 @@ pub extern "C" fn aegis_secure_guard_encode_wipe(
 }
 
 // =========================================================================
+// Wallet companion passthrough (F7): pure 1:1 delegation to the
+// `universal-device-sdk` companion codecs (`wallet_companion`). This edge
+// owns no TLV framing, no opcode table and no receipt strings — it only
+// forwards bytes through the standard two-call protocol on the frozen
+// `AEGIS_ERR_*` codes. Structured values cross as JNI-edge JSON only.
+// No UDL entry is added (UDL stays frozen); any future UDL mapping mirrors
+// these four symbols 1:1.
+// =========================================================================
+
+/// Encodes a companion pending-preview query (`0x4B` payload) via the SDK.
+///
+/// Shape violations fail on the frozen codes (`Overflow` past the
+/// transport ceiling, `InvalidEnvelope` otherwise); errors carry no payload.
+#[no_mangle]
+pub extern "C" fn aegis_wallet_pending_query(
+    slot: u8,
+    psbt: *const u8,
+    psbt_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let bytes = match input_bytes(psbt, psbt_len) {
+        Ok(b) => b,
+        Err(code) => return code,
+    };
+    match wallet_pending_query_encode(slot, bytes.to_vec()) {
+        Ok(query) => emit_bytes(out, out_cap, out_len, &query),
+        Err(err) => status_of(err),
+    }
+}
+
+/// Encodes a companion sign envelope (`0x4A` payload) via the SDK.
+///
+/// `receipt` must be exactly `approve`/`deny` (anything else fails as
+/// `InvalidEnvelope` before any wire byte is built). Standard two-call
+/// output; errors carry no payload.
+#[no_mangle]
+pub extern "C" fn aegis_wallet_sign_envelope(
+    slot: u8,
+    psbt: *const u8,
+    psbt_len: usize,
+    receipt: *const u8,
+    receipt_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let (psbt, receipt) = match (
+        input_bytes(psbt, psbt_len),
+        input_bytes(receipt, receipt_len),
+    ) {
+        (Ok(p), Ok(r)) => (p, r),
+        _ => return AEGIS_ERR_NULL_POINTER,
+    };
+    match wallet_sign_envelope_encode(slot, psbt.to_vec(), receipt.to_vec()) {
+        Ok(envelope) => emit_bytes(out, out_cap, out_len, &envelope),
+        Err(err) => status_of(err),
+    }
+}
+
+/// Decodes a pending-summary body to JNI-edge JSON via the SDK.
+///
+/// Emits `{"slot":N,"tx_hash_hex":"…","inputs":N,"outputs":N}` (display-only
+/// public metadata). Malformed bodies fail as `InvalidEnvelope`.
+#[no_mangle]
+pub extern "C" fn aegis_wallet_pending_summary(
+    body: *const u8,
+    body_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let bytes = match input_bytes(body, body_len) {
+        Ok(b) => b,
+        Err(code) => return code,
+    };
+    match wallet_pending_summary_decode(bytes.to_vec()) {
+        Ok(summary) => emit_bytes(
+            out,
+            out_cap,
+            out_len,
+            pending_summary_json(&summary).as_bytes(),
+        ),
+        Err(err) => status_of(err),
+    }
+}
+
+/// Approval receipt bytes for the sign envelope (biometric-gated).
+///
+/// Returns `1` with the receipt bytes on success, `0` with `*out_len = 0`
+/// when there is no receipt (approve without a live biometric: the
+/// companion sends nothing, never a forged approve), or a negative status
+/// on bad pointers. Mirrors the `aegis_oath_account_from_path` convention.
+#[no_mangle]
+pub extern "C" fn aegis_wallet_approval_receipt(
+    approve: u8,
+    biometric_ok: u8,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    match wallet_approval_receipt(approve != 0, biometric_ok != 0) {
+        Some(receipt) => {
+            let code = emit_bytes(out, out_cap, out_len, &receipt);
+            if code == AEGIS_STATUS_OK {
+                1
+            } else {
+                code
+            }
+        }
+        None => {
+            let code = emit_bytes(out, out_cap, out_len, &[]);
+            if code == AEGIS_STATUS_OK {
+                0
+            } else {
+                code
+            }
+        }
+    }
+}
+
+// =========================================================================
 // PM blind transport (F-PM2): thin C edge over `pm_jni` framing.
 // Additive only — reuses the frozen `AEGIS_ERR_*` codes above, so the
 // existing ABI is untouched. Payloads cross opaquely: this edge never
@@ -1074,5 +1198,114 @@ mod tests {
         let rc = aegis_pm_status_name(0x00, core::ptr::null_mut(), 0, &mut out_len as *mut usize);
         assert_eq!(rc, "Ok".len() as i32);
         assert_eq!(out_len, "Ok".len());
+    }
+
+    fn query_call(slot: u8, psbt: &[u8]) -> (i32, Vec<u8>, usize) {
+        let mut out = vec![0u8; 1024];
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_pending_query(
+            slot,
+            psbt.as_ptr(),
+            psbt.len(),
+            out.as_mut_ptr(),
+            out.len(),
+            &mut out_len as *mut usize,
+        );
+        out.truncate(out_len.min(out.len()));
+        (rc, out, out_len)
+    }
+
+    #[test]
+    fn wallet_companion_c_edge_passthrough_roundtrip() {
+        let psbt = [0x70u8, 0x73, 0x62, 0x74];
+        let (rc, query, _) = query_call(3, &psbt);
+        assert_eq!(rc, AEGIS_STATUS_OK);
+        // `[slot, psbt]` TLV framing comes from the SDK, never rebuilt here.
+        assert_eq!(&query[..3], &[0x01, 0x01, 0x03]);
+        // Bad slot fails on the frozen codes, never a forged query.
+        let (rc, _, _) = query_call(32, &psbt);
+        assert_eq!(rc, AEGIS_ERR_INVALID_ENVELOPE);
+        // Sign envelope carries the receipt; a forged value never encodes.
+        let mut out = vec![0u8; 1024];
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_sign_envelope(
+            3,
+            psbt.as_ptr(),
+            psbt.len(),
+            b"approve".as_ptr(),
+            b"approve".len(),
+            out.as_mut_ptr(),
+            out.len(),
+            &mut out_len as *mut usize,
+        );
+        assert_eq!(rc, AEGIS_STATUS_OK);
+        assert!(out[..out_len].windows(7).any(|w| w == b"approve"));
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_sign_envelope(
+            3,
+            psbt.as_ptr(),
+            psbt.len(),
+            b"maybe".as_ptr(),
+            b"maybe".len(),
+            core::ptr::null_mut(),
+            0,
+            &mut out_len as *mut usize,
+        );
+        assert_eq!(rc, AEGIS_ERR_INVALID_ENVELOPE);
+    }
+
+    #[test]
+    fn wallet_companion_c_edge_summary_and_receipt() {
+        // Summary body `[slot, tx_hash, counts]` decodes to JNI-edge JSON.
+        let mut body = vec![0x01u8, 0x01, 0x03, 0x0Eu8, 0x20];
+        body.extend_from_slice(&[0xABu8; 32]);
+        body.extend_from_slice(&[0x0Fu8, 0x04, 0x01, 0x00, 0x02, 0x00]);
+        let mut out = vec![0u8; 256];
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_pending_summary(
+            body.as_ptr(),
+            body.len(),
+            out.as_mut_ptr(),
+            out.len(),
+            &mut out_len as *mut usize,
+        );
+        assert_eq!(rc, AEGIS_STATUS_OK);
+        let json = core::str::from_utf8(&out[..out_len]).unwrap();
+        assert!(json.contains("\"slot\":3"));
+        assert!(json.contains(&"ab".repeat(32)));
+        // Receipt: approve + biometry -> 1 with bytes; approve alone -> 0
+        // with no bytes (never forged); deny -> 1 with `deny`.
+        let mut out = vec![0u8; 16];
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_approval_receipt(
+            1,
+            1,
+            out.as_mut_ptr(),
+            out.len(),
+            &mut out_len as *mut usize,
+        );
+        assert_eq!(rc, 1);
+        assert_eq!(&out[..out_len], b"approve");
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_approval_receipt(
+            1,
+            0,
+            core::ptr::null_mut(),
+            0,
+            &mut out_len as *mut usize,
+        );
+        assert_eq!(rc, 0);
+        assert_eq!(out_len, 0);
+        let mut out = vec![0u8; 16];
+        let mut out_len = 0usize;
+        let rc = aegis_wallet_approval_receipt(
+            0,
+            0,
+            out.as_mut_ptr(),
+            out.len(),
+            &mut out_len as *mut usize,
+        );
+        assert_eq!(rc, 1);
+        assert_eq!(&out[..out_len], b"deny");
     }
 }

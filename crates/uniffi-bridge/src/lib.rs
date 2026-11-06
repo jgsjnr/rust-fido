@@ -780,6 +780,11 @@ pub fn secure_guard_encode_wipe(scope: u8, confirm_token: String) -> Result<Vec<
 pub mod ffi;
 pub use ffi::*;
 pub mod pm_jni;
+pub mod wallet_companion;
+pub use wallet_companion::{
+    pending_summary_json, wallet_approval_receipt, wallet_pending_query_encode,
+    wallet_pending_summary_decode, wallet_sign_envelope_encode, PendingSummaryDto,
+};
 
 #[cfg(test)]
 mod tests {
